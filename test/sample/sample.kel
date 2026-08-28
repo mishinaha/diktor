@@ -1,0 +1,607 @@
+#!/usr/bin/env keleut
+// shebangはオプショナル
+// コメント
+/* コメント /* 入れ子にできる */ */
+// * コメントの書式はMarkdownを奨励 *
+
+// ============================================================
+// 0. 括弧の役割
+// ============================================================
+// ()    グループ化、引数リスト、パラメータリスト、タプル
+// {}    レコード、ブロック、matchの本体、handleの本体、エフェクト行、エフェクト宣言の本体
+// #Foo  構造的ヴァリアントのコンストラクタ
+// []    型パラメータリスト
+//
+// `#` は「構造的ヴァリアント」にだけ付ける。
+// 名目コンストラクタと同じ構文位置を争うのはヴァリアントのラベルだけなので、
+// 印が必要なのもそこだけである。印がなければ `Foo(x)` の意味が
+// 「スコープに名目コンストラクタ Foo があるかどうか」で変わってしまう。
+//
+// --- `{` の読み分け（2トークン先読み） ---
+//   `}`                                   → 空（Unit値 / 空レコード / 空タプル）
+//   IDENT `=` / `,` / `with` / `extends`  → レコード
+//   `extends`                             → レコード（行変数のみ）
+//   IDENT `:`                             → レコード型
+//   それ以外                               → ブロック
+//   `{x}` は IDENT `}` なのでブロック。単一フィールドのパンニングは `{x = x}` と書く。
+//
+// この規則は「代入演算子が存在しない」ことに依存している。
+// 将来 `r.f = v` を足すとレコードとブロックの区別が壊れるので、入れないこと。
+//
+// --- `(` の読み分け（1トークン先読み） ---
+//   型位置で `)` の直後が `=>`  → 関数型。そうでなければタプル型
+//   式位置でトップレベルに `,`  → タプル。なければグループ化
+//   呼び出し先の直後 / `fn` の直後 → 引数リスト・パラメータリスト
+
+// ============================================================
+// 1. 型エイリアス
+// ============================================================
+
+type MyInt = Int32
+type Unit  = {}                      // 空レコード。`()` は同じものを指す
+
+type Point = {x: Float64, y: Float64}
+type Pair  = (Int32, String)
+
+// 構造的ヴァリアント。`#` 付きのコンストラクタは大域的なラベルであって、
+// どの型にも属さない（OCamlの多相ヴァリアントと同じ立場）
+type Parity = #Even | #Odd
+
+// エイリアスにはカインドを注釈できる。省略時は Type。
+// カインド EffectRow のエイリアスを許すことで、エフェクト行に名前が付けられる
+// （§9 の Request を参照）。新しい構文を足さずに、行の肥大化を抑えられる。
+//
+// 型エイリアスは非再帰に限る。
+// 透過的なエイリアスの再帰は等再帰型へのコミットを意味し、
+// ラベルの打ち間違いがエラーではなく無限型として現れるため。
+// 再帰データは必ず newtype を通す。
+
+// ============================================================
+// 2. リテラル
+// ============================================================
+
+// 整数リテラルには「整数型でなければならない」という述語を持つ単一化変数が割り当てられる。
+// 型クラスではない。組み込みの数値型だけがこの述語を満たし、ユーザには開かない。
+//   - 単一化は普通に進む
+//   - 一般化の時点で未解決なら既定値に落ちる（Integral → Int32、Fractional → Float64）
+//   - この変数は一般化されない（束縛時に必ず具体化される）
+// これにより defaulting 規則も単相性制限も不要になる。
+let a = 0                            // Int32（未解決 → 既定値）
+let b: Int64 = 0                     // Int64（注釈との単一化で決まる）
+let c = 0i64                         // 接尾辞。曖昧性を切る明示手段として残す
+let d = -1                           // 符号はリテラルの字句に含む（単項マイナスではない）
+let e = 1.5                          // Float64
+// let f = 0 + "x"                   // エラー: String は整数型ではない
+
+// ============================================================
+// 3. レコードと行多相（Scoped Labels）
+// ============================================================
+
+// 行変数は `extends` の右に書く。`{extends R}` は「行Rを持つレコード」
+let sum_xy[R](p: {x: Float64, y: Float64 extends R}): Float64 =
+  p.x + p.y                                   // 選択 `r.l`
+
+let with_z[R](p: {extends R}): {z: Float64 extends R} =
+  {z = 0.0 extends p}                         // 拡張 `{l = e extends r}`
+
+let move_x[R](p: {x: Float64 extends R}, dx: Float64): {x: Float64 extends R} =
+  {p with x = p.x + dx}                       // 更新 `{r with l = e}`
+
+// Scoped Labelなので、同じラベルは上書きされず「被さる」
+// 制限は `r \ l`（`-` は減算と衝突するため使わない）
+let outer_x(): Float64 = {
+  let p = {x = 1.0 extends {x = 2.0, y = 3.0}}
+  // pの型は {x: Float64, x: Float64, y: Float64}
+  p.x                                         // => 1.0（外側）。`(p \ x).x` は 2.0（内側）
+}
+
+// パンニング。`{a, b}` は `{a = a, b = b}` の略記
+let make_point(x: Float64, y: Float64): Point = {x, y}
+
+// ============================================================
+// 4. タプル（重複ラベルの糖衣）
+// ============================================================
+
+// タプルは「同じラベル `_item` を重ねたレコード」の糖衣である。
+// Scoped Label が同一ラベルの順序だけを保存するという性質が、
+// タプルの「位置が意味を持つ」という要求とそのまま一致する。
+//
+//   (A, B, C)  ≡  {_item: A, _item: B, _item: C}
+//   (a, b, c)  ≡  {_item = a extends {_item = b extends {_item = c}}}
+//   (a,)       ≡  {_item = a}                    1要素タプル
+//   ()         ≡  {}                             空タプル = 空レコード = Unit
+//
+// cons と tail がレコード演算からそのまま出てくる（マクロ不要）。
+//   cons  {_item = v extends t}
+//   head  t._item
+//   tail  t \ _item
+//
+// 位置アクセスは `t._0` `t._1` …。`t.0` としないのは `t.0.1` が
+// 浮動小数点リテラルと字句衝突するため（Rustが実際に苦労した箇所）。
+//   t._0 ≡ t._item
+//   t._1 ≡ (t \ _item)._item
+let swap[A, B](p: (A, B)): (B, A) = (p._1, p._0)
+
+// 閉じた行なので arity は静的に検査される。
+// `(A, B)` は行変数を持たないので 3-タプルとは単一化しない。
+
+// 行変数を明示すれば「先頭が A であるような任意のタプル」を受けられる。
+// 名目的なタプルでは書けない前置多相が手に入る。
+let fst[A, R](t: {_item: A extends R}): A = t._item
+
+// ただし arity についての再帰は書けない。
+// 基底ケース（`{}`）と「行が空か」の分岐が要るが、構造的な型へのインスタンスを
+// ユーザに書かせない方針の下では表現できない。cons と tail は「あるが回せない」。
+//
+// また `_item` は普通のラベルなので抽象は漏れる。
+// `{x = 1, _item = "hi"}` は fst に通る。これは意図的に開いたままにする
+// （字句的に禁じると cons が書けなくなり、この設計の利点が失われるため）。
+
+// ============================================================
+// 5. 構造的ヴァリアント
+// ============================================================
+
+// ヴァリアントも行多相。`| R` は「他のケースもありうる」
+let describe[R](v: #Even | #Odd | R): String =
+  v match {
+    case #Even => "even"
+    case #Odd  => "odd"
+    case _     => "unknown"                   // 残りの行Rをまとめて受ける
+  }
+
+// ペイロードは常に単値。ラベルにarityが乗ると行の統一規則が複雑になるため。
+// `#Foo(a, b)` は `#Foo((a, b))` の糖衣。式でもパターンでも成立する。
+type IoError    = #NotFound(String) | #Denied(String)
+type ParseError = #Syntax((Int32, Int32))
+
+let report(e: IoError | ParseError): String =
+  e match {
+    case #NotFound(path)    => "not found: " + path
+    case #Denied(path)      => "denied: " + path
+    case #Syntax(line, col) => "syntax error"  // #Syntax((line, col)) と同じ
+  }
+
+// 構造的ヴァリアントは「開いた和の合成」に使う。
+// 再帰させたい場合と型クラスを実装したい場合は newtype を使う。
+
+// ============================================================
+// 6. 名目的な型（newtype）
+// ============================================================
+
+// newtypeの右辺は「コンストラクタ宣言の並び」であって型式ではない。
+// コンストラクタは多値を取れるので、包みが二重にならない。
+newtype Option[A] = Some(A) | None
+newtype List[A]   = Cons(head: A, tail: List[A]) | Nil
+newtype Never                                 // コンストラクタを持たない型
+
+// コンストラクタのフィールドは常に順序付き。ラベルは任意。
+//   Some(A)                       … 無名。位置指定でのみ束縛できる
+//   Cons(head: A, tail: List[A])  … ラベル付き。位置指定でも `Cons(tail = t)` でも書ける
+// 混在してよい。
+
+// 単一コンストラクタで型名と同名の場合の略記法
+newtype UserId(Int32)                         // = newtype UserId = UserId(Int32)
+newtype TotalFloat64(Float64)
+
+let some_one(): Option[Int32] = Some(1)
+
+let get_or[A](v: Option[A], default: A): A =
+  v match {
+    case Some(x) => x
+    case None    => default
+  }
+
+// ============================================================
+// 7. 関数・束縛・ブロック
+// ============================================================
+
+// 関数は多値を取り単値を返す。arityは矢印型の一部である。
+//   (Int32, Int32) => Int32  と  (Int32) => (Int32) => Int32  は別の型
+// カリー化と部分適用は言語機能としては提供しない。
+//
+// 評価順序は左から右。引数リスト、レコードの各フィールド、matchのスクルティニ、
+// すべて左から右。`{l = e extends r}` は e を先、r を最後に評価する。
+// タプルの脱糖がこの規則に乗るので、(a, b, c) は a → b → c の順に評価される。
+//
+// 末尾式のないブロックの型は Unit。Unit値を明示的に書く場面はほとんどない。
+
+// letは文。`in` は存在しない。ブロックの最後の式がブロックの値になる。
+let list_length[A](xs: List[A]): Int32 = {
+  // letで束縛する関数は型注釈を省略できる
+  let rec aux(xs, n) = xs match {             // matchはScalaのように後置
+    // 網羅性検査される
+    case Nil           => n
+    case Cons(_, tail) => aux(tail, n + 1)    // 位置指定パターン
+  }
+  aux(xs, 0)
+}
+; // トップレベル宣言を区切るセミコロンは必ず省略可能だが、
+  // REPLやエディタの補完を制御するためにオプショナルでサポートされている
+  // ただし行頭の `(` は前の行の継続とみなさない（改行が優先される）
+
+let twice_sum_xy(p: Point): Float64 = {
+  let doubled = {                             // ブロックは式
+    let s = p.x + p.y
+    s + s
+  }
+  doubled - p.x
+}
+
+// letはパターンで分解できる
+let dist(p: Point): Float64 = {
+  let {x, y} = p
+  sqrt(x * x + y * y)
+}
+
+// タプルパターンは `...rest` で末尾を束縛できる（行の制限がパターンに現れる）
+let head_and_rest[A, R](t: {_item: A extends R}): A = {
+  let (x, ...rest) = t
+  x
+}
+
+// 無名関数は `fn(x) => e`。
+// `(x) => e` としないのは、式位置の `(` がタプルと衝突するため。
+// `fn` があることで、パラメータリストとタプルが構文的に分かれる。
+let inc_all(xs: List[Int32]): List[Int32] = map(xs, fn(n) => n + 1)
+
+// ガード付きパターン `case P if cond => e`
+// ガード付きのケースは網羅性検査で「必ずマッチする」とは数えられないので、
+// 最後のケース（ガードなし）が必要
+let rec count_if[A, E](xs: List[A], pred: (A) => Boolean @ E): Int32 @ E =
+  xs match {
+    case Nil                            => 0
+    case Cons(head, tail) if pred(head) => 1 + count_if(tail, pred)
+    case Cons(_, tail)                  => count_if(tail, pred)
+  }
+
+let rec is_even(n: Int32): Boolean =
+  n match {
+    case 0          => true
+    case n if n < 0 => is_even(0 - n)
+    case n          => is_odd(n - 1)
+  }
+and is_odd(n: Int32): Boolean =
+  n match {
+    case 0          => false
+    case n if n < 0 => is_odd(0 - n)
+    case n          => is_even(n - 1)
+  }
+
+// ============================================================
+// 8. 型クラス
+// ============================================================
+
+// 1パラメータ型クラスとHKTをサポート。
+// ランク2多相と多パラメータ型クラスは意図的に排除する。エフェクトと行多相で代用すること。
+// コヒーレンスは堅持する（インスタンスは常に大域可視で、隠したり選び直したりできない）。
+//
+// ユーザー定義演算子は入れない。組み込みの演算子が標準ライブラリの型クラスを呼ぶ。
+//   +  Add.add      -  Sub.sub      *  Mul.mul      /  Div.div
+//   == Eq.eq        != Eq.eq の否定
+//   <  Ord.lt       <= Ord.le       >  Ord.gt       >= Ord.ge
+//   && || !         Boolean 組み込み（短絡するため型クラスにできない）
+//   \               行の制限（組み込み構文）
+//
+// Num にまとめないのは、String のように `+` だけを持つ型があるため。
+type class Add[A] { val add: (A, A) => A }
+type class Mul[A] { val mul: (A, A) => A }
+
+type instance Add[Int32]  { let add(x, y) = __int32_add(x, y) }
+type instance Mul[Int32]  { let mul(x, y) = __int32_mul(x, y) }
+type instance Add[String] { let add(x, y) = __string_concat(x, y) }
+
+let fma[A: Add + Mul](x: A, y: A, z: A): A = x * y + z   // add(mul(x, y), z) に翻訳される
+
+// --- 構造的な型へのインスタンス ---
+//
+// ユーザには書かせない。コヒーレンスを堅持するため、組み込みの自動導出のみが与える。
+// 導出規則はクラス宣言に一つだけ付随させる。誰でも任意のクラスに導出を書けるようにすると、
+// 二つのパッケージが同じ構造型に別の Eq を導出しうる。
+type class Eq[A] {
+  val eq: (A, A) => Boolean
+  derive structural                           // 組み込みの構造的導出を有効にする
+}
+
+// 導出は閉じた行にのみ適用される。行変数を含む型は比較できない。
+// （点ごとの行制約 `[R: Eq]` を入れれば可能だが、カインドと制約解決に手が入るので採らない）
+let same_point(p: Point, q: Point): Boolean = p == q
+let same_pair(p: Pair, q: Pair): Boolean = p == q         // タプルも閉じた行なのでOK
+// let same[R](p: {x: Int32 extends R}, q: {x: Int32 extends R}) = p == q   // エラー
+
+// --- エフェクト多相 ---
+//
+// 型クラスのメソッドの矢印にもエフェクト行を書く。
+// 書かないと純粋な関数しか渡せず、高階関数が使い物にならない。
+// パラメータの矢印で省略された `@` は、新しい行変数として一般化される。
+// 純粋を強制したいときは `@ {}` と明示する。
+type class Functor[F[_]] {
+  val map[A, B, E]: (F[A], (A) => B @ E) => F[B] @ E
+}
+
+type instance Functor[List[_]] {
+  let rec map[A, B, E](xs: List[A], f: (A) => B @ E): List[B] @ E =
+    xs match {
+      case Nil              => Nil
+      case Cons(head, tail) => Cons(f(head), map(tail, f))
+    }
+}
+
+// Monad / Applicative / Traversable はプレリュードに置かない。
+//  - インスタンスがエフェクト中立を強いられる（内部でAsyncを使う型がMonadになれない）
+//  - HKTの穴の位置とエフェクトの位置が衝突する
+//  - モナドとエフェクトの解釈順が固定される
+// エフェクト付き map が traverse を兼ねるので、Traversable は不要になる。
+let user_names[E](xs: List[User]): List[String] @ {Print extends E} =
+  map(xs, fn(u) => { println(u.id); u.name })
+
+// ============================================================
+// 9. エフェクト
+// ============================================================
+
+effect Print   = { print: (String) => Unit }
+effect Console = { write: (String) => Unit }   // ランタイムが提供する低レベルなエフェクト
+
+// `@` の右はエフェクト行。`@ Print` は `@ {Print}` の略記
+// 複数なら `@ {Print, Console}`、行変数を含むなら `@ {Print extends E}`
+// 空行 `@ {}` は「純粋」を意味する
+let println(message: String): Unit @ Print = perform print(message + "\n")
+
+// handleはエフェクトを別のエフェクトに翻訳したり、消したりする
+// ケースはエフェクト名ではなく操作名で書く（曖昧なら `Print.print` と修飾できる）
+// エフェクトの全操作を網羅する必要がある
+//
+// resumeは継続。second-class であり、節の外へ持ち出せない
+// （変数に束縛する、クロージャに閉じ込める、返り値にする、はいずれも不可）。
+// これにより節を抜ける時点で継続の生死が確定し、下の自動巻き戻しが成立する。
+// resumeはアフィン（高々一回）。操作の返り値型が Unit なら `resume()` と書ける。
+println("test") handle {
+  case print(message) => resume(perform write(message))
+  case return(x) => x                         // 省略時は `case return(x) => x` と同じ
+}
+// この式の型は Unit @ Console （Printは消え、Consoleが残る）
+
+// resumeの返り値はhandle式全体の型なので、出力を集めるハンドラも書ける
+let capture[A, E](body: () => A @ {Print extends E}): {value: A, output: String} @ E =
+  body() handle {
+    case print(message) => {
+      let {value, output} = resume()
+      {value, output = message + output}
+    }
+    case return(x) => {value = x, output = ""}
+  }
+
+// --- 例外・後始末・キャンセル ---
+//
+// 専用の例外機構は持たない。resume を呼ばずに節を抜けると、
+// 中断されたフラグメントは言語が自動で巻き戻す（後入れ先出し）。
+effect Fail = { throw: (String) => Never }
+
+let try_[A, E](body: () => A @ {Fail extends E}): #Ok(A) | #Err(String) @ E =
+  body() handle {
+    case throw(e)  => #Err(e)                 // resumeを呼ばない → 自動で巻き戻る
+    case return(x) => #Ok(x)
+  }
+
+// defer構文は持たない。後始末はハンドラの `cancel` 節に書く。
+// これによりLIFO順序・後始末の中で許されるエフェクト・deferとhandleの相互作用が
+// すべて「ハンドラの入れ子」の規則に吸収される。
+//
+//   case return(x) => …  正常終了（省略時 x をそのまま返す）
+//   case cancel    => …  外側が継続を捨てたことによる巻き戻し（省略時 何もしない）
+//
+// cancel節は自身の行から抜け出せない。例外相当を投げても抑制されてログに回る。
+// 将来 `case cancel(reason) =>` に拡張できるよう構文の余地を空けてある
+// （Go が context.Cause を後から足したのと同じ需要がある）。
+effect File = {
+  read:  () => String,
+  write: (String) => Unit,
+}
+
+let with_file[A, E](path: String, body: () => A @ {File extends E}): A @ E = {
+  let h = __open(path)
+  body() handle {
+    case read()    => resume(__read(h))
+    case write(s)  => resume(__write(h, s))
+    case return(x) => { __close(h); x }
+    case cancel    => __close(h)
+  }
+}
+
+// --- with ---
+//
+// `with x = f(a)` は `f(a, fn(x) => 残りの文)` への純粋な構文糖。
+// 「呼び出しの末尾に継続を足す」という一つの規則で、defer相当も逐次合成も兼ねる。
+// ppx_let の `let%name` のような別構文は用意しない。
+let copy(src: String, dst: String): Unit @ Console = {
+  with _ = with_file(src)
+  with _ = with_file(dst)
+  perform write(perform read())
+}
+
+// 逐次合成が欲しいライブラリ（パーサコンビネータ等）も同じ規則に乗る。
+module Parser {
+  pub newtype Parser[A] = Parser((String) => Option[{value: A, rest: String}])
+  pub let bind[A, B, E](p: Parser[A], f: (A) => Parser[B] @ E): Parser[B] @ E = ???
+  pub let pure[A](x: A): Parser[A] = ???
+  pub let token(t: String): Parser[String] = ???
+}
+
+let parens(): Parser.Parser[(String, String)] = {
+  with x = Parser.bind(Parser.token("("))
+  with y = Parser.bind(Parser.token(")"))
+  Parser.pure((x, y))
+}
+
+// --- エフェクト行に名前を付ける ---
+//
+// リクエストスコープの値は Go の context.WithValue ではなくハンドラで表現する。
+// ハンドラは動的スコープそのものであり、型付きで、キー衝突がなく、行に現れるので
+// 署名から見える。引き回さないので中間の関数は何も書かなくてよい。
+effect ReqId  = { req_id: () => String }
+effect Logger = { log: (String) => Unit }
+effect Tracer = { span: (String) => Unit }
+
+// 実用規模では行が肥大化するので、カインド EffectRow のエイリアスでまとめる。
+// 行の中に書くと展開される。
+type Request: EffectRow = {ReqId, Logger, Tracer}
+
+pub let handle_request(r: Req): Resp @ {Request, Db, Async} = {
+  perform log("handling " + perform req_id())
+  Db.query(r.query)
+}
+
+// トップレベルに残せるエフェクトはランタイムが提供するもの（Console、Async など）だけ
+perform write(capture(fn() => println("test")).output)
+
+// ============================================================
+// 10. リージョン（run）
+// ============================================================
+
+// `run h { … }` は rigid なリージョン変数 h を導入し、Heap[h] エフェクトを消す。
+// h が結果型に漏れていないことを脱出検査で確かめる（Koka の st<h> と同じ）。
+// ランク2多相を一般機能として持たないので、構文として提供する。
+// run はハンドラなので、キャンセルされればリージョンも巻き戻される。
+let sum(xs: Array[Int32]): Int32 = run h {
+  let acc = Ref.new(0)                        // Ref[h, Int32] @ Heap[h]
+  Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
+  Ref.get(acc)
+}
+// sum の型は (Array[Int32]) => Int32 @ {}。
+// 外から見て純粋、中は命令型。だから下の par_map に渡せる。
+// run が消すのは Heap[h] だけなので、他のエフェクトは通り抜ける。
+
+// ============================================================
+// 11. 並行性・並列性
+// ============================================================
+
+// 並列性は純粋な計算に限るので決定的である。
+let par_map[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
+let par[A, B](fa: () => A @ {}, fb: () => B @ {}): (A, B) = ???
+
+// 並行性はランタイム提供のエフェクト。ユーザはハンドルできない（スケジューラは書かせない）。
+//
+// yield_ はキャンセルの配送点である。キャンセルは協調的であり、
+// 中断点でのみ配送される。純粋な長いループは中断できないので、
+// Go で ctx.Done() を select するのと同じ規律で yield_ を挟む。
+effect Async = { yield_: () => Unit, sleep: (Int64) => Unit }
+
+// スコープは値ではなくエフェクトにする。
+// Scope 値を引き回さなくてよく、Scope のための脱出検査も要らない
+// （行が代わりに保証する）。脱出検査は run のためだけに残る。
+effect Nursery = { spawn: (() => Unit @ Async) => Unit }
+
+// 正常脱出＝全員をjoin / 異常脱出＝全員をキャンセルしてからjoin。
+// キャンセルは §9 の自動巻き戻しがそのまま実装になる（追加機構なし）。
+// 子タスクは親より長生きできない（構造化並行性）。
+let scope[A, E](body: () => A @ {Nursery, Async extends E}): A @ {Async extends E} = ???
+
+let serve(cs: List[Conn]): Unit @ Async =
+  scope(fn() => each(cs, fn(c) => perform spawn(fn() => handle_client(c))))
+
+// Go の context.Context に相当する型は導入しない。context が束ねている四つの仕事は
+// それぞれ既存の機構に落ちる：
+//   キャンセルの伝播      → scope の入れ子＋自動巻き戻し
+//   デッドライン          → 下の Deadline エフェクトと with_timeout
+//   リクエストスコープ値  → ハンドラ（§9 の Request）
+//   呼び出し木の構造化    → scope の入れ子
+//
+// 期限は入れ子にすれば外側が内側を強制的に巻き戻すので、min の継承が構造から出る。
+// 残り時間を読みたい場合（ソケットのタイムアウト設定、諦めの判断）だけ操作が要る。
+effect Deadline = { deadline: () => Option[Instant] }
+
+let with_timeout[A, E](
+  ms: Int64,
+  body: () => A @ {Deadline extends E},
+): Option[A] @ {Async extends E} = ???
+
+// リクエストより長生きしてよいタスク（監査ログ、キャッシュ温め、メトリクスの掃き出し）は
+// 外側の nursery を名前で指す。context.Background() と違って署名に現れるので、
+// 「このハンドラはリクエストより長生きするタスクを作る」ことが型から分かる。
+effect Background = { spawn_bg: (() => Unit @ Async) => Unit }
+
+pub let handle_audited(r: Req): Resp @ {Request, Db, Background, Async} = {
+  let resp = handle_request(r)
+  perform spawn_bg(fn() => audit_log(r, resp))
+  resp
+}
+
+// 長い計算の途中でキャンセルされうるようにする例
+let crunch(xs: Array[Int32]): Int32 @ Async = run h {
+  let acc = Ref.new(0)
+  Array.each(xs, fn(x) => {
+    perform yield_()                          // キャンセル配送点
+    Ref.set(acc, Ref.get(acc) + heavy(x))
+  })
+  Ref.get(acc)
+}
+
+// run のヒープハンドルはタスク境界を越えられないので共有可変状態が存在しない。
+// メモリモデルを仕様に書く必要がなく、アトミックもロックも要らない。通信はチャネルで行う。
+let channel[A](capacity: Int32): Chan[A] = ???
+let send[A](c: Chan[A], x: A): Unit @ Async = ???
+let recv[A](c: Chan[A]): A @ Async = ???
+
+// ============================================================
+// 12. FFI
+// ============================================================
+
+extern "C" let sin(x: Float64): Float64                  // ブロックしない
+extern "C" let sqlite_step(s: Stmt): Int32 @ Blocking    // ブロックしうる
+
+// ブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。
+// 行多相により、呼び出し元の署名へ自動的に伝播する。
+//
+// 仕様に書くのは観測可能な契約だけとし、実装戦略は書かない：
+//   「Blocking領域の実行は、他のタスクに利用可能な並列度を
+//     （実装定義の上限まで）減少させない」
+//
+// Blocking 領域はキャンセル配送点ではない（native コードは中断できない）。
+// pinned はタスクを専用スレッドに縛る。スレッド親和性のあるライブラリには必須。
+let pinned[A, E](body: () => A @ {Blocking extends E}): A @ E = ???
+
+// ============================================================
+// 13. モジュールと可視性
+// ============================================================
+
+// pub を付けたものだけがパッケージ外に公開される。
+// pub を付けるには型注釈が完全でなければならない。エフェクト行を省略した場合は
+// 推論に任せるのではなく `@ {}`（純粋）と解釈する。
+// 実装を変えた拍子に公開APIのエフェクト行が変わって下流が壊れるのを防ぐため。
+module BigInt {
+  pub newtype BigInt = ???                    // `???` は未実装のホール
+  pub let parse(str: String): BigInt = ???    // エフェクト行の省略 = @ {}
+  let normalize(x: BigInt): BigInt = ???      // pubなし。注釈は自由に書ける
+
+  // インスタンスは常に大域可視。pub は書かない
+  type instance Add[BigInt] { let add(x, y) = ??? }
+  type instance Mul[BigInt] { let mul(x, y) = ??? }
+}
+
+type MyBigInt = BigInt  // コンパニオン型（モジュール名と同名の型はモジュール名自体で参照できる）
+
+let big_sum(): MyBigInt = BigInt.parse("123") + BigInt.parse("456")
+
+// ============================================================
+// 14. 未決定事項
+// ============================================================
+
+// TODO: spawn に渡すタスクの行をどこまで多相にできるか。
+//       エフェクト宣言の操作型は固定なので、`() => Unit @ Async` としか書けない。
+//       本来は spawn 地点で使えるエフェクト（Nursery を除く）をそのまま使いたい。
+//       操作型が周囲の行を参照できる仕組みが要るかもしれない。
+// TODO: Nursery を入れ子にしたとき、perform spawn は内側に届く。
+//       外側を狙う手段（Background のように名前で分ける以外）が要るか。
+// TODO: タプルのラベル名。`_item` は暫定。`_value` `_elem` なども候補。
+// TODO: 型・エラーのプリティプリンタは `{_item: Int32, _item: String}` を
+//       `(Int32, String)` に再糖衣化する義務がある。これがないと実用にならない。
+// TODO: `derive structural` をクラス本体に書く形にしたが、Functor のように
+//       導出が不可能なクラスをカインドで弾けるか要確認。
+// TODO: 導出規則をマクロで書けるようにする構文。
+// TODO: import の構文（現状はフルパス参照のみ）。
+// TODO: newtype の表現をパッケージ内で隠す手段。pub だけではモジュール境界で抽象化できない。
+// TODO: Integral / Fractional 述語が型クラス制約と同じ制約集合に載るのか別系統なのか。
+// TODO: 数値型どうしの変換（暗黙変換を入れない方針なので、明示関数の命名規則を決める）。
+// TODO: 文字列リテラルとエスケープ、Char の扱い。
+// TODO: Array / Ref / Chan の標準ライブラリ側シグネチャ。
+// TODO: or パターン（`case #Even | #Odd =>`）を入れるか。
+// TODO: `Zero` / `One` 相当のクラスが必要か。

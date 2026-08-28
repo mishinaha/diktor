@@ -16,5 +16,5 @@
 
   $ echo 'let x = 1' > t.kel
   $ diktor t.kel; echo "exit: $?"
-  未実装: driver (M2 以降で実装)
+  未実装: driver (M3 以降で実装)
   exit: 4
