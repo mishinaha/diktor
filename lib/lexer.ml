@@ -54,7 +54,7 @@ module Make (Data : Syntax.Data) = struct
 
   let read_unicode_escape lexbuf limit =
     let rec loop acc = function
-      | i when i = limit -> Uchar.of_int i
+      | i when i = limit -> Uchar.of_int acc
       | i -> (
           let ret base_char base_value =
             loop
