@@ -1,21 +1,17 @@
 opam-version: "2.0"
 name: "diktor"
 version: "dev"
-synopsis: "Diktor is an implementation of Orphos Programming Language frontend and IR interpreter, written in OCaml."
-maintainer: "tomoaki3478@res.ac"
+synopsis: "Diktor is a bootstrap interpreter of the Keleut programming language, written in OCaml."
+maintainer: "tomoaki3478@balux.org"
 authors: ["Takezoe,Tomoaki"]
-homepage: "https://orphos.res.ac/"
-bug-reports: "https://github.com/orphos/diktor"
-dev-repo: "git+https://github.com/orphos/diktor.git"
 license: "Apache-2.0 WITH LLVM-exception"
 build: [
   ["dune" "build" "-p" name "-j" jobs]
   ["dune" "runtest" "-p" name] {with-test}
 ]
 depends: [
-  "ocaml"
-  "dune" {build}
-  "ocamlformat" {build}
-  "sedlex"
+  "ocaml" {>= "5.2"}
+  "dune" {>= "3.0"}
   "menhir"
+  "sedlex"
 ]
