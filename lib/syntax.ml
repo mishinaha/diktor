@@ -8,6 +8,9 @@ open Aux
    成分は最後を除きすべて大文字識別子 *)
 type long_id = LongId of string list
 
+(* パーサの意味アクションが投げる構文エラー(Menhir の Parser.Error と別系統) *)
+exception Syntax_error of string
+
 let long_id components = LongId components
 
 let show_long_id (LongId components) = String.concat "." components

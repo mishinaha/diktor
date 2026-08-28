@@ -46,15 +46,32 @@ let parse_args args =
 module Lexer' = Lexer.Make (Tree.ElabData)
 module Parser' = Parser.Make (Tree.ElabData)
 
+(* main が捕まえて exit 2 にする(位置は整形済み) *)
+exception Parse_error of string
+
+let show_pos pos =
+  Printf.sprintf "%s:%d:%d" pos.Lexing.pos_fname pos.Lexing.pos_lnum (pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1)
+
 let dump_tokens_file file =
   let lexer = Lexer'.from_filename file in
   Lexer'.all_tokens lexer
   |> List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok))
 
+let parse_file file =
+  let lexer = Lexer'.from_filename file in
+  try Lexer'.parse Parser'.program lexer with
+  | Parser'.Error ->
+      raise (Parse_error (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lexer.Lexer'.last_sp)))
+  | Syntax.Syntax_error msg ->
+      raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
+
 let run_with options =
   match options.o_mode with
   | DumpTokens -> List.iter dump_tokens_file options.o_files
-  | Run | TypeCheck | DumpAst -> noimpl "driver (M3 以降で実装)"
+  | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
+  | Run | TypeCheck ->
+      let _decls = List.concat_map parse_file options.o_files in
+      noimpl "型推論(M4 で実装)"
 
 let main () =
   match parse_args (Array.to_list Sys.argv |> List.tl) with
@@ -67,9 +84,10 @@ let main () =
           Printf.eprintf "未実装: %s\n" feat;
           exit 4
       | Lexer.Lex_error (msg, pos) ->
-          Printf.eprintf "%s:%d:%d: 字句エラー: %s\n" pos.Lexing.pos_fname pos.Lexing.pos_lnum
-            (pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1)
-            msg;
+          Printf.eprintf "%s: 字句エラー: %s\n" (show_pos pos) msg;
+          exit 2
+      | Parse_error msg ->
+          prerr_endline msg;
           exit 2
       | Panic msg ->
           prerr_endline msg;

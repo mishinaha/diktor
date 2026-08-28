@@ -269,9 +269,19 @@ module Make (Data : Syntax.Data) = struct
     mutable pending : entry list; (* 生トークンの先読みキュー(先頭が次) *)
     mutable regions : region list;
     mutable prev : token option; (* 直前に消費者へ渡した有意トークン *)
+    mutable last_sp : Lexing.position; (* 直近に消費者へ渡したトークンの位置(エラー報告用) *)
+    mutable last_ep : Lexing.position;
   }
 
-  let from_sedlex lexbuf = { lexbuf; pending = []; regions = [ RTop ]; prev = None }
+  let from_sedlex lexbuf =
+    {
+      lexbuf;
+      pending = [];
+      regions = [ RTop ];
+      prev = None;
+      last_sp = Lexing.dummy_pos;
+      last_ep = Lexing.dummy_pos;
+    }
 
   let from_string source = Sedlexing.Utf8.from_string source |> from_sedlex
 
@@ -372,6 +382,8 @@ module Make (Data : Syntax.Data) = struct
 
   let read t =
     let e = read_token t in
+    t.last_sp <- e.sp;
+    t.last_ep <- e.ep;
     (e.tok, e.sp, e.ep)
 
   let parse rule lexer = MenhirLib.Convert.Simplified.traditional2revised rule (fun () -> read lexer)
