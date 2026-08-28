@@ -149,6 +149,9 @@ let main () =
       | Effect.Unhandled (Value.Op (op, _)) ->
           Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.name_of op);
           exit 3
+      | Stack_overflow ->
+          prerr_endline "実行時エラー: スタックオーバーフロー(再帰が深すぎます)";
+          exit 3
       | Panic msg ->
           prerr_endline msg;
           exit 3 )
