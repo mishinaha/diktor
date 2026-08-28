@@ -1,0 +1,1 @@
+newtype N[A] = C(head: A, tail: N[A]) | D

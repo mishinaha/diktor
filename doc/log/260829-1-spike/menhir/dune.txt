@@ -1,0 +1,7 @@
+(executable
+ (name main)
+ (modules main kel lex))
+
+(menhir
+ (flags --explain --strict)
+ (modules kel))

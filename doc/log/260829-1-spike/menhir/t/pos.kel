@@ -1,0 +1,74 @@
+// (1) record_exp: base with / fields / extends / panning
+let r1(p) = {p with x = 1}
+let r2(p) = {}
+let r3(p) = {a, b}
+let r4(p) = {a = 1, b = 2}
+let r5(p) = {z = 0.0 extends p}
+let r6(p) = {extends p}
+let r7(p) = {a = 1, b = 2 extends p}
+let r8(p) = {a = 1,}
+
+// (2) 式位置の LBRACE_RECORD とブロックの共存
+let b1() = {
+  let x = {a = 1}
+  let y = { let z = 1
+            z }
+  {v = x, w = y}
+}
+
+// (3) binding の 2 形
+let f1(x, y) = x
+let f2[A](x: A): A = x
+let f3[A, R](p: {x: A extends R}): A @ E = p.x
+let v1 = 0
+let v2: Int64 = 0
+let {x, y} = origin
+let (a1, ...rest) = tup
+let rec g1(n) = g2(n)
+and g2(n) = g1(n)
+
+// (4) 後置 match の連鎖 と BinOp
+let m1(v) = v match { case _ => 1 } match { case _ => 2 }
+let m2(a, b) = a + b match { case _ => 1 }
+let m3(v) = v handle { case op() => resume(1) case return(x) => x }
+let m4(a, b, c) = a * b + c == d && e || f
+let m5(a) = !a
+let m6() = -1
+let m7(a) = a - 1
+let m8(a) = a - -1
+
+// (5) 型: union と @
+type U1 = #A | #B
+let u1[R](v: #A | #B | R): String = "x"
+let u2(): #Ok(Int32) | #Err(String) @ E = ???
+let u3(f: (Int32, String) => Boolean @ {P, Q extends E}): Unit @ {} = ???
+let u4(f: () => Int32): Unit = ???
+let u5(): (Int32, String) = ???
+let u6(): (Int32) => String = ???
+type Req: EffectRow = {A, B, C}
+
+// 呼び出しのラベル付き引数 / ctor のラベル
+let c1() = mk(head = 1, tail = xs)
+let c2(v) = v match { case Cons(tail = t) => t case Nil => Nil }
+let c3() = (1,)
+let c4() = ()
+let c5() = (1, 2, 3)
+
+// run / effect の空ブレース
+effect Heap[h] = {}
+let s1() = run h {}
+let s2() = run h { let a = 1
+                   a }
+type class C1[A] {
+  val m1: (A) => A
+  val m2: (A) => A
+  derive structural
+}
+type instance C1[Int32] { let m1(x) = x
+                          let m2(x) = x }
+module M1 {
+  pub newtype N1 = ???
+  pub let p1(x: Int32): Int32 = x
+}
+extern "C" let sin(x: Float64): Float64
+extern "C" let step(s: Stmt): Int32 @ Blocking

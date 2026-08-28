@@ -1,0 +1,99 @@
+
+===== TEST 1: capture: resume の返り値 = handle 式全体の値 =====
+結果: {value = 42, output = "a\nb\n"}
+期待: {value = 42, output = "a\nb\n"}
+一致: true
+
+===== TEST 2: try_: resume を呼ばず節を抜ける → 自動巻き戻し =====
+正常系: 結果: #Ok(7)
+異常系: 結果: #Err("boom")
+巻き戻し後に後続が実行されないこと: 結果: #Err("boom")
+
+===== TEST 3: with_file 2枚重ね、内側で throw → close の LIFO 順 =====
+  __open(outer.txt) -> h1
+  __open(inner.txt) -> h2
+  __write(h2, "hello")
+    [with_file inner.txt] cancel 節を実行
+  __close(inner.txt / h2)
+    [with_file outer.txt] cancel 節を実行
+  __close(outer.txt / h1)
+結果: #Err("boom")
+
+===== TEST 3b: with_file 2枚重ね、正常終了 → close は return 節で LIFO =====
+  __open(outer.txt) -> h3
+  __open(inner.txt) -> h4
+  __close(inner.txt / h4)
+  __close(outer.txt / h3)
+結果: #Ok(99)
+
+===== TEST 4a: resume 二重呼び出し → Continuation_already_resumed =====
+例外で脱出: Stdlib.Effect.Continuation_already_resumed
+
+===== TEST 4b: 節が例外脱出 → 捨てた継続の cancel が走るか(修正版 vs 計画どおりの版) =====
+--- 修正版(節を try で包み discontinue) ---
+  __open(resource.txt) -> h5
+    [failing] 節が例外脱出 → 捨てた継続を discontinue
+    [with_file resource.txt] cancel 節を実行
+  __close(resource.txt / h5)
+  最外周が捕捉: Keleut_error(??? に到達)
+--- 計画の文面どおり(包まない) ---
+  __open(resource.txt) -> h6
+  最外周が捕捉: Keleut_error(??? に到達)
+
+===== TEST 4c: 節が例外脱出したとき、そのハンドラ自身の cancel 節が走るか =====
+--- 修正版(discontinue する) ---
+    [failing] 節が例外脱出 → 捨てた継続を discontinue
+    [failing] cancel 節を実行
+  ★ failing 自身の cancel が走った
+  最外周が捕捉: Keleut_error(??? に到達)
+--- 計画の文面どおり(effc から素の raise) ---
+  最外周が捕捉: Keleut_error(??? に到達)
+
+===== TEST 5: 同一操作を扱うハンドラの入れ子 → 最内が捕まえる =====
+  [inner] print "hello\n"
+結果: 5
+--- 内側が扱わない操作は外へ抜けるか ---
+  [outer] print "via outer\n"
+結果: 6
+
+===== TEST 6: Unwind の inst をハンドラ活性化ごとに採番する必要があるか =====
+--- inst を共有(AST ノード単位)した場合 ---
+  [H(outer)] throw 節: 継続を捨てる
+結果: #Ok(#Err("boom"))   (期待 #Err("boom"), 内側が横取りすると #Ok(#Err(...)) 等になる)
+--- inst を活性化ごとに採番した場合 ---
+  [H(outer)] throw 節: 継続を捨てる
+結果: #Err("boom")
+
+===== TEST 7a: cancel 節から、さらに外側のハンドラの操作を perform =====
+  __open(a.txt) -> h7
+    [with_file a.txt] cancel 節を実行
+  __close(a.txt / h7)
+  [logger] cancel 中に print: a.txt
+結果: #Err("boom")
+
+===== TEST 7b: cancel 節から、いま巻き戻しを起こしている当のハンドラの操作を perform =====
+  __open(b.txt) -> h8
+    [with_file b.txt] cancel 節を実行
+  __close(b.txt / h8)
+  cancel 中に throw を perform する (1 回目)
+    [with_file b.txt] cancel 節の例外を抑制: Unwind(28, #Err("second"))
+結果: #Err("boom")
+
+===== TEST 8: Effect.Unhandled の挙動 =====
+1) ハンドラ皆無: Effect.Unhandled(Op nobody)
+2) 無関係なハンドラの中: Effect.Unhandled(Op nobody)
+  __open(c.txt) -> h9
+    [with_file c.txt] cancel 節を実行
+  __close(c.txt / h9)
+   (cancel 節が走ったか上のログで確認)
+3) 操作名の取り出し: op=nobody args=[1]
+
+===== TEST 12: return 節(retc)の実行文脈: 自分のハンドラは外れているか =====
+  [eater] 本体から print
+  [logger] return 節から print
+結果: 1   (return 節の print を [eater] が拾えば再入、[logger] が拾えば外側文脈)
+
+===== TEST 14: 自分の節が継続を捨てたとき、自分の return/cancel は走らない(資源漏れ) =====
+  __open(x.txt)
+結果: #Eof(())  (__close が一度も出ていなければ資源漏れ)
+
