@@ -70,8 +70,13 @@ let datas : (oid, data_info) Hashtbl.t = Hashtbl.create 64
 
 let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* ctor 名 → data 名 *)
 
+(* 組み込みスカラー型(Boolean/Int32/... は con_kinds にはあるが datas には無い) *)
+let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
+
 let add_data info =
-  if Hashtbl.mem datas info.dd_name then (
+  if Hashtbl.mem reserved_type_names info.dd_name && not !in_prelude then
+    type_error ("組み込み型 " ^ Type.name_of info.dd_name ^ " は newtype で再宣言できません")
+  else if Hashtbl.mem datas info.dd_name then (
     if not (prelude_owned "data" info.dd_name) then
       type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています"))
   else (
@@ -230,6 +235,8 @@ let register_builtins () =
   List.iter
     (fun n -> Hashtbl.replace con_kinds (intern n) Type.KStar)
     [ "Boolean"; "Int32"; "Int64"; "Float64"; "String"; "Never" ];
+  List.iter (fun n -> Hashtbl.replace reserved_type_names (intern n) ())
+    [ "Boolean"; "Int32"; "Int64"; "Float64"; "String" ];
   let numerics = [ "Int32"; "Int64"; "Float64" ] in
   (* クラスとメソッド(sample.kel:286-320 のプレリュード相当を decls 直登録。M4)。
      クラスパラメータ変数はクラス内で共有する(インスタンス検査の代入点、M7) *)
@@ -292,6 +299,7 @@ let reset () =
   Hashtbl.reset op_index;
   Hashtbl.reset prelude_keys;
   Hashtbl.reset con_synonyms;
+  Hashtbl.reset reserved_type_names;
   in_prelude := false;
   register_builtins ()
 
