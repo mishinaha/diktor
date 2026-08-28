@@ -1129,13 +1129,38 @@ let register_instance (i : T.instance_decl') =
   Decls.add_instance ~builtin:false ~methods ~cls ~con []
 
 (* 注釈が完全な let の署名を(本体を見ずに)構築する。前方参照用(§7.2) *)
+(* 注釈内の全ての矢印に @ が明示されているか。省略 @ は独立な新しい行変数を作り、
+   前方参照シグネチャに使うと本体の行(呼び出し側 eff と結ばれる)より過剰に
+   一般化され、宣言順によってエフェクト検査が抜ける(検証で実証)。
+   完全に明示された注釈だけを前方参照に使う(§7.2 の「注釈が完全」の厳密化) *)
+let rec fully_effected ((_, te) : T.type_exp) =
+  match te with
+  | T.EArrow (params, ret, eff) -> eff <> None && List.for_all fully_effected params && fully_effected ret
+  | T.EApply (f, args) -> fully_effected f && List.for_all fully_effected args
+  | T.EBraceRow (elems, ext) ->
+      List.for_all
+        (function T.BField (_, t) -> fully_effected t | T.BLabel (_, ts) -> List.for_all fully_effected ts)
+        elems
+      && (match ext with Some t -> fully_effected t | None -> true)
+  | T.EVariantCase (_, Some t) -> fully_effected t
+  | T.EUnion ts -> List.for_all fully_effected ts
+  | T.EVariantCase (_, None) | T.EIdent _ | T.EHole -> true
+
 let signature_of_binding env (b : T.let_binding') : ty option =
-  let full_params =
+  let params_annotated =
     match b.T.lb_params with
-    | None -> b.T.lb_ret <> None
-    | Some ps -> List.for_all (fun (_, p) -> match p with T.PAnnot _ -> true | _ -> false) ps && b.T.lb_ret <> None
+    | None -> true
+    | Some ps -> List.for_all (fun (_, p) -> match p with T.PAnnot _ -> true | _ -> false) ps
   in
-  if not full_params then None
+  let param_tes = match b.T.lb_params with None -> [] | Some ps -> List.filter_map (fun (_, p) -> match p with T.PAnnot (_, te) -> Some te | _ -> None) ps in
+  let full =
+    params_annotated && b.T.lb_ret <> None
+    (* 関数束縛は自身の eff 行も明示されていること *)
+    && (match b.T.lb_params with Some _ -> b.T.lb_eff <> None | None -> true)
+    && List.for_all fully_effected param_tes
+    && (match b.T.lb_ret with Some t -> fully_effected t | None -> false)
+  in
+  if not full then None
   else
     try
       let lvl = 1 in
