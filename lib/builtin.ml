@@ -110,6 +110,12 @@ let prims : (string * (t -> t)) list =
     ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (as_f64 (arg1 v))));
     ("__show_int32", fun v -> VText (Int32.to_string (as_i32 (arg1 v))));
     ("__panic", fun v -> runtime_error ("panic: " ^ as_text (arg1 v)));
+    (* extern "C" の既知名テーブル(M10。真の C FFI は延期、§2.1 §12) *)
+    ("sin", fun v -> VFloat64 (sin (as_f64 (arg1 v))));
+    ("cos", fun v -> VFloat64 (cos (as_f64 (arg1 v))));
+    ("sqrt", fun v -> VFloat64 (sqrt (as_f64 (arg1 v))));
+    ("exp", fun v -> VFloat64 (exp (as_f64 (arg1 v))));
+    ("log", fun v -> VFloat64 (log (as_f64 (arg1 v))));
     ( "__open",
       fun v ->
         let path = as_text (arg1 v) in

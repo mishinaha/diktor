@@ -54,7 +54,7 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
       | None ->
           if List.mem n unsupported_numeric then type_error ("数値型 " ^ n ^ " は v0 では未対応です(Int32/Int64/Float64 を使ってください)")
           else
-            let oid = intern n in
+            let oid = Decls.resolve_con (intern n) in
             (match Hashtbl.find_opt Decls.aliases oid with
             | Some info -> expand_alias env level ~expanding info []
             | None ->
@@ -63,14 +63,29 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
                   | KStar -> TCon (oid, [])
                   | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
                 else type_error ("未知の型: " ^ n)))
-  | T.EIdent li -> type_error ("モジュール修飾の型参照は未対応です(M10): " ^ show_long_id li)
+  | T.EIdent li ->
+      (* 平坦化済み module の修飾型参照(Parser.Parser 等) *)
+      let oid = Decls.resolve_con (intern (show_long_id li)) in
+      if Hashtbl.mem Decls.con_kinds oid then (
+        match Decls.con_kind oid 0 with
+        | KStar -> TCon (oid, [])
+        | _ -> type_error ("型構成子 " ^ show_long_id li ^ " には型引数が必要です"))
+      else type_error ("未知の型: " ^ show_long_id li)
+  | T.EApply ((_, T.EIdent (LongId comps)), args) when List.length comps > 1 ->
+      let oid = Decls.resolve_con (intern (String.concat "." comps)) in
+      if Hashtbl.mem Decls.con_kinds oid then (
+        let k = Decls.con_kind oid (List.length args) in
+        let rec arity k = match kind_repr k with KArrow (_, r) -> 1 + arity r | _ -> 0 in
+        if arity k <> List.length args then type_error ("型構成子 " ^ String.concat "." comps ^ " の引数の個数が不正です")
+        else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
+      else type_error ("未知の型: " ^ String.concat "." comps)
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) -> (
       match SMap.find_opt n env.types with
       | Some t ->
           (* HKT 変数への適用。カインドは使用時に kind_of / drop_arrows が確定する *)
           List.fold_left (fun acc a -> tapp acc (elab_type env level ~expanding a)) t (List.map (fun a -> check_no_hole a) args)
       | None -> (
-          let oid = intern n in
+          let oid = Decls.resolve_con (intern n) in
           match Hashtbl.find_opt Decls.aliases oid with
           | Some info -> expand_alias env level ~expanding info args
           | None ->
@@ -1066,10 +1081,10 @@ let instance_head (i : T.instance_decl') =
   in
   let con, holes =
     match snd head with
-    | T.EIdent (LongId [ n ]) -> (intern n, 0)
+    | T.EIdent (LongId [ n ]) -> (Decls.resolve_con (intern n), 0)
     | T.EApply ((_, T.EIdent (LongId [ n ])), args) ->
         List.iter (fun (a : T.type_exp) -> match snd a with T.EHole -> () | _ -> type_error "インスタンス頭の型引数は _ だけです(List[_] の形)") args;
-        (intern n, List.length args)
+        (Decls.resolve_con (intern n), List.length args)
     | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
   in
   (cls, con, holes)
@@ -1327,6 +1342,51 @@ let type_check_decls ?(prelude = []) decls =
   in
   let _env = process_decls env ~emit decls in
   !out
+
+(* module の平坦化(D21。M10 項目の前倒し)。
+   - newtype / type は M.名前 に改名して登録し、非修飾名 → 修飾名の同義語を張る
+     (内側の非修飾参照と、コンパニオン型規則 sample.kel:581 の両方がこれで通る)
+   - let は M.名前 に改名(モジュール内の相互参照は v0 では非対応 — sample.kel は使っていない)
+   - instance はそのまま大域に出す(インスタンスは常に大域可視、sample.kel:576)
+   - 可視性(pub)は v0 では検査しない(§2.1 §13) *)
+let flatten_modules (decls : T.decl list) : T.decl list =
+  List.concat_map
+    (fun ((_, d) as node : T.decl) ->
+      match d with
+      | T.DModule (_, mname, body) ->
+          List.concat_map
+            (fun ((bdata, bd) as bnode : T.decl) ->
+              match bd with
+              | T.DNewtype n ->
+                  let qual = mname ^ "." ^ n.T.nt_name in
+                  Hashtbl.replace Decls.con_synonyms (intern n.T.nt_name) (intern qual);
+                  [ (bdata, T.DNewtype { n with T.nt_name = qual }) ]
+              | T.DType t ->
+                  let qual = mname ^ "." ^ t.T.ta_name in
+                  Hashtbl.replace Decls.con_synonyms (intern t.T.ta_name) (intern qual);
+                  [ (bdata, T.DType { t with T.ta_name = qual }) ]
+              | T.DLet ((bd2, b) as _bnode2) -> (
+                  match snd b.T.lb_name with
+                  | T.PVar x -> [ (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) })) ]
+                  | _ -> type_error ("module 内の let はパターン束縛にできません: module " ^ mname))
+              | T.DLetRec bs ->
+                  [
+                    ( bdata,
+                      T.DLetRec
+                        (List.map
+                           (fun ((bd2, b) : T.let_binding) ->
+                             match snd b.T.lb_name with
+                             | T.PVar x -> ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
+                             | _ -> type_error "module 内の let rec はパターン束縛にできません")
+                           bs) );
+                  ]
+              | T.DInstance _ -> [ bnode ]
+              | T.DExtern ex -> [ (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
+              | T.DModule _ -> type_error "module の入れ子は未対応です(M10)"
+              | T.DEffect _ | T.DClass _ | T.DExp _ -> type_error ("module 内では未対応の宣言です: module " ^ mname))
+            body
+      | _ -> [ node ])
+    decls
 
 (* 返り値: (エラーまでに得られた出力行, エラー行 option)。
    型エラーは最初の1つで打ち切る(§9.2)が、そこまでの結果は出力する *)

@@ -85,7 +85,7 @@ let load_prelude options =
 (* quiet = Run モード: 型行は出さず、警告だけ stderr に出す *)
 let type_check_files ?(quiet = false) options =
   let prelude = load_prelude options in
-  let decls = List.concat_map parse_file options.o_files in
+  let decls = Elab.flatten_modules (List.concat_map parse_file options.o_files) in
   let put line = if quiet then (if String.length line > 0 && line.[0] = '\xe2' then prerr_endline line) else print_endline line in
   match Elab.type_check ~prelude decls with
   | lines, None ->

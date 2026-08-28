@@ -1,0 +1,19 @@
+// sample.kel が宣言せずに使う名前のスタブ(計画 260829-1 §9.2)。
+// sample.kel 本体は無改変のまま、これを前置して
+//   diktor --type-check stubs.kel sample.kel
+// の形で全体回帰を走らせる。Db はエフェクトラベルと Db.query の両方で
+// 使われるため、effect と module の両方を宣言する。
+newtype Instant = ???
+newtype Conn = ???
+newtype Stmt = ???
+newtype Chan[A] = ???
+type User = {id: String, name: String}
+type Req = {query: String}
+newtype Resp = ???
+effect Db = { db_op: (String) => Unit }
+module Db { pub let query(q: String): Resp = ??? }
+let sqrt(x: Float64): Float64 = ???
+let each[A, E](xs: List[A], f: (A) => Unit @ E): Unit @ E = ???
+let heavy(x: Int32): Int32 = ???
+let audit_log(r: Req, resp: Resp): Unit = ???
+let handle_client(c: Conn): Unit @ Async = ???

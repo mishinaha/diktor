@@ -27,6 +27,13 @@ let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
 (* 未知の構成子は飽和形とみなす(MiniLang:641 と同じ既定) *)
 let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | None -> Type.k_arrow nargs
 
+(* module 平坦化の同義語(D21): 内側の非修飾名とコンパニオン型
+   (モジュール名と同名の型はモジュール名自体で参照できる、sample.kel:581)を
+   正準の修飾名 oid に写す *)
+let con_synonyms : (oid, oid) Hashtbl.t = Hashtbl.create 16
+
+let resolve_con c = match Hashtbl.find_opt con_synonyms c with Some c' -> c' | None -> c
+
 (* ---- 型エイリアス(透過。展開時に毎回 elaborate する、§7.3) ---- *)
 
 type alias_info = {
@@ -211,6 +218,10 @@ let register_ref_array () =
    def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
 
 let register_builtins () =
+  (* 組み込み登録はプレリュード扱いにする(同名のユーザ宣言を照合の上で受理) *)
+  let saved = !in_prelude in
+  in_prelude := true;
+  Fun.protect ~finally:(fun () -> in_prelude := saved) @@ fun () ->
   (* 組み込み型(D13: 実行できる幅は3種。他の名前の受理と拒否は elab が行う) *)
   List.iter
     (fun n -> Hashtbl.replace con_kinds (intern n) Type.KStar)
@@ -276,6 +287,7 @@ let reset () =
   Hashtbl.reset effects;
   Hashtbl.reset op_index;
   Hashtbl.reset prelude_keys;
+  Hashtbl.reset con_synonyms;
   in_prelude := false;
   register_builtins ()
 
