@@ -110,7 +110,7 @@ module Make (Data : Syntax.Data) = struct
     aux 0
 
   let read_number lexbuf radix =
-    let ret m e n = (Q.make (Z.of_int m) (Z.pow (Z.of_int 10) e), n) in
+    let ret m e n = ((m, e), n) in
     let read_digit_char base_char base_value = Uchar.to_int (lexeme_char lexbuf 0) - Char.code base_char + base_value in
     let rec proceed m e n base_char base_value reading_exponent =
       let digit_value = read_digit_char base_char base_value in

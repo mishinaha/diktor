@@ -89,7 +89,8 @@ end
 
 type number_literal_type = ZType | QType | IntType of int | FloatType of int
 
-type number = Q.t * number_literal_type
+(* 仮の表現: (仮数, 10のべきの分母指数)。M2 の D13(字句テキスト保持)で置き換える *)
+type number = (int * int) * number_literal_type
 
 type bin_op =
   | Add
