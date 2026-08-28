@@ -163,6 +163,10 @@ let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
 
 let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
 
+(* そのキーが組み込みインスタンスとして登録済みか(interp が実体を差し替えないため) *)
+let builtin_instance_exists cls con =
+  match Hashtbl.find_opt instances (cls, con) with Some { ii_builtin; _ } -> ii_builtin | None -> false
+
 (* ---- 組み込み登録 ---- *)
 
 (* 登録用の Generic 変数(vlevel は Generic では使われない) *)

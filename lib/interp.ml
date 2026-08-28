@@ -497,12 +497,20 @@ let exec_decl env ((_, d) : T.decl) =
   | T.DExp e -> ignore (eval env e)
   | T.DInstance i ->
       let cls = Type.intern i.T.ins_class in
+      (* module 平坦化の同義語を通す(BigInt.BigInt 等。検証で発見)。
+         組み込み(Add[Int32] 等)と同じキーのユーザ宣言は実体を差し替えない
+         — elab は組み込みを使うので、実行時だけ差し替わるとコヒーレンスが破れる(検証で発見) *)
       let con =
         match i.T.ins_args with
-        | [ (_, T.EIdent (LongId [ n ])) ] -> Type.intern n
-        | [ (_, T.EApply ((_, T.EIdent (LongId [ n ])), _)) ] -> Type.intern n
+        | [ (_, T.EIdent (LongId [ n ])) ] -> Decls.resolve_con (Type.intern n)
+        | [ (_, T.EApply ((_, T.EIdent (LongId [ n ])), _)) ] -> Decls.resolve_con (Type.intern n)
         | _ -> bug "インスタンス頭が解決できません"
       in
+      if
+        (match Decls.find_class cls with Some ci -> ci.Decls.ci_builtin | None -> false)
+        && Decls.builtin_instance_exists cls con
+      then () (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
+      else
       let methods =
         List.concat_map
           (fun ((_, d) : T.decl) ->
