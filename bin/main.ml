@@ -2,4 +2,4 @@
  *
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *)
-let _ = print_endline "stub"
+let _ = print_endline "diktor: Keleut interpreter (under construction)"

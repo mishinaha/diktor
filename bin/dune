@@ -1,14 +1,8 @@
-(executables
- (names diktor_compiler)
+(executable
+ (name main)
+ (public_name diktor)
  (libraries diktor)
- (modules diktor_compiler)
- (preprocess
-  (pps sedlex.ppx)))
-
-(install
- (section bin)
- (files
-  (diktor_compiler.exe as diktor-compiler)))
+ (modules main))
 
 (env
  (dev
