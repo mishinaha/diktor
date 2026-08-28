@@ -360,7 +360,10 @@ and eval_handle env body clauses =
     | Some (_, c) -> (
         (* cancel 節内の例外は抑制してログ(sample.kel:392) *)
         try ignore (eval { env with resume = None } c.T.cl_body)
-        with ex -> !cancel_log (Printexc.to_string ex))
+        with
+        | Runtime_error msg -> !cancel_log msg
+        | Unwind _ -> !cancel_log "cancel 節から操作の巻き戻しで脱出しようとしました"
+        | ex -> !cancel_log (Printexc.to_string ex))
   in
   let clause_arg_pats (c : T.clause') =
     match snd c.T.cl_pat with T.PCtor (_, aps) -> List.map (fun (ap : T.ctor_arg_pat) -> ap.T.cap_pat) aps | _ -> []

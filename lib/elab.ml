@@ -682,7 +682,9 @@ and elab_handle env level eff clauses body =
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   let target =
     match List.sort_uniq compare quals with
-    | [ e ] -> e
+    | [ e ] ->
+        (* 修飾されたエフェクトが実在するか検査(未検査だと後段の Option.get で落ちる。検証で発見) *)
+        if Decls.find_effect e = None then type_error ("未知のエフェクト: " ^ name_of e) else e
     | _ :: _ -> type_error "handle の節の修飾エフェクトが一致しません"
     | [] -> (
         let declares e op = List.mem_assoc op (Option.get (Decls.find_effect e)).Decls.ef_ops in

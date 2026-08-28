@@ -71,7 +71,8 @@ let parse_string ~filename source =
   Sedlexing.set_filename lexbuf filename;
   parse_with (Lexer'.from_sedlex lexbuf)
 
-(* プレリュード(§8.6): 既定は埋め込み、--prelude PATH で差し替え、--no-prelude で空 *)
+(* プレリュード(§8.6): 既定は埋め込み、--prelude PATH で差し替え、--no-prelude で空。
+   module を含むプレリュードも平坦化する(通常入力と同じ扱い、検証で発見) *)
 let load_prelude options =
   if options.o_no_prelude then []
   else
@@ -104,7 +105,7 @@ let eval_string ?(prelude = true) ~sink source =
 
 (* quiet = Run モード: 型行は出さず、警告だけ stderr に出す *)
 let type_check_files ?(quiet = false) options =
-  let prelude = load_prelude options in
+  let prelude = Elab.flatten_modules (load_prelude options) in
   let decls = Elab.flatten_modules (List.concat_map parse_file options.o_files) in
   let put line = if quiet then (if String.length line > 0 && line.[0] = '\xe2' then prerr_endline line) else print_endline line in
   match Elab.type_check ~prelude decls with
@@ -143,6 +144,19 @@ let main () =
       | Parse_error msg ->
           prerr_endline msg;
           exit 2
+      | Sys_error msg ->
+          Printf.eprintf "diktor: ファイルを開けません: %s\n" msg;
+          exit 64
+      | Sedlexing.MalFormed ->
+          Printf.eprintf "字句エラー: 不正な UTF-8 バイト列です\n";
+          exit 2
+      | Aux.Type_error msg ->
+          (* flatten_modules など type_check の外で投げられる型エラー *)
+          Printf.eprintf "! 型エラー: %s\n" msg;
+          exit 1
+      | Out_of_memory ->
+          Printf.eprintf "実行時エラー: メモリ不足です\n";
+          exit 3
       | Value.Runtime_error msg ->
           Printf.eprintf "実行時エラー: %s\n" msg;
           exit 3

@@ -32,7 +32,7 @@ let parse_number text =
   | None -> { n_text = text; n_is_float = lexically_float text; n_suffix = None }
   | Some i ->
       let body = String.sub text 0 i in
-      let width = int_of_string (String.sub text (i + 1) (len - i - 1)) in
+      let width = match int_of_string_opt (String.sub text (i + 1) (len - i - 1)) with Some w -> w | None -> 9999 in
       let suffix = match text.[i] with 'i' -> NsInt width | 'u' -> NsUInt width | _ -> NsFloat width in
       let is_float = match suffix with NsFloat _ -> true | _ -> lexically_float body in
       { n_text = body; n_is_float = is_float; n_suffix = Some suffix }
