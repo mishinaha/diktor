@@ -1,6 +1,6 @@
 (library
  (public_name diktor)
- (libraries base sedlex zarith camomile menhirLib)
+ (libraries sedlex zarith camomile menhirLib)
  (modules lexer parser elab syntax aux env location)
  (preprocess
   (pps sedlex.ppx)))

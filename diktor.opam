@@ -16,11 +16,8 @@ depends: [
   "ocaml"
   "dune" {build}
   "ocamlformat" {build}
-  "base"
   "sedlex"
   "menhir"
-  "sqlite3"
   "zarith"
   "camomile"
-  "batteries"
 ]
