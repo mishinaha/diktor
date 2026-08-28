@@ -20,6 +20,18 @@ let mark kind name = if !in_prelude then Hashtbl.replace prelude_keys (kind, nam
 
 let prelude_owned kind name = Hashtbl.mem prelude_keys (kind, name)
 
+(* extern 名の登録簿(重複・プレリュード保護。__* / C 名の再宣言を弾く) *)
+let externs : (oid, unit) Hashtbl.t = Hashtbl.create 64
+
+let add_extern name =
+  let o = Type.intern name in
+  if Hashtbl.mem externs o then (
+    if not (prelude_owned "extern" o) then type_error ("extern " ^ name ^ " が二重に宣言されています")
+    else type_error ("プレリュードの extern " ^ name ^ " は再宣言できません"))
+  else (
+    Hashtbl.add externs o ();
+    mark "extern" o)
+
 (* ---- 型構成子のカインド表(MiniLang の conKinds) ---- *)
 
 let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
@@ -300,6 +312,7 @@ let reset () =
   Hashtbl.reset prelude_keys;
   Hashtbl.reset con_synonyms;
   Hashtbl.reset reserved_type_names;
+  Hashtbl.reset externs;
   in_prelude := false;
   register_builtins ()
 

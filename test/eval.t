@@ -43,7 +43,7 @@ M8(評価器)のゴールデン。変更時は dune promote で更新し、必�
   40
   true
   true
-  4.
+  4.0
   3
 
 エフェクトの実行(sample.kel §9 相当: capture / try_ / with_stdout /

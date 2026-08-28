@@ -886,6 +886,11 @@ and elab_rec_bindings env level eff bs : env =
   let names =
     List.map
       (fun (_, b) ->
+        (* let rec の右辺は関数でなければならない(評価器が構造上そう要求する。
+           非関数を許すと型検査を通って実行時に必ず落ちる。検証で発見) *)
+        (match (b.T.lb_params, snd b.T.lb_body) with
+        | None, T.Lambda _ | Some _, _ -> ()
+        | None, _ -> type_error "let rec の右辺は関数でなければなりません");
         match snd b.T.lb_name with
         | T.PVar x -> (x, new_var lvl)
         | _ -> type_error "let rec の束縛はパターンにできません")
@@ -1326,7 +1331,8 @@ let process_decls env ~emit decls =
           emit ("_ : " ^ Show.show t);
           env
       | T.DExtern ex ->
-          (* extern 宣言は署名のみ(実装は builtin.ml の表) *)
+          (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
+          Decls.add_extern ex.T.ex_name;
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in

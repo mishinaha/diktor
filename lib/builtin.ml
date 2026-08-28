@@ -24,6 +24,19 @@ let as_text = function VText s -> s | v -> runtime_error ("String ではあり�
 
 let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではありません: " ^ show v)
 
+(* Float64 の最短往復可能表現(string_of_float の %.12g は精度を落とす)。
+   %.NNg を桁を上げながら試し、読み戻して一致する最小桁を採る *)
+let float_repr f =
+  if Float.is_integer f && Float.abs f < 1e16 then Printf.sprintf "%.1f" f
+  else
+    let rec go p =
+      if p > 17 then Printf.sprintf "%.17g" f
+      else
+        let s = Printf.sprintf "%.*g" p f in
+        if float_of_string s = f then s else go (p + 1)
+    in
+    go 1
+
 (* ---- テスト用のメモリ上ダミーファイルシステム(§8.6) ---- *)
 
 let fs : (string, string) Hashtbl.t = Hashtbl.create 8
@@ -170,7 +183,7 @@ let builtin_method cls con meth : (t -> t) option =
   | "Ord", "String", m -> p ("__string_" ^ m)
   | "Show", "Int32", "show" -> Some (fun v -> VText (Int32.to_string (as_i32 (arg1 v))))
   | "Show", "Int64", "show" -> Some (fun v -> VText (Int64.to_string (as_i64 (arg1 v))))
-  | "Show", "Float64", "show" -> Some (fun v -> VText (string_of_float (as_f64 (arg1 v))))
+  | "Show", "Float64", "show" -> Some (fun v -> VText (float_repr (as_f64 (arg1 v))))
   | "Show", "String", "show" -> Some (fun v -> VText (as_text (arg1 v)))
   | "Show", "Boolean", "show" -> Some (fun v -> VText (string_of_bool (as_bool (arg1 v))))
   | _ -> None
