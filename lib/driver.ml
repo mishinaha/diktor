@@ -82,6 +82,26 @@ let load_prelude options =
     in
     parse_string ~filename:"<prelude>" source
 
+(* ---- テスト用 API(§8.7)。CLI と同じ経路を通る ---- *)
+
+let embedded_prelude () = parse_string ~filename:"<prelude>" Prelude_embed.source
+
+(* 型検査のみ。(出力行, エラー行 option) *)
+let type_check_string ?(prelude = true) source =
+  let pre = if prelude then embedded_prelude () else [] in
+  let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
+  Elab.type_check ~prelude:pre decls
+
+(* 型検査 + 評価。出力は sink へ。型エラー時は Error を返す *)
+let eval_string ?(prelude = true) ~sink source =
+  let pre = if prelude then embedded_prelude () else [] in
+  let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
+  match Elab.type_check ~prelude:pre decls with
+  | _, Some err -> Error err
+  | _, None ->
+      Interp.run ~sink (pre @ decls);
+      Ok ()
+
 (* quiet = Run モード: 型行は出さず、警告だけ stderr に出す *)
 let type_check_files ?(quiet = false) options =
   let prelude = load_prelude options in
