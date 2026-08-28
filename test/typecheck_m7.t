@@ -80,7 +80,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type class Pure[F[_]] { val pure[A]: (A) => F[A] }
   > EOF
   $ diktor --type-check --no-prelude c2.kel
-  ! 型エラー: メソッド pure はクラスパラメータが引数位置に現れないため v0 では宣言できません(実行時ディスパッチの前提、§7.4)
+  ! 型エラー: メソッド pure はクラスパラメータが引数の頭に現れないため v0 では宣言できません(実行時タグディスパッチの前提、§7.4)
   [1]
 
   $ cat > c3.kel <<'EOF'

@@ -229,9 +229,40 @@ and apply vf vargs =
 
 (* ---- 型クラスの実行時ディスパッチ(D3、§8.5) ---- *)
 
+(* メソッドスキーマから「クラスパラメータが頭に現れる引数位置」を求める。
+   ここだけでディスパッチする(elab.ml の register_class と同じ規約)。
+   これを守らないと pick: (Int32, A) => Int32 が第1引数の Int32 で
+   誤ってディスパッチし、elab の解決と食い違う(検証で実証) *)
+and dispatch_positions ci meth =
+  let is_param t =
+    match Type.repr (fst (Type.app_spine t)) with
+    | Type.TVar r -> ( match !r with Type.Generic i -> i.Type.vid = ci.Decls.ci_param.Type.vid | _ -> false)
+    | _ -> false
+  in
+  match List.assoc_opt meth ci.Decls.ci_methods with
+  | Some scheme -> (
+      match Type.repr scheme with
+      | Type.TArrow (args, _, _) -> (
+          match Type.repr args with
+          | Type.TRecord row ->
+              fst (Type.row_fields row)
+              |> List.mapi (fun i (_, t) -> (i, t))
+              |> List.filter_map (fun (i, t) -> if is_param t then Some i else None)
+          | _ -> [])
+      | _ -> [])
+  | None -> []
+
 and dispatch cls_name meth args =
   let cls_oid = Type.intern cls_name in
   let vals = Builtin.arg_values args in
+  let cand_vals =
+    match Decls.find_class cls_oid with
+    | Some ci -> (
+        match dispatch_positions ci meth with
+        | [] -> vals (* 位置が取れなければ従来どおり全走査(組み込みの安全側) *)
+        | ps -> List.filteri (fun i _ -> List.mem i ps) vals)
+    | None -> vals
+  in
   let find_impl v =
     match tycon_of_value v with
     | Some con -> (
@@ -241,7 +272,7 @@ and dispatch cls_name meth args =
         | None -> Builtin.builtin_method cls_name (Type.name_of con) meth)
     | None -> None
   in
-  match List.find_map find_impl vals with
+  match List.find_map find_impl cand_vals with
   | Some f -> f args
   | None -> (
       (* 構造的導出(v0 は Eq のみ、§8.2)。コヒーレンスにより elab の判定と必ず一致 *)

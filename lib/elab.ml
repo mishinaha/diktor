@@ -1035,22 +1035,20 @@ let register_class env (c : T.class_decl') =
         let ty = elab_type { env with types } 1 v.T.cv_ty in
         Unify.generalize 0 ty;
         List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
-        (* v0 制約: クラスパラメータが少なくとも1つの引数位置に現れること(§7.4。実行時ディスパッチの前提) *)
-        let rec occurs t =
-          match repr t with
-          | TVar r -> ( match !r with Generic i -> i.vid = pinfo.vid | _ -> false)
-          | TCon (_, args) -> List.exists occurs args
-          | TApp (f, a) -> occurs f || occurs a
-          | TArrow (p, r, e) -> occurs p || occurs r || occurs e
-          | TRecord row | TVariant row -> occurs row
-          | TRowEmpty -> false
-          | TRowExtend (_, f, rest) -> occurs f || occurs rest
+        (* v0 制約: クラスパラメータが少なくとも1つの引数の「頭」に現れること(§7.4)。
+           実行時ディスパッチ(tycon_of_value)は値の頭構成子しか見えないので、
+           List[A] のようにパラメータが引数の内側に埋もれた形は選べない。
+           「頭に現れる」= その引数でタグディスパッチできることを保証する *)
+        let head_is_param t =
+          match repr (fst (app_spine t)) with TVar r -> ( match !r with Generic i -> i.vid = pinfo.vid | _ -> false) | _ -> false
         in
         (match repr ty with
-        | TArrow (args, _, _) when occurs args -> ()
-        | TArrow _ ->
-            type_error
-              ("メソッド " ^ v.T.cv_name ^ " はクラスパラメータが引数位置に現れないため v0 では宣言できません(実行時ディスパッチの前提、§7.4)")
+        | TArrow (args, _, _) -> (
+            match repr args with
+            | TRecord row when List.exists (fun (_, t) -> head_is_param t) (fst (row_fields row)) -> ()
+            | _ ->
+                type_error
+                  ("メソッド " ^ v.T.cv_name ^ " はクラスパラメータが引数の頭に現れないため v0 では宣言できません(実行時タグディスパッチの前提、§7.4)"))
         | _ -> type_error ("メソッド " ^ v.T.cv_name ^ " の型は矢印型でなければなりません"));
         (v.T.cv_name, ty))
       c.T.cls_vals
