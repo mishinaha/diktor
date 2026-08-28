@@ -820,9 +820,14 @@ and release_rigids rigids =
     rigids
 
 and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
-  let annotated = b.T.lb_tparams <> [] || b.T.lb_ret <> None || b.T.lb_eff <> None in
   let is_fun = b.T.lb_params <> None in
-  let gen = is_fun || annotated || is_value b.T.lb_body in
+  (* 値制限(§7.2): 一般化してよいのは関数定義か値のみ。注釈があっても
+     非値(Ref.new(...) 等)を一般化してはならない — 注釈内の省略 @ が
+     独立な行変数を作り、run の Rigid が Generic に漏れる(検証で実証)。
+     非値の値束縛に型パラメータを付けるのは多相化の要求だが値制限に反するので拒否 *)
+  let gen = is_fun || is_value b.T.lb_body in
+  if (not gen) && b.T.lb_tparams <> [] then
+    type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
   let lvl = if gen then level + 1 else level in
   let extra_rigids = ref [] in
   let rigids = make_rigids lvl b.T.lb_tparams in
