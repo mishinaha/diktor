@@ -119,19 +119,29 @@ MiniLang §16-5(型注釈と skolem 化):
   ! 型エラー: 注釈された返り値型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
   [1]
 
-let rec と前方参照(注釈が完全な let は宣言順に依存しない。§7.2 の2パス):
+let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順に依存しない。§7.2 の2パス。
+@ を省略した関数は前方参照できない: 省略 @ の過剰一般化を避けるため注釈内の全ての
+矢印に @ が要る):
 
   $ cat > rec.kel <<'EOF'
   > let rec even(n) = n == 0 || odd(n - 1)
   > and odd(n) = !(n == 0) && even(n - 1)
-  > let forward(x: Int32): Int32 = helper(x)
-  > let helper(y: Int32): Int32 = y + 1
+  > let forward(x: Int32): Int32 @ {} = helper(x)
+  > let helper(y: Int32): Int32 @ {} = y + 1
   > EOF
   $ diktor --type-check --no-prelude rec.kel
   even : (Int32) => Boolean
   odd : (Int32) => Boolean
   forward : (Int32) => Int32
   helper : (Int32) => Int32
+
+  $ cat > fwdbad.kel <<'EOF'
+  > let forward(x: Int32): Int32 = helper(x)
+  > let helper(y: Int32): Int32 = y + 1
+  > EOF
+  $ diktor --type-check --no-prelude fwdbad.kel
+  ! 型エラー: 未束縛の変数: helper
+  [1]
 
 エフェクト行つき矢印型の注釈と純粋注釈:
 
