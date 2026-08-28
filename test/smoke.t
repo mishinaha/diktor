@@ -16,5 +16,5 @@
 
   $ echo 'let x = 1' > t.kel
   $ diktor t.kel; echo "exit: $?"
-  未実装: 型推論(M4 で実装)
+  未実装: プレリュード(M8 で実装。--no-prelude を使ってください)
   exit: 4
