@@ -1,7 +1,7 @@
 (library
  (public_name diktor)
  (libraries sedlex menhirLib)
- (modules lexer parser syntax tree aux location dump driver)
+ (modules lexer parser syntax tree aux location dump prims decls unify show elab driver)
  (preprocess
   (pps sedlex.ppx)))
 

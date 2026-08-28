@@ -23,3 +23,7 @@ let noimpl feat = raise (NotImplemented feat)
 exception Panic of string
 
 let bug msg = raise (Panic ("[BUG] " ^ msg))
+
+exception Type_error of string
+
+let type_error msg = raise (Type_error msg)

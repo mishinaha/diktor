@@ -65,13 +65,25 @@ let parse_file file =
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
 
+let type_check_files options =
+  let decls = List.concat_map parse_file options.o_files in
+  if not options.o_no_prelude then noimpl "プレリュード(M8 で実装。--no-prelude を使ってください)";
+  match Elab.type_check decls with
+  | Ok lines ->
+      List.iter print_endline lines;
+      decls
+  | Error msg ->
+      print_endline msg;
+      exit 1
+
 let run_with options =
   match options.o_mode with
   | DumpTokens -> List.iter dump_tokens_file options.o_files
   | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
-  | Run | TypeCheck ->
-      let _decls = List.concat_map parse_file options.o_files in
-      noimpl "型推論(M4 で実装)"
+  | TypeCheck -> ignore (type_check_files options)
+  | Run ->
+      let _decls = type_check_files options in
+      noimpl "評価器(M8 で実装)"
 
 let main () =
   match parse_args (Array.to_list Sys.argv |> List.tl) with
