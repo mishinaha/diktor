@@ -19,5 +19,4 @@ depends: [
   "sedlex"
   "menhir"
   "zarith"
-  "camomile"
 ]

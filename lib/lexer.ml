@@ -21,9 +21,6 @@ module Make (Data : Syntax.Data) = struct
         true
     | _ -> false
 
-  module Buf = CamomileLibrary.UTF8.Buf
-  module UChar = CamomileLibrary.UChar
-
   type auto_semi_region_type = TopLevel | InCbracket | InParen | InPatternClause
 
   type context = {
@@ -57,7 +54,7 @@ module Make (Data : Syntax.Data) = struct
 
   let read_unicode_escape lexbuf limit =
     let rec loop acc = function
-      | i when i = limit -> UChar.of_int i
+      | i when i = limit -> Uchar.of_int i
       | i -> (
           let ret base_char base_value =
             loop
@@ -76,29 +73,29 @@ module Make (Data : Syntax.Data) = struct
     match%sedlex lexbuf with
     | 'u' -> read_unicode_escape lexbuf 4
     | 'U' -> read_unicode_escape lexbuf 8
-    | '\'' -> UChar.of_char '\''
-    | '"' -> UChar.of_char '"'
-    | '\\' -> UChar.of_char '\\'
-    | 'a' -> UChar.of_int 0x07
-    | 'b' -> UChar.of_char '\b'
-    | 'f' -> UChar.of_int 0x0c
-    | 'n' -> UChar.of_char '\n'
-    | 'r' -> UChar.of_char '\r'
-    | 't' -> UChar.of_char '\t'
-    | 'v' -> UChar.of_int 0x0b
+    | '\'' -> Uchar.of_char '\''
+    | '"' -> Uchar.of_char '"'
+    | '\\' -> Uchar.of_char '\\'
+    | 'a' -> Uchar.of_int 0x07
+    | 'b' -> Uchar.of_char '\b'
+    | 'f' -> Uchar.of_int 0x0c
+    | 'n' -> Uchar.of_char '\n'
+    | 'r' -> Uchar.of_char '\r'
+    | 't' -> Uchar.of_char '\t'
+    | 'v' -> Uchar.of_int 0x0b
     | _ -> failwith "Invalid escape sequence"
 
   let read_text lexbuf =
-    let buf = Buf.create 1024 in
+    let buf = Buffer.create 1024 in
     let rec aux () =
       match%sedlex lexbuf with
       | '"' -> Buffer.contents buf
       | eof -> failwith "unexpeted EOF"
       | '\\' ->
-          Buf.add_char buf (read_escape lexbuf);
+          Buffer.add_utf_8_uchar buf (read_escape lexbuf);
           aux ()
       | any ->
-          Buf.add_string buf (lexeme lexbuf);
+          Buffer.add_string buf (lexeme lexbuf);
           aux ()
       | _ -> failwith "unreachable"
     in
