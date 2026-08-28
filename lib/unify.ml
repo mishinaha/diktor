@@ -142,7 +142,10 @@ let rec rewrite_row row label =
       (f2, TRowExtend (l, f, rest2))
   | TVar v -> (
       match !v with
-      | Unbound { vlevel; vkind = KRow; _ } ->
+      (* カインドは構造マッチでなく same_kind で見る。[R] のような arity 0 の
+         型パラメータは new_kind_var() を貰い、行位置で使われると KVar{→KRow} に
+         なるため、KRow の構造マッチだと取りこぼす(検証で実証) *)
+      | Unbound { vlevel; vkind; _ } when same_kind vkind KRow ->
           let f2 = new_var vlevel in
           let rest2 = new_row_var vlevel in
           v := Link (TRowExtend (label, f2, rest2));
