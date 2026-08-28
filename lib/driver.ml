@@ -43,9 +43,18 @@ let parse_args args =
   in
   go default_options args
 
+module Lexer' = Lexer.Make (Tree.ElabData)
+module Parser' = Parser.Make (Tree.ElabData)
+
+let dump_tokens_file file =
+  let lexer = Lexer'.from_filename file in
+  Lexer'.all_tokens lexer
+  |> List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok))
+
 let run_with options =
   match options.o_mode with
-  | Run | TypeCheck | DumpTokens | DumpAst -> noimpl "driver (M2 以降で実装)"
+  | DumpTokens -> List.iter dump_tokens_file options.o_files
+  | Run | TypeCheck | DumpAst -> noimpl "driver (M3 以降で実装)"
 
 let main () =
   match parse_args (Array.to_list Sys.argv |> List.tl) with
@@ -57,6 +66,11 @@ let main () =
       | NotImplemented feat ->
           Printf.eprintf "未実装: %s\n" feat;
           exit 4
+      | Lexer.Lex_error (msg, pos) ->
+          Printf.eprintf "%s:%d:%d: 字句エラー: %s\n" pos.Lexing.pos_fname pos.Lexing.pos_lnum
+            (pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1)
+            msg;
+          exit 2
       | Panic msg ->
           prerr_endline msg;
           exit 3 )
