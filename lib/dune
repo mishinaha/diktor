@@ -12,5 +12,6 @@
 (env
  (dev
   (flags
-   (:standard -w +a-4)
+   ; Warning 8(非網羅 match)は noimpl の取りこぼし検出のため必ず残す
+   (:standard -w +a-4-9-40-41-42-44-45-70)
    (:standard -warn-error -a+31))))
