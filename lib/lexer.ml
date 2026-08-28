@@ -319,9 +319,7 @@ module Make (Data : Syntax.Data) = struct
 
   let from_channel channel = Sedlexing.Utf8.from_channel channel |> from_sedlex
 
-  let from_file_descr fd = Unix.in_channel_of_descr fd |> from_channel
-
-  let from_filename filename = Unix.openfile filename [ Unix.O_RDONLY; Unix.O_CLOEXEC ] 0 |> from_file_descr
+  let from_filename filename = open_in_bin filename |> from_channel
 
   let parse rule lexer =
     let lex () =

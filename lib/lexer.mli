@@ -13,8 +13,6 @@ module Make (Data : Syntax.Data) : sig
 
   val from_channel : in_channel -> t
 
-  val from_file_descr : Unix.file_descr -> t
-
   val from_filename : string -> t
 
   val parse : (Parser.Make(Data).token, 'a) MenhirLib.Convert.traditional -> t -> 'a
