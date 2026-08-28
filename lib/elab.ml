@@ -16,7 +16,7 @@ module SMap = Map.Make (String)
 type env = {
   values : ty SMap.t;
   types : ty SMap.t; (* 型パラメータ束縛(リージョン変数 h を含む) *)
-  resume_ty : ty option; (* ハンドラ操作節の中でのみ Some(M6) *)
+  resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でのみ Some(§7.3) *)
 }
 
 let warnings : string list ref = ref []
@@ -166,10 +166,12 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
       if same_kind (Unify.kind_of tv) KRow then tv else type_error ("行カインドではない型パラメータです: " ^ n)
   | T.EIdent (LongId [ n ]) when Hashtbl.mem Decls.aliases (intern n) ->
       let info = Hashtbl.find Decls.aliases (intern n) in
-      expand_alias env level ~expanding info []
+      if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
+      else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
   | T.EIdent (LongId [ n ]) ->
-      (* @ Print = @ {Print} の略記。エフェクト名の実在検査は M6 で effect 表に接続 *)
-      TRowExtend (intern n, t_unit, TRowEmpty)
+      (* @ Print = @ {Print} の略記(§7.6) *)
+      if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
+      else type_error ("未知のエフェクト: " ^ n)
   | T.EBraceRow (elems, ext) ->
       let tail =
         match ext with
@@ -183,15 +185,24 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
           match elem with
           | T.BLabel (LongId [ n ], []) -> (
               match Hashtbl.find_opt Decls.aliases (intern n) with
-              | Some info -> row_append (expand_alias env level ~expanding info []) acc (* 行 splice(§7.6) *)
+              | Some info when info.Decls.al_kind = Some "EffectRow" ->
+                  row_append (expand_alias env level ~expanding info []) acc (* 行 splice(§7.6) *)
+              | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
               | None ->
                   if SMap.mem n env.types then
                     (* {E1, Print} のような行変数の合成は未対応(末尾 extends のみ) *)
                     type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
-                  else TRowExtend (intern n, t_unit, acc))
+                  else if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, acc)
+                  else type_error ("未知のエフェクト: " ^ n))
           | T.BLabel (LongId [ n ], args) ->
-              TRowExtend
-                (intern n, (match args with [ a ] -> elab_type env level ~expanding a | _ -> type_error "エフェクトラベルの引数は1個までです"), acc)
+              if not (Hashtbl.mem Decls.effects (intern n)) then type_error ("未知のエフェクト: " ^ n)
+              else
+                TRowExtend
+                  ( intern n,
+                    (match args with
+                    | [ a ] -> elab_type env level ~expanding a
+                    | _ -> type_error "エフェクトラベルの引数は1個までです"),
+                    acc )
           | T.BLabel (li, _) -> type_error ("モジュール修飾のエフェクトは未対応です(M10): " ^ show_long_id li)
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
@@ -347,10 +358,13 @@ and elab_exp' env level eff node e =
       TArrow (TRecord (closed_item_row param_tys), tr, body_eff)
   | T.Apply (f, arg) ->
       let tf = elab_exp env level eff f in
-      let ta = elab_exp env level eff arg in
       let tr = new_var level in
-      (* 関数の行を呼び出し側の eff と単一化(MiniLang:1319-1324。既存バグ 0.2-4 の修正) *)
-      Unify.unify tf (TArrow (ta, tr, eff));
+      let pvar = new_var level in
+      (* 関数の行を呼び出し側の eff と単一化(MiniLang:1319-1324。既存バグ 0.2-4 の修正)。
+         関数型を先に分解してから引数を期待型で検査する(引数のラムダの行が
+         本体の perform 解決(D22)より先に確定するために必須) *)
+      Unify.unify tf (TArrow (pvar, tr, eff));
+      elab_check env level eff arg pvar;
       tr
   | T.BinOp (l, op, r) -> (
       let tl = elab_exp env level eff l in
@@ -426,10 +440,37 @@ and elab_exp' env level eff node e =
         (List.nth comps (List.length comps - 1))
         ~eff
         (List.map (fun (a : T.ctor_arg) -> (a.T.ca_label, a.T.ca_exp)) args)
-  | T.Perform _ -> noimpl "perform(M6)"
-  | T.Handle _ -> noimpl "handle(M6)"
-  | T.Resume _ -> noimpl "resume(M6)"
-  | T.Run _ -> noimpl "run(M6)"
+  | T.Perform (li, arg) ->
+      let eff_name, op, scheme = resolve_perform env eff li in
+      Tree.set_resolved node (Tree.ROp (intern (name_of eff_name ^ "." ^ name_of op)));
+      let args_row, op_ret =
+        match repr (Unify.instantiate level scheme) with
+        | TArrow (a, r, _) -> (a, r)
+        | _ -> bug "操作スキーマが矢印型ではありません"
+      in
+      Unify.unify (elab_exp env level eff arg) args_row;
+      (try Unify.unify eff (TRowExtend (eff_name, t_unit, new_row_var level))
+       with Type_error msg -> type_error ("エフェクト " ^ name_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
+      op_ret
+  | T.Handle (body, clauses) -> elab_handle env level eff clauses body
+  | T.Resume arg -> (
+      match env.resume_ty with
+      | None -> type_error "resume は操作節の中でのみ使えます"
+      | Some (op_ret, tres) ->
+          (match arg with
+          | Some e -> Unify.unify (elab_exp env level eff e) op_ret
+          | None ->
+              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:355) *)
+              Unify.unify t_unit op_ret);
+          tres)
+  | T.Run (h, body) ->
+      (* MiniLang:1530-1538。スコープに入る前に結果変数、level+1 で Rigid、本体を Heap[h] 行で推論 *)
+      let result = new_var level in
+      let heap = new_rigid (level + 1) in
+      let env2 = { env with types = SMap.add h heap env.types } in
+      let t = elab_exp env2 (level + 1) (TRowExtend (eff_heap, heap, eff)) body in
+      Unify.unify result t;
+      result
 
 and elab_construct env level node cname ?eff args =
   let ctor = intern cname in
@@ -486,6 +527,236 @@ and elab_construct env level node cname ?eff args =
           args;
         TCon (dname, List.map snd subst)
 
+(* 検査モード(軽い双方向化)。Lambda と引数レコードにだけ期待型を押し込み、
+   それ以外は合成して単一化する。引数位置のラムダの行を本体 elaboration より
+   先に確定させるのが目的(D22 の解決が行のラベルを見るため) *)
+and elab_check env level eff ((_, e) as node : T.exp) expected =
+  let fallback () = Unify.unify (elab_exp env level eff node) expected in
+  match (e, repr expected) with
+  | T.Lambda { l_params; l_body }, TArrow (pexp, rexp, eexp) -> (
+      match repr pexp with
+      | TRecord prow ->
+          let fields, tail = row_fields prow in
+          if
+            repr tail = TRowEmpty
+            && List.length fields = List.length l_params
+            && List.for_all (fun (l, _) -> l = l_item) fields
+          then (
+            let seen = ref [] in
+            let env2 = List.fold_left2 (fun env p (_, t) -> elab_pat env level seen t p) env l_params fields in
+            Tree.set_ty node expected;
+            elab_check env2 level eexp l_body rexp)
+          else fallback ()
+      | _ -> fallback ())
+  | T.RecordExtend (rest, l, v), TRecord row -> (
+      match Unify.rewrite_row row (intern l) with
+      | fty, rest_row ->
+          Tree.set_ty node expected;
+          elab_check env level eff v fty;
+          elab_check env level eff rest (TRecord rest_row)
+      | exception Type_error _ -> fallback ())
+  | _ -> fallback ()
+
+(* D22: 操作名の解決。qualified なら宣言表を直接引く。非修飾で曖昧なら
+   現在の eff 行に明示的に現れているエフェクトを優先し、それでも一意でなければ修飾を要求 *)
+and resolve_perform env eff li =
+  ignore env;
+  match li with
+  | LongId [ ename; op ] -> (
+      let e = intern ename in
+      match Decls.find_effect e with
+      | None -> type_error ("未知のエフェクト: " ^ ename)
+      | Some info -> (
+          match List.assoc_opt (intern op) info.Decls.ef_ops with
+          | Some scheme -> (e, intern op, scheme)
+          | None -> type_error ("エフェクト " ^ ename ^ " に操作 " ^ op ^ " はありません")))
+  | LongId [ op ] -> (
+      let opo = intern op in
+      match Decls.op_candidates opo with
+      | [] -> type_error ("未知の操作: " ^ op)
+      | [ e ] -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
+      | many -> (
+          (* 現在の eff 行に明示的に現れる候補のうち、最左(= 最内ハンドラ)を採る。
+             Scoped Labels の最左一致と実行時の最内捕捉に一致する *)
+          let labels = List.map fst (fst (row_fields eff)) in
+          let pos e =
+            let rec go i = function [] -> None | l :: tl -> if l = e then Some i else go (i + 1) tl in
+            go 0 labels
+          in
+          let ranked = List.filter_map (fun e -> Option.map (fun i -> (i, e)) (pos e)) many in
+          match List.sort compare ranked with
+          | (_, e) :: _ -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
+          | [] ->
+              type_error
+                ("操作 " ^ op ^ " は複数のエフェクト("
+                ^ String.concat ", " (List.map name_of many)
+                ^ ")に属します。" ^ name_of (List.hd many) ^ "." ^ op ^ " のように修飾してください")))
+  | li -> type_error ("不正な操作名です: " ^ show_long_id li)
+
+(* D19 の構文検査: 節本体を走査し、Lambda の内側の Resume をエラーにする。
+   内側の Handle の本体はそのまま走査し、節には入らない(節は自分の検査を受ける) *)
+and check_resume_static ?(in_lambda = false) ((_, e) : T.exp) =
+  let go = check_resume_static ~in_lambda in
+  match e with
+  | T.Resume arg ->
+      if in_lambda then type_error "resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)"
+      else Option.iter go arg
+  | T.Lambda { l_body; _ } -> check_resume_static ~in_lambda:true l_body
+  | T.Handle (b, _) -> go b
+  | T.Bool _ | T.Number _ | T.Text _ | T.Ident _ | T.Hole | T.RecordEmpty -> ()
+  | T.Apply (f, a) ->
+      go f;
+      go a
+  | T.Construct (_, args) -> List.iter (fun (a : T.ctor_arg) -> go a.T.ca_exp) args
+  | T.Variant (_, v) -> go v
+  | T.BinOp (l, _, r) ->
+      go l;
+      go r
+  | T.Not v -> go v
+  | T.Let ((_, b), rest) ->
+      go b.T.lb_body;
+      go rest
+  | T.LetRec (bs, rest) ->
+      List.iter (fun ((_, b) : T.let_binding) -> go b.T.lb_body) bs;
+      go rest
+  | T.Seq es -> List.iter go es
+  | T.Match (scrut, cs) ->
+      go scrut;
+      List.iter
+        (fun ((_, c) : T.clause) ->
+          Option.iter go c.T.cl_guard;
+          go c.T.cl_body)
+        cs
+  | T.RecordExtend (r, _, v) | T.RecordUpdate (r, _, v) ->
+      go r;
+      go v
+  | T.RecordRestriction (r, _) | T.RecordSelection (r, _) -> go r
+  | T.Perform (_, a) -> go a
+  | T.Run (_, b) -> go b
+
+(* handle(§7.3)。節の分類は頭の PCtor 名で行い resolved へ書く *)
+and elab_handle env level eff clauses body =
+  let classify ((_, c) as cnode : T.clause) =
+    match snd c.T.cl_pat with
+    | T.PVar "cancel" -> `Cancel cnode
+    | T.PCtor (LongId comps, args) -> (
+        match List.rev comps with
+        | "cancel" :: _ ->
+            if args <> [] then type_error "cancel(reason) は将来拡張です(v0 では case cancel のみ)" else `Cancel cnode
+        | "return" :: _ -> (
+            match args with
+            | [ { T.cap_label = None; cap_pat } ] -> `Return (cap_pat, cnode)
+            | _ -> type_error "return 節は case return(x) の形で書いてください")
+        | op :: quals when op <> "" && op.[0] >= 'a' && op.[0] <= 'z' ->
+            `Op (intern op, (match quals with [] -> None | _ -> Some (intern (String.concat "." (List.rev quals)))), args, cnode)
+        | _ -> type_error ("handle の節は操作名 / return / cancel で始めてください: " ^ show_long_id (LongId comps)))
+    | _ -> type_error "handle の節は操作名 / return / cancel で始めてください"
+  in
+  let classified = List.map classify clauses in
+  let ops = List.filter_map (function `Op (op, q, args, cnode) -> Some (op, q, args, cnode) | _ -> None) classified in
+  let rets = List.filter_map (function `Return (p, cnode) -> Some (p, cnode) | _ -> None) classified in
+  let cancels = List.filter_map (function `Cancel cnode -> Some cnode | _ -> None) classified in
+  (if List.length rets > 1 then type_error "return 節は1つまでです");
+  (if List.length cancels > 1 then type_error "cancel 節は1つまでです");
+  (if ops = [] then type_error "handle には少なくとも1つの操作節が必要です");
+  (* D22: 対象エフェクトは「全節が属し全操作が網羅される」候補が一意であること *)
+  let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
+  let op_names = List.map (fun (op, _, _, _) -> op) ops in
+  let target =
+    match List.sort_uniq compare quals with
+    | [ e ] -> e
+    | _ :: _ -> type_error "handle の節の修飾エフェクトが一致しません"
+    | [] -> (
+        let declares e op = List.mem_assoc op (Option.get (Decls.find_effect e)).Decls.ef_ops in
+        let all_effects = List.sort_uniq compare (List.concat_map Decls.op_candidates op_names) in
+        let holds_all = List.filter (fun e -> List.for_all (declares e) op_names) all_effects in
+        let covered =
+          List.filter
+            (fun e -> List.for_all (fun (op, _) -> List.mem op op_names) (Option.get (Decls.find_effect e)).Decls.ef_ops)
+            holds_all
+        in
+        match covered with
+        | [ e ] -> e
+        | [] -> (
+            match holds_all with
+            | e :: _ ->
+                let missing =
+                  List.filter
+                    (fun (op, _) -> not (List.mem op op_names))
+                    (Option.get (Decls.find_effect e)).Decls.ef_ops
+                in
+                type_error
+                  ("ハンドラが操作を網羅していません: " ^ name_of e ^ " の "
+                  ^ String.concat ", " (List.map (fun (op, _) -> name_of op) missing)
+                  ^ " が漏れています")
+            | [] -> type_error ("この操作の組を宣言するエフェクトがありません: " ^ String.concat ", " (List.map name_of op_names)))
+        | es ->
+            type_error
+              ("handle の対象エフェクトが曖昧です(" ^ String.concat ", " (List.map name_of es)
+             ^ ")。" ^ name_of (List.hd es) ^ "." ^ name_of (List.hd op_names) ^ " のように修飾してください"))
+  in
+  let target_info = Option.get (Decls.find_effect target) in
+  (* 対象確定後の検査: 全操作の網羅と、全節の所属 *)
+  List.iter
+    (fun (op, _) ->
+      if not (List.mem op op_names) then
+        type_error ("ハンドラが操作を網羅していません: " ^ name_of target ^ " の " ^ name_of op ^ " が漏れています"))
+    target_info.Decls.ef_ops;
+  List.iter
+    (fun (op, _, _, _) ->
+      if not (List.mem_assoc op target_info.Decls.ef_ops) then
+        type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
+    ops;
+  (* 本体は対象エフェクトを積んだ行で推論 *)
+  let body_ty = elab_exp env level (TRowExtend (target, t_unit, eff)) body in
+  let tres = new_var level in
+  (* return 節・cancel 節は外側の eff で推論(retc/exnc は自分のハンドラが外れた文脈で走る、§7.3) *)
+  (match rets with
+  | [ (p, ((_, c) as cnode)) ] ->
+      Tree.set_resolved cnode Tree.RReturnClause;
+      let seen = ref [] in
+      let env2 = elab_pat { env with resume_ty = None } level seen body_ty p in
+      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
+      Unify.unify (elab_exp env2 level eff c.T.cl_body) tres
+  | _ -> Unify.unify body_ty tres);
+  (match cancels with
+  | [ ((_, c) as cnode) ] ->
+      Tree.set_resolved cnode Tree.RCancelClause;
+      let env2 = { env with resume_ty = None } in
+      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
+      (* cancel 節の値は捨てられる: Unit と単一化(§7.3) *)
+      Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
+  | _ -> ());
+  (* 操作節 *)
+  List.iter
+    (fun (op, _, args, ((_, c) as cnode)) ->
+      Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
+      let scheme = List.assoc op target_info.Decls.ef_ops in
+      let args_row, op_ret =
+        match repr (Unify.instantiate level scheme) with
+        | TArrow (a, r, _) -> (a, r)
+        | _ -> bug "操作スキーマが矢印型ではありません"
+      in
+      let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
+      if List.length args <> List.length param_tys then
+        type_error
+          (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
+             (List.length args));
+      List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
+      let seen = ref [] in
+      let env2 =
+        List.fold_left2
+          (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
+          env args param_tys
+      in
+      (* 操作節では resume が使える。本体は外側の eff で推論(MiniLang:1499) *)
+      let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
+      check_resume_static c.T.cl_body;
+      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
+      Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
+    ops;
+  tres
+
 and method_scheme cls m =
   match Decls.find_class (intern cls) with
   | Some ci -> (
@@ -506,6 +777,18 @@ and make_rigids level tparams =
       (tp.tp_name, TVar r, r))
     tparams
 
+(* 明示的なラベル付き閉行の eff 注釈(@ Print / @ {A, B})は、本体検査では Rigid 尾部、
+   公開スキーマでは Generic 尾部として開く(sample.kel:357 の handle がこれを要求する。
+   Rigid 尾部なので本体が注釈に無いエフェクトを起こすことは引き続き拒否される)。
+   @ {}(ラベルなし閉行)は閉じたまま = 純粋。裁定の経緯は doc/log を参照 *)
+and open_explicit_eff lvl eff =
+  let fields, tail = row_fields eff in
+  match repr tail with
+  | TRowEmpty when fields <> [] ->
+      let r = ref (Rigid { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] }) in
+      (row_append eff (TVar r), [ ("", TVar r, r) ])
+  | _ -> (eff, [])
+
 (* 束縛スコープを出るとき: この束縛の Rigid を Generic に書き換える(注釈の一般化)。
    Rigid の脱出は unify / occurs_adjust が検査済みなので安全 *)
 and release_rigids rigids =
@@ -523,6 +806,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   let is_fun = b.T.lb_params <> None in
   let gen = is_fun || annotated || is_value b.T.lb_body in
   let lvl = if gen then level + 1 else level in
+  let extra_rigids = ref [] in
   let rigids = make_rigids lvl b.T.lb_tparams in
   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
   let fn_ty =
@@ -531,7 +815,10 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         let seen = ref [] in
         let param_tys = List.map (fun _ -> new_var lvl) params in
         let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
-        let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> new_row_var lvl in
+        let fn_eff, eff_rigids =
+          match b.T.lb_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
+        in
+        extra_rigids := eff_rigids @ !extra_rigids;
         let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
         let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
         (try Unify.unify ret_ty body_ty
@@ -546,6 +833,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         vty
   in
   Tree.set_ty node fn_ty;
+  let rigids = rigids @ !extra_rigids in
   (* 網羅性の遅延キューは generalize の直前に drain する(§7.2) *)
   match snd b.T.lb_name with
   | T.PVar x ->
@@ -583,13 +871,19 @@ and elab_rec_bindings env level eff bs : env =
     (fun ((_, b) as bnode) (_, pre) ->
       let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
+      let extra_rigids = ref [] in
       let fn_ty =
         match b.T.lb_params with
         | Some params ->
             let seen = ref [] in
             let param_tys = List.map (fun _ -> new_var lvl) params in
             let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
-            let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> new_row_var lvl in
+            let fn_eff, eff_rigids =
+              match b.T.lb_eff with
+              | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+              | None -> (new_row_var lvl, [])
+            in
+            extra_rigids := eff_rigids;
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
             Unify.unify ret_ty body_ty;
@@ -601,7 +895,7 @@ and elab_rec_bindings env level eff bs : env =
       in
       Unify.unify pre fn_ty;
       Tree.set_ty bnode fn_ty;
-      release_rigids rigids)
+      release_rigids (rigids @ !extra_rigids))
     bs names;
   List.iter warn (Exhaust.drain ());
   List.iter (fun (_, t) -> Unify.generalize level t) names;
@@ -659,6 +953,28 @@ let register_newtype env (n : T.newtype') =
       in
       Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = ctors; dd_opaque = false }
 
+(* effect 宣言の登録(パス1、§7.3)。操作の型は矢印スキーマで表に置く *)
+let register_effect env (e : T.effect') =
+  if e.T.ef_params <> [] then type_error "effect 宣言に型パラメータは書けません(sample.kel §9)";
+  let ops =
+    List.map
+      (fun (op, te) ->
+        match snd te with
+        | T.EArrow _ ->
+            let ty = elab_type env 1 te in
+            Unify.generalize 0 ty;
+            (intern op, ty)
+        | _ -> type_error ("操作 " ^ op ^ " の型は矢印型でなければなりません"))
+      e.T.ef_ops
+  in
+  (* 同一 effect 内の重複 op は拒否 *)
+  let rec dup = function
+    | [] -> ()
+    | (op, _) :: rest -> if List.mem_assoc op rest then type_error ("操作 " ^ name_of op ^ " が二重に宣言されています") else dup rest
+  in
+  dup ops;
+  Decls.add_effect { Decls.ef_name = intern e.T.ef_name; ef_ops = ops }
+
 (* 注釈が完全な let の署名を(本体を見ずに)構築する。前方参照用(§7.2) *)
 let signature_of_binding env (b : T.let_binding') : ty option =
   let full_params =
@@ -680,8 +996,13 @@ let signature_of_binding env (b : T.let_binding') : ty option =
                 (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_type env_ty lvl te | _ -> assert false)
                 ps
             in
-            let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> new_row_var lvl in
+            let fn_eff, eff_rigids =
+              match b.T.lb_eff with
+              | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+              | None -> (new_row_var lvl, [])
+            in
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
+            release_rigids eff_rigids;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None -> ( match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false)
       in
@@ -711,14 +1032,19 @@ let type_check_decls decls =
       | T.DNewtype n -> Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
       | _ -> ())
     decls;
-  (* パス1b: newtype のコンストラクタ登録(相互再帰可)と、注釈が完全な let の署名登録 *)
+  (* パス1b: newtype のコンストラクタと effect 宣言の登録(相互再帰・前方参照可) *)
+  List.iter
+    (fun (_, d) ->
+      match d with
+      | T.DNewtype n -> register_newtype env0 n
+      | T.DEffect e -> register_effect env0 e
+      | _ -> ())
+    decls;
+  (* パス1c: 注釈が完全な let の署名登録 *)
   let env =
     List.fold_left
       (fun env (_, d) ->
         match d with
-        | T.DNewtype n ->
-            register_newtype env0 n;
-            env
         | T.DLet (_, b) -> (
             match (binding_name b, signature_of_binding env b) with
             | Some x, Some ty -> { env with values = SMap.add x ty env.values }
@@ -779,15 +1105,17 @@ let type_check_decls decls =
           let seen = ref [] in
           let param_tys = List.map (fun _ -> new_var lvl) ex.T.ex_params in
           ignore (List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty ex.T.ex_params param_tys);
-          let fn_eff = match ex.T.ex_eff with Some e -> elab_eff env_ty lvl e | None -> new_row_var lvl in
+          let fn_eff, eff_rigids =
+            match ex.T.ex_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
+          in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
-          release_rigids rigids;
+          release_rigids (rigids @ eff_rigids);
           emit (ex.T.ex_name ^ " : " ^ Show.show ty);
           { env with values = SMap.add ex.T.ex_name ty env.values }
       | T.DNewtype _ -> env (* パス1で登録済み。フィールド型の検査も登録時に済んでいる *)
-      | T.DEffect _ -> noimpl "effect 宣言(M6)"
+      | T.DEffect _ -> env (* パス1で登録済み *)
       | T.DClass _ -> noimpl "type class 宣言(M7)"
       | T.DInstance _ -> noimpl "type instance 宣言(M7)"
       | T.DModule _ -> noimpl "module(M10)"

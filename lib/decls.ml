@@ -61,6 +61,34 @@ let add_data info =
         else Hashtbl.add ctor_owner ct.ct_name info.dd_name)
       info.dd_ctors)
 
+(* ---- エフェクト表(M6、§7.3 / D22) ---- *)
+
+type effect_info = {
+  ef_name : oid;
+  ef_ops : (oid * Type.ty) list; (* 非修飾 op 名 → スキーマ TArrow(引数行, 返り値, ρ)(Generic 化済み) *)
+}
+
+let effects : (oid, effect_info) Hashtbl.t = Hashtbl.create 32
+
+(* D22: 操作名の重複宣言を許す(sample.kel 自身が Console.write と File.write を宣言)。
+   非修飾 op 名 → 宣言順の所属エフェクト列 *)
+let op_index : (oid, oid list) Hashtbl.t = Hashtbl.create 64
+
+let add_effect info =
+  if Hashtbl.mem effects info.ef_name then
+    type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています")
+  else (
+    Hashtbl.add effects info.ef_name info;
+    List.iter
+      (fun (op, _) ->
+        let prev = Option.value ~default:[] (Hashtbl.find_opt op_index op) in
+        Hashtbl.replace op_index op (prev @ [ info.ef_name ]))
+      info.ef_ops)
+
+let find_effect e = Hashtbl.find_opt effects e
+
+let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
+
 (* ---- クラス表 ---- *)
 
 type class_info = {
@@ -106,6 +134,43 @@ let method_scheme ~cls ~arity ~ret =
 
 let intern = Type.intern
 
+(* Ref / Array / Heap / Blocking の組み込み登録(§11.2。effect パラメータ構文が
+   ソースに書けないため decls が直接登録する)。行は開いた Generic 尾部にする
+   (MiniLang の newref と同じ形。閉じると他のエフェクトの下で呼べない) *)
+let builtin_ops : (string * Type.ty) list ref = ref []
+
+let register_ref_array () =
+  let ref_oid = intern "Ref" and arr_oid = intern "Array" in
+  Hashtbl.replace con_kinds ref_oid (Type.k_arrow 2);
+  Hashtbl.replace con_kinds arr_oid (Type.k_arrow 1);
+  let ginfo () = { Type.vid = new_oid (); vlevel = 0; vkind = Type.KStar; vcls = [] } in
+  add_data { dd_name = ref_oid; dd_params = [ ginfo (); ginfo () ]; dd_ctors = []; dd_opaque = true };
+  add_data { dd_name = arr_oid; dd_params = [ ginfo () ]; dd_ctors = []; dd_opaque = true };
+  (* 操作なしの組み込みエフェクトラベル *)
+  add_effect { ef_name = Type.eff_heap; ef_ops = [] };
+  add_effect { ef_name = Type.eff_blocking; ef_ops = [] };
+  let arrow args ret eff = Type.TArrow (Type.TRecord (closed_args_row args), ret, eff) in
+  let heap_row h = Type.TRowExtend (Type.eff_heap, h, generic ~kind:Type.KRow ()) in
+  let def name ty = builtin_ops := !builtin_ops @ [ (name, ty) ] in
+  (* Ref.new : [h, A] (A) => Ref[h, A] @ {Heap[h] extends ρ} *)
+  (let h = generic () and a = generic () in
+   def "Ref.new" (arrow [ a ] (Type.TCon (ref_oid, [ h; a ])) (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
+  (* Array は h を持たない(§11.2。既知の穴も §12 に記録済み) *)
+  (let h = generic () and a = generic () in
+   def "Array.new" (arrow [ Type.t_int32; a ] (Type.TCon (arr_oid, [ a ])) (heap_row h)));
+  (let a = generic () in
+   def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 (generic ~kind:Type.KRow ())));
+  (let h = generic () and a = generic () in
+   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "Array.set" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
+  (let a = generic () and e = generic ~kind:Type.KRow () in
+   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
+
 let register_builtins () =
   (* 組み込み型(D13: 実行できる幅は3種。他の名前の受理と拒否は elab が行う) *)
   List.iter
@@ -147,9 +212,11 @@ let register_builtins () =
   def_class "Integral" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Int32"; "Int64" ];
   def_class "Fractional" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Float64" ];
   (* Never は ctor ゼロのデータ宣言(complete_sig が Some [] を返し、節ゼロの match が網羅になる) *)
-  add_data { dd_name = intern "Never"; dd_params = []; dd_ctors = []; dd_opaque = false }
+  add_data { dd_name = intern "Never"; dd_params = []; dd_ctors = []; dd_opaque = false };
+  builtin_ops := [];
+  register_ref_array ()
 
-(* クラスメソッドを値環境に登録するための一覧(非修飾名と修飾名の両方、§7.4) *)
+(* クラスメソッドと組み込み値を値環境に登録するための一覧(非修飾名と修飾名の両方、§7.4) *)
 let builtin_values () =
   Hashtbl.fold
     (fun _ ci acc ->
@@ -157,6 +224,7 @@ let builtin_values () =
         (fun acc (m, ty) -> (m, ty) :: (Type.name_of ci.ci_name ^ "." ^ m, ty) :: acc)
         acc ci.ci_methods)
     classes []
+  @ !builtin_ops
 
 let reset () =
   Hashtbl.reset con_kinds;
@@ -165,6 +233,8 @@ let reset () =
   Hashtbl.reset instances;
   Hashtbl.reset datas;
   Hashtbl.reset ctor_owner;
+  Hashtbl.reset effects;
+  Hashtbl.reset op_index;
   register_builtins ()
 
 let () = register_builtins ()
