@@ -33,6 +33,34 @@ let add_alias info =
     type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
   else Hashtbl.add aliases info.al_name info
 
+(* ---- newtype(データ宣言)表(M5、§7.3) ---- *)
+
+type field_info = { fi_label : oid option; fi_ty : Type.ty (* パラメータは Generic マーク *) }
+
+type ctor_info = { ct_name : oid; ct_fields : field_info list }
+
+type data_info = {
+  dd_name : oid;
+  dd_params : Type.var_info list; (* Generic 変数の情報(vid で subst_params する) *)
+  dd_ctors : ctor_info list; (* Never は [] *)
+  dd_opaque : bool; (* newtype X = ??? *)
+}
+
+let datas : (oid, data_info) Hashtbl.t = Hashtbl.create 64
+
+let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* ctor 名 → data 名 *)
+
+let add_data info =
+  if Hashtbl.mem datas info.dd_name then type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています")
+  else (
+    Hashtbl.add datas info.dd_name info;
+    List.iter
+      (fun ct ->
+        if Hashtbl.mem ctor_owner ct.ct_name then
+          type_error ("コンストラクタ " ^ Type.name_of ct.ct_name ^ " が二重に宣言されています(コンストラクタ名は大域一意)")
+        else Hashtbl.add ctor_owner ct.ct_name info.dd_name)
+      info.dd_ctors)
+
 (* ---- クラス表 ---- *)
 
 type class_info = {
@@ -117,7 +145,9 @@ let register_builtins () =
     ~instances:("String" :: "Boolean" :: numerics);
   (* 予約述語(D8)。メソッドなしのクラスとして表に相乗りさせる *)
   def_class "Integral" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Int32"; "Int64" ];
-  def_class "Fractional" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Float64" ]
+  def_class "Fractional" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Float64" ];
+  (* Never は ctor ゼロのデータ宣言(complete_sig が Some [] を返し、節ゼロの match が網羅になる) *)
+  add_data { dd_name = intern "Never"; dd_params = []; dd_ctors = []; dd_opaque = false }
 
 (* クラスメソッドを値環境に登録するための一覧(非修飾名と修飾名の両方、§7.4) *)
 let builtin_values () =
@@ -133,6 +163,8 @@ let reset () =
   Hashtbl.reset aliases;
   Hashtbl.reset classes;
   Hashtbl.reset instances;
+  Hashtbl.reset datas;
+  Hashtbl.reset ctor_owner;
   register_builtins ()
 
 let () = register_builtins ()

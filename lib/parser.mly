@@ -405,7 +405,7 @@ exp_list:
 
 clause_body: lbrace clauses RBRACE { $2 }
 (* spike [FIX-8]: 節間の NL は ASI が落とす(CASE は can_begin_statement に無い) *)
-clauses: clause { [ $1 ] } | clause clauses { $1 :: $2 }
+clauses: { [] } | clause clauses { $1 :: $2 } (* 空 = Never の節ゼロ match *)
 clause: CASE pat guard_opt EQ_GREATER exp { mk $sloc { cl_pat = $2; cl_guard = $3; cl_body = $5 } }
 guard_opt: { None } | IF exp { Some $2 }
 

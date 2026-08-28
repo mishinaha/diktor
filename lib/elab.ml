@@ -239,8 +239,68 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
           Unify.unify expected (TRecord row);
           let env = List.fold_left2 (fun env (_, sub) (_, t) -> elab_pat env level seen t sub) env fields ftys in
           elab_pat env level seen (TRecord tail) rest_pat)
-  | T.PCtor _ -> noimpl "コンストラクタパターン(M5)"
-  | T.PVariant _ -> noimpl "ヴァリアントパターン(M5)" 
+  | T.PVariant (str, sub) ->
+      let tf = new_var level in
+      let rest = new_row_var level in
+      Unify.unify expected (TVariant (TRowExtend (intern str, tf, rest)));
+      elab_pat env level seen tf sub
+  | T.PCtor (li, args) -> (
+      let (LongId comps) = li in
+      let cname = List.nth comps (List.length comps - 1) in
+      if not (cname.[0] >= 'A' && cname.[0] <= 'Z') then
+        type_error ("未知のコンストラクタパターン: " ^ show_long_id li ^ "(操作節は handle の中でのみ使えます)")
+      else
+        match Hashtbl.find_opt Decls.ctor_owner (intern cname) with
+        | None -> type_error ("未知のコンストラクタ: " ^ show_long_id li)
+        | Some dname ->
+            let ctor = intern cname in
+            let dd = Hashtbl.find Decls.datas dname in
+            if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
+            else
+              let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in
+              let nfields = List.length ct.Decls.ct_fields in
+              let field_to_arg = Array.make nfields None in
+              let positional = List.filter (fun a -> a.T.cap_label = None) args in
+              (* 位置引数があるときは全フィールドが必要。欠落の _ 補完はラベル指定パターンのみ(§2.1) *)
+              if positional <> [] && List.length args <> nfields then
+                type_error
+                  (Printf.sprintf "コンストラクタ %s のパターンは %d 個のフィールドを取ります(%d 個与えられました)" cname nfields
+                     (List.length args));
+              List.iteri
+                (fun ai (a : T.ctor_arg_pat) ->
+                  match a.T.cap_label with
+                  | None ->
+                      let rec first i =
+                        if i >= nfields then type_error ("コンストラクタ " ^ cname ^ " のパターンの引数が多すぎます")
+                        else if field_to_arg.(i) = None then i
+                        else first (i + 1)
+                      in
+                      field_to_arg.(first 0) <- Some ai
+                  | Some l ->
+                      let lo = intern l in
+                      let rec find i = function
+                        | [] -> type_error ("コンストラクタ " ^ cname ^ " にフィールド " ^ l ^ " はありません")
+                        | f :: rest -> if f.Decls.fi_label = Some lo then i else find (i + 1) rest
+                      in
+                      let i = find 0 ct.Decls.ct_fields in
+                      if field_to_arg.(i) <> None then type_error ("フィールド " ^ l ^ " が二重に指定されています");
+                      field_to_arg.(i) <- Some ai)
+                args;
+              Tree.set_resolved node (Tree.RCtorPat (dname, ctor, field_to_arg));
+              let subst =
+                List.map (fun (i : var_info) -> (i.vid, new_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
+              in
+              Unify.unify expected (TCon (dname, List.map snd subst));
+              let env = ref env in
+              Array.iteri
+                (fun fi arg ->
+                  match arg with
+                  | Some ai ->
+                      let f = List.nth ct.Decls.ct_fields fi in
+                      env := elab_pat !env level seen (Unify.subst_params level subst f.Decls.fi_ty) (List.nth args ai).T.cap_pat
+                  | None -> ())
+                field_to_arg;
+              !env)
 
 (* ---- 値制限(§7.2。ブロック(Seq/Let 連鎖)は保守的に非値)---- *)
 
@@ -272,10 +332,10 @@ and elab_exp' env level eff node e =
       | Some sch -> Unify.instantiate level sch
       | None -> (
           match li with
-          | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 -> (
+          | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
               let last = List.nth comps (List.length comps - 1) in
-              if last.[0] >= 'A' && last.[0] <= 'Z' then noimpl ("コンストラクタ参照 " ^ name ^ "(M5)")
-              else type_error ("未束縛の変数: " ^ name))
+              if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
+              else type_error ("未束縛の変数: " ^ name)
           | _ -> type_error ("未束縛の変数: " ^ name)))
   | T.Hole -> new_var level
   | T.Lambda { l_params; l_body } ->
@@ -346,12 +406,85 @@ and elab_exp' env level eff node e =
   | T.LetRec (bs, body) ->
       let env2 = elab_rec_bindings env level eff bs in
       elab_exp env2 level eff body
-  | T.Match _ -> noimpl "match(M5)"
-  | T.Construct _ -> noimpl "コンストラクタ(M5)"
+  | T.Match (scrut, clauses) ->
+      let tscrut = elab_exp env level eff scrut in
+      let tres = new_var level in
+      List.iter
+        (fun ((_, c) : T.clause) ->
+          let seen = ref [] in
+          let env2 = elab_pat env level seen tscrut c.T.cl_pat in
+          (match c.T.cl_guard with
+          | Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean
+          | None -> ());
+          Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
+        clauses;
+      Exhaust.queue (List.map (fun ((_, c) : T.clause) -> (c.T.cl_pat, c.T.cl_guard <> None)) clauses) tscrut;
+      tres
+  | T.Construct (li, args) ->
+      let (LongId comps) = li in
+      elab_construct env level node
+        (List.nth comps (List.length comps - 1))
+        ~eff
+        (List.map (fun (a : T.ctor_arg) -> (a.T.ca_label, a.T.ca_exp)) args)
   | T.Perform _ -> noimpl "perform(M6)"
   | T.Handle _ -> noimpl "handle(M6)"
   | T.Resume _ -> noimpl "resume(M6)"
   | T.Run _ -> noimpl "run(M6)"
+
+and elab_construct env level node cname ?eff args =
+  let ctor = intern cname in
+  match Hashtbl.find_opt Decls.ctor_owner ctor with
+  | None -> type_error ("未知のコンストラクタ: " ^ cname)
+  | Some dname ->
+      let dd = Hashtbl.find Decls.datas dname in
+      if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
+      else
+        let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in
+        let nfields = List.length ct.Decls.ct_fields in
+        let assigned = Array.make nfields false in
+        let arg_to_field =
+          Array.of_list
+            (List.map
+               (fun (label, _) ->
+                 match label with
+                 | None ->
+                     let rec first i =
+                       if i >= nfields then type_error ("コンストラクタ " ^ cname ^ " の引数が多すぎます")
+                       else if assigned.(i) then first (i + 1)
+                       else i
+                     in
+                     let i = first 0 in
+                     assigned.(i) <- true;
+                     i
+                 | Some l ->
+                     let lo = intern l in
+                     let rec find i = function
+                       | [] -> type_error ("コンストラクタ " ^ cname ^ " にフィールド " ^ l ^ " はありません")
+                       | f :: rest -> if f.Decls.fi_label = Some lo then i else find (i + 1) rest
+                     in
+                     let i = find 0 ct.Decls.ct_fields in
+                     if assigned.(i) then type_error ("フィールド " ^ l ^ " が二重に指定されています");
+                     assigned.(i) <- true;
+                     i)
+               args)
+        in
+        if Array.exists not assigned then
+          type_error ("コンストラクタ " ^ cname ^ " の引数が不足しています(式では全フィールド必須)");
+        Tree.set_resolved node (Tree.RCtor (dname, ctor, arg_to_field));
+        let subst =
+          List.map (fun (i : var_info) -> (i.vid, new_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
+        in
+        List.iteri
+          (fun ai (_, e) ->
+            let f = List.nth ct.Decls.ct_fields arg_to_field.(ai) in
+            let ety =
+              match eff with
+              | Some eff -> elab_exp env level eff e
+              | None -> bug "elab_construct: 引数つきなのに eff がない"
+            in
+            Unify.unify ety (Unify.subst_params level subst f.Decls.fi_ty))
+          args;
+        TCon (dname, List.map snd subst)
 
 and method_scheme cls m =
   match Decls.find_class (intern cls) with
@@ -413,20 +546,26 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         vty
   in
   Tree.set_ty node fn_ty;
+  (* 網羅性の遅延キューは generalize の直前に drain する(§7.2) *)
   match snd b.T.lb_name with
   | T.PVar x ->
+      List.iter warn (Exhaust.drain ());
       if gen then Unify.generalize level fn_ty;
       release_rigids rigids;
       { env with values = SMap.add x fn_ty env.values }
   | T.PWildcard ->
+      List.iter warn (Exhaust.drain ());
       if gen then Unify.generalize level fn_ty;
       release_rigids rigids;
       env
   | _ ->
-      (* パターン束縛は単相(単一ケース match と同じ扱い、§6.4)。M5 で網羅性キューに載せる *)
+      (* パターン束縛は単相(単一ケース match と同じ扱い、§6.4)。網羅性警告に乗せる *)
       release_rigids rigids;
       let seen = ref [] in
-      elab_pat env level seen fn_ty b.T.lb_name
+      let env' = elab_pat env level seen fn_ty b.T.lb_name in
+      Exhaust.queue [ (b.T.lb_name, false) ] fn_ty;
+      List.iter warn (Exhaust.drain ());
+      env'
 
 and elab_rec_bindings env level eff bs : env =
   (* 事前割り当ての単相変数で束縛 → 本体推論 → unify → 一般化(既存バグ 0.2-5 の修正)。多相再帰不可 *)
@@ -464,6 +603,7 @@ and elab_rec_bindings env level eff bs : env =
       Tree.set_ty bnode fn_ty;
       release_rigids rigids)
     bs names;
+  List.iter warn (Exhaust.drain ());
   List.iter (fun (_, t) -> Unify.generalize level t) names;
   { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names }
 
@@ -478,6 +618,46 @@ let initial_env () =
     types = SMap.empty;
     resume_ty = None;
   }
+
+(* newtype 宣言の登録(パス1)。フィールド型のパラメータは Generic 変数で束縛して
+   スキーマとして表に置く(組み込みメソッドスキーマと同じ形、§7.3) *)
+let register_newtype env (n : T.newtype') =
+  let params =
+    List.map
+      (fun tp ->
+        (* newtype パラメータのカインドは * か、F[_] 明示のみ(v0) *)
+        let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else KStar in
+        let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+        { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
+      n.T.nt_params
+  in
+  let types =
+    List.fold_left2
+      (fun m (tp : type_param) i -> SMap.add tp.tp_name (TVar (ref (Generic i))) m)
+      env.types n.T.nt_params params
+  in
+  let env' = { env with types } in
+  match n.T.nt_rhs with
+  | T.NtHole ->
+      Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = []; dd_opaque = true }
+  | T.NtCtors ctors ->
+      let ctors =
+        List.map
+          (fun (c : T.ctor_decl) ->
+            {
+              Decls.ct_name = intern c.T.cd_name;
+              ct_fields =
+                List.map
+                  (fun (f : T.field_decl) ->
+                    let ty = elab_type env' 1 f.T.fd_ty in
+                    (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
+                    Unify.generalize 0 ty;
+                    { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })
+                  c.T.cd_fields;
+            })
+          ctors
+      in
+      Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = ctors; dd_opaque = false }
 
 (* 注釈が完全な let の署名を(本体を見ずに)構築する。前方参照用(§7.2) *)
 let signature_of_binding env (b : T.let_binding') : ty option =
@@ -516,18 +696,28 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 let type_check_decls decls =
   warnings := [];
   Unify.reset ();
+  Exhaust.reset ();
   let out = ref [] in
   let emit s = out := !out @ [ s ] in
   let eff0 = toplevel_eff () in
-  (* パス1: 型エイリアスの登録と、注釈が完全な let の署名登録 *)
   let env0 = initial_env () in
+  (* パス1a: 型エイリアスの登録と newtype の頭(カインド)。§7.2 *)
+  List.iter
+    (fun (_, d) ->
+      match d with
+      | T.DType t ->
+          Decls.add_alias
+            { Decls.al_name = intern t.T.ta_name; al_params = t.T.ta_params; al_kind = t.T.ta_kind; al_body = t.T.ta_body }
+      | T.DNewtype n -> Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
+      | _ -> ())
+    decls;
+  (* パス1b: newtype のコンストラクタ登録(相互再帰可)と、注釈が完全な let の署名登録 *)
   let env =
     List.fold_left
       (fun env (_, d) ->
         match d with
-        | T.DType t ->
-            Decls.add_alias
-              { Decls.al_name = intern t.T.ta_name; al_params = t.T.ta_params; al_kind = t.T.ta_kind; al_body = t.T.ta_body };
+        | T.DNewtype n ->
+            register_newtype env0 n;
             env
         | T.DLet (_, b) -> (
             match (binding_name b, signature_of_binding env b) with
@@ -577,6 +767,7 @@ let type_check_decls decls =
           env'
       | T.DExp e ->
           let t = elab_exp env 0 eff0 e in
+          List.iter warn (Exhaust.drain ());
           Unify.default_numerics ();
           emit ("_ : " ^ Show.show t);
           env
@@ -595,7 +786,7 @@ let type_check_decls decls =
           release_rigids rigids;
           emit (ex.T.ex_name ^ " : " ^ Show.show ty);
           { env with values = SMap.add ex.T.ex_name ty env.values }
-      | T.DNewtype _ -> noimpl "newtype(M5)"
+      | T.DNewtype _ -> env (* パス1で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> noimpl "effect 宣言(M6)"
       | T.DClass _ -> noimpl "type class 宣言(M7)"
       | T.DInstance _ -> noimpl "type instance 宣言(M7)"

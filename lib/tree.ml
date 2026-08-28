@@ -10,7 +10,8 @@ type resolved =
   | ROp of oid (* perform / handle 操作節: 完全操作名("Console.write")の oid *)
   | RReturnClause (* handle の return 節 *)
   | RCancelClause (* handle の cancel 節 *)
-  | RCtorOrder of int array (* Construct: 実引数位置 → 宣言フィールド順 *)
+  | RCtor of oid * oid * int array (* Construct: data, ctor, 実引数位置 → フィールド位置 *)
+  | RCtorPat of oid * oid * int option array (* PCtor: data, ctor, フィールド位置 → 実引数位置(None = 省略) *)
 
 module ElabData = struct
   type t = {

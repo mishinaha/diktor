@@ -71,6 +71,7 @@ let type_check_files options =
   match Elab.type_check decls with
   | Ok lines ->
       List.iter print_endline lines;
+      if options.o_strict_exhaustive && !Elab.warnings <> [] then exit 1;
       decls
   | Error msg ->
       print_endline msg;
