@@ -57,24 +57,43 @@ let dump_tokens_file file =
   Lexer'.all_tokens lexer
   |> List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok))
 
-let parse_file file =
-  let lexer = Lexer'.from_filename file in
+let parse_with lexer =
   try Lexer'.parse Parser'.program lexer with
   | Parser'.Error ->
       raise (Parse_error (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
 
-let type_check_files options =
+let parse_file file = parse_with (Lexer'.from_filename file)
+
+let parse_string ~filename source =
+  let lexbuf = Sedlexing.Utf8.from_string source in
+  Sedlexing.set_filename lexbuf filename;
+  parse_with (Lexer'.from_sedlex lexbuf)
+
+(* プレリュード(§8.6): 既定は埋め込み、--prelude PATH で差し替え、--no-prelude で空 *)
+let load_prelude options =
+  if options.o_no_prelude then []
+  else
+    let source =
+      match options.o_prelude with
+      | Some path -> In_channel.with_open_bin path In_channel.input_all
+      | None -> Prelude_embed.source
+    in
+    parse_string ~filename:"<prelude>" source
+
+(* quiet = Run モード: 型行は出さず、警告だけ stderr に出す *)
+let type_check_files ?(quiet = false) options =
+  let prelude = load_prelude options in
   let decls = List.concat_map parse_file options.o_files in
-  if not options.o_no_prelude then noimpl "プレリュード(M8 で実装。--no-prelude を使ってください)";
-  match Elab.type_check decls with
+  let put line = if quiet then (if String.length line > 0 && line.[0] = '\xe2' then prerr_endline line) else print_endline line in
+  match Elab.type_check ~prelude decls with
   | lines, None ->
-      List.iter print_endline lines;
+      List.iter put lines;
       if options.o_strict_exhaustive && !Elab.warnings <> [] then exit 1;
-      decls
+      (prelude, decls)
   | lines, Some err ->
-      List.iter print_endline lines;
+      List.iter put lines;
       print_endline err;
       exit 1
 
@@ -84,8 +103,9 @@ let run_with options =
   | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
   | TypeCheck -> ignore (type_check_files options)
   | Run ->
-      let _decls = type_check_files options in
-      noimpl "評価器(M8 で実装)"
+      let prelude, decls = type_check_files ~quiet:true options in
+      Interp.cancel_log := (fun msg -> Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg);
+      Interp.run ~sink:print_string (prelude @ decls)
 
 let main () =
   match parse_args (Array.to_list Sys.argv |> List.tl) with
@@ -103,6 +123,12 @@ let main () =
       | Parse_error msg ->
           prerr_endline msg;
           exit 2
+      | Value.Runtime_error msg ->
+          Printf.eprintf "実行時エラー: %s\n" msg;
+          exit 3
+      | Effect.Unhandled (Value.Op (op, _)) ->
+          Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.name_of op);
+          exit 3
       | Panic msg ->
           prerr_endline msg;
           exit 3 )

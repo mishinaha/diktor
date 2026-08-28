@@ -1184,30 +1184,25 @@ let check_instance_bodies env (i : T.instance_decl') =
       | _ -> type_error "インスタンス本体には let だけが書けます")
     i.T.ins_body
 
-(* 宣言列の型検査。出力行(name : type / ⚠)を返す。型エラーは最初の1つで Type_error *)
-let type_check_decls decls =
-  warnings := [];
-  Unify.reset ();
-  Exhaust.reset ();
-  let out = current_out in
-  out := [];
-  let emit s = out := !out @ [ s ] in
+(* 宣言列の型検査(パス構成は §7.2)。emit_out = false でプレリュードを処理する *)
+let process_decls env ~emit decls =
   let eff0 = toplevel_eff () in
-  let env0 = initial_env () in
-  (* パス1a: 型エイリアスの登録と newtype の頭(カインド)。§7.2 *)
+  (* パス1a: 型エイリアスの登録と newtype の頭(カインド) *)
   List.iter
-    (fun (_, d) ->
+    (fun ((_, d) : T.decl) ->
       match d with
       | T.DType t ->
           Decls.add_alias
             { Decls.al_name = intern t.T.ta_name; al_params = t.T.ta_params; al_kind = t.T.ta_kind; al_body = t.T.ta_body }
-      | T.DNewtype n -> Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
+      | T.DNewtype n ->
+          if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
+            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
       | _ -> ())
     decls;
   (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
-  let env0 =
+  let env =
     List.fold_left
-      (fun env (_, d) ->
+      (fun env ((_, d) : T.decl) ->
         match d with
         | T.DNewtype n ->
             register_newtype env n;
@@ -1217,7 +1212,6 @@ let type_check_decls decls =
             env
         | T.DClass c ->
             let methods = register_class env c in
-            (* メソッドを非修飾名と修飾名の両方で値環境に登録(§7.4) *)
             {
               env with
               values =
@@ -1226,12 +1220,12 @@ let type_check_decls decls =
                   env.values methods;
             }
         | _ -> env)
-      env0 decls
+      env decls
   in
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
   let env =
     List.fold_left
-      (fun env (_, d) ->
+      (fun env ((_, d) : T.decl) ->
         match d with
         | T.DInstance i ->
             register_instance i;
@@ -1242,21 +1236,19 @@ let type_check_decls decls =
             | _ -> env)
         | T.DLetRec bs ->
             List.fold_left
-              (fun env (_, b) ->
+              (fun env ((_, b) : T.let_binding) ->
                 match (binding_name b, signature_of_binding env b) with
                 | Some x, Some ty -> { env with values = SMap.add x ty env.values }
                 | _ -> env)
               env bs
         | _ -> env)
-      env0 decls
+      env decls
   in
   (* パス2: 本体の推論(宣言順) *)
-  let show_binding env (_, b) =
-    match binding_name b with
-    | Some x -> emit (x ^ " : " ^ Show.show (SMap.find x env.values))
-    | None -> ()
+  let show_binding env ((_, b) : T.let_binding) =
+    match binding_name b with Some x -> emit (x ^ " : " ^ Show.show (SMap.find x env.values)) | None -> ()
   in
-  let step env ((_, d) as node) =
+  let step env ((_, d) : T.decl) =
     let wbefore = List.length !warnings in
     let env' =
       match d with
@@ -1289,7 +1281,7 @@ let type_check_decls decls =
           emit ("_ : " ^ Show.show t);
           env
       | T.DExtern ex ->
-          (* extern 宣言は署名のみ(実装は M8 の builtin 表) *)
+          (* extern 宣言は署名のみ(実装は builtin.ml の表) *)
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
@@ -1314,18 +1306,32 @@ let type_check_decls decls =
       | T.DModule _ -> noimpl "module(M10)"
     in
     Unify.default_numerics ();
-    (* この宣言で出た警告を出力に差し込む *)
     List.iteri (fun i w -> if i >= wbefore then emit ("⚠ " ^ w)) !warnings;
-    ignore node;
     env'
   in
-  let _env = List.fold_left step env decls in
+  List.fold_left step env decls
+
+let type_check_decls ?(prelude = []) decls =
+  warnings := [];
+  Unify.reset ();
+  Exhaust.reset ();
+  let out = current_out in
+  out := [];
+  let emit s = out := !out @ [ s ] in
+  let env0 = initial_env () in
+  Decls.in_prelude := true;
+  let env =
+    Fun.protect
+      ~finally:(fun () -> Decls.in_prelude := false)
+      (fun () -> process_decls env0 ~emit:(fun _ -> ()) prelude)
+  in
+  let _env = process_decls env ~emit decls in
   !out
 
 (* 返り値: (エラーまでに得られた出力行, エラー行 option)。
    型エラーは最初の1つで打ち切る(§9.2)が、そこまでの結果は出力する *)
-let type_check decls =
+let type_check ?(prelude = []) decls =
   current_out := [];
-  try (type_check_decls decls, None) with
+  try (type_check_decls ~prelude decls, None) with
   | Type_error msg -> (!current_out, Some ("! 型エラー: " ^ msg))
   | Syntax_error msg -> (!current_out, Some ("! 構文エラー: " ^ msg))

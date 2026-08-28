@@ -10,6 +10,16 @@ open Aux
 open Syntax
 module T = Tree.Tree
 
+(* プレリュード処理中フラグ(Elab が立てる)。プレリュード由来の宣言と同名の
+   ユーザ宣言は「照合の上で受理」される(実体はプレリュードのまま、§7.4 の運用裁定) *)
+let in_prelude = ref false
+
+let prelude_keys : (string * oid, unit) Hashtbl.t = Hashtbl.create 64
+
+let mark kind name = if !in_prelude then Hashtbl.replace prelude_keys (kind, name) ()
+
+let prelude_owned kind name = Hashtbl.mem prelude_keys (kind, name)
+
 (* ---- 型構成子のカインド表(MiniLang の conKinds) ---- *)
 
 let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
@@ -29,9 +39,12 @@ type alias_info = {
 let aliases : (oid, alias_info) Hashtbl.t = Hashtbl.create 64
 
 let add_alias info =
-  if Hashtbl.mem aliases info.al_name then
-    type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
-  else Hashtbl.add aliases info.al_name info
+  if Hashtbl.mem aliases info.al_name then (
+    if not (prelude_owned "alias" info.al_name) then
+      type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています"))
+  else (
+    Hashtbl.add aliases info.al_name info;
+    mark "alias" info.al_name)
 
 (* ---- newtype(データ宣言)表(M5、§7.3) ---- *)
 
@@ -51,9 +64,12 @@ let datas : (oid, data_info) Hashtbl.t = Hashtbl.create 64
 let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* ctor 名 → data 名 *)
 
 let add_data info =
-  if Hashtbl.mem datas info.dd_name then type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています")
+  if Hashtbl.mem datas info.dd_name then (
+    if not (prelude_owned "data" info.dd_name) then
+      type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています"))
   else (
     Hashtbl.add datas info.dd_name info;
+    mark "data" info.dd_name;
     List.iter
       (fun ct ->
         if Hashtbl.mem ctor_owner ct.ct_name then
@@ -75,10 +91,12 @@ let effects : (oid, effect_info) Hashtbl.t = Hashtbl.create 32
 let op_index : (oid, oid list) Hashtbl.t = Hashtbl.create 64
 
 let add_effect info =
-  if Hashtbl.mem effects info.ef_name then
-    type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています")
+  if Hashtbl.mem effects info.ef_name then (
+    if not (prelude_owned "effect" info.ef_name) then
+      type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています"))
   else (
     Hashtbl.add effects info.ef_name info;
+    mark "effect" info.ef_name;
     List.iter
       (fun (op, _) ->
         let prev = Option.value ~default:[] (Hashtbl.find_opt op_index op) in
@@ -257,6 +275,8 @@ let reset () =
   Hashtbl.reset ctor_owner;
   Hashtbl.reset effects;
   Hashtbl.reset op_index;
+  Hashtbl.reset prelude_keys;
+  in_prelude := false;
   register_builtins ()
 
 let () = register_builtins ()

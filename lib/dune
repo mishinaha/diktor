@@ -1,13 +1,26 @@
 (library
  (public_name diktor)
  (libraries sedlex menhirLib)
- (modules lexer parser syntax tree aux location dump prims decls unify show exhaust elab driver)
+ (modules lexer parser syntax tree aux location dump prims decls unify show
+   exhaust elab value builtin interp prelude_embed driver)
  (preprocess
   (pps sedlex.ppx)))
 
 (menhir
  (flags --explain --strict)
  (modules parser))
+
+; プレリュードの文字列埋め込み(計画 §8.6。--prelude PATH で差し替え可)
+(rule
+ (targets prelude_embed.ml)
+ (deps prelude.kel)
+ (action
+  (with-stdout-to
+   %{targets}
+   (progn
+    (echo "let source = {prelude|")
+    (cat %{deps})
+    (echo "|prelude}\n")))))
 
 (env
  (dev

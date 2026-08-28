@@ -1,0 +1,69 @@
+// Keleut プレリュード(計画 260829-1 §8.6)
+// 演算子クラス(Add/Sub/Mul/Div/Eq/Ord/Show)とそのインスタンス、
+// Ref/Array/Heap/Blocking は decls.ml の組み込み表にある。
+// ユーザファイルがここと同名の宣言を書いたときは照合の上で受理される(実体はこちら)。
+
+type Unit = {}
+
+newtype Option[A] = None | Some(A)
+newtype List[A] = Nil | Cons(A, tail: List[A])
+
+// ランタイムが提供する低レベルなエフェクト(sample.kel:342, 486)
+effect Console = { write: (String) => Unit }
+effect Print   = { print: (String) => Unit }
+effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
+
+// __* プリミティブ(実装は builtin.ml の表、型はこの宣言が与える。§8.6)
+extern "prim" let __int32_add(x: Int32, y: Int32): Int32
+extern "prim" let __int32_sub(x: Int32, y: Int32): Int32
+extern "prim" let __int32_mul(x: Int32, y: Int32): Int32
+extern "prim" let __int32_div(x: Int32, y: Int32): Int32
+extern "prim" let __int32_rem(x: Int32, y: Int32): Int32
+extern "prim" let __int32_neg(x: Int32): Int32
+extern "prim" let __int32_eq(x: Int32, y: Int32): Boolean
+extern "prim" let __int32_lt(x: Int32, y: Int32): Boolean
+extern "prim" let __int32_le(x: Int32, y: Int32): Boolean
+extern "prim" let __int32_gt(x: Int32, y: Int32): Boolean
+extern "prim" let __int32_ge(x: Int32, y: Int32): Boolean
+extern "prim" let __int64_add(x: Int64, y: Int64): Int64
+extern "prim" let __int64_sub(x: Int64, y: Int64): Int64
+extern "prim" let __int64_mul(x: Int64, y: Int64): Int64
+extern "prim" let __int64_div(x: Int64, y: Int64): Int64
+extern "prim" let __int64_rem(x: Int64, y: Int64): Int64
+extern "prim" let __int64_neg(x: Int64): Int64
+extern "prim" let __int64_eq(x: Int64, y: Int64): Boolean
+extern "prim" let __int64_lt(x: Int64, y: Int64): Boolean
+extern "prim" let __float64_add(x: Float64, y: Float64): Float64
+extern "prim" let __float64_sub(x: Float64, y: Float64): Float64
+extern "prim" let __float64_mul(x: Float64, y: Float64): Float64
+extern "prim" let __float64_div(x: Float64, y: Float64): Float64
+extern "prim" let __float64_neg(x: Float64): Float64
+extern "prim" let __float64_eq(x: Float64, y: Float64): Boolean
+extern "prim" let __float64_lt(x: Float64, y: Float64): Boolean
+extern "prim" let __string_concat(x: String, y: String): String
+extern "prim" let __string_eq(x: String, y: String): Boolean
+extern "prim" let __string_lt(x: String, y: String): Boolean
+extern "prim" let __string_length(x: String): Int32
+extern "prim" let __string_sub(x: String, pos: Int32, len: Int32): String
+extern "prim" let __i32_to_i64(x: Int32): Int64
+extern "prim" let __i32_to_f64(x: Int32): Float64
+extern "prim" let __i64_to_i32(x: Int64): Int32
+extern "prim" let __i64_to_f64(x: Int64): Float64
+extern "prim" let __f64_to_i32(x: Float64): Int32
+extern "prim" let __f64_to_i64(x: Float64): Int64
+extern "prim" let __panic[A](message: String): A
+extern "prim" let __open(path: String): Int32
+extern "prim" let __read(h: Int32): String
+extern "prim" let __write(h: Int32, s: String): Unit
+extern "prim" let __close(h: Int32): Unit
+
+let echo(message: String): Unit @ Console = perform write(message)
+let echoln(message: String): Unit @ Console = perform write(message + "\n")
+let println(message: String): Unit @ Print = perform print(message + "\n")
+
+// sample.kel:357-360 のハンドラを関数化したもの(機構のテストを兼ねる、§8.6)
+let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console extends E} =
+  body() handle {
+    case print(message) => resume(perform write(message))
+    case return(x) => x
+  }
