@@ -101,7 +101,7 @@ let rec add_class t c =
       | _ -> type_error (show t ^ " に " ^ name_of c ^ " 制約を付けられません"))
   | TCon (n, args) -> (
       match Decls.find_instance ~cls:c ~con:n with
-      | Some { ii_premises } ->
+      | Some { ii_premises; _ } ->
           List.iter (fun (i, c2) -> if i < List.length args then add_class (List.nth args i) c2) ii_premises
       | None -> type_error (name_of n ^ " は " ^ name_of c ^ " のインスタンスではありません"))
   | (TRecord row | TVariant row) when ci.ci_derive_structural ->

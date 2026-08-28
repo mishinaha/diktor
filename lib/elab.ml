@@ -23,6 +23,9 @@ let warnings : string list ref = ref []
 
 let warn msg = warnings := !warnings @ [ msg ]
 
+(* 型エラーで打ち切られるまでの出力行(driver がエラー時にも印字する) *)
+let current_out : string list ref = ref []
+
 let closed_item_row tys = List.fold_right (fun t acc -> TRowExtend (l_item, t, acc)) tys TRowEmpty
 
 (* 数値リテラルの型(D8, D13) *)
@@ -975,6 +978,136 @@ let register_effect env (e : T.effect') =
   dup ops;
   Decls.add_effect { Decls.ef_name = intern e.T.ef_name; ef_ops = ops }
 
+let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> Some x | _ -> None
+
+(* type class 宣言の登録(パス1、§7.4)。1パラメータのみ(D11)。
+   メソッドはクラスパラメータ(vcls つき Generic)とメソッド固有型パラメータの
+   両方を Generic 化したスキーマとして表に置く *)
+let register_class env (c : T.class_decl') =
+  let cls = intern c.T.cls_name in
+  (if c.T.cls_name = "Integral" || c.T.cls_name = "Fractional" then
+     type_error (c.T.cls_name ^ " は予約されたリテラル述語です(ユーザ宣言不可、D8)"));
+  let param =
+    match c.T.cls_params with
+    | [ p ] -> p
+    | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)"
+  in
+  let param_kind = if param.tp_arity > 0 then k_arrow param.tp_arity else KStar in
+  (if param.tp_classes <> [] then type_error "クラスパラメータに制約は書けません(スーパークラスは v1)");
+  let pinfo = { vid = new_oid (); vlevel = 0; vkind = param_kind; vcls = [ cls ] } in
+  let pvar = TVar (ref (Generic pinfo)) in
+  List.iter
+    (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
+    c.T.cls_derives;
+  let methods =
+    List.map
+      (fun (v : T.class_val) ->
+        let mt_params =
+          List.map
+            (fun tp ->
+              (* カインドは使用位置から推論し、宣言終了時に KStar へ既定化(D7) *)
+              let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
+              let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+              (tp.tp_name, TVar (ref (Generic { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes }))))
+            v.T.cv_tparams
+        in
+        let types = List.fold_left (fun m (n, t) -> SMap.add n t m) (SMap.add param.tp_name pvar env.types) mt_params in
+        let ty = elab_type { env with types } 1 v.T.cv_ty in
+        Unify.generalize 0 ty;
+        List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
+        (* v0 制約: クラスパラメータが少なくとも1つの引数位置に現れること(§7.4。実行時ディスパッチの前提) *)
+        let rec occurs t =
+          match repr t with
+          | TVar r -> ( match !r with Generic i -> i.vid = pinfo.vid | _ -> false)
+          | TCon (_, args) -> List.exists occurs args
+          | TApp (f, a) -> occurs f || occurs a
+          | TArrow (p, r, e) -> occurs p || occurs r || occurs e
+          | TRecord row | TVariant row -> occurs row
+          | TRowEmpty -> false
+          | TRowExtend (_, f, rest) -> occurs f || occurs rest
+        in
+        (match repr ty with
+        | TArrow (args, _, _) when occurs args -> ()
+        | TArrow _ ->
+            type_error
+              ("メソッド " ^ v.T.cv_name ^ " はクラスパラメータが引数位置に現れないため v0 では宣言できません(実行時ディスパッチの前提、§7.4)")
+        | _ -> type_error ("メソッド " ^ v.T.cv_name ^ " の型は矢印型でなければなりません"));
+        (v.T.cv_name, ty))
+      c.T.cls_vals
+  in
+  match
+    Decls.add_class_decl
+      {
+        Decls.ci_name = cls;
+        ci_param = pinfo;
+        ci_param_kind = param_kind;
+        ci_derive_structural = List.mem "structural" c.T.cls_derives;
+        ci_builtin = false;
+        ci_methods = methods;
+      }
+  with
+  | `Added -> methods
+  | `Builtin prev ->
+      (* 組み込みと同名: メソッド名の集合が一致することだけ照合し、実体は組み込みを使う *)
+      List.iter
+        (fun (m, _) ->
+          if not (List.mem_assoc m prev.Decls.ci_methods) then
+            type_error ("組み込みクラス " ^ c.T.cls_name ^ " に無いメソッド " ^ m ^ " は宣言できません"))
+        methods;
+      prev.Decls.ci_methods
+
+(* type instance 宣言の頭の登録(パス1、§7.4)。頭は 構成子[_..] の形 *)
+let instance_head (i : T.instance_decl') =
+  let cls = intern i.T.ins_class in
+  let head =
+    match i.T.ins_args with
+    | [ h ] -> h
+    | _ -> type_error "type instance の型引数は1個です(D11)"
+  in
+  let con, holes =
+    match snd head with
+    | T.EIdent (LongId [ n ]) -> (intern n, 0)
+    | T.EApply ((_, T.EIdent (LongId [ n ])), args) ->
+        List.iter (fun (a : T.type_exp) -> match snd a with T.EHole -> () | _ -> type_error "インスタンス頭の型引数は _ だけです(List[_] の形)") args;
+        (intern n, List.length args)
+    | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
+  in
+  (cls, con, holes)
+
+let register_instance (i : T.instance_decl') =
+  let cls, con, holes = instance_head i in
+  let ci = match Decls.find_class cls with Some ci -> ci | None -> type_error ("未知のクラス: " ^ i.T.ins_class) in
+  if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ name_of con);
+  if not (same_kind ci.Decls.ci_param_kind (Decls.con_kind con holes)) then
+    type_error
+      ("インスタンス頭 " ^ name_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
+  let methods =
+    List.concat_map
+      (fun ((_, d) : T.decl) ->
+        let name_of_b ((_, b) as bnode : T.let_binding) =
+          match binding_name b with
+          | Some x -> (intern x, bnode)
+          | None -> type_error "インスタンス本体の let は名前束縛でなければなりません"
+        in
+        match d with
+        | T.DLet bnode -> [ name_of_b bnode ]
+        | T.DLetRec bs -> List.map name_of_b bs
+        | _ -> type_error "インスタンス本体には let(と let rec)だけが書けます")
+      i.T.ins_body
+  in
+  (* メソッドの網羅と過剰 *)
+  List.iter
+    (fun (m, _) ->
+      if not (List.exists (fun (m2, _) -> intern m2 = m) ci.Decls.ci_methods) then
+        type_error ("クラス " ^ i.T.ins_class ^ " にメソッド " ^ name_of m ^ " はありません"))
+    methods;
+  List.iter
+    (fun (m, _) ->
+      if not (List.mem_assoc (intern m) methods) then
+        type_error ("インスタンスがメソッドを網羅していません: " ^ m ^ " が漏れています"))
+    ci.Decls.ci_methods;
+  Decls.add_instance ~builtin:false ~methods ~cls ~con []
+
 (* 注釈が完全な let の署名を(本体を見ずに)構築する。前方参照用(§7.2) *)
 let signature_of_binding env (b : T.let_binding') : ty option =
   let full_params =
@@ -1011,14 +1144,53 @@ let signature_of_binding env (b : T.let_binding') : ty option =
       Some ty
     with Type_error _ | NotImplemented _ -> None
 
-let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> Some x | _ -> None
+(* インスタンスメソッド本体の検査(パス2、§7.4)。
+   本体を通常どおり推論・一般化してから、「クラス宣言のメソッド型に頭型を代入した型」への
+   包摂(instantiate した推論型 = skolemize した期待型)を検査する。
+   let rec と注釈付きメソッド(sample.kel:321-324 の Functor[List[_]])もこの経路で通る *)
+let check_instance_bodies env (i : T.instance_decl') =
+  let cls, con, _holes = instance_head i in
+  let ci = match Decls.find_class cls with Some ci -> ci | None -> bug "instance: class 未登録" in
+  let head_ty = TCon (con, []) in
+  let expected_of mname =
+    match List.assoc_opt mname ci.Decls.ci_methods with
+    | Some scheme ->
+        let memo = Hashtbl.create 8 in
+        Hashtbl.add memo ci.Decls.ci_param.vid head_ty;
+        Unify.map_generics_with memo (fun info -> TVar (ref (Generic info))) scheme
+    | None -> bug "instance: メソッドスキーマ未登録"
+  in
+  let subsume mname inferred =
+    let lvl = 1 in
+    let skol = Unify.skolemize lvl (expected_of mname) in
+    try Unify.unify (Unify.instantiate lvl inferred) skol
+    with Type_error msg ->
+      type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")
+  in
+  List.iter
+    (fun ((_, d) : T.decl) ->
+      match d with
+      | T.DLet ((_, b) as bnode) ->
+          let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
+          let env2 = elab_binding env 0 (new_row_var 0) bnode in
+          subsume mname (SMap.find mname env2.values)
+      | T.DLetRec bs ->
+          let env2 = elab_rec_bindings env 0 (new_row_var 0) bs in
+          List.iter
+            (fun ((_, b) : T.let_binding) ->
+              let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
+              subsume mname (SMap.find mname env2.values))
+            bs
+      | _ -> type_error "インスタンス本体には let だけが書けます")
+    i.T.ins_body
 
 (* 宣言列の型検査。出力行(name : type / ⚠)を返す。型エラーは最初の1つで Type_error *)
 let type_check_decls decls =
   warnings := [];
   Unify.reset ();
   Exhaust.reset ();
-  let out = ref [] in
+  let out = current_out in
+  out := [];
   let emit s = out := !out @ [ s ] in
   let eff0 = toplevel_eff () in
   let env0 = initial_env () in
@@ -1032,19 +1204,38 @@ let type_check_decls decls =
       | T.DNewtype n -> Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
       | _ -> ())
     decls;
-  (* パス1b: newtype のコンストラクタと effect 宣言の登録(相互再帰・前方参照可) *)
-  List.iter
-    (fun (_, d) ->
-      match d with
-      | T.DNewtype n -> register_newtype env0 n
-      | T.DEffect e -> register_effect env0 e
-      | _ -> ())
-    decls;
-  (* パス1c: 注釈が完全な let の署名登録 *)
+  (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
+  let env0 =
+    List.fold_left
+      (fun env (_, d) ->
+        match d with
+        | T.DNewtype n ->
+            register_newtype env n;
+            env
+        | T.DEffect e ->
+            register_effect env e;
+            env
+        | T.DClass c ->
+            let methods = register_class env c in
+            (* メソッドを非修飾名と修飾名の両方で値環境に登録(§7.4) *)
+            {
+              env with
+              values =
+                List.fold_left
+                  (fun m (mn, ty) -> SMap.add mn ty (SMap.add (c.T.cls_name ^ "." ^ mn) ty m))
+                  env.values methods;
+            }
+        | _ -> env)
+      env0 decls
+  in
+  (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
   let env =
     List.fold_left
       (fun env (_, d) ->
         match d with
+        | T.DInstance i ->
+            register_instance i;
+            env
         | T.DLet (_, b) -> (
             match (binding_name b, signature_of_binding env b) with
             | Some x, Some ty -> { env with values = SMap.add x ty env.values }
@@ -1116,8 +1307,10 @@ let type_check_decls decls =
           { env with values = SMap.add ex.T.ex_name ty env.values }
       | T.DNewtype _ -> env (* パス1で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> env (* パス1で登録済み *)
-      | T.DClass _ -> noimpl "type class 宣言(M7)"
-      | T.DInstance _ -> noimpl "type instance 宣言(M7)"
+      | T.DClass _ -> env (* パス1で登録済み *)
+      | T.DInstance i ->
+          check_instance_bodies env i;
+          env
       | T.DModule _ -> noimpl "module(M10)"
     in
     Unify.default_numerics ();
@@ -1129,7 +1322,10 @@ let type_check_decls decls =
   let _env = List.fold_left step env decls in
   !out
 
+(* 返り値: (エラーまでに得られた出力行, エラー行 option)。
+   型エラーは最初の1つで打ち切る(§9.2)が、そこまでの結果は出力する *)
 let type_check decls =
-  try Ok (type_check_decls decls) with
-  | Type_error msg -> Error ("! 型エラー: " ^ msg)
-  | Syntax_error msg -> Error ("! 構文エラー: " ^ msg)
+  current_out := [];
+  try (type_check_decls decls, None) with
+  | Type_error msg -> (!current_out, Some ("! 型エラー: " ^ msg))
+  | Syntax_error msg -> (!current_out, Some ("! 構文エラー: " ^ msg))

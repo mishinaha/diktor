@@ -93,8 +93,10 @@ let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
 
 type class_info = {
   ci_name : oid;
+  ci_param : Type.var_info; (* クラスパラメータの Generic 変数(インスタンス検査の代入点) *)
   ci_param_kind : Type.kind;
   ci_derive_structural : bool;
+  ci_builtin : bool;
   ci_methods : (string * Type.ty) list; (* メソッド名 → Generic マーク済みスキーマ *)
 }
 
@@ -102,18 +104,37 @@ let classes : (oid, class_info) Hashtbl.t = Hashtbl.create 64
 
 let find_class c = Hashtbl.find_opt classes c
 
+(* 組み込みと同名のユーザ宣言は「照合の上で受理」(実体は組み込みのまま)。
+   sample.kel 自身がプレリュード相当の Add 等を宣言するため(§7.4 の運用裁定) *)
+let add_class_decl info =
+  match Hashtbl.find_opt classes info.ci_name with
+  | Some prev when prev.ci_builtin -> `Builtin prev
+  | Some _ -> type_error ("type class " ^ Type.name_of info.ci_name ^ " が二重に宣言されています")
+  | None ->
+      Hashtbl.add classes info.ci_name info;
+      `Added
+
 (* ---- インスタンス表: (クラス, 型構成子の頭) → 前提(§7.4) ---- *)
 
-type instance_info = { ii_premises : (int * oid) list (* 引数位置 → 要求クラス *) }
+type instance_info = {
+  ii_premises : (int * oid) list; (* 引数位置 → 要求クラス *)
+  ii_builtin : bool;
+  ii_methods : (oid * T.let_binding) list; (* ユーザ宣言のメソッド本体(interp のディスパッチ用) *)
+}
 
 let instances : (oid * oid, instance_info) Hashtbl.t = Hashtbl.create 256
 
-(* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:276) *)
-let add_instance ~cls ~con premises =
-  if Hashtbl.mem instances (cls, con) then
-    type_error
-      ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
-  else Hashtbl.add instances (cls, con) { ii_premises = premises }
+(* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:276)。
+   組み込みと同じキーのユーザ宣言は照合の上で受理する(本体は検査される) *)
+let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
+  match Hashtbl.find_opt instances (cls, con) with
+  | Some prev when prev.ii_builtin && not builtin ->
+      (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い *)
+      ()
+  | Some _ ->
+      type_error
+        ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+  | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin; ii_methods = methods }
 
 let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
 
@@ -177,36 +198,37 @@ let register_builtins () =
     (fun n -> Hashtbl.replace con_kinds (intern n) Type.KStar)
     [ "Boolean"; "Int32"; "Int64"; "Float64"; "String"; "Never" ];
   let numerics = [ "Int32"; "Int64"; "Float64" ] in
-  (* クラスとメソッド(sample.kel:286-320 のプレリュード相当を decls 直登録。M4) *)
+  (* クラスとメソッド(sample.kel:286-320 のプレリュード相当を decls 直登録。M4)。
+     クラスパラメータ変数はクラス内で共有する(インスタンス検査の代入点、M7) *)
   let def_class name ~derive ~methods ~instances:insts =
     let cls = intern name in
+    let pinfo = { Type.vid = new_oid (); vlevel = 0; vkind = Type.KStar; vcls = [ cls ] } in
+    let a = Type.TVar (ref (Type.Generic pinfo)) in
     Hashtbl.replace classes cls
-      { ci_name = cls; ci_param_kind = Type.KStar; ci_derive_structural = derive; ci_methods = methods cls };
+      {
+        ci_name = cls;
+        ci_param = pinfo;
+        ci_param_kind = Type.KStar;
+        ci_derive_structural = derive;
+        ci_builtin = true;
+        ci_methods = methods a;
+      };
     List.iter (fun con -> add_instance ~cls ~con:(intern con) []) insts
   in
-  def_class "Add" ~derive:false
-    ~methods:(fun c -> [ ("add", snd (method_scheme ~cls:c ~arity:2 ~ret:(fun a -> a))) ])
-    ~instances:("String" :: numerics);
-  def_class "Sub" ~derive:false
-    ~methods:(fun c -> [ ("sub", snd (method_scheme ~cls:c ~arity:2 ~ret:(fun a -> a))) ])
-    ~instances:numerics;
-  def_class "Mul" ~derive:false
-    ~methods:(fun c -> [ ("mul", snd (method_scheme ~cls:c ~arity:2 ~ret:(fun a -> a))) ])
-    ~instances:numerics;
-  def_class "Div" ~derive:false
-    ~methods:(fun c -> [ ("div", snd (method_scheme ~cls:c ~arity:2 ~ret:(fun a -> a))) ])
-    ~instances:numerics;
+  let arrow2 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a; a ]), ret, generic ~kind:Type.KRow ()) in
+  let arrow1 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a ]), ret, generic ~kind:Type.KRow ()) in
+  def_class "Add" ~derive:false ~methods:(fun a -> [ ("add", arrow2 a a) ]) ~instances:("String" :: numerics);
+  def_class "Sub" ~derive:false ~methods:(fun a -> [ ("sub", arrow2 a a) ]) ~instances:numerics;
+  def_class "Mul" ~derive:false ~methods:(fun a -> [ ("mul", arrow2 a a) ]) ~instances:numerics;
+  def_class "Div" ~derive:false ~methods:(fun a -> [ ("div", arrow2 a a) ]) ~instances:numerics;
   def_class "Eq" ~derive:true
-    ~methods:(fun c -> [ ("eq", snd (method_scheme ~cls:c ~arity:2 ~ret:(fun _ -> Type.t_boolean))) ])
+    ~methods:(fun a -> [ ("eq", arrow2 a Type.t_boolean) ])
     ~instances:("String" :: "Boolean" :: numerics);
   def_class "Ord" ~derive:false
-    ~methods:(fun c ->
-      List.map
-        (fun m -> (m, snd (method_scheme ~cls:c ~arity:2 ~ret:(fun _ -> Type.t_boolean))))
-        [ "lt"; "le"; "gt"; "ge" ])
+    ~methods:(fun a -> List.map (fun m -> (m, arrow2 a Type.t_boolean)) [ "lt"; "le"; "gt"; "ge" ])
     ~instances:("String" :: numerics);
   def_class "Show" ~derive:false
-    ~methods:(fun c -> [ ("show", snd (method_scheme ~cls:c ~arity:1 ~ret:(fun _ -> Type.t_string))) ])
+    ~methods:(fun a -> [ ("show", arrow1 a Type.t_string) ])
     ~instances:("String" :: "Boolean" :: numerics);
   (* 予約述語(D8)。メソッドなしのクラスとして表に相乗りさせる *)
   def_class "Integral" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Int32"; "Int64" ];

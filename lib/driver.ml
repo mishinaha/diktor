@@ -69,12 +69,13 @@ let type_check_files options =
   let decls = List.concat_map parse_file options.o_files in
   if not options.o_no_prelude then noimpl "プレリュード(M8 で実装。--no-prelude を使ってください)";
   match Elab.type_check decls with
-  | Ok lines ->
+  | lines, None ->
       List.iter print_endline lines;
       if options.o_strict_exhaustive && !Elab.warnings <> [] then exit 1;
       decls
-  | Error msg ->
-      print_endline msg;
+  | lines, Some err ->
+      List.iter print_endline lines;
+      print_endline err;
       exit 1
 
 let run_with options =
