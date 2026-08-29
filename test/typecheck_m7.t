@@ -150,3 +150,47 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > KEL
   $ diktor --type-check --no-prelude c11.kel
   uses2 : [A: Later2] (A) => A
+
+予約述語は残りの入口でも拒否される(260829-5 検証修正。--prelude の
+ユーザ製プレリュード・型パラメータ制約・クラスメソッドの制約):
+
+  $ printf 'type instance Integral[String] { }\n' > pre_evil.kel
+  $ printf 'let s: String = 1\n' > main1.kel
+  $ diktor --prelude pre_evil.kel --type-check main1.kel
+  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  [1]
+
+  $ printf 'let f[A: Integral](): A = 1\n' > c12.kel
+  $ diktor --type-check c12.kel
+  ! 型エラー: Integral は予約されたリテラル述語です(制約には書けません、D8)
+  [1]
+
+  $ printf 'type class C4[A] { val m[B: Fractional]: (A, B) => A }\n' > c13.kel
+  $ diktor --type-check c13.kel
+  ! 型エラー: Fractional は予約されたリテラル述語です(制約には書けません、D8)
+  [1]
+
+インスタンス頭の書き方に関わらず、予約述語の拒否理由が最初に出る:
+
+  $ printf 'type instance Integral[Nope] { }\n' > c14.kel
+  $ diktor --type-check --no-prelude c14.kel
+  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  [1]
+
+同一クラス内の重複メソッドを拒否(素通りすると elab は最後の宣言で
+型付け、インスタンス照合は最初を見るので実行時に崩壊した):
+
+  $ cat > c15.kel <<'KEL'
+  > type class C5[A] { val f: (A) => Int32
+  >  val f: (A) => String }
+  > KEL
+  $ diktor --type-check --no-prelude c15.kel
+  ! 型エラー: メソッド f が二重に宣言されています
+  [1]
+
+newtype の型パラメータ制約も検証される(D6 の残り):
+
+  $ printf 'newtype Box[A: Bogus] = Box(A)\n' > c16.kel
+  $ diktor --type-check --no-prelude c16.kel
+  ! 型エラー: 未知のクラス: Bogus
+  [1]

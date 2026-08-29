@@ -126,20 +126,28 @@ let prelude_owned kind name = Hashtbl.mem prelude_keys (kind, name)
    するところまで実測)。塞ぎ方は検査の追加ではなく、プレリュード側の
    一覧を実装表と完全対応にすること(第15章 §15.5 の不変条件)でした。
 
-   鍵は**非修飾の実装名**です(第1章 `ex_prim`)。module 内の `extern` は
-   Keleut 側の名前が `M.f` に修飾されますが、修飾名を鍵にするとこの登録簿を
-   module の中からすり抜けられます — 塞いだはずの保護が
-   `module M { extern ... }` で迂回できた、という形で実測しました。 *)
+   鍵は 2 種類を使い分けます。**プレリュード保護は非修飾の実装名**
+   (第1章 `ex_prim`)で見ます — module 内の `extern` は Keleut 側の名前が
+   `M.f` に修飾されるので、修飾名で見ると保護を module の中からすり抜け
+   られます(実測)。**二重宣言の検査は修飾名**で見ます — 実装名まで大域
+   一意にすると、`module Fast` と `module Precise` が同じ C シンボル
+   `sqrt` をそれぞれの名前で束縛する正当な形が書けなくなります(これも
+   敵対的検証が見つけた、実装名一本鍵の版の回帰でした)。 *)
 let externs : (oid, unit) Hashtbl.t = Hashtbl.create 64
 
-let add_extern name =
+let add_extern ~prim name =
   let o = Type.intern name in
-  if Hashtbl.mem externs o then (
-    if not (prelude_owned "extern" o) then type_error ("extern " ^ name ^ " が二重に宣言されています")
-    else type_error ("プレリュードの extern " ^ name ^ " は再宣言できません"))
+  let po = Type.intern prim in
+  (* プレリュード保護は実装名(非修飾の prim)で見る — module の中からの
+     迂回を防ぐ。二重宣言のほうは Keleut 側の名前(修飾名)で見る — 別々の
+     module が同じ C シンボルをそれぞれの名前で束縛するのは正当で、
+     実装名まで大域一意にすると module Fast と module Precise が両方
+     sqrt を包めなくなる(敵対的検証で見つけた回帰の修正) *)
+  if prelude_owned "extern" po then type_error ("プレリュードの extern " ^ prim ^ " は再宣言できません")
+  else if Hashtbl.mem externs o then type_error ("extern " ^ name ^ " が二重に宣言されています")
   else (
     Hashtbl.add externs o ();
-    mark "extern" o)
+    mark "extern" po)
 
 (* ## 6.2b extern C 既知名の型契約
 
@@ -522,10 +530,12 @@ let reserved_predicate c = Hashtbl.mem reserved_predicates c
 (* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:276)。
    組み込みと同じキーのユーザ宣言は照合の上で受理する(本体は検査される) *)
 let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
-  (* 予約述語はインスタンス側の入口でも拒否する(§6.12)。in_prelude の免除は
-     組み込み登録自身が Integral[Int32] / Fractional[Float64] をここから
-     入れるため *)
-  (if reserved_predicate cls && not !in_prelude then
+  (* 予約述語はインスタンス側の入口でも拒否する(§6.12)。免除は「組み込み
+     登録であること」(builtin = true) — 組み込み登録自身が Integral[Int32] /
+     Fractional[Float64] をここから入れるため。当初は in_prelude を免除に
+     していたが、それだと --prelude で差し替えたユーザ製プレリュードまで
+     免除され、迂回路になった(敵対的検証で実測) *)
+  (if reserved_predicate cls && not builtin then
      type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   match Hashtbl.find_opt instances (cls, con) with
   | Some prev when prev.ii_builtin && not builtin ->
@@ -674,20 +684,29 @@ let register_ref_array () =
    乗るときの挙動が自動的に正しくなる、というのが D8 の理由です。既定化は
    一般化の直前に走るので、通常はこの述語が表示に出ることはありません。
 
-   予約は**両方の入口**で効かせます。同名の**クラス宣言**は第11章の
-   `register_class` が拒否し、**インスタンス宣言**は §6.9 の `add_instance` の
-   先頭で拒否します。どちらの検査も §6.9 の `reserved_predicates` 表を引くので、
-   規則(どの名前が予約か)を持つのは第6章の表 1 枚だけです。
+   予約は**宣言の 3 つの入口すべて**で効かせます。同名の**クラス宣言**は
+   第11章の `register_class` が、**インスタンス宣言**は第11章の
+   `register_instance` の頭と §6.9 の `add_instance` の両方が、
+   **型パラメータ制約**(`[A: Integral]` と書く形)は第11章の
+   `class_names_of` が拒否します。どの検査も §6.9 の `reserved_predicates`
+   表を引きます。ただし予約述語の**意味論**(リテラル既定化でどう扱うか)は
+   第8章 (unify.ml) が第1章の定数で別に持っています — この表は入口の番人で
+   あって、意味の持ち主ではありません。
 
    かつてはクラス宣言側にしか検査が無く、`type instance Integral[String]` と
    書けば表に載って `[A: Integral]` の制約解決に本当に使われました。メソッドが
-   0 個なので網羅も過剰も何も言わず、素通りだったのです。予約述語が汚染できると
-   リテラル既定化 (D8) の前提が崩れるので、入口の両方に検査を置きました。
-   インスタンス側の検査に `in_prelude` の免除が要るのは、この関数の下の
-   組み込み登録自身が `Integral[Int32]` / `Fractional[Float64]` を
-   `add_instance` で入れるからです。
+   0 個なので網羅も過剰も何も言わず、素通りだったのです。制約の入口も
+   別途開いていて、`let f[A: Integral](): A = 1` は型検査を通ってから実行時に
+   「数値リテラルの型が解決されていません」で落ちました。予約述語が汚染
+   できるとリテラル既定化 (D8) の前提が崩れるので、入口の全部に検査を
+   置きました。インスタンス側の検査の免除条件は「組み込み登録であること」
+   (`builtin = true`。この関数の下の組み込み登録自身が `Integral[Int32]` /
+   `Fractional[Float64]` を入れるため)です。当初は `in_prelude` を免除に
+   していましたが、それだと --prelude で差し替えたユーザ製プレリュードまで
+   免除されてしまい、迂回路になりました(敵対的検証で実測)。
 
-   > 名前を予約したつもりでも、予約したのは入口の片方だけだった。
+   > 名前を予約したつもりでも、予約したのは入口の一部だけだった。数えて
+   > 塞いだつもりの入口も、免除条件が広ければやはり開いている。
 
    最後の `Never` の登録が §6.6 で述べた ctor ゼロのデータ宣言です。 *)
 

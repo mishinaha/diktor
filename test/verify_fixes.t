@@ -281,3 +281,32 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   $ printf 'type class Add[A] { val add: (A, A) => A }\necholn(show(2 + 3))\n' > readd.kel
   $ diktor readd.kel
   5
+
+操作節のガードでは resume が使えない(interp はガードを resume 無しで
+評価する。かつては型検査を通って実行時に落ちた):
+
+  $ cat > gresume.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() if resume(7) > 0 => resume(1)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check gresume.kel
+  ! 型エラー: resume は操作節の中でのみ使えます
+  [1]
+
+クロージャに包んでも同じ(§11.21 の迂回にならない):
+
+  $ cat > gresume2.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() if (fn(u: Unit) => resume(7))(()) > 0 => resume(1)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check gresume2.kel
+  ! 型エラー: resume は操作節の中でのみ使えます
+  [1]

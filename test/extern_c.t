@@ -65,3 +65,34 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   $ diktor --type-check mbad.kel
   ! 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
   [1]
+
+別々の module は同じ C シンボルをそれぞれの名前で束縛できる
+(二重宣言の検査は Keleut 側の修飾名で行う。260829-5 検証修正):
+
+  $ cat > mm2.kel <<'KEL'
+  > module Fast { pub extern "C" let sqrt(x: Float64): Float64 }
+  > module Precise { pub extern "C" let sqrt(x: Float64): Float64 }
+  > echoln(show(Fast.sqrt(4.0)))
+  > echoln(show(Precise.sqrt(9.0)))
+  > KEL
+  $ diktor mm2.kel
+  2.0
+  3.0
+
+同じ修飾名の二重宣言は従来どおり拒否:
+
+  $ printf 'extern "C" let sqrt(x: Float64): Float64\nextern "C" let sqrt(x: Float64): Float64\n' > dd.kel
+  $ diktor --type-check dd.kel
+  sqrt : (Float64) => Float64
+  ! 型エラー: extern sqrt が二重に宣言されています
+  [1]
+
+未実装メッセージは、表を引いた実装名が修飾名と食い違うとき両方を見せる:
+
+  $ cat > mun.kel <<'KEL'
+  > module M { extern "prim" let __no_such(x: Int32): Int32 }
+  > echoln(show(M.__no_such(1)))
+  > KEL
+  $ diktor mun.kel
+  実行時エラー: 未実装のプリミティブ: M.__no_such(実装名 __no_such が見つかりません)
+  [3]

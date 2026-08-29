@@ -1376,6 +1376,10 @@ and elab_handle env level eff clauses body =
      第14章の `retc` / `run_cancel` はガードを一度も読まないので、型検査を
      通った条件式が実行時に黙って消えていました。`case return(x) if c => a` と
      書きたければ、節本体で `c` を match すれば同じことが書けます。
+   - 操作節のガードは受理しますが、**`resume` 抜き**で推論します。第14章は
+     ガードを resume 無しの環境で評価するので、ここで resume を許すと
+     「型は付くのに実行時に落ちる」ことになります(§11.21 の構文検査は
+     本体しか歩かないため、ガードが唯一の抜け道でした)。
 
    `check_resume_static` を呼ぶのはここ、操作節に入る直前です (§11.21)。 *)
 
@@ -1421,10 +1425,16 @@ and elab_handle env level eff clauses body =
           (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
           env args param_tys
       in
+      (* ガードは resume 無しで推論する。第14章はガードを resume = None で
+         評価するので、ここで Some にすると「型は付くのに実行時に落ちる」
+         迂回路になる(敵対的検証で実測。§11.21 の静的検査も本体しか
+         歩かないため、ガードが唯一の抜け道だった) *)
+      (match c.T.cl_guard with
+      | Some g -> Unify.unify (elab_exp { env2 with resume_ty = None } level eff g) t_boolean
+      | None -> ());
       (* 操作節では resume が使える。本体は外側の eff で推論(MiniLang:1499) *)
       let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
       check_resume_static c.T.cl_body;
-      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
     ops;
   tres
@@ -1481,6 +1491,11 @@ and class_names_of tp =
     (fun li ->
       let c = intern (show_long_id li) in
       if Decls.find_class c = None then type_error ("未知のクラス: " ^ show_long_id li);
+      (* 予約述語は制約にも書けない(D8 の 3 つ目の入口)。書けると
+         [A: Integral] の A が既定化の対象に見え、数値リテラルが解決
+         されないまま実行に到達する(敵対的検証で実測) *)
+      if Decls.reserved_predicate c then
+        type_error (show_long_id li ^ " は予約されたリテラル述語です(制約には書けません、D8)");
       c)
     tp.tp_classes
 
@@ -1934,7 +1949,12 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    宣言時に拒否します。どちらかに「後勝ち」の規則を与える案は、同じ順序規則を
    2 か所に実装することになるので採りません。検査は既存クラス全走査ですが、
    不変条件が帰納的に保たれるので衝突相手は高々 1 つ、エラー文言も決定的です。
-   v1 で「曖昧なら型で絞る」方式に進むなら、この拒否は緩められます。 *)
+   v1 で「曖昧なら型で絞る」方式に進むなら、この拒否は緩められます。
+
+   この検査の射程は**クラスどうし**の衝突までです。クラスメソッドと同名の
+   トップレベル `let` / `extern` との衝突は、より広い「トップレベル束縛の
+   早期/遅延の分裂」(§14.15、260829-5 課題台帳 V1)の一部として残っており、
+   ここでは拒否しません。M15 の宣言環境の設計で一体として扱います。 *)
 
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
@@ -1986,6 +2006,15 @@ let register_class env (c : T.class_decl') =
         (v.T.cv_name, ty))
       c.T.cls_vals
   in
+  (* 同一クラス内の重複メソッドを拒否(register_effect の dup ops と同じ)。
+     素通りすると elab の非修飾名解決は最後の宣言で型付け、インスタンス
+     本体の照合は最初の宣言を見るので、型検査を通ったプログラムが実行時に
+     型・アリティ崩壊する(敵対的検証で実測) *)
+  let rec dup = function
+    | [] -> ()
+    | (m, _) :: rest -> if List.mem_assoc m rest then type_error ("メソッド " ^ m ^ " が二重に宣言されています") else dup rest
+  in
+  dup methods;
   (* 非修飾名の所有者は高々 1 クラス、という不変条件をここで守る。破れると
      elab(宣言順の後勝ち)と interp(ハッシュ順の後勝ち)が別のクラスを選び、
      誤った実体を呼ぶか、偽の「インスタンスが見つかりません」を出す(実測)。
@@ -2071,6 +2100,11 @@ let instance_head (i : T.instance_decl') =
 
 let register_instance (i : T.instance_decl') =
   let cls, con, holes = instance_head i in
+  (* 予約述語は頭を見た時点で拒否する。add_instance にも同じ検査があるが、
+     そちらは未知構成子・カインド・網羅の検査の後ろなので、頭の書き方
+     次第で D8 でない理由が先に出てしまう(検証の指摘) *)
+  (if Decls.reserved_predicate cls then
+     type_error (i.T.ins_class ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   let ci = match Decls.find_class cls with Some ci -> ci | None -> type_error ("未知のクラス: " ^ i.T.ins_class) in
   if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ name_of con);
   if not (same_kind ci.Decls.ci_param_kind (Decls.con_kind con holes)) then
@@ -2335,14 +2369,16 @@ let process_decls env ~emit decls =
         | _ -> env)
       env decls
   in
-  (* 1b の後始末: クラスメソッドの型パラメータ制約に未知のクラスが無いか。
-     register_class は 1b で宣言順に走るので、そこで検査すると後方のクラスを
-     制約に書いた形が落ちる。クラス表が出揃ったここで見れば宣言順に依存しない *)
+  (* 1b の後始末: クラスメソッドと newtype の型パラメータ制約に未知の
+     クラス・予約述語が無いか。register_class / register_newtype は 1b で
+     宣言順に走るので、そこで検査すると後方のクラスを制約に書いた形が
+     落ちる。クラス表が出揃ったここで見れば宣言順に依存しない *)
   List.iter
     (fun ((_, d) : T.decl) ->
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
+      | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
       | _ -> ())
     decls;
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
@@ -2428,9 +2464,9 @@ let process_decls env ~emit decls =
           (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
-          (* 登録簿の鍵は実装名(非修飾)。修飾名を鍵にすると module の中から
-             プレリュード保護が迂回できる(H14) *)
-          Decls.add_extern ex.T.ex_prim;
+          (* プレリュード保護は実装名(非修飾)、二重宣言検査は修飾名で(H14 と
+             その検証の帰結。§6.2) *)
+          Decls.add_extern ~prim:ex.T.ex_prim ex.T.ex_name;
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
@@ -2519,9 +2555,10 @@ let type_check_decls ?(prelude = []) decls =
      import で見え方が変わるものではありません (sample.kel:576)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
      元のまま**です (第1章)。実装は処理系側の表にあり、module はその表を
-     切り分けません。第6章の登録簿の鍵も `ex_prim` です — 修飾名を鍵に
-     すると、260829-2b で入れたプレリュード保護が module の中から迂回でき、
-     module に包んだ既知名 FFI の実装も黙って見つからなくなりました (実測)。
+     切り分けません。第6章の登録簿は、プレリュード保護を `ex_prim` で、
+     二重宣言検査を修飾名で見ます (§6.2) — 修飾名だけを鍵にすると保護が
+     module の中から迂回でき、実装名だけを鍵にすると別々の module が同じ
+     C シンボルを包めなくなります (どちらも実測)。
    - `pub` は受理するだけで検査しません。
 
    同義語表は実行時にも要ります。module の中の instance が実行時に
