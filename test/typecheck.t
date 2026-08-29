@@ -215,3 +215,56 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ok : Int32
   ! mix.kel:2:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   [4]
+
+プレリュード宣言の構造照合(C1 / D35。かつては名前しか見ず、嘘の再宣言が
+宣言ごと黙って消えた — 260829-3 課題 5):
+
+  $ printf 'newtype Option[A] = None(Int32) | Some\n' > d1.kel
+  $ diktor --type-check d1.kel
+  ! d1.kel:1:1: 型エラー: newtype Option の宣言がプレリュードの宣言と一致しません(コンストラクタ None のフィールド数が違います: プレリュードは 0、宣言は 1)
+  [1]
+
+  $ printf 'newtype List[A, B] = Nil | Cons(head: A, tail: List[A])\n' > d3.kel
+  $ diktor --type-check d3.kel
+  ! d3.kel:1:1: 型エラー: newtype List の宣言がプレリュードの宣言と一致しません(型パラメータの個数が違います: プレリュードは 1、宣言は 2)
+  [1]
+
+  $ printf 'newtype List[A] = Nil | Cons(A, tail: List[A])\n' > d4.kel
+  $ diktor --type-check d4.kel
+  ! d4.kel:1:1: 型エラー: newtype List の宣言がプレリュードの宣言と一致しません(コンストラクタ Cons の第1フィールドのラベルが違います: プレリュードは head、宣言は ラベルなし)
+  [1]
+
+  $ printf 'type Unit = Int32\n' > d5.kel
+  $ diktor --type-check d5.kel
+  ! d5.kel:1:1: 型エラー: 型エイリアス Unit の宣言がプレリュードの宣言と一致しません(本体が違います)
+  [1]
+
+  $ printf 'type Unit = NoSuchType\n' > d6.kel
+  $ diktor --type-check d6.kel
+  ! d6.kel:1:1: 型エラー: 型エイリアス Unit の宣言がプレリュードの宣言と一致しません(本体が違います)
+  [1]
+
+  $ printf 'effect Console = { write: (Int32) => Unit }\n' > d7.kel
+  $ diktor --type-check d7.kel
+  ! d7.kel:1:1: 型エラー: effect Console の宣言がプレリュードの宣言と一致しません(操作 write の型が違います)
+  [1]
+
+  $ printf 'type class Add[A] { val add: (A, A) => Boolean }\n' > d8.kel
+  $ diktor --type-check d8.kel
+  ! d8.kel:1:1: 型エラー: type class Add の宣言が組み込みの宣言と一致しません(メソッド add の型が違います)
+  [1]
+
+受理側 — 順序違いは許し、ラベルは照合する(仕様どおりの再宣言が全部通り、
+仕様の Cons(head = ...) が書けるようになった = prelude §15.2 の宿題の回収):
+
+  $ cat > d9.kel <<'KEL'
+  > newtype Option[A] = Some(A) | None
+  > newtype List[A] = Cons(head: A, tail: List[A]) | Nil
+  > type Unit = {}
+  > effect Console = { write: (String) => Unit }
+  > type class Add[A] { val add: (A, A) => A }
+  > let l = Cons(head = 1, tail = Nil)
+  > echoln(show(l match { case Cons(head = h) => h case Nil => 0 }))
+  > KEL
+  $ diktor d9.kel
+  1

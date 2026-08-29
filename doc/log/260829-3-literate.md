@@ -74,6 +74,8 @@ lowline_list は不可)、EQ_GREATER の pop 条件の過大な説明、浮動�
    整数も Int64 全域に。D24)
 5. decls.ml `add_data`: プレリュード所有名を**異なるコンストラクタ集合**で
    再宣言しても黙って無視される(sample.kel は同じ定義を書くので実害未発生)
+   — **260829-4 M15(C1 / D35)で修正済み**。data / alias / effect / class の
+   4 表に構造照合(α 同値)を実装。prelude の List もラベルつきに
 6. interp.ml `register_class_methods`: 同名メソッドを持つクラスが複数あると
    非修飾名の解決が登録順に依存する(修飾名は常に正しい)
    — **260829-4 M11(B4)で修正済み**。実際は「登録順依存」に留まらず、

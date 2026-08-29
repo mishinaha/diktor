@@ -251,6 +251,156 @@ let resolve_con c = match Hashtbl.find_opt con_synonyms c with Some c' -> c' | N
 
    > この線だけは越えないこと。越えた瞬間、mgu が一意でなくなる。 *)
 
+(* ## 6.4b 構造照合 — 受理する前に、同じものかを確かめる(D35)
+
+   「照合の上で受理」(乖離 4)の照合の実体です。かつては名前が一致する
+   ことしか見ておらず、プレリュード所有名の再宣言は**宣言ごと黙って消えて**
+   いました — 嘘のコンストラクタ集合の newtype、本体の違う型エイリアス、
+   操作の型が違う effect、どれも exit 0・警告ゼロで受理され、以後は
+   プレリュード側の定義だけが生きていました(260829-3 課題 5。9 通りの
+   再現を実測)。「これが標準ライブラリの中身だ」と示す教材の宣言が、
+   本物と食い違っていても誰も気づかない、ということです。
+
+   照合するのは「Keleut のプログラムから**観測できるもの**」だけです。
+
+   - newtype: コンストラクタ名の**集合**、各コンストラクタのフィールドの
+     数・ラベル・型(α 同値)、型パラメータの個数とカインドと制約、
+     `???`(不透明)かどうか。**コンストラクタの宣言順は照合しない** —
+     Keleut にコンストラクタ序数は無く、順序は観測できません。
+   - 型エイリアス: 種別(: Type / : EffectRow)、パラメータ、本体の型式
+     (パラメータ名は位置で読み替える — `[A] = (A, A)` と `[B] = (B, B)`
+     は同じ宣言)。
+   - effect: 操作名の集合と、各操作のスキーマ(α 同値)。
+   - type class: パラメータのカインド、`derive structural` の有無、
+     **メソッド名集合の完全一致**と各メソッド型(α 同値)。従来の
+     「部分集合は許す」は撤回しました — 宣言は部分的な記述ではなく完全な
+     記述である、が newtype / effect と揃う読み方です(D35)。
+   - インスタンス: キー一致のみ(本体は第11章が独立に検査します)。
+   - extern: 照合せず拒否のまま(§6.2 — 照合すべき実体が処理系側に無い)。
+
+   型の比較は α 同値です。Generic 変数は**双方向の全単射**で対応づけ、
+   行はラベルごとに列を分けて突き合わせます(同一ラベル内の順序は保ち、
+   異なるラベル間の順序は無視 — Scoped Labels、D5)。カインドは**純粋な**
+   `kind_equiv` で比べます — `same_kind` は KVar を破壊的に張るので、
+   照合に使うと宣言の順序で結果が変わってしまいます。 *)
+
+let rec kind_equiv a b =
+  match (Type.kind_repr a, Type.kind_repr b) with
+  | Type.KStar, Type.KStar | Type.KRow, Type.KRow -> true
+  | Type.KArrow (a1, a2), Type.KArrow (b1, b2) -> kind_equiv a1 b1 && kind_equiv a2 b2
+  | Type.KVar _, Type.KVar _ -> true (* 未確定どうしは同型とみなす(張らない) *)
+  | _ -> false
+
+(* α 同値。m / rev は Generic / Unbound 変数の vid の双方向対応で、
+   宣言単位で共有する(同じパラメータは全フィールドで同じ相手に写る) *)
+let ty_equiv_with (m : (oid, oid) Hashtbl.t) (rev : (oid, oid) Hashtbl.t) a b =
+  let var_pair (ia : Type.var_info) (ib : Type.var_info) =
+    match (Hashtbl.find_opt m ia.Type.vid, Hashtbl.find_opt rev ib.Type.vid) with
+    | Some x, Some y -> x = ib.Type.vid && y = ia.Type.vid
+    | None, None ->
+        Hashtbl.replace m ia.Type.vid ib.Type.vid;
+        Hashtbl.replace rev ib.Type.vid ia.Type.vid;
+        true
+    | _ -> false
+  in
+  let rec go a b =
+    match (Type.repr a, Type.repr b) with
+    | Type.TCon (ca, aa), Type.TCon (cb, ab) -> ca = cb && List.length aa = List.length ab && List.for_all2 go aa ab
+    | Type.TApp (fa, xa), Type.TApp (fb, xb) -> go fa fb && go xa xb
+    | Type.TArrow (pa, ra, ea), Type.TArrow (pb, rb, eb) -> go pa pb && go ra rb && go ea eb
+    | Type.TRecord ra, Type.TRecord rb | Type.TVariant ra, Type.TVariant rb -> row_equiv ra rb
+    (* 空行どうしはここで打ち切る。row_equiv に回すと、尾部の比較が
+       また空行どうしになって無限再帰する(実装時に踏んだ罠) *)
+    | Type.TRowEmpty, Type.TRowEmpty -> true
+    | Type.TRowExtend _, (Type.TRowEmpty | Type.TRowExtend _) | Type.TRowEmpty, Type.TRowExtend _ -> row_equiv a b
+    | Type.TVar ra, Type.TVar rb -> (
+        match (!ra, !rb) with
+        | Type.Generic ia, Type.Generic ib | Type.Unbound ia, Type.Unbound ib ->
+            var_pair ia ib
+            && kind_equiv ia.Type.vkind ib.Type.vkind
+            && List.sort compare ia.Type.vcls = List.sort compare ib.Type.vcls
+        | _ -> false)
+    | _ -> false
+  and row_equiv ra rb =
+    let fa, ta = Type.row_fields ra in
+    let fb, tb = Type.row_fields rb in
+    let group fs =
+      List.fold_left
+        (fun acc (l, t) ->
+          let prev = Option.value ~default:[] (List.assoc_opt l acc) in
+          (l, prev @ [ t ]) :: List.remove_assoc l acc)
+        [] fs
+    in
+    let ga = group fa and gb = group fb in
+    List.length ga = List.length gb
+    && List.for_all
+         (fun (l, ts) ->
+           match List.assoc_opt l gb with
+           | Some ts' -> List.length ts = List.length ts' && List.for_all2 go ts ts'
+           | None -> false)
+         ga
+    && go ta tb
+  in
+  go a b
+
+let ty_equiv a b = ty_equiv_with (Hashtbl.create 8) (Hashtbl.create 8) a b
+
+(* パラメータを位置で対応づけて全単射の種にする。個数・カインド・制約も
+   ここで照合する *)
+let params_match (prev_ps : Type.var_info list) (info_ps : Type.var_info list) m rev =
+  List.length prev_ps = List.length info_ps
+  && List.for_all2
+       (fun (pa : Type.var_info) (pb : Type.var_info) ->
+         Hashtbl.replace m pa.Type.vid pb.Type.vid;
+         Hashtbl.replace rev pb.Type.vid pa.Type.vid;
+         kind_equiv pa.Type.vkind pb.Type.vkind && List.sort compare pa.Type.vcls = List.sort compare pb.Type.vcls)
+       prev_ps info_ps
+
+(* 型式(source)の比較。エイリアス本体は精緻化済みの型を持たないので、
+   span を無視して構文を再帰する。パラメータ名は位置対応の表で読み替える *)
+let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_, b) : T.type_exp) =
+  let id_equiv (la : long_id) (lb : long_id) =
+    match (la, lb) with
+    | LongId [ na ], LongId [ nb ] -> (
+        match List.assoc_opt na ren with Some nb' -> nb = nb' | None -> na = nb)
+    | LongId xs, LongId ys -> xs = ys
+  in
+  match (a, b) with
+  | T.EIdent la, T.EIdent lb -> id_equiv la lb
+  | T.EApply (fa, xa), T.EApply (fb, xb) ->
+      type_exp_equiv ren fa fb && List.length xa = List.length xb && List.for_all2 (type_exp_equiv ren) xa xb
+  | T.EArrow (pa, ra, ea), T.EArrow (pb, rb, eb) ->
+      List.length pa = List.length pb
+      && List.for_all2 (type_exp_equiv ren) pa pb
+      && type_exp_equiv ren ra rb
+      && (match (ea, eb) with
+         | None, None -> true
+         | Some x, Some y -> type_exp_equiv ren x y
+         | _ -> false)
+  | T.EBraceRow (ea, ta), T.EBraceRow (eb, tb) ->
+      List.length ea = List.length eb
+      && List.for_all2
+           (fun x y ->
+             match (x, y) with
+             | T.BField (lx, tx), T.BField (ly, ty) -> lx = ly && type_exp_equiv ren tx ty
+             | T.BLabel (lx, ax), T.BLabel (ly, ay) ->
+                 id_equiv lx ly && List.length ax = List.length ay && List.for_all2 (type_exp_equiv ren) ax ay
+             | _ -> false)
+           ea eb
+      && (match (ta, tb) with
+         | None, None -> true
+         | Some x, Some y -> type_exp_equiv ren x y
+         | _ -> false)
+  | T.EVariantCase (na, pa), T.EVariantCase (nb, pb) ->
+      na = nb
+      && (match (pa, pb) with
+         | None, None -> true
+         | Some x, Some y -> type_exp_equiv ren x y
+         | _ -> false)
+  | T.EUnion xs, T.EUnion ys -> List.length xs = List.length ys && List.for_all2 (type_exp_equiv ren) xs ys
+  | T.EHole, T.EHole -> true
+  | _ -> false
+
 type alias_info = {
   al_name : oid;
   al_params : type_param list;
@@ -261,9 +411,27 @@ type alias_info = {
 let aliases : (oid, alias_info) Hashtbl.t = Hashtbl.create 64
 
 let add_alias info =
-  if Hashtbl.mem aliases info.al_name then (
+  if Hashtbl.mem aliases info.al_name then
     if not (prelude_owned "alias" info.al_name) then
-      type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています"))
+      type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
+    else (
+      (* 照合の上で受理(D35)。表の実体は差し替えない *)
+      let prev = Hashtbl.find aliases info.al_name in
+      let name = Type.name_of info.al_name in
+      let fail why = type_error ("型エイリアス " ^ name ^ " の宣言がプレリュードの宣言と一致しません(" ^ why ^ ")") in
+      if prev.al_kind <> info.al_kind then fail ": Type と : EffectRow が違います";
+      if List.length prev.al_params <> List.length info.al_params then
+        fail
+          (Printf.sprintf "型パラメータの個数が違います: プレリュードは %d、宣言は %d" (List.length prev.al_params)
+             (List.length info.al_params));
+      if
+        not
+          (List.for_all2
+             (fun (pa : type_param) (pb : type_param) -> pa.tp_arity = pb.tp_arity && pa.tp_classes = pb.tp_classes)
+             prev.al_params info.al_params)
+      then fail "型パラメータが違います";
+      let ren = List.map2 (fun (pa : type_param) (pb : type_param) -> (pa.tp_name, pb.tp_name)) prev.al_params info.al_params in
+      if not (type_exp_equiv ren prev.al_body info.al_body) then fail "本体が違います")
   else (
     Hashtbl.add aliases info.al_name info;
     mark "alias" info.al_name)
@@ -337,12 +505,49 @@ let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* ctor 名 → data 
 (* 組み込みスカラー型(Boolean/Int32/... は con_kinds にはあるが datas には無い) *)
 let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
+(* newtype の構造照合(D35)。観測できるもの — コンストラクタ名の集合、
+   フィールドの数・ラベル・型、パラメータ、不透明かどうか — を突き合わせ、
+   宣言順は照合しない *)
+let data_match (prev : data_info) (info : data_info) =
+  let name = Type.name_of info.dd_name in
+  let fail why = type_error ("newtype " ^ name ^ " の宣言がプレリュードの宣言と一致しません(" ^ why ^ ")") in
+  if prev.dd_opaque <> info.dd_opaque then fail "片方だけが ??? のホールです";
+  if List.length prev.dd_params <> List.length info.dd_params then
+    fail
+      (Printf.sprintf "型パラメータの個数が違います: プレリュードは %d、宣言は %d" (List.length prev.dd_params)
+         (List.length info.dd_params));
+  let m = Hashtbl.create 8 and rev = Hashtbl.create 8 in
+  if not (params_match prev.dd_params info.dd_params m rev) then fail "型パラメータのカインドか制約が違います";
+  let names cs = List.sort compare (List.map (fun (c : ctor_info) -> c.ct_name) cs) in
+  if names prev.dd_ctors <> names info.dd_ctors then
+    fail ("コンストラクタが違います: プレリュードは " ^ String.concat ", " (List.map (fun c -> Type.name_of c.ct_name) prev.dd_ctors));
+  List.iter
+    (fun (pc : ctor_info) ->
+      let ic = List.find (fun (c : ctor_info) -> c.ct_name = pc.ct_name) info.dd_ctors in
+      let cn = Type.name_of pc.ct_name in
+      if List.length pc.ct_fields <> List.length ic.ct_fields then
+        fail
+          (Printf.sprintf "コンストラクタ %s のフィールド数が違います: プレリュードは %d、宣言は %d" cn (List.length pc.ct_fields)
+             (List.length ic.ct_fields));
+      List.iteri
+        (fun i (pf, inf) ->
+          let show_l = function Some l -> Type.name_of l | None -> "ラベルなし" in
+          if pf.fi_label <> inf.fi_label then
+            fail
+              (Printf.sprintf "コンストラクタ %s の第%dフィールドのラベルが違います: プレリュードは %s、宣言は %s" cn (i + 1)
+                 (show_l pf.fi_label) (show_l inf.fi_label));
+          if not (ty_equiv_with m rev pf.fi_ty inf.fi_ty) then
+            fail (Printf.sprintf "コンストラクタ %s の第%dフィールドの型が違います" cn (i + 1)))
+        (List.combine pc.ct_fields ic.ct_fields))
+    prev.dd_ctors
+
 let add_data info =
   if Hashtbl.mem reserved_type_names info.dd_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.dd_name ^ " は newtype で再宣言できません")
   else if Hashtbl.mem datas info.dd_name then (
     if not (prelude_owned "data" info.dd_name) then
-      type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています"))
+      type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています")
+    else data_match (Hashtbl.find datas info.dd_name) info)
   else (
     Hashtbl.add datas info.dd_name info;
     mark "data" info.dd_name;
@@ -405,7 +610,20 @@ let op_index : (oid, oid list) Hashtbl.t = Hashtbl.create 64
 let add_effect info =
   if Hashtbl.mem effects info.ef_name then (
     if not (prelude_owned "effect" info.ef_name) then
-      type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています"))
+      type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています")
+    else
+      (* 照合の上で受理(D35): 操作名の集合と各スキーマの α 同値 *)
+      let prev = Hashtbl.find effects info.ef_name in
+      let name = Type.name_of info.ef_name in
+      let fail why = type_error ("effect " ^ name ^ " の宣言がプレリュードの宣言と一致しません(" ^ why ^ ")") in
+      let names ops = List.sort compare (List.map fst ops) in
+      if names prev.ef_ops <> names info.ef_ops then
+        fail ("操作が違います: プレリュードは " ^ String.concat ", " (List.map (fun (o, _) -> Type.name_of o) prev.ef_ops));
+      List.iter
+        (fun (op, pty) ->
+          let ity = List.assoc op info.ef_ops in
+          if not (ty_equiv pty ity) then fail ("操作 " ^ Type.name_of op ^ " の型が違います"))
+        prev.ef_ops)
   else (
     Hashtbl.add effects info.ef_name info;
     mark "effect" info.ef_name;
@@ -441,13 +659,14 @@ let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
    | 結果 | 意味 | 第11章がすること |
    |---|---|---|
    | `` `Added `` | 新規 | 宣言したメソッドをそのまま使う |
-   | `` `Builtin prev `` | 組み込みと同名 | **メソッド名を照合**し、型は組み込み側を使う |
-   | 例外 | ユーザ同士の重複 | 拒否 |
+   | `` `Builtin prev `` | 組み込みと同名・**構造照合済み** | 型は組み込み側を使う |
+   | 例外 | ユーザ同士の重複 / 照合不一致 | 拒否 |
 
-   ここでの「照合」の中身は、組み込みに無いメソッドを足していないかの確認
-   までです。メソッド型が組み込みと同型かまでは見ていません — sample.kel が
-   書いている `Add` の形が組み込みと一致していることは、教材としては
-   読者が目で確かめる前提になっています。 *)
+   照合の中身は §6.4b の D35 のとおりです — パラメータのカインド、derive の
+   有無、**メソッド名集合の完全一致**、各メソッド型の α 同値。かつては
+   「組み込みに無いメソッドを足していないか」の一方向・部分集合の確認だけで、
+   sample.kel の `Add` が組み込みと一致していることは読者が目で確かめる
+   前提でした。いまは処理系が確かめます。 *)
 
 type class_info = {
   ci_name : oid;
@@ -466,7 +685,26 @@ let find_class c = Hashtbl.find_opt classes c
    sample.kel 自身がプレリュード相当の Add 等を宣言するため(計画 §7.4 の運用裁定) *)
 let add_class_decl info =
   match Hashtbl.find_opt classes info.ci_name with
-  | Some prev when prev.ci_builtin -> `Builtin prev
+  | Some prev when prev.ci_builtin ->
+      (* 照合の上で受理(D35)。従来は「組み込みに無いメソッドを足して
+         いないか」の一方向・部分集合の照合(第11章)だったが、完全一致に
+         締めて第6章に一本化した *)
+      let name = Type.name_of info.ci_name in
+      let fail why = type_error ("type class " ^ name ^ " の宣言が組み込みの宣言と一致しません(" ^ why ^ ")") in
+      if not (kind_equiv prev.ci_param_kind info.ci_param_kind) then fail "パラメータのカインドが違います";
+      if prev.ci_derive_structural <> info.ci_derive_structural then fail "derive structural の有無が違います";
+      let names ms = List.sort compare (List.map fst ms) in
+      if names prev.ci_methods <> names info.ci_methods then
+        fail ("メソッドが違います: 組み込みは " ^ String.concat ", " (List.map fst prev.ci_methods));
+      let m = Hashtbl.create 8 and rev = Hashtbl.create 8 in
+      Hashtbl.replace m prev.ci_param.Type.vid info.ci_param.Type.vid;
+      Hashtbl.replace rev info.ci_param.Type.vid prev.ci_param.Type.vid;
+      List.iter
+        (fun (mn, pty) ->
+          let ity = List.assoc mn info.ci_methods in
+          if not (ty_equiv_with m rev pty ity) then fail ("メソッド " ^ mn ^ " の型が違います"))
+        prev.ci_methods;
+      `Builtin prev
   | Some _ -> type_error ("type class " ^ Type.name_of info.ci_name ^ " が二重に宣言されています")
   | None ->
       Hashtbl.add classes info.ci_name info;

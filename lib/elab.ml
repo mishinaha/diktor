@@ -2129,13 +2129,8 @@ let register_class env (c : T.class_decl') =
   with
   | `Added -> methods
   | `Builtin prev ->
-      (* 組み込みと同名: 組み込みに無いメソッドを足していないかだけ照合し(部分集合は許す)、
-         実体は組み込みを使う *)
-      List.iter
-        (fun (m, _) ->
-          if not (List.mem_assoc m prev.Decls.ci_methods) then
-            type_error ("組み込みクラス " ^ c.T.cls_name ^ " に無いメソッド " ^ m ^ " は宣言できません"))
-        methods;
+      (* 組み込みと同名: 構造照合は第6章の add_class_decl が済ませている
+         (D35)。実体は組み込みを使う *)
       prev.Decls.ci_methods
 
 (* ## 11.34 インスタンスの頭 — キーは名前 1 つ
