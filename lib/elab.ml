@@ -1463,13 +1463,32 @@ and method_scheme cls m =
 
    この 3 段が閉じているので、注釈付きの束縛は「本体では硬く、環境では
    多相」という 2 つの顔を、型スキーマ用のデータ型を 1 つも持たずに
-   実現できています。 *)
+   実現できています。
+
+   制約に書かれたクラス名は、剛定数を作るこの時点で検証します
+   (`class_names_of`)。かつては intern するだけで、未知のクラスは使用点の
+   `add_class` (§8.9) まで落ちませんでした。すると `let f[A: Bogus](x: A): A = x`
+   という宣言が通り、`f : [A: Bogus] (A) => A` と印字されてから、呼んだ場所で
+   ようやく「未知のクラス」になります。どこが悪いのかユーザに分からない
+   エラーの出方だったので、入口に検査を寄せました。 *)
+
+(* 型パラメータに書かれたクラス名を oid にする。宣言済みでなければその場で
+   落とす。使用点(unify.ml add_class)まで持ち越すと「宣言は通ったのに
+   呼ぶと落ちる」ことになり、しかも宣言の印字が先に出てしまう。
+   文言は add_class と一字一句そろえる *)
+and class_names_of tp =
+  List.map
+    (fun li ->
+      let c = intern (show_long_id li) in
+      if Decls.find_class c = None then type_error ("未知のクラス: " ^ show_long_id li);
+      c)
+    tp.tp_classes
 
 and make_rigids level tparams =
   List.map
     (fun tp ->
       let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
-      let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+      let classes = class_names_of tp in
       let r = ref (Rigid { vid = new_oid (); vlevel = level; vkind = kind; vcls = classes }) in
       (tp.tp_name, TVar r, r))
     tparams
@@ -1862,7 +1881,9 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    メソッドが自分の型パラメータを持てるので、2 種類を同じスキーマの中で
    Generic にする必要があります。クラスパラメータのほうには `vcls` として
    クラス名が貼ってあり、これが後で「この変数はこのクラスのインスタンスで
-   なければならない」という制約になります。
+   なければならない」という制約になります。メソッドの型パラメータに書かれた
+   **制約のクラス名の検証**だけは、ここでは行わずパス 1b の後に回してあります
+   (§11.39)。クラスどうしの宣言順に依存させないためです。
 
    `Integral` と `Fractional` はユーザ宣言できません。リテラル述語のために
    予約された名前です (D8、§11.2)。どの名前が予約かの表は第6章
@@ -2232,6 +2253,10 @@ let check_instance_bodies env (i : T.instance_decl') =
    クラスのメソッドは、非修飾名 (`map`) と修飾名 (`Functor.map`) の
    **両方**で値環境に登録します (乖離 12)。どちらでも書けるという仕様を、
    環境に 2 つ入れるという最も安い方法で実現しています。
+   1b の後始末として、クラスメソッドの型パラメータ制約に未知のクラスが
+   無いかだけを見る小さな検証ループが 1 つ走ります。表には何も登録しません。
+   1b の中 (`register_class`) で検査すると、後ろで宣言されるクラスを制約に
+   書いた形が落ちてしまうので、クラス表が出揃うのを待つのです。
 
    **1c — インスタンスの頭と前方参照シグネチャ。** 頭のカインド検査に
    クラス表が要るので 1b の後。署名の登録はここが最後のチャンスです
@@ -2281,6 +2306,16 @@ let process_decls env ~emit decls =
         | _ -> env)
       env decls
   in
+  (* 1b の後始末: クラスメソッドの型パラメータ制約に未知のクラスが無いか。
+     register_class は 1b で宣言順に走るので、そこで検査すると後方のクラスを
+     制約に書いた形が落ちる。クラス表が出揃ったここで見れば宣言順に依存しない *)
+  List.iter
+    (fun ((_, d) : T.decl) ->
+      match d with
+      | T.DClass c ->
+          List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
+      | _ -> ())
+    decls;
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
   let env =
     List.fold_left

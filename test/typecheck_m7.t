@@ -128,3 +128,25 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   $ diktor --type-check --no-prelude c8.kel
   ! 型エラー: Fractional は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
+
+型パラメータ制約の未知クラスは宣言時に落ちる(かつては宣言の印字が出てから
+使用点で落ち、クラスメソッド側は一切落ちなかった):
+
+  $ printf 'let f[A: Bogus](x: A): A = x\n' > c9.kel
+  $ diktor --type-check --no-prelude c9.kel
+  ! 型エラー: 未知のクラス: Bogus
+  [1]
+
+  $ printf 'type class C3[A] { val m[B: Bogus]: (A, B) => A }\n' > c10.kel
+  $ diktor --type-check --no-prelude c10.kel
+  ! 型エラー: 未知のクラス: Bogus
+  [1]
+
+制約のクラスは後方で宣言されていてもよい(検査はクラス表が出揃ってから):
+
+  $ cat > c11.kel <<'KEL'
+  > let uses2[A: Later2](x: A): A = lm2(x)
+  > type class Later2[A] { val lm2: (A) => A }
+  > KEL
+  $ diktor --type-check --no-prelude c11.kel
+  uses2 : [A: Later2] (A) => A
