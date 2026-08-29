@@ -672,6 +672,9 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    > 継続を捨てるときは、捨てたことを継続に知らせる。
 
+   この 3 径路の規約は、§13.6 の最外周ハンドラ(`with_runtime` の
+   `Console.write`)にも同じく効きます。
+
    ### 末尾 resume 最適化 — 性能ではなく実用条件
 
    上の 3 径路の判定は、節の評価を `match … with exception` で包むことを要求します。
@@ -1076,8 +1079,7 @@ let exec_decl env ((_, d) : T.decl) =
 
 let run ~sink decls =
   Hashtbl.reset user_instances;
-  Hashtbl.reset Builtin.fs;
-  Hashtbl.reset Builtin.handles;
+  Builtin.reset_fs ();
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;

@@ -116,8 +116,11 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    します。表に無い未知名の宣言は従来どおり素通りです — 本物の C FFI は
    本質的に検証不能な宣言であり、その線引きは意図的なものです。
 
-   第14章の `run` は実行のたびにこの 2 枚を `Hashtbl.reset` します。
-   ゴールデンテストの間で状態が漏れないのはそのおかげです。
+   第14章の `run` は実行のたびに `reset_fs` で状態を戻します。戻すのは
+   表 2 枚と `next_handle` の **3 つ**で、1 つの関数にまとめてあるのは
+   呼び出し側に数え漏れをさせないためです — かつて run は表 2 枚だけを
+   戻していて、ハンドル番号が再入 API では実行回数に依存していました。
+   実行の中では単調増加、実行の間では 0 に戻る、が正しい姿です。
 
    > 張りぼてを置くのは構わない。張りぼてだと書かないのが害である。 *)
 
@@ -128,6 +131,14 @@ let fs : (string, string) Hashtbl.t = Hashtbl.create 8
 let handles : (int32, string) Hashtbl.t = Hashtbl.create 8
 
 let next_handle = ref 0l
+
+(* 実行のたびに張りぼてを空にする(C14)。3 枚まとめて戻すのは、呼び出し側に
+   数え漏れをさせないため — かつて run は fs と handles だけを戻し、
+   next_handle が漏れていた(再入 API でハンドル番号が実行回数に依存する) *)
+let reset_fs () =
+  Hashtbl.reset fs;
+  Hashtbl.reset handles;
+  next_handle := 0l
 
 (* ## 13.4 プリミティブ表 — 名前から実装への連想リスト
 
@@ -411,7 +422,15 @@ let builtin_method cls con meth : (t -> t) option =
 
    `Effect.Deep.match_with` の 3 つの欄のうち、`retc` は恒等、`exnc` は
    そのまま再送出です。つまりこのハンドラは**値と例外に対しては透明**で、
-   自分の知っている操作だけを横から捕まえます。知らない `Op` には `None` を
+   自分の知っている操作だけを横から捕まえます。ただしそれは retc / exnc の
+   話で、`effc` の**中で**起きた例外は別です — 第14章 §14.10 の 3 径路の
+   規約は最外周のこの 1 枚にも同じく効きます。`sink` の書き込みが落ちたら
+   `discontinue` で捨てる継続に知らせます(B6。素の raise だと捨てた継続の
+   中の cancel が走らない — 第14章の速い経路と同型の穴でした)。sink が
+   落ちる現実の経路は標準出力の書き込み失敗だけで、そのとき利用者の
+   cancel 節の出力も同じ壊れた標準出力へ行くため、エンドツーエンドの
+   ゴールデンは書けません(正直に記録)。検証は第16章の出力エラー経路
+   (終了コード 74)のゴールデンと、この段落のレビューが担います。知らない `Op` には `None` を
    返して外へ通し、その先には誰もいないので `Effect.Unhandled` になります。
    これを操作名込みのメッセージに翻訳するのは第16章 (driver.ml) の仕事です。
    既定の例外表示は `Op` の中身を出さないので、driver は
@@ -466,8 +485,12 @@ let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
           | Op (op, args) when op = op_console_write ->
               Some
                 (fun (k : (a, _) Effect.Deep.continuation) ->
-                  sink (as_text (arg1 args));
-                  Effect.Deep.continue k unit)
+                  (* 第14章 §14.10 の 3 径路と同じ規約(B6)。sink が落ちても
+                     捨てる継続に知らせる。continue は値の枝(trap の外)に
+                     あるので末尾発行のまま *)
+                  match sink (as_text (arg1 args)) with
+                  | () -> Effect.Deep.continue k unit
+                  | exception ex -> Effect.Deep.discontinue k ex)
           | Op (op, _) when op = op_async_yield || op = op_async_sleep ->
               (* v0: 型 + 実行時 no-op(計画 §2.1 §11) *)
               Some (fun k -> Effect.Deep.continue k unit)

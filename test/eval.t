@@ -311,3 +311,17 @@ Run モードでも網羅性警告は stderr に出る:
   $ diktor deadop.kel
   ⚠ この操作節は到達しません(前の節が既に取りこぼしません)
   1
+
+ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
+再入 API で番号が実行回数に依存する):
+
+  $ cat > handle.kel <<'EOF2'
+  > let h = __open("a.txt")
+  > echoln(show(h))
+  > let _ = __close(h)
+  > let h2 = __open("b.txt")
+  > echoln(show(h2))
+  > EOF2
+  $ diktor handle.kel
+  1
+  2
