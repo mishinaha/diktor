@@ -76,8 +76,9 @@ MiniLang より厳しくなる点):
   ! amb.kel:2:1: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
   [1]
 
-エイリアスのパラメータ制約は展開時に課される(D51。newtype と同じ扱い。
-かつては黙って無視され、同じ構文の意味が宣言種別で違った):
+エイリアスのパラメータ制約は言及時に課される(D51。エイリアスは透過で
+構築点が無いので、newtype の「構築時」より早い時点になる。かつては
+黙って無視された):
 
   $ printf 'type P[A: Show] = (A, A)\nlet ok: P[Int32] = (1i32, 2i32)\n' > alc.kel
   $ diktor --type-check --no-prelude alc.kel
@@ -91,9 +92,10 @@ MiniLang より厳しくなる点):
   ! alc2.kel:3:10: 型エラー: NoShow は Show のインスタンスではありません
   [1]
 
-derive structural はカインドでも弾く(D9 — sample.kel §14 の TODO への
-回答: 弾ける。構造的導出はレコード・ヴァリアントに配る規則なので
-Type のクラスにしか意味が無い):
+derive structural はユーザの新クラスでは全面拒否(M15)。カインド検査
+(D9 — sample.kel §14 の TODO への回答: 弾ける)が単独で効くのは
+組み込みと同名のクラスの再宣言だけ。案内が行動可能なほう(全面拒否)を
+先に出す:
 
   $ cat > c14.kel <<'KEL'
   > type class MyF[F[_]] {
@@ -102,5 +104,59 @@ Type のクラスにしか意味が無い):
   > }
   > KEL
   $ diktor --type-check --no-prelude c14.kel
-  ! c14.kel:1:1: 型エラー: derive structural は Type のクラスにしか付けられません(MyF のパラメータは [_] Type です)
+  ! c14.kel:1:1: 型エラー: derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)
+  [1]
+  $ cat > c14b.kel <<'KEL'
+  > type class Eq[F[_]] {
+  >   val eq[A]: (F[A], F[A]) => Boolean
+  >   derive structural
+  > }
+  > KEL
+  $ diktor --type-check c14b.kel
+  ! c14b.kel:1:1: 型エラー: derive structural は Type のクラスにしか付けられません(Eq のパラメータは [_] Type です)
+  [1]
+
+コンストラクタ由来の制約つき変数も台帳に載る(M17 検証。かつて
+subst_params 経路が台帳をすり抜け、Empty 由来の Show だけ素通りした):
+
+  $ cat > fn1.kel <<'KEL'
+  > newtype Box[A: Show] = Empty | Box(A)
+  > let idf[A](x: A): A = x
+  > let g(): String = { let e = idf(Empty); "x" }
+  > KEL
+  $ diktor --type-check --no-prelude fn1.kel
+  idf : (A) => A
+  ! fn1.kel:3:5: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
+  [1]
+
+instance 本体にも宣言終端の掃き出しが掛かる(M17 検証。値制限で
+一般化されない本体 let は all=false 検査を通らない):
+
+  $ cat > inam.kel <<'KEL'
+  > type class C[A] { val cm: (A) => A @ {} }
+  > let read_[A: Show](s: String): A = ???
+  > let idf[A](x: A): A = x
+  > type instance C[Int32] { let cm = { show(read_("z")); idf(fn(x: Int32) => x) } }
+  > KEL
+  $ diktor --type-check --no-prelude inam.kel
+  read_ : [A: Show] (String) => A
+  idf : (A) => A
+  ! inam.kel:4:1: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
+  [1]
+
+制約つきエイリアスは宣言スキーマの位置(newtype フィールド・クラス
+メソッド型)でも使える — Generic のパラメータが制約を持っていれば
+満たされ、無ければ制約を書けと案内される(M17 検証。かつて add_class が
+Generic を扱えず、満たしていても落ちた):
+
+  $ cat > alg.kel <<'KEL'
+  > type P[A: Show] = (A, A)
+  > newtype Wrap[B: Show] = Wrap(P[B])
+  > let w = Wrap((1i32, 2i32))
+  > KEL
+  $ diktor --type-check --no-prelude alg.kel
+  w : Wrap[Int32]
+  $ printf 'type P[A: Show] = (A, A)\nnewtype Wrap[B] = Wrap(P[B])\n' > alg2.kel
+  $ diktor --type-check --no-prelude alg2.kel
+  ! alg2.kel:2:24: 型エラー: 型パラメータ A は Show のインスタンスではありません。[A: Show] のように制約を書いてください
   [1]

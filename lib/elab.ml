@@ -415,7 +415,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
       TVariant (fold rows)
   | T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)"
 
-(* ## 11.5 エイリアスは透過・非再帰・部分適用禁止
+(* ## 11.5 エイリアスは透過・非再帰・部分適用禁止・制約は言及時
 
    型エイリアスは**透過**です。表に本体をしまっておき、使われるたびに
    その場で精緻化して展開します。展開後の型に「元はエイリアスだった」という
@@ -440,6 +440,16 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
    実装されています。
 
    > 型シノニムの部分適用を許した瞬間、それは型レベルλになる。
+
+   第 3 の規則が M17 (D51) で加わりました。
+
+   > **規則 3: パラメータ制約は言及時に課す。**
+
+   `type P[A: Show] = (A, A)` の `Show` は `P[X]` と**書いた時点**で `X` に
+   要求されます。エイリアスは透過で構築点を持たないので、制約を効かせ
+   られる場所は言及時しかありません(newtype の制約が値の構築時に効くのと
+   対照的に、より早い時点になります)。かつては tp_classes が黙って無視され、
+   同じ構文を書いても何も起きませんでした。
 
    `check_no_hole` は、その規則の系です。引数位置に `_` が書けてしまうと
    「引数を捨てる型関数」を書いたのと同じことになるので、インスタンス頭
@@ -467,11 +477,13 @@ and expand_alias env level ~expanding info args =
   else
     (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま) *)
     let arg_tys = List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args in
-    (* パラメータ制約は展開時に課す(M17 / D51。newtype と同じ扱い)。
+    (* パラメータ制約は展開時 = **型を書いた時点**で課す(M17 / D51)。
        エイリアスは透過で、展開後の型に制約の痕跡が残らない — だから
-       その場で見るしかない。かつては tp_classes を一切見ず、同じ構文が
-       newtype では効きエイリアスでは黙って無視されるという不整合だった
-       (type P[A: Show] = (A, A) に非 Show の型が通った — 実測) *)
+       その場で見るしかない。newtype より**早い**時点になる(newtype の
+       制約は値の構築時に効く。Box[NoShow] は型として書けるが Box(v) で
+       落ちる — エイリアスに構築点は無いので言及時しかない)。かつては
+       tp_classes を一切見ず、type P[A: Show] = (A, A) に非 Show の型が
+       黙って通った(実測) *)
     List.iter2
       (fun (tp : type_param) t -> List.iter (fun li -> Unify.add_class t (intern (show_long_id li))) tp.tp_classes)
       info.Decls.al_params arg_tys;
@@ -704,7 +716,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
                 args;
               Tree.set_resolved node (Tree.RCtorPat (dname, ctor, field_to_arg));
               let subst =
-                List.map (fun (i : var_info) -> (i.vid, new_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
+                List.map (fun (i : var_info) -> (i.vid, Unify.new_class_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
               in
               Unify.unify expected (TCon (dname, List.map snd subst));
               let env = ref env in
@@ -1193,7 +1205,7 @@ and elab_construct env level node cname ?eff args =
           type_error ("コンストラクタ " ^ cname ^ " の引数が不足しています(式では全フィールド必須)");
         Tree.set_resolved node (Tree.RCtor (dname, ctor, arg_to_field));
         let subst =
-          List.map (fun (i : var_info) -> (i.vid, new_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
+          List.map (fun (i : var_info) -> (i.vid, Unify.new_class_var ~kind:i.vkind ~classes:i.vcls level)) dd.Decls.dd_params
         in
         List.iteri
           (fun ai (_, e) ->
@@ -1936,9 +1948,9 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   | T.PVar x ->
       List.iter warn (Exhaust.drain ());
       if gen then (
-        (* 一般化の直前に曖昧性を見る(M17 / D48)。drain → 曖昧性 →
-           generalize の順 — 一般化の後では Unbound が Generic に変わって
-           判定できず、drain より前では警告の順序が入れ替わる *)
+        (* 一般化の直前に曖昧性を見る(M17 / D48)。generalize より前で
+           なければならない — 後では Unbound が Generic に変わって判定
+           できない *)
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty);
       release_rigids rigids;
@@ -2291,24 +2303,26 @@ let register_class env (c : T.class_decl') =
   List.iter
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
-  (* derive structural のカインド検査(M17 / D9 — sample.kel:597 の TODO
-     「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」への
-     回答: 弾ける)。構造的導出はレコード・ヴァリアントに配る規則なので
-     Type のクラスにしか意味が無い。[_] Type のクラスに書いても第8章の
-     add_class のカインド検査に届く前に、宣言時にここで落とす *)
-  (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
-     type_error
-       ("derive structural は Type のクラスにしか付けられません(" ^ c.T.cls_name ^ " のパラメータは "
-      ^ show_kind param_kind ^ " です)"));
   (* derive structural はユーザの新クラスには書けない(sample.kel:297
      「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
      自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
      構造的導出を認めるのに、実行時の構造的フォールバック(§14.7)は
      Eq.eq 決め打ちなので、型検査を通ったプログラムが必ず実行時に落ちる
      (M15 検証)。プレリュード所有クラスの再宣言(D35)は照合対象なので
-     ここでは弾かない — 集合の一致は add_class_decl が見る *)
+     ここでは弾かない — 集合の一致は add_class_decl が見る。
+     カインド検査より**先**に置く: 逆順だと、新クラスに「カインドを直せ」
+     という直しようのない案内が出る(直すと今度はこちらに当たる — M17 検証) *)
   (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
      type_error "derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)");
+  (* derive structural のカインド検査(M17 / D9 — sample.kel:597 の TODO
+     「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」への
+     回答: 弾ける)。構造的導出はレコード・ヴァリアントに配る規則なので
+     Type のクラスにしか意味が無い。上の全面拒否があるので、ここが単独で
+     効くのは組み込みと同名のクラスの再宣言だけ *)
+  (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
+     type_error
+       ("derive structural は Type のクラスにしか付けられません(" ^ c.T.cls_name ^ " のパラメータは "
+      ^ show_kind param_kind ^ " です)"));
   let methods =
     List.map
       (fun (v : T.class_val) ->
@@ -2830,6 +2844,15 @@ let process_decls env ~emit decls =
    `step` は宣言 1 つを処理して新しい環境を返します。宣言の種類ごとの
    仕事は次のとおりです。
 
+   `DLet` / `DLetRec` / `DExp` / `DInstance` では、既定化の直前に宣言終端の
+   曖昧性検査 (M17 / D48) を回します — 宣言の型から到達できない制約は
+   もう誰にも決められないからです。`DExp` も対象なので、**文の位置に
+   捨てられた式の制約も曖昧として落ちます**。seq を let に脱糖する
+   MiniLang では値が一般化されて通る形なので、ここは MiniLang より
+   厳しくなっています。`DType` / `DNewtype` / `DEffect` / `DClass` /
+   `DExtern` では回しません — 宣言の型に相当するものが無く、空の到達
+   集合で掃くと偽陽性になります。
+
    - `DType` — パス 1a で表に入っているので、ここでは**検査のためだけに**
      本体を精緻化して結果を捨てます。未知の型・再帰・部分適用が
      この時点で報告されます。使われないエイリアスの誤りが黙って残らないように。
@@ -2933,6 +2956,18 @@ let process_decls env ~emit decls =
       | T.DClass _ -> env (* パス1で登録済み *)
       | T.DInstance i ->
           check_instance_bodies env i;
+          (* インスタンス本体にも宣言終端の掃き出しを掛ける(M17 検証 —
+             値制限で一般化されない本体 let は all=false 検査(gen ガード)を
+             通らず、曖昧な制約が台帳ごと捨てられていた)。到達集合は
+             各メソッド束縛の型 *)
+          Unify.check_ambiguity ~all:true ~level:0
+            (List.concat_map
+               (fun ((_, d) : T.decl) ->
+                 match d with
+                 | T.DLet b -> [ Tree.get_ty b ]
+                 | T.DLetRec bs -> List.map Tree.get_ty bs
+                 | _ -> [])
+               i.T.ins_body);
           env
       | T.DModule _ ->
           (* 平坦化を通っていれば到達しない。来たら不変条件違反 = 処理系の欠陥 *)

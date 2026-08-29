@@ -189,11 +189,17 @@ let rec occurs_adjust tv lvl t =
 
    | `t` の形 | すること |
    |---|---|
-   | `Unbound` | 制約集合に合併する。予約述語なら台帳にも載せる |
-   | `Rigid` | 宣言に無い制約はエラー (直しようを案内する) |
+   | `Unbound` | 制約集合に合併する。台帳にも載せる |
+   | `Rigid` / `Generic` | 宣言に無い制約はエラー (直しようを案内する) |
    | `TCon` | インスタンス表を引き、前提 (`ii_premises`) を引数へ伝播 |
    | `TRecord` / `TVariant` | 構造的導出が有効なら、閉じた行の各フィールドへ |
    | `TApp` | 貼れない。エラー |
+
+   `Generic` の行は M17 (D51) で増えました。宣言スキーマの位置(newtype の
+   フィールド型・クラスメソッド型)で制約つきエイリアスを展開すると、
+   パラメータの Generic マークに制約の要求が届きます。規則は Rigid と
+   同じです — 宣言済みの制約に含まれていれば満たされ、無ければ
+   `[A: Show]` と書けと案内します。
 
    `Rigid` のケースが 2 通りのメッセージに分かれているのは親切ではなく
    必然です。予約述語 `Integral` はユーザが宣言できないクラス (D8) なので、
@@ -212,6 +218,8 @@ let rec occurs_adjust tv lvl t =
    `let f[A](x: A): A = 1` でも同じ分岐に着きます。
 
    構造的導出のケース (sample.kel:305-309) は Keleut 固有です。
+   `* -> *` のクラスがこの枝に到達し得ないのは、第11章が宣言時に
+   カインドで弾いているからです (M17 / D9)。
    `Eq` のようにクラス宣言に `derive structural` が付いていれば、
    レコードやヴァリアントを分解して各フィールドに同じ制約を配ります。
    ただし**行が閉じているときだけ**です。`{x: Int32 extends R}` の `R` に
@@ -230,8 +238,9 @@ let rec occurs_adjust tv lvl t =
    台帳は 2 つの仕事を兼ねます — 予約述語つきの弱変数を宣言の終わりに
    既定値へ落とす掃除 (§8.9 の `default_numerics`) と、型から到達できない
    制約つき変数を報告する曖昧性検査 (§8.9 の `check_ambiguity`、M17 / D48)。
-   同じ台帳で両方できるのは、どちらも
-   「型から到達できない制約つき変数を見つける」問題だからです。
+   同じ台帳に両方が乗るのは、どちらも「一般化・宣言の終わりまで
+   決まらなかった制約つき変数」を相手にする仕事だからです(既定化は
+   掃き出すだけで到達判定をしません — 到達を見るのは曖昧性検査だけ)。
    かつては予約述語つきだけを控えて掃除にしか使わず、曖昧性検査は
    「残っている穴の 1 つ」(第1章 §1.4)でした。 *)
 
@@ -240,6 +249,16 @@ let is_predicate c = c = cls_integral || c = cls_fractional
 (* 制約つき変数の台帳(宣言終了時の default_numerics が掃き、
    check_ambiguity が到達不能な制約を報告する) *)
 let class_vars : tvar ref list ref = ref []
+
+(* 制約つきの新変数は必ずここで作る — 作った時点で台帳に載せる。D48 の
+   「制約つき変数すべてを控える」は作成経路が 1 本でないと嘘になる
+   (M17 検証: コンストラクタ具体化の経路 — subst_params と第11章の
+   dd_params 直接展開 — が台帳をすり抜け、Empty のようなコンストラクタ
+   由来の制約だけ曖昧性検査を素通りしていた) *)
+let new_class_var ~kind ~classes level =
+  let v = new_var ~kind ~classes level in
+  (match v with TVar r when classes <> [] -> class_vars := r :: !class_vars | _ -> ());
+  v
 
 let rec add_class t c =
   let ci =
@@ -255,7 +274,11 @@ let rec add_class t c =
           if not (List.mem c i.vcls) then (
             v := Unbound { i with vcls = c :: i.vcls };
             class_vars := v :: !class_vars)
-      | Rigid i ->
+      | Rigid i | Generic i ->
+          (* Generic に届くのは宣言スキーマの位置(newtype フィールド・
+             クラスメソッド型)で制約つきエイリアスを展開したとき(D51 で
+             到達可能になった。M17 検証)。Rigid と同じ規則 — 宣言済みの
+             制約に含まれていれば満たされ、無ければ制約を書けと案内する *)
           if not (List.mem c i.vcls) then
             if is_predicate c then
               type_error "型パラメータに数値リテラルは使えません。0i32 のように接尾辞を付けるか具体型を使ってください"
@@ -652,7 +675,9 @@ let rec collect_vars t (acc : (oid, unit) Hashtbl.t) =
    既定化頼みの形が全部落ちる。kept には「まだ Unbound のもの」だけを
    残す — 到達不能な述語つき変数を default_numerics に届け続けるため
    であり、Link / Generic の死んだ項目を刈って走査を線形に保つためでも
-   ある(台帳は instantiate のたびに伸びる) *)
+   ある(台帳は instantiate のたびに伸びる)。刈っても、生きた制約つき
+   変数を大量に抱えた宣言では 検査点の数 × 台帳長 の積が残る —
+   病的な入力では二次(260829-5 台帳 V16、M19) *)
 let check_ambiguity ~all ~level tys =
   let reach = Hashtbl.create 32 in
   List.iter (fun t -> collect_vars t reach) tys;
@@ -702,10 +727,12 @@ let check_ambiguity ~all ~level tys =
    これ以上何もしません。Diktor の旧実装はこの複製が抜けていて
    (計画 §7.2)、制約が使用点に届いていませんでした。
 
-   複製した変数に予約述語が乗っていたら台帳にも載せます。§8.4 で述べたとおり、
-   一般化点に届かない述語つき変数を宣言の終わりに掃くためです。
-   `instantiate` はプログラム中で最も多く呼ばれる関数なので、
-   台帳が伸び続けないよう `default_numerics` が毎回空に戻します。
+   複製した変数に制約が乗っていたら台帳にも載せます(`new_class_var`
+   経由 — 制約つき変数の作成経路はこの 1 本に寄せてあります)。§8.4 で
+   述べたとおり、一般化点に届かない制約つき変数を宣言の終わりに掃き、
+   途中の一般化点では曖昧性を見るためです。`instantiate` はプログラム中で
+   最も多く呼ばれる関数なので、台帳が伸び続けないよう `default_numerics` が
+   毎宣言空に戻し、`check_ambiguity` も死んだ項目を刈ります。
 
    ### skolemize が vcls を持っていく
 
@@ -742,12 +769,12 @@ let check_ambiguity ~all ~level tys =
    と決めたおかげで型スキーマ用のデータ型すら不要になり、
    本章には `Scheme` に相当する型が 1 つも出てきません。
 
-   `reset` は台帳を空に戻すだけです。呼ぶのは第11章の `type_check_decls` で、
-   しかも後始末ではなく**検査を始める前**の初期化として、警告リストや
-   第10章のキューと並べて叩かれます。前の検査で溜まった述語つき変数を
-   次の検査へ持ち越さないための保険です。現状のドライバ (第16章) は
-   入力ファイルを 1 本の宣言列に連結して `type_check` を 1 回しか呼ばないので、
-   これが実際に効くのは将来 REPL やライブラリとして繰り返し呼ぶときです。 *)
+   `reset` は台帳を空に戻すだけです。呼び場所は 2 つ — 第11章の
+   `type_check_decls` が**検査を始める前**の初期化として警告リストや
+   第10章のキューと並べて叩き、`process_decls` が**パス 2 に入る直前**にも
+   叩きます。後者はパス 1(インスタンス頭・前方参照シグネチャの
+   instantiate)で溜まった制約つき変数を、宣言ごとの曖昧性判定に
+   持ち込まないための後始末で、1 回の型検査で 2 回走ります。 *)
 
 let map_generics_with memo f t =
   let rec go t =
@@ -779,11 +806,7 @@ let map_generics f t = map_generics_with (Hashtbl.create 8) f t
 let instantiate level t =
   map_generics
     (fun i ->
-      let v = new_var ~kind:i.vkind ~classes:i.vcls level in
-      (match v with
-      | TVar r when i.vcls <> [] -> class_vars := r :: !class_vars
-      | _ -> ());
-      v)
+      new_class_var ~kind:i.vkind ~classes:i.vcls level)
     t
 
 (* Generic → 現在のレベルの新しい剛定数(注釈の skolem 化) *)
@@ -792,7 +815,7 @@ let skolemize level t = map_generics (fun i -> TVar (ref (Rigid { i with vid = n
 (* Generic → 指定した型(データ宣言・エフェクト宣言のパラメータ置換) *)
 let subst_params level args t =
   map_generics
-    (fun i -> match List.assoc_opt i.vid args with Some t -> t | None -> new_var ~kind:i.vkind ~classes:i.vcls level)
+    (fun i -> match List.assoc_opt i.vid args with Some t -> t | None -> new_class_var ~kind:i.vkind ~classes:i.vcls level)
     t
 
 let reset () = class_vars := []
