@@ -115,3 +115,16 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   $ diktor --type-check --no-prelude c6.kel
   ! 型エラー: Integral は予約されたリテラル述語です(ユーザ宣言不可、D8)
   [1]
+
+予約述語はインスタンス宣言側の入口でも拒否される(D8。かつては素通りして
+制約解決に使われた):
+
+  $ printf 'type instance Integral[String] { }\n' > c7.kel
+  $ diktor --type-check --no-prelude c7.kel
+  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  [1]
+
+  $ printf 'type instance Fractional[String] { }\n' > c8.kel
+  $ diktor --type-check --no-prelude c8.kel
+  ! 型エラー: Fractional は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  [1]

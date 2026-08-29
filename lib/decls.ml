@@ -469,9 +469,20 @@ type instance_info = {
 
 let instances : (oid * oid, instance_info) Hashtbl.t = Hashtbl.create 256
 
+(* 予約述語(D8)の名前表。規則を持つのはこの表 1 枚で、クラス宣言側
+   (第11章 register_class)とインスタンス宣言側(下の add_instance)の
+   両方がここを引く。登録は §6.12 の register_builtins *)
+let reserved_predicates : (oid, unit) Hashtbl.t = Hashtbl.create 4
+let reserved_predicate c = Hashtbl.mem reserved_predicates c
+
 (* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:276)。
    組み込みと同じキーのユーザ宣言は照合の上で受理する(本体は検査される) *)
 let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
+  (* 予約述語はインスタンス側の入口でも拒否する(§6.12)。in_prelude の免除は
+     組み込み登録自身が Integral[Int32] / Fractional[Float64] をここから
+     入れるため *)
+  (if reserved_predicate cls && not !in_prelude then
+     type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   match Hashtbl.find_opt instances (cls, con) with
   | Some prev when prev.ii_builtin && not builtin ->
       (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い *)
@@ -619,15 +630,20 @@ let register_ref_array () =
    乗るときの挙動が自動的に正しくなる、というのが D8 の理由です。既定化は
    一般化の直前に走るので、通常はこの述語が表示に出ることはありません。
 
-   予約の効き方は**片側だけ**であることに注意してください。同名の
-   **クラス宣言**は第11章の `register_class` が名前を見て拒否します
-   (D8 が裁定しているのはここまでです)。ところが**インスタンス宣言のほうは
-   v0 では素通りします** — `register_instance` に同じ検査が無く、メソッドが
-   0 個なので網羅も過剰も何も言いません。`type instance Integral[String]`
-   と書けば表に載り、`[A: Integral]` の制約解決に本当に使われます。
-   塞ぐなら `register_instance` にも同じ名前検査を 1 つ足すことになります。
+   予約は**両方の入口**で効かせます。同名の**クラス宣言**は第11章の
+   `register_class` が拒否し、**インスタンス宣言**は §6.9 の `add_instance` の
+   先頭で拒否します。どちらの検査も §6.9 の `reserved_predicates` 表を引くので、
+   規則(どの名前が予約か)を持つのは第6章の表 1 枚だけです。
 
-   > 名前を予約したつもりでも、予約したのは入口の片方だけかもしれない。
+   かつてはクラス宣言側にしか検査が無く、`type instance Integral[String]` と
+   書けば表に載って `[A: Integral]` の制約解決に本当に使われました。メソッドが
+   0 個なので網羅も過剰も何も言わず、素通りだったのです。予約述語が汚染できると
+   リテラル既定化 (D8) の前提が崩れるので、入口の両方に検査を置きました。
+   インスタンス側の検査に `in_prelude` の免除が要るのは、この関数の下の
+   組み込み登録自身が `Integral[Int32]` / `Fractional[Float64]` を
+   `add_instance` で入れるからです。
+
+   > 名前を予約したつもりでも、予約したのは入口の片方だけだった。
 
    最後の `Never` の登録が §6.6 で述べた ctor ゼロのデータ宣言です。 *)
 
@@ -676,6 +692,7 @@ let register_builtins () =
     ~methods:(fun a -> [ ("show", arrow1 a Type.t_string) ])
     ~instances:("String" :: "Boolean" :: numerics);
   (* 予約述語(D8)。メソッドなしのクラスとして表に相乗りさせる *)
+  List.iter (fun n -> Hashtbl.replace reserved_predicates (intern n) ()) [ "Integral"; "Fractional" ];
   def_class "Integral" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Int32"; "Int64" ];
   def_class "Fractional" ~derive:false ~methods:(fun _ -> []) ~instances:[ "Float64" ];
   (* Never は ctor ゼロのデータ宣言(complete_sig が Some [] を返し、節ゼロの match が網羅になる) *)
@@ -725,6 +742,7 @@ let reset () =
   Hashtbl.reset prelude_keys;
   Hashtbl.reset con_synonyms;
   Hashtbl.reset reserved_type_names;
+  Hashtbl.reset reserved_predicates;
   Hashtbl.reset externs;
   in_prelude := false;
   register_builtins ()

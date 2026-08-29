@@ -1865,7 +1865,9 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    なければならない」という制約になります。
 
    `Integral` と `Fractional` はユーザ宣言できません。リテラル述語のために
-   予約された名前です (D8、§11.2)。
+   予約された名前です (D8、§11.2)。どの名前が予約かの表は第6章
+   (`Decls.reserved_predicate`) が持ち、ここはそれを引くだけです。
+   インスタンス宣言側の入口にも同じ表の検査があります (§6.12)。
 
    ### クラスパラメータが引数の頭に現れること
 
@@ -1901,7 +1903,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
-  (if c.T.cls_name = "Integral" || c.T.cls_name = "Fractional" then
+  (if Decls.reserved_predicate cls then
      type_error (c.T.cls_name ^ " は予約されたリテラル述語です(ユーザ宣言不可、D8)"));
   let param =
     match c.T.cls_params with
