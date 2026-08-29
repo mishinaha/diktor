@@ -1093,6 +1093,46 @@ let register_ref_array () =
   (let a = generic () and e = generic ~kind:Type.KRow () in
    def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
 
+(* ## 6.11b par / par_map — 型は書けるが値が書けない組(H2 / D45)
+
+   Ref / Array は「ソースに書ける構文では型が付けられない」ので組み込みに
+   なりました。`par` / `par_map` は**逆**です。型は下のとおり Keleut の
+   構文で書けますが、**値が Keleut ソースで書けない**ことが実測で確定して
+   います(計画 §10 H2)。理由はサブエフェクティングの不在(§11.26 /
+   計画 §12)で、決定的なものが 2 つ:
+
+   - `(fa(), fb())` を本体に書くと、その行が `@ {}` に固まり、トップレベル
+     (行 {Console, Async})から呼べない —「ラベル Console がありません」。
+   - `run h { … }` で書くと Heap[h] の立った文脈で `@ {}` の f を呼ぶ
+     ことになり「ラベル Heap がありません」。
+
+   だから Ref / Array と同じ組み込み登録にします(型はここ、値は §14.11 —
+   apply が第14章にあるので、実装は第13章にも置けません)。
+
+   型の要点は 2 つです。**コールバックの行は閉じた空行**(TRowEmpty)。
+   仕様 (sample.kel:476) の決定性保証 —「並列性は純粋な計算に限る」— は、
+   純粋であることの証明をここで要求し続けることに乗っています。そして
+   **外側の行は Generic の行変数**。TRowEmpty にするとトップレベルから
+   呼べない関数になります(実測済みの罠)。 *)
+let register_parallel () =
+  let arr_oid = intern "Array" in
+  let arrow args ret eff = Type.TArrow (Type.TRecord (closed_args_row args), ret, eff) in
+  let def name ty = builtin_ops := !builtin_ops @ [ (name, ty) ] in
+  (* par_map : [A, B] (Array[A], (A) => B @ {}) => Array[B] @ ρ *)
+  (let a = generic () and b = generic () and e = generic ~kind:Type.KRow () in
+   def "par_map" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] b Type.TRowEmpty ] (Type.TCon (arr_oid, [ b ])) e));
+  (* par : [A, B] (() => A @ {}, () => B @ {}) => (A, B) @ ρ *)
+  (let a = generic () and b = generic () and e = generic ~kind:Type.KRow () in
+   def "par" (arrow [ arrow [] a Type.TRowEmpty; arrow [] b Type.TRowEmpty ] (Type.TRecord (closed_args_row [ a; b ])) e));
+  (* pinned : [A, E] (() => A @ {Blocking extends E}) => A @ E(H11)。
+     Blocking は操作を持たない組み込みラベル(§6.11)なので、それを落とす
+     のは純粋に型の上の行為 — run が実行時に恒等写像である(§14.4)のと
+     同じ構図がもう一度出る。これが無いと @ Blocking の付いた関数を
+     実際に呼べるプログラムが書けない(Blocking はトップレベルの
+     ランタイム行に無い — 実測) *)
+  (let a = generic () and e = generic ~kind:Type.KRow () in
+   def "pinned" (arrow [ arrow [] a (Type.TRowExtend (Type.eff_blocking, Type.t_unit, e)) ] a e))
+
 (* ## 6.12 組み込みのクラスと数値インスタンス
 
    演算子が呼ぶクラス群(第7章 (prims.ml) の表の右辺)を、ここで直接
@@ -1197,7 +1237,8 @@ let register_builtins () =
   (* Never は ctor ゼロのデータ宣言(complete_sig が Some [] を返し、節ゼロの match が網羅になる) *)
   add_data { dd_name = intern "Never"; dd_params = []; dd_ctors = []; dd_opaque = false };
   builtin_ops := [];
-  register_ref_array ()
+  register_ref_array ();
+  register_parallel ()
 
 (* ## 6.13 値環境への流し込みと、表の初期化
 

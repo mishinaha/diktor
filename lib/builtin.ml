@@ -115,6 +115,9 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    仕様が落ちる)ので、既知名 5 本の型は第6章 §6.2b が**契約として照合**
    します。表に無い未知名の宣言は従来どおり素通りです — 本物の C FFI は
    本質的に検証不能な宣言であり、その線引きは意図的なものです。
+   `pinned`(§6.11b / §14.11)が入ったので、`@ Blocking` の付いた既知名を
+   実際に呼べるプログラムも書けます — Blocking を落とすのは型の上の
+   行為だけで、実行は恒等です。
 
    第14章の `run` は実行のたびに `reset_fs` で状態を戻します。戻すのは
    表 2 枚と `next_handle` の **3 つ**で、1 つの関数にまとめてあるのは
@@ -496,8 +499,10 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
      書き、prelude の `with_stdout` が `Print.print` を `Console.write` へ
      翻訳する、というのが意図された道です
    - `Async.yield_` と `Async.sleep` は即 `continue`。**型は本物、実行は
-     no-op** です(計画 §2.1 §11)。並行実行は v0 の範囲外で、
-     `par` / `par_map` も逐次のままです。sample.kel が型検査を通ることと、
+     no-op** です(計画 §2.1 §11)。並行実行は v0 の範囲外です。
+     `par` / `par_map` は逐次に実装されています(§14.11)— 純粋な
+     コールバックしか受け取らない(行が `@ {}` に閉じている)ので、
+     並列実行と観測同値です。sample.kel が型検査を通ることと、
      `yield_` を書いたプログラムが止まらずに走ることの両方を、
      嘘をつかずに満たす最小の実装がこれです
 

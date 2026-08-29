@@ -977,7 +977,33 @@ let register_builtin_values globals =
       | [ VArray a; f ] ->
           Array.iter (fun x -> ignore (apply f (VRecord [ (Type.l_item, x) ]))) a;
           unit
-      | _ -> runtime_error "Array.each の引数が不正です")
+      | _ -> runtime_error "Array.each の引数が不正です");
+  (* par / par_map(H2 / D45)。逐次実装が並列実行と**観測同値**である根拠は
+     スケジューラの不在ではなく、コールバックの行が @ {} に閉じている
+     こと — Heap も Console も Async も起こせないので、実行順序が観測
+     できない(§6.11b)。並列化したら変わる点が 1 つ: コールバックが
+     例外で脱出したとき、逐次では後続が評価されない(素の OCaml と同じ)。
+     par_map の返り値は新しい配列なので Heap[h] を持たない Array[B] —
+     Array が h を持たない既知の穴(計画 §11.2)に乗っているだけで、
+     新たな穴ではない *)
+  reg "par_map" (fun args ->
+      match Builtin.arg_values args with
+      | [ VArray a; f ] -> VArray (Array.map (fun x -> apply f (VRecord [ (Type.l_item, x) ])) a)
+      | _ -> runtime_error "par_map の引数が不正です");
+  reg "par" (fun args ->
+      match Builtin.arg_values args with
+      | [ fa; fb ] ->
+          (* 評価順は左から。OCaml の未規定評価順に任せない(計画 §8.3) *)
+          let va = apply fa unit in
+          let vb = apply fb unit in
+          VRecord [ (Type.l_item, va); (Type.l_item, vb) ]
+      | _ -> runtime_error "par の引数が不正です");
+  (* pinned は恒等(H11)。v0 が Blocking に負う観測可能な契約は「並列度を
+     減少させない」と「キャンセル配送点ではない」の 2 つで、タスクが 1 つ
+     (Async は no-op)・配送点が yield_ だけの v0 ではどちらも恒等実装が
+     満たす。スケジューラを持つ日に、専用スレッドへの束縛としてここを
+     差し替える *)
+  reg "pinned" (fun args -> apply (Builtin.arg1 args) unit)
 
 (* ## 14.12 クラスメソッドの識別子参照
 

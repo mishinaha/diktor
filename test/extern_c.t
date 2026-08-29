@@ -96,3 +96,25 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   $ diktor mun.kel
   実行時エラー: 未実装のプリミティブ: M.__no_such(実装名 __no_such が見つかりません)
   [3]
+
+pinned は Blocking を落とす(M16 / H11)。操作を持たないラベルを落とすのは
+型の上の行為だけで、実行は恒等(v0 はタスク 1 つ・Async no-op なので、
+仕様が Blocking に求める 2 契約を恒等が満たす):
+
+  $ cat > pin.kel <<'KEL'
+  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
+  > echoln(show(pinned(fn() => sqrt(16.0))))
+  > KEL
+  $ diktor pin.kel
+  4.0
+
+落とさずに呼ぶと従来どおり拒否:
+
+  $ cat > pinbad.kel <<'KEL'
+  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
+  > echoln(show(sqrt(16.0)))
+  > KEL
+  $ diktor --type-check pinbad.kel
+  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  ! pinbad.kel:2:13: 型エラー: ラベル Blocking がありません(行は閉じています)
+  [1]
