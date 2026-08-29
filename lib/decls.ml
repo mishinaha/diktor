@@ -98,6 +98,35 @@ let mark kind name = if !in_prelude then Hashtbl.replace prelude_keys (kind, nam
 
 let prelude_owned kind name = Hashtbl.mem prelude_keys (kind, name)
 
+(* 型名の名前空間は 1 つ — newtype も型エイリアスも effect も、名前は同じ
+   `con_kinds` に落ちる。ところが二重宣言検査は種別ごとの表に分かれている
+   ので、それだけだと**種別を替えた再宣言**が全部の検査をすり抜ける。
+   `type List[A] = Int32` は aliases 表には初出なので素通りし、以後の
+   `List[X]` がすべて Int32 を意味して、プレリュードの List は値だけ作れて
+   型名を書けない幽霊型になる(M15 検証)。§6.1 の理屈 —「名前だけを鍵に
+   すると、片方の登録がもう片方の再宣言を黙って許してしまう」— は、
+   同じ名前空間を共有する型名たちには裏返しに効く。先に置いた種別をここに
+   覚え、別種別での再宣言は登録の時点で拒否する *)
+let type_namespace : (oid, string) Hashtbl.t = Hashtbl.create 64
+
+let claim_type_name kind name =
+  match Hashtbl.find_opt type_namespace name with
+  | Some prev_kind when prev_kind <> kind ->
+      type_error (Type.name_of name ^ " は既に " ^ prev_kind ^ " として宣言されています(" ^ kind ^ " では再宣言できません)")
+  | _ -> Hashtbl.replace type_namespace name kind
+
+(* プレリュード所有名の「照合の上で受理」(D35)は 1 プログラム 1 回まで。
+   2 本目からはユーザ同士の重複そのもので、従来どおり拒否する。これが
+   無いと「二重に宣言されています」がプレリュード所有名についてだけ嘘に
+   なる — インスタンス側の builtin_redecls (§6.9) と同じ理屈(M15 検証) *)
+let user_type_redecls : (string * oid, unit) Hashtbl.t = Hashtbl.create 16
+
+let note_user_redecl kind name what =
+  if not !in_prelude then
+    if Hashtbl.mem user_type_redecls (kind, name) then
+      type_error (what ^ " " ^ Type.name_of name ^ " が二重に宣言されています")
+    else Hashtbl.add user_type_redecls (kind, name) ()
+
 (* ## 6.2 extern 登録簿 — 敵対的検証で塞いだ穴 (1)
 
    `extern` はプリミティブに**型を与える**宣言です。実装は第13章 (builtin.ml)
@@ -273,6 +302,8 @@ let add_val_synonym short qual =
 
 let resolve_val short = match Hashtbl.find_opt val_synonyms short with Some [ q ] -> Some q | _ -> None
 
+let val_synonym_candidates short = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short)
+
 (* ## 6.5 型エイリアス — 透過、非再帰、部分適用禁止
 
    エイリアスは**透過**です。表には elaborate 済みの型ではなく型式
@@ -395,13 +426,45 @@ let params_match (prev_ps : Type.var_info list) (info_ps : Type.var_info list) m
        prev_ps info_ps
 
 (* 型式(source)の比較。エイリアス本体は精緻化済みの型を持たないので、
-   span を無視して構文を再帰する。パラメータ名は位置対応の表で読み替える *)
+   span を無視して構文を再帰する。パラメータ名は位置対応の表で読み替える。
+
+   読み替えは**全単射**でなければならない(ty_equiv_with の m / rev と同じ)。
+   片方向の連想だけだと、宣言側のパラメータ名が相手側の自由な型名を捕獲する
+   — プレリュードの `type Cap[A] = (A, G)` に対しユーザの
+   `type Cap[G] = (G, G)` が「同じ宣言」と誤判定され、しかも表の実体は
+   プレリュード側のままなので、ユーザは自分の宣言が捨てられたことを
+   知らされない(M15 検証)。`na` が読み替え表に無いときは、`nb` が
+   **どの読み替えの像でもない**ことまで確かめてから素の名前比較に落とす。
+
+   行とヴァリアントと制約は**順序を見ない**(ty_equiv_with がラベルで
+   揃えるのと同じ規律)。構文のまま List.for_all2 で突き合わせると
+   `{x: Int32, y: String}` と `{y: String, x: Int32}` — 型としては同一
+   (相互代入が型検査を通ることを実測)— を「本体が違います」で誤って
+   拒否する(M15 検証)。ラベルで安定ソートしてから比べる。同名ラベルの
+   重なりは相対順を保つので、遮蔽の順序はちゃんと照合に残る *)
 let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_, b) : T.type_exp) =
+  let ren_of na = match List.assoc_opt na ren with Some x -> x | None -> na in
   let id_equiv (la : long_id) (lb : long_id) =
     match (la, lb) with
     | LongId [ na ], LongId [ nb ] -> (
-        match List.assoc_opt na ren with Some nb' -> nb = nb' | None -> na = nb)
+        match List.assoc_opt na ren with
+        | Some nb' -> nb = nb'
+        | None -> (not (List.exists (fun (_, y) -> y = nb) ren)) && na = nb)
     | LongId xs, LongId ys -> xs = ys
+  in
+  (* 行要素の並べ替え鍵。prev 側(第1引数)はラベルを読み替えてから比べる
+     ことで、両側が同じ座標系に乗る *)
+  let bkey rename = function
+    | T.BField (l, _) -> (0, l)
+    | T.BLabel (LongId ids, _) -> (1, String.concat "." (List.map rename ids))
+  in
+  (* ヴァリアントのタグ名は型パラメータではないので読み替えない *)
+  let usort xs =
+    List.stable_sort
+      (fun ((_, x) : T.type_exp) ((_, y) : T.type_exp) ->
+        let k = function T.EVariantCase (n, _) -> (0, n) | _ -> (1, "") in
+        compare (k x) (k y))
+      xs
   in
   match (a, b) with
   | T.EIdent la, T.EIdent lb -> id_equiv la lb
@@ -416,7 +479,9 @@ let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_,
          | Some x, Some y -> type_exp_equiv ren x y
          | _ -> false)
   | T.EBraceRow (ea, ta), T.EBraceRow (eb, tb) ->
-      List.length ea = List.length eb
+      let sa = List.stable_sort (fun x y -> compare (bkey ren_of x) (bkey ren_of y)) ea in
+      let sb = List.stable_sort (fun x y -> compare (bkey Fun.id x) (bkey Fun.id y)) eb in
+      List.length sa = List.length sb
       && List.for_all2
            (fun x y ->
              match (x, y) with
@@ -424,7 +489,7 @@ let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_,
              | T.BLabel (lx, ax), T.BLabel (ly, ay) ->
                  id_equiv lx ly && List.length ax = List.length ay && List.for_all2 (type_exp_equiv ren) ax ay
              | _ -> false)
-           ea eb
+           sa sb
       && (match (ta, tb) with
          | None, None -> true
          | Some x, Some y -> type_exp_equiv ren x y
@@ -435,7 +500,9 @@ let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_,
          | None, None -> true
          | Some x, Some y -> type_exp_equiv ren x y
          | _ -> false)
-  | T.EUnion xs, T.EUnion ys -> List.length xs = List.length ys && List.for_all2 (type_exp_equiv ren) xs ys
+  | T.EUnion xs, T.EUnion ys ->
+      let xs = usort xs and ys = usort ys in
+      List.length xs = List.length ys && List.for_all2 (type_exp_equiv ren) xs ys
   | T.EHole, T.EHole -> true
   | _ -> false
 
@@ -454,10 +521,12 @@ let add_alias info =
      自己矛盾した診断を出す) *)
   if Hashtbl.mem reserved_type_names info.al_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.al_name ^ " は型エイリアスで再宣言できません")
-  else if Hashtbl.mem aliases info.al_name then
+  else claim_type_name "型エイリアス" info.al_name;
+  if Hashtbl.mem aliases info.al_name then
     if not (prelude_owned "alias" info.al_name) then
       type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
     else (
+      note_user_redecl "alias" info.al_name "型エイリアス";
       (* 照合の上で受理(D35)。表の実体は差し替えない *)
       let prev = Hashtbl.find aliases info.al_name in
       let name = Type.name_of info.al_name in
@@ -470,7 +539,10 @@ let add_alias info =
       if
         not
           (List.for_all2
-             (fun (pa : type_param) (pb : type_param) -> pa.tp_arity = pb.tp_arity && pa.tp_classes = pb.tp_classes)
+             (fun (pa : type_param) (pb : type_param) ->
+               (* 制約の並び順は照合しない(params_match が vcls をソート
+                  するのと同じ規律) *)
+               pa.tp_arity = pb.tp_arity && List.sort compare pa.tp_classes = List.sort compare pb.tp_classes)
              prev.al_params info.al_params)
       then fail "型パラメータが違います";
       let ren = List.map2 (fun (pa : type_param) (pb : type_param) -> (pa.tp_name, pb.tp_name)) prev.al_params info.al_params in
@@ -560,7 +632,10 @@ let data_match (prev : data_info) (info : data_info) =
   if not (params_match prev.dd_params info.dd_params m rev) then fail "型パラメータのカインドか制約が違います";
   let names cs = List.sort compare (List.map (fun (c : ctor_info) -> c.ct_name) cs) in
   if names prev.dd_ctors <> names info.dd_ctors then
-    fail ("コンストラクタが違います: プレリュードは " ^ String.concat ", " (List.map (fun c -> Type.name_of c.ct_name) prev.dd_ctors));
+    fail
+      (match prev.dd_ctors with
+      | [] -> "コンストラクタが違います: プレリュードはコンストラクタを持ちません"
+      | cs -> "コンストラクタが違います: プレリュードは " ^ String.concat ", " (List.map (fun c -> Type.name_of c.ct_name) cs));
   List.iter
     (fun (pc : ctor_info) ->
       let ic = List.find (fun (c : ctor_info) -> c.ct_name = pc.ct_name) info.dd_ctors in
@@ -584,10 +659,13 @@ let data_match (prev : data_info) (info : data_info) =
 let add_data info =
   if Hashtbl.mem reserved_type_names info.dd_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.dd_name ^ " は newtype で再宣言できません")
-  else if Hashtbl.mem datas info.dd_name then (
+  else claim_type_name "newtype" info.dd_name;
+  if Hashtbl.mem datas info.dd_name then (
     if not (prelude_owned "data" info.dd_name) then
       type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています")
-    else data_match (Hashtbl.find datas info.dd_name) info)
+    else (
+      note_user_redecl "data" info.dd_name "newtype";
+      data_match (Hashtbl.find datas info.dd_name) info))
   else (
     Hashtbl.add datas info.dd_name info;
     mark "data" info.dd_name;
@@ -648,22 +726,32 @@ let effects : (oid, effect_info) Hashtbl.t = Hashtbl.create 32
 let op_index : (oid, oid list) Hashtbl.t = Hashtbl.create 64
 
 let add_effect info =
+  (* 組み込みスカラー名は effect でも奪えず(V2 と同じ検査)、型名の
+     名前空間も newtype / エイリアスと共有する(effect List は List の
+     再宣言。§6.1b) *)
+  if Hashtbl.mem reserved_type_names info.ef_name && not !in_prelude then
+    type_error ("組み込み型 " ^ Type.name_of info.ef_name ^ " は effect で再宣言できません")
+  else claim_type_name "effect" info.ef_name;
   if Hashtbl.mem effects info.ef_name then (
     if not (prelude_owned "effect" info.ef_name) then
       type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています")
-    else
+    else (
+      note_user_redecl "effect" info.ef_name "effect";
       (* 照合の上で受理(D35): 操作名の集合と各スキーマの α 同値 *)
       let prev = Hashtbl.find effects info.ef_name in
       let name = Type.name_of info.ef_name in
       let fail why = type_error ("effect " ^ name ^ " の宣言がプレリュードの宣言と一致しません(" ^ why ^ ")") in
       let names ops = List.sort compare (List.map fst ops) in
       if names prev.ef_ops <> names info.ef_ops then
-        fail ("操作が違います: プレリュードは " ^ String.concat ", " (List.map (fun (o, _) -> Type.name_of o) prev.ef_ops));
+        fail
+          (match prev.ef_ops with
+          | [] -> "操作が違います: プレリュードは操作を持ちません"
+          | ops -> "操作が違います: プレリュードは " ^ String.concat ", " (List.map (fun (o, _) -> Type.name_of o) ops));
       List.iter
         (fun (op, pty) ->
           let ity = List.assoc op info.ef_ops in
           if not (ty_equiv pty ity) then fail ("操作 " ^ Type.name_of op ^ " の型が違います"))
-        prev.ef_ops)
+        prev.ef_ops))
   else (
     Hashtbl.add effects info.ef_name info;
     mark "effect" info.ef_name;
@@ -730,6 +818,7 @@ let add_class_decl info =
          いないか」の一方向・部分集合の照合(第11章)だったが、完全一致に
          締めて第6章に一本化した *)
       let name = Type.name_of info.ci_name in
+      note_user_redecl "class" info.ci_name "type class";
       let fail why = type_error ("type class " ^ name ^ " の宣言が組み込みの宣言と一致しません(" ^ why ^ ")") in
       if not (kind_equiv prev.ci_param_kind info.ci_param_kind) then fail "パラメータのカインドが違います";
       if prev.ci_derive_structural <> info.ci_derive_structural then fail "derive structural の有無が違います";
@@ -1105,6 +1194,8 @@ let reset () =
   Hashtbl.reset reserved_type_names;
   Hashtbl.reset reserved_predicates;
   Hashtbl.reset externs;
+  Hashtbl.reset type_namespace;
+  Hashtbl.reset user_type_redecls;
   in_prelude := false;
   register_builtins ()
 

@@ -275,3 +275,79 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   $ diktor --type-check dup1.kel dup1.kel
   ! dup1.kel:1:1: 型エラー: newtype Foo が二重に宣言されています
   [1]
+
+derive structural はユーザ宣言のクラスには書けない(sample.kel §7 の
+「組み込みの自動導出のみが与える」。受理すると実行時の構造的
+フォールバックが Eq 決め打ちのため必ず実行時に落ちる):
+
+  $ cat > ds1.kel <<'EOF2'
+  > type class MyEq[A] {
+  >   val myeq: (A, A) => Boolean
+  >   derive structural
+  > }
+  > echoln(show(myeq({}, {})))
+  > EOF2
+  $ diktor --type-check ds1.kel
+  ! ds1.kel:1:1: 型エラー: derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)
+  [1]
+
+型名の名前空間は newtype / 型エイリアス / effect で 1 つ(M15 検証。
+かつて種別を替えた再宣言が種別ごとの検査をすり抜け、type List[A] =
+Int32 がプレリュードの List を黙って奪った):
+
+  $ printf 'type List[A] = Int32\nlet main(): Int32 = 1\n' > ns1.kel
+  $ diktor --type-check ns1.kel
+  ! ns1.kel:1:1: 型エラー: List は既に newtype として宣言されています(型エイリアス では再宣言できません)
+  [1]
+  $ printf 'newtype Unit = Nope\nlet main(): Int32 = 1\n' > ns2.kel
+  $ diktor --type-check ns2.kel
+  ! ns2.kel:1:1: 型エラー: Unit は既に 型エイリアス として宣言されています(newtype では再宣言できません)
+  [1]
+  $ printf 'newtype Foo = A\ntype Foo = Int32\nlet main(): Int32 = 1\n' > ns3.kel
+  $ diktor --type-check ns3.kel
+  ! ns3.kel:2:1: 型エラー: Foo は既に newtype として宣言されています(型エイリアス では再宣言できません)
+  [1]
+  $ printf 'effect Int32 = { w: () => Unit }\nlet main(): Int32 = 1\n' > ns4.kel
+  $ diktor --type-check ns4.kel
+  ! ns4.kel:1:1: 型エラー: 組み込み型 Int32 は effect で再宣言できません
+  [1]
+
+プレリュード所有名の「照合の上で受理」(D35)は 1 プログラム 1 回まで。
+2 本目はユーザ同士の重複として拒否する:
+
+  $ printf 'newtype List[A] = Nil | Cons(head: A, tail: List[A])\nnewtype List[A] = Nil | Cons(head: A, tail: List[A])\necholn("x")\n' > rd1.kel
+  $ diktor --type-check rd1.kel
+  ! rd1.kel:2:1: 型エラー: newtype List が二重に宣言されています
+  [1]
+  $ printf 'type class Add[A] { val add: (A, A) => A }\ntype class Add[A] { val add: (A, A) => A }\nlet main(): Int32 = 1\n' > rd2.kel
+  $ diktor --type-check rd2.kel
+  ! rd2.kel:2:1: 型エラー: type class Add が二重に宣言されています
+  [1]
+
+エイリアスの構造照合は行・ヴァリアント・制約の並び順を見ない(型として
+同一のものを受理する)。一方でパラメータ名の付け替えは全単射 — 宣言側の
+名前が相手の自由な型名を捕獲する形は「本体が違います」で拒否する:
+
+  $ cat > alias_pre.kel <<'EOF2'
+  > newtype G = MkG
+  > type Cap[A] = (A, G)
+  > type Rec = {x: Int32, y: String}
+  > type Par = #Even | #Odd
+  > EOF2
+  $ printf 'type Rec = {y: String, x: Int32}\ntype Par = #Odd | #Even\nlet main(): Int32 = 1\n' > al1.kel
+  $ diktor --prelude alias_pre.kel --type-check al1.kel
+  main : () => Int32
+  $ printf 'type Cap[G] = (G, G)\nlet main(): Int32 = 1\n' > al2.kel
+  $ diktor --prelude alias_pre.kel --type-check al2.kel
+  ! al2.kel:1:1: 型エラー: 型エイリアス Cap の宣言がプレリュードの宣言と一致しません(本体が違います)
+  [1]
+  $ printf 'type Cap[B] = (B, G)\nlet main(): Int32 = 1\n' > al3.kel
+  $ diktor --prelude alias_pre.kel --type-check al3.kel
+  main : () => Int32
+
+Never の照合不一致はコンストラクタゼロを明示する:
+
+  $ printf 'newtype Never = Nope\necholn("ok")\n' > nv1.kel
+  $ diktor --type-check nv1.kel
+  ! nv1.kel:1:1: 型エラー: newtype Never の宣言がプレリュードの宣言と一致しません(コンストラクタが違います: プレリュードはコンストラクタを持ちません)
+  [1]

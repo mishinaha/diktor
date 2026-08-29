@@ -269,3 +269,15 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   $ diktor --type-check v2alias.kel
   ! v2alias.kel:1:1: 型エラー: 組み込み型 Float64 は型エイリアスで再宣言できません
   [1]
+
+module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 の値側。
+型側の「A.T か B.T と修飾してください」と同じ形):
+
+  $ cat > vamb.kel <<'EOF2'
+  > module A { let rec down(n: Int32): Int32 = n match { case 0 => 0 case _ => down(n - 1) } }
+  > module B { let down(n: Int32): Int32 = n }
+  > echoln(show(A.down(3)))
+  > EOF2
+  $ diktor --type-check vamb.kel
+  ! vamb.kel:1:76: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
+  [1]
