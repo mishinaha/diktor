@@ -221,3 +221,18 @@ MiniLang §16-8 の runST 2例(値制限):
   $ diktor --type-check --no-prelude leftmost.kel
   f : () => {} @ {E1, E2 extends R1}
   g : () => {} @ {E2, E1 extends R1}
+
+サブエフェクティングは無い(計画 §12 の意図した挙動の明示的な固定。
+H4 / D23-a — @ {} は正確に空で、エフェクトのある文脈から呼べない。
+公開 API の道は pub の @ 省略か行変数の明示。仕様への裁定要求は
+260830-1 §3-2 / §3-6):
+
+  $ cat > noSub.kel <<'KEL'
+  > effect Logger = { log: (String) => Unit }
+  > let pure_f(x: Int32): Int32 @ {} = x + 1
+  > let impure(x: Int32): Int32 @ {Logger} = { perform log("hi"); pure_f(x) }
+  > KEL
+  $ diktor --type-check noSub.kel
+  pure_f : (Int32) => Int32
+  ! noSub.kel:3:63: 型エラー: ラベル Logger がありません(行は閉じています)
+  [1]
