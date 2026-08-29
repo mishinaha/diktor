@@ -136,6 +136,37 @@ let add_extern name =
     Hashtbl.add externs o ();
     mark "extern" o)
 
+(* ## 6.2b extern C 既知名の型契約
+
+   §6.2 は「extern には照合すべき実体が処理系側に無い」と書きました。
+   C リンケージの既知名 (sin/cos/sqrt/exp/log) だけは例外です。実装は
+   第13章の `c_prims` 表として処理系が持っているので、照合すべき実体が
+   **ある**。検証できない宣言は上書きを許さない、が §6.2 の格言なら、
+   ここは続きです — **検証できる宣言は検証する**。
+
+   かつては検査が無く、`extern "C" let sin(x: String): String` が型検査を
+   通りました。呼ぶと「Float64 ではありません」という、ユーザには原因の
+   見えない実行時エラーです (プレリュード保護は宣言済みの名前にしか効かず、
+   sin はプレリュードが宣言できません — sample.kel:548 が自前で宣言するので、
+   先に置くと再宣言拒否で仕様が落ちます)。
+
+   契約で照合するのは**引数型と返り値型だけ**で、行は見ません。`@ Blocking`
+   を付けるかどうかはバインディングの作者の判断だと仕様 (sample.kel:551) が
+   明言しているからです。
+
+   署名はここ (第6章)、実装は第13章、と 2 表に分かれます。elab (第11章)
+   から第13章を参照すると章の前後が逆転するための配置で、二重管理の
+   リスクは**安全側に縮退します**: 実装だけ足して署名を忘れれば検査が
+   効かないだけ (= かつての状態)、署名だけ足して実装を忘れれば宣言は通り
+   呼ぶと「未実装のプリミティブ」。どちらからも嘘の型は生まれません。 *)
+
+let c_known_signatures : (string * (oid list * oid * string)) list =
+  let f64 = Type.intern "Float64" in
+  let f1 = ([ f64 ], f64, "(Float64) => Float64") in
+  [ ("sin", f1); ("cos", f1); ("sqrt", f1); ("exp", f1); ("log", f1) ]
+
+let c_known_signature name = List.assoc_opt name c_known_signatures
+
 (* ## 6.3 型構成子のカインド表
 
    MiniLang の `conKinds` (:641) をそのまま持ってきた表です。第8章 (unify.ml)

@@ -2439,6 +2439,20 @@ let process_decls env ~emit decls =
             match ex.T.ex_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+          (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
+             @ Blocking を付けるかはバインディング作者の判断(sample.kel:551) *)
+          (if ex.T.ex_abi = "C" then
+             match Decls.c_known_signature ex.T.ex_name with
+             | None -> ()
+             | Some (arg_cons, ret_con, rendered) ->
+                 let same_con c t = match repr t with TCon (c', []) -> c' = c | _ -> false in
+                 let ok =
+                   List.length param_tys = List.length arg_cons
+                   && List.for_all2 (fun t c -> same_con c t) param_tys arg_cons
+                   && same_con ret_con ret_ty
+                 in
+                 if not ok then
+                   type_error ("extern \"C\" の既知名 " ^ ex.T.ex_name ^ " の型は " ^ rendered ^ " でなければなりません"));
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
           release_rigids (rigids @ eff_rigids);
