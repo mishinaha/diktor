@@ -268,3 +268,10 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > KEL
   $ diktor d9.kel
   1
+
+同じファイルを 2 回渡すと二重宣言(CLI 経路の連結処理の回帰。C11):
+
+  $ printf 'newtype Foo = Bar\n' > dup1.kel
+  $ diktor --type-check dup1.kel dup1.kel
+  ! dup1.kel:1:1: 型エラー: newtype Foo が二重に宣言されています
+  [1]

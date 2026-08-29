@@ -331,6 +331,10 @@ let render_error (e : Elab.error) =
 
 (* 型検査のみ。(出力行, エラー行 option) *)
 let type_check_string ?(prelude = true) source =
+  (* 再入する API なので宣言表を戻してから始める(C11 / D40)。順序は
+     reset → flatten → type_check — 逆にすると flatten が張った同義語が
+     消える。CLI 経路は 1 プロセス 1 プログラムなので呼ばない *)
+  Decls.reset ();
   let pre = if prelude then embedded_prelude () else [] in
   let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
   let lines, err = Elab.type_check ~prelude:pre decls in
@@ -338,6 +342,7 @@ let type_check_string ?(prelude = true) source =
 
 (* 型検査 + 評価。出力は sink へ。型エラー時は Error を返す *)
 let eval_string ?(prelude = true) ~sink source =
+  Decls.reset ();
   let pre = if prelude then embedded_prelude () else [] in
   let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
   match Elab.type_check ~prelude:pre decls with
