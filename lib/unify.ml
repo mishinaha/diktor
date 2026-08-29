@@ -435,7 +435,7 @@ let rec rewrite_row row label =
              §8.8 の Heap の言い換え細工と同じ発想) *)
           type_error
             ("行 " ^ show (TVar v) ^ " は注釈で固定された行変数なので、ラベル " ^ name_of label
-           ^ " を足せません(注釈側に " ^ name_of label ^ " を書き足してください)")
+           ^ " を足せません(注釈側に " ^ name_of label ^ " を(必要なら引数つきで)書き足してください)")
       | _ -> type_error ("行型ではありません: " ^ show (TVar v)))
   | t -> type_error ("行型ではありません: " ^ show t)
 

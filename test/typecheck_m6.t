@@ -47,10 +47,11 @@ copy の perform write は行の最左(最内ハンドラ)の File に解決さ�
   >   with _ = with_file(dst)
   >   perform write(perform read())
   > }
-  > println("test") handle {
-  >   case print(message) => resume(perform write(message))
-  >   case return(x) => x
-  > }
+  > let echo_test[E](): Unit @ {Console extends E} =
+  >   println("test") handle {
+  >     case print(message) => resume(perform Console.write(message))
+  >     case return(x) => x
+  >   }
   > let captured = capture(fn() => println("test"))
   > EOF
   $ diktor --type-check --no-prelude eff9.kel
@@ -63,7 +64,7 @@ copy の perform write は行の最左(最内ハンドラ)の File に解決さ�
   __close : (Int32) => {}
   with_file : (String, () => A @ {File extends R1}) => A
   copy : (String, String) => {} @ {Console extends R1}
-  _ : {}
+  echo_test : () => {} @ {Console extends R1}
   captured : {value: {}, output: String}
 
 EffectRow エイリアスの splice(sample.kel:446):
@@ -203,7 +204,7 @@ MiniLang §16-8 の runST 2例(値制限):
   >   }
   > KEL
   $ diktor --type-check --no-prelude rigidrow.kel
-  ! rigidrow.kel:5:3: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル C を足せません(注釈側に C を書き足してください)
+  ! rigidrow.kel:5:3: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル C を足せません(注釈側に C を(必要なら引数つきで)書き足してください)
   [1]
 
 非修飾操作名の解決は「行の最左」— 注釈された行では書かれた順であって

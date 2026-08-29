@@ -1043,9 +1043,13 @@ let intern = Type.intern
 
 (* ## 6.11 Ref / Array と、リージョンの行
 
-   `Ref` と `Array` の操作は、ソースに書ける構文では型が付けられません。
-   エフェクトのパラメータ(`Heap[h]` の `h`)を宣言する構文が v0 に無いから
-   です。そこでこのファイルが直接登録します(計画 §11.2)。
+   `Ref` と `Array` の操作は、このファイルが直接登録します(計画 §11.2)。
+   置き場所の理由は「extern 宣言の**束縛子側**に `Heap[h]` の `h` を導入
+   する構文が無い」ことでした。正確を期すと、型パラメータ `[h]` を持つ
+   extern 署名として同じ型を**書くこと自体はできます**(M20 検証で実測 —
+   脱出検査も効く)。組み込みに残しているのは、実装が OCaml 側の値
+   (§14.11)と分かちがたく、プレリュードに置くと二重管理になるからです
+   (§15.1 の基準)。
 
    ### 行を開いておくこと
 
@@ -1108,15 +1112,16 @@ let register_ref_array () =
    def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Array.set" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
-  (let h = generic () and a = generic () and e = generic ~kind:Type.KRow () in
-   (* Array.each にも Heap を課す(M20 / I12 — get / set は要求するのに
-      全要素を読む each が純粋、という表の中の割れを直す一貫性の修正)。
-      h は結果型に現れない自由変数のままなので、**健全性は 1 ミリも
-      上がらない** — Array がリージョンを型に持たない穴(I1、
-      test/spec_gaps.t)は塞がっていない。Array.length だけは要素を
-      読まない(生成時に確定する値)ので純粋のまま残す *)
-   let er = Type.TRowExtend (Type.eff_heap, h, e) in
-   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit er ] Type.t_unit er))
+  (let a = generic () and e = generic ~kind:Type.KRow () in
+   (* Array.each に Heap を課す一貫性修正(I12)は M20 検証で**撤回**した。
+      each はコールバックの行と自分の行を共有する(エフェクト多相の最小形)
+      ため、Heap を課すと共有経由でコールバック側にも課され、明示的に
+      純粋な @ {} の関数が渡せなくなる(実測 — run の内側でも落ちた)。
+      行を分けて自分の行だけに課す形も、@ {} コールバックが結果行を
+      閉じて同じ失敗になる。全要素を読む par_map が Heap 不要のままで
+      ある以上、表の一貫性も得られない。読みの純粋性の扱いは
+      Array / MutArray 分離(D64、260830-1)で一括裁定する *)
+   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
 
 (* ## 6.11b par / par_map — 型は書けるが値が書けない組(H2 / D45)
 

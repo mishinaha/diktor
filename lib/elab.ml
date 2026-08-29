@@ -937,7 +937,11 @@ and elab_exp' env level eff node e =
            let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
            go 0
          in
-         if pub_pure && (has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg) then
+         if
+           pub_pure
+           && (has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg
+              || has "は注釈で固定された行変数" msg)
+         then
            type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
          else type_error msg);
       elab_check env level eff arg pvar;
@@ -1334,8 +1338,11 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
    ただし**注釈が行を明示的に書いたときの最左は、書かれた順序**であって
    入れ子順ではありません(M20 / I3 で本文を訂正)。同名の操作を持つ
    E1 / E2 について `@ {E1, E2}` の関数の `perform op` は、E2 のハンドラが
-   内側にいても E1 に解決されます(実測 — test/typecheck_m6.t の
-   leftmost.kel)。それでも静的解決と実行時捕捉は食い違いません —
+   内側にいても E1 に解決されます(型は test/typecheck_m6.t の
+   leftmost.kel、実行との一致は test/eval.t の leftmostrun.kel)。
+   なお「推論された行の最左 = 最内」も正確には**その式に至る文の並びが
+   handle の入れ子と同順である限り**の話です — 行は本体の推論が触れた順に
+   伸びるからです。それでも静的解決と実行時捕捉は食い違いません —
    perform は解決済みの完全名 oid を運ぶので、E2 のハンドラが E1.op を
    捕まえることはない(素通りして E1 のハンドラに届く)からです。
    挙動は健全で、かつて誤っていたのはこの節の説明でした。
@@ -1510,10 +1517,14 @@ and elab_handle env level eff clauses body =
    3. ちょうど 1 つなら決まり。0 個なら網羅漏れ、2 個以上なら曖昧
 
    2 の条件があるので、`Console` と `File` のように操作名が重なるエフェクトが
-   あっても、`read` と `write` の両方を書けば `File` に決まります。`write` 節
-   だけを書いた handle は `Console` に決まります — `Console` の全操作は
-   `write` 1 つなので、覆えている候補が `Console` だけになるからです。`File` を
-   意図していたなら `File.write` と修飾するか、`read` 節も書いてください。
+   あっても、`read` と `write` の両方を書けば `File` に決まります。
+   `write` 節だけを書いた handle は、かつては `Console` に決まりました —
+   `Console` の全操作は `write` 1 つで、覆えている候補が `Console` だけに
+   なるからです。M20 (I4 / D63) からプレリュード所有の `Console` / `Async` は
+   ハンドル禁止で候補からも外れるため、この形は「File の read が漏れて
+   います」に落ちます — File のつもりの取り違えがそのまま診断になります。
+   `File` を意図していたなら `File.write` と修飾するか、`read` 節も
+   書いてください。
    逆に「操作が漏れています」と言われるのは、**どの候補も自分の全操作を
    覆えていない**ときです (2 操作を持つエフェクトの片方だけを書いた場合など)。
 
@@ -1532,18 +1543,19 @@ and elab_handle env level eff clauses body =
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。
-     Async は仕様の明文(sample.kel:480「スケジューラは書かせない」)、
+     Async は仕様の明文(sample.kel:481「スケジューラは書かせない」)、
      Console は同じ扱いを提案中(D63)— 許すと出力が黙って消える恒等
      ハンドラが書け、File.write のつもりの case write(s) が Console を
      消す事故も起きる。判定はランタイム行に名前があり**かつ**プレリュード
      所有であること — --no-prelude でユーザが自分の effect Console を
-     宣言した場合は禁止しない。Heap / Blocking は操作を持たないので
-     「操作節が必要です」で既に到達不能 *)
+     宣言した場合は禁止しない。Heap / Blocking は操作を持たないので、
+     節を書けば「操作 X はエフェクト Heap に属しません」で先に落ち、
+     ここへは到達しない *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     if name_of e = "Console" then
       "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
-    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:480。スケジューラは書けません)"
+    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:481。スケジューラは書けません)"
   in
   let target =
     match List.sort_uniq compare quals with
@@ -2168,7 +2180,15 @@ and elab_rec_bindings env level eff bs : env =
    初期の値環境は第6章の組み込み表から作ります。 *)
 
 let toplevel_eff () =
-  List.fold_right (fun n acc -> TRowExtend (intern n, t_unit, acc)) Prims.runtime_effects TRowEmpty
+  (* ランタイム行に載せるのは**プレリュード所有**の Console / Async だけ
+     (M20 検証)。名前だけで張ると、--no-prelude やプレリュード差し替えの
+     世界でユーザが自分の effect Console を宣言したとき、型はユーザの
+     署名・実行はランタイムの実装という食い違いが起きた(実測: 型検査を
+     通って実行時に落ちる)。所有でなければ行は空 — perform write は
+     「ここでは実行できません」で静的に落ちる *)
+  List.fold_right
+    (fun n acc -> if Decls.prelude_owned "effect" (intern n) then TRowExtend (intern n, t_unit, acc) else acc)
+    Prims.runtime_effects TRowEmpty
 
 let initial_env () =
   {

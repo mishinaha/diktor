@@ -19,8 +19,10 @@ Array が h を持たないため、引数を破壊する関数が純粋とし�
   leak : () => Array[Int32]
   peek : (Array[Int32]) => Int32
 
-Array.each は Heap を要求する(I12 — get / set と表を揃える一貫性の
-修正。h は自由変数のままなので上の穴は塞がっていない):
+Array.each は Heap を要求**しない**(I12 の一貫性修正は M20 検証で撤回 —
+each はコールバックと行を共有するため、Heap を課すと @ {} の純粋
+コールバックが渡せなくなる。読みの純粋性は Array / MutArray 分離
+(D64)で一括裁定する):
 
   $ cat > eachheap.kel <<'KEL'
   > let total(xs: Array[Int32]): Int32 = run h {
@@ -31,9 +33,21 @@ Array.each は Heap を要求する(I12 — get / set と表を揃える一貫�
   > KEL
   $ diktor --type-check eachheap.kel
   total : (Array[Int32]) => Int32
-  $ printf 'let outside(xs: Array[Int32]): {} @ {} = Array.each(xs, fn(x) => ())\n' > eachout.kel
-  $ diktor --type-check eachout.kel
-  ! eachout.kel:1:42: 型エラー: ラベル Heap がありません(行は閉じています)
+  $ printf 'let use(xs: Array[Int32]): {} = run h { Array.each(xs, fn(x) => ()) }\n' > eachpure.kel
+  $ diktor --type-check eachpure.kel
+  use : (Array[Int32]) => {}
+
+なお注釈で @ {} と**閉じた**コールバックを run の中の each に渡す形は、
+each とは無関係に落ちる(run が体の行に Heap[h] を要求し、閉じた行は
+それを受けられない — 非サブエフェクティングの既存規則):
+
+  $ cat > eachclosed.kel <<'KEL'
+  > let g(x: Int32): {} @ {} = {}
+  > let use(xs: Array[Int32]): {} = run h { Array.each(xs, g) }
+  > KEL
+  $ diktor --type-check eachclosed.kel
+  g : (Int32) => {}
+  ! eachclosed.kel:2:56: 型エラー: ラベル Heap がありません(行は閉じています)
   [1]
 
 暫定裁定の観測点(I5 / D65): タプルラベルは _item、整数リテラルは
@@ -47,10 +61,11 @@ Int32 に既定化:
   fst_ : ({_item: A extends R1}) => A
   n : Int32
 
-cancel 節からの perform の再入(I10 / D66)。現状: 再入は再設置された
-自分のハンドラに捕まり、cancel 内で生じる Unwind は抑制され、巻き戻しは
-続行する(from-cancel の note は resume され、外側の 99 が返る)。
-仕様が (b) 自ハンドラ無効化 か (c) 実行時エラー を選んだらここが変わる:
+cancel 節からの perform の再入(I10 / D66)。現状: 巻き戻し中の再入は
+処理され(from-cancel の note は外側の note ハンドラに届いて resume)、
+cancel 内で生じる Unwind は抑制され、巻き戻しは続行して外側の 99 が
+返る。仕様が (b) 自ハンドラ無効化 か (c) 実行時エラー を選んだら
+ここが変わる:
 
   $ cat > cancelre.kel <<'KEL'
   > effect Stop = { stop: () => {} }

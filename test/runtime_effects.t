@@ -1,5 +1,5 @@
 ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。Async は仕様の
-明文(sample.kel:480)、Console は同じ扱いを提案中。かつては出力を黙って
+明文(sample.kel:481)、Console は同じ扱いを提案中。かつては出力を黙って
 消す恒等ハンドラが書けた。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
@@ -37,7 +37,7 @@
   >   }
   > KEL
   $ diktor --type-check sched.kel
-  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:480。スケジューラは書けません)
+  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:481。スケジューラは書けません)
   [1]
 
 --no-prelude で自前の effect Console を宣言した場合は禁止しない
@@ -69,9 +69,41 @@ Console はハンドル候補からも外れるので、File のつもりの cas
   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
   [1]
 
-perform は禁止しない(sample.kel:453 がトップレベルの perform write を
+perform は禁止しない(sample.kel:454 がトップレベルの perform write を
 書いており、プレリュードの echo / echoln も同じ):
 
   $ printf 'perform write("direct\\n")\n' > pw.kel
   $ diktor pw.kel
   direct
+
+ランタイム行に載るのはプレリュード所有の Console / Async だけ(M20 検証。
+かつては名前だけで張られ、--no-prelude や差し替えプレリュードの世界で
+自前の effect Console を宣言すると、型はユーザの署名・実行はランタイムの
+実装という食い違いが起き、型検査を通ったプログラムが実行時に落ちた):
+
+  $ cat > np3.kel <<'KEL'
+  > effect Console = { write: (Int32) => Int32 }
+  > let r = perform write(42)
+  > KEL
+  $ diktor --type-check --no-prelude np3.kel
+  ! np3.kel:2:9: 型エラー: エフェクト Console をここでは実行できません(ラベル Console がありません(行は閉じています))
+  [1]
+  $ printf 'effect Nothing = { nope: () => {} }\n' > mypre.kel
+  $ diktor --prelude mypre.kel --type-check np3.kel
+  ! np3.kel:2:9: 型エラー: エフェクト Console をここでは実行できません(ラベル Console がありません(行は閉じています))
+  [1]
+
+自前の Console を自前でハンドルする形は従来どおり通る:
+
+  $ cat > npok.kel <<'KEL'
+  > effect Console = { write: (String) => {} }
+  > let quiet[A, E](body: () => A @ {Console extends E}): A @ E =
+  >   body() handle {
+  >     case write(s) => resume({})
+  >     case return(x) => x
+  >   }
+  > let n = quiet(fn() => { perform write("x"); 7 })
+  > KEL
+  $ diktor --type-check --no-prelude npok.kel
+  quiet : (() => A @ {Console extends R1}) => A
+  n : Int32
