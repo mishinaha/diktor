@@ -462,3 +462,51 @@ module 内 extern による組み込み修飾名の上書きも、先に定義�
   > EOF2
   $ diktor k3.kel
   3
+
+前方参照と再束縛の合流点は先勝ちで整合する(M15 検証 V1 残穴の解消。
+かつて elab のパス 1c は後勝ちだったので、同名 let 2 本を前方参照する
+関数だけが型検査と別の実体を呼び、黙って別の型の値を返した):
+
+  $ cat > fwd6.kel <<'EOF2'
+  > let f[E](): String @ E = g("s")
+  > let g[E](x: Int32): Int32 @ E = 7
+  > let g[E](x: String): String @ E = "STR"
+  > echoln(show(f()))
+  > EOF2
+  $ diktor fwd6.kel
+  ! fwd6.kel:1:28: 型エラー: 型が一致しません: String と Int32
+  [1]
+
+クラスメソッドと同名のトップレベル let の前方参照も先勝ち(elab は
+プレリュードの show の型で検査し、実行も組み込みラッパを呼ぶ):
+
+  $ cat > fwd7.kel <<'EOF2'
+  > let f(): String = show(42)
+  > let show[E](x: Int32): String @ E = "SHADOW"
+  > echoln(f())
+  > echoln(show(42))
+  > EOF2
+  $ diktor fwd7.kel
+  42
+  SHADOW
+
+  $ cat > fwd8.kel <<'EOF2'
+  > let f(): Int32 = show(42)
+  > let show[E](x: Int32): Int32 @ E = 99
+  > echoln(Show.show(f() + 1))
+  > EOF2
+  $ diktor fwd8.kel
+  ! fwd8.kel:1:5: 型エラー: 注釈された返り値型を満たしません(型が一致しません: Int32 と String)
+  [1]
+
+プレリュード extern と同名のクラスメソッドも先勝ち(非修飾名は
+プレリュードの実体の型で検査され、実行と一致する。かつては elab が
+クラスメソッドを選び、実行だけが 3 引数のプリミティブを呼んだ):
+
+  $ cat > fwd9.kel <<'EOF2'
+  > type class W[A] { val __string_length: (A) => Int32 }
+  > type instance W[String] { let __string_length(x) = 999 }
+  > echoln(show(__string_length("abcdefgh")))
+  > EOF2
+  $ diktor fwd9.kel
+  8

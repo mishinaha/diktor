@@ -701,8 +701,17 @@ and elab_exp' env level eff node e =
              フォールバック専用なので、局所束縛による遮蔽が自動で効き、
              既に型検査を通るプログラムの意味は 1 つも変わらない。
              順序は 変数 → 同義語 → 引数なしコンストラクタ(第14章の
-             3 段引きと同じ) *)
-          match Option.bind (Decls.resolve_val (intern name)) (fun q -> SMap.find_opt (name_of q) env.values) with
+             4 段引きと同じ)。候補が複数なら型側(§11.3)と同じ形で
+             修飾名を案内する — 素の「未束縛の変数」では、無関係な module の
+             同名 let が原因だと読み手に辿れない(M15 検証) *)
+          match Decls.val_synonym_candidates (intern name) with
+          | _ :: _ :: _ as qs ->
+              type_error
+                ("未束縛の変数: " ^ name ^ "("
+                ^ String.concat " か " (List.map Type.name_of qs)
+                ^ " と修飾してください)")
+          | cands -> (
+          match Option.bind (match cands with [ q ] -> Some q | _ -> None) (fun q -> SMap.find_opt (name_of q) env.values) with
           | Some sch -> Unify.instantiate level sch
           | None -> (
               match li with
@@ -710,7 +719,7 @@ and elab_exp' env level eff node e =
                   let last = List.nth comps (List.length comps - 1) in
                   if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
                   else type_error ("未束縛の変数: " ^ name)
-              | _ -> type_error ("未束縛の変数: " ^ name))))
+              | _ -> type_error ("未束縛の変数: " ^ name)))))
   | T.Hole -> new_var level
   | T.Lambda { l_params; l_body } ->
       let param_tys = List.map (fun _ -> new_var level) l_params in
@@ -2052,9 +2061,17 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    v1 で「曖昧なら型で絞る」方式に進むなら、この拒否は緩められます。
 
    この検査の射程は**クラスどうし**の衝突までです。クラスメソッドと同名の
-   トップレベル `let` / `extern` との衝突は、より広い「トップレベル束縛の
-   早期/遅延の分裂」(§14.15、260829-5 課題台帳 V1)の一部として残っており、
-   ここでは拒否しません。M15 の宣言環境の設計で一体として扱います。 *)
+   トップレベル `let` / `extern` との衝突は拒否せず、**先勝ち**で解決します
+   — 非修飾名の勝者は「最初にその名前を持った側」。プレリュードの `echo` が
+   いる状態でユーザクラスが `echo` メソッドを宣言しても、非修飾の `echo` は
+   プレリュードのまま(メソッドは `Cls.echo` と修飾すれば呼べます)。逆に
+   クラスの後の同名 `let` は、パス 2 の逐次束縛で let 以降のコードにだけ
+   見えます。この規則を選んだのは実行時と一致させるためです — 実行時は
+   起動時に置いたメソッドのラッパを later な束縛が**版複製**(§14.13)で
+   覆うので、再束縛より前に作られた閉包は元の実体を見続けます。elab が
+   後勝ちだと、前方参照する関数だけ型検査と実行が別の実体を選びました
+   (260829-5 課題台帳 V1。M15 検証で echo / println / __string_length の
+   乗っ取りとして実測し、1b / 1c の先勝ち化で塞いだ形)。 *)
 
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
@@ -2072,6 +2089,15 @@ let register_class env (c : T.class_decl') =
   List.iter
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
+  (* derive structural はユーザの新クラスには書けない(sample.kel:297
+     「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
+     自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
+     構造的導出を認めるのに、実行時の構造的フォールバック(§14.7)は
+     Eq.eq 決め打ちなので、型検査を通ったプログラムが必ず実行時に落ちる
+     (M15 検証)。プレリュード所有クラスの再宣言(D35)は照合対象なので
+     ここでは弾かない — 集合の一致は add_class_decl が見る *)
+  (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
+     type_error "derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)");
   let methods =
     List.map
       (fun (v : T.class_val) ->
@@ -2262,7 +2288,16 @@ let register_instance (i : T.instance_decl') =
    あれば署名を作らず、その let は宣言順に依存したままになります。
    通せるものを減らしてでも、通してはいけないものを通さないほうを選びました。
 
-   > 本体を見ずに型を信じるなら、その型に省略があってはならない。 *)
+   > 本体を見ずに型を信じるなら、その型に省略があってはならない。
+
+   もうひとつの規則が**先勝ち**です。署名は「環境にまだ無い名前」しか
+   登録しません。同名の let が 2 本あれば 1 本目の署名だけが前方参照に
+   使われ、プレリュード束縛やクラスメソッドと同名の let は署名を
+   登録しません(その名前の前方参照は既存の実体の型で検査されます)。
+   後勝ちにすると、実行時の版複製(§14.13)が前方参照する関数に見せる
+   実体 —「最初にその名前を持った側」— と逆になり、同名 let 2 本 +
+   前方参照で型検査を通ったプログラムが黙って別の型の値を返しました
+   (M15 検証で実測)。 *)
 
 let rec fully_effected ((_, te) : T.type_exp) =
   match te with
@@ -2448,8 +2483,14 @@ let process_decls env ~emit decls =
           Decls.add_alias
             { Decls.al_name = intern t.T.ta_name; al_params = t.T.ta_params; al_kind = t.T.ta_kind; al_body = t.T.ta_body }
       | T.DNewtype n ->
+          (* 名前空間の主張はここ(宣言順)で行う。add_data は 1b、add_effect
+             も 1b なので、種別交差の検出を各 add に任せると 1a の add_alias が
+             常に先回りし、後に書かれたエイリアスが先に書かれた newtype を
+             「既に宣言されています」と逆向きに咎める(M15 検証の後始末) *)
+          Decls.claim_type_name "newtype" (intern n.T.nt_name);
           if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
             Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
+      | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
       | _ -> ())
     decls;
   (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
@@ -2469,8 +2510,16 @@ let process_decls env ~emit decls =
             {
               env with
               values =
+                (* 非修飾名は先勝ち(既存の束縛は上書きしない)。実行時は
+                   register_class_methods のラッパをプレリュードの let / extern の
+                   再束縛が版複製で覆うので、非修飾名の勝者は先にいた方 —
+                   elab も同じ側を選ばないと、型検査と実行が別の実体を選ぶ
+                   (M15 検証で echo / println / __string_length の乗っ取りを実測)。
+                   修飾名 Cls.m はクラスの所有なので常に登録する *)
                 List.fold_left
-                  (fun m (mn, ty) -> SMap.add mn ty (SMap.add (c.T.cls_name ^ "." ^ mn) ty m))
+                  (fun m (mn, ty) ->
+                    let m = SMap.add (c.T.cls_name ^ "." ^ mn) ty m in
+                    if SMap.mem mn m then m else SMap.add mn ty m)
                   env.values methods;
             }
         | _ -> env)
@@ -2503,14 +2552,20 @@ let process_decls env ~emit decls =
             register_instance i;
             env
         | T.DLet (_, b) -> (
+            (* 先勝ち: 既に環境にいる名前(先行する 1c 署名・クラスメソッド・
+               プレリュード束縛)は上書きしない。実行時の版複製(§14.13)は
+               再束縛より前に作られた閉包に古い実体を見せるので、前方参照の
+               勝者も「最初にその名前を持った側」— 後勝ちにすると、前方参照
+               する関数だけ型検査と実行が別の実体を選ぶ(M15 検証で、同名
+               let 2 本 + 前方参照が黙って別の型の値を返す形まで実測) *)
             match (binding_name b, signature_of_binding env b) with
-            | Some x, Some ty -> { env with values = SMap.add x ty env.values }
+            | Some x, Some ty when not (SMap.mem x env.values) -> { env with values = SMap.add x ty env.values }
             | _ -> env)
         | T.DLetRec bs ->
             List.fold_left
               (fun env ((_, b) : T.let_binding) ->
                 match (binding_name b, signature_of_binding env b) with
-                | Some x, Some ty -> { env with values = SMap.add x ty env.values }
+                | Some x, Some ty when not (SMap.mem x env.values) -> { env with values = SMap.add x ty env.values }
                 | _ -> env)
               env bs
         | _ -> env)
@@ -2693,7 +2748,10 @@ let type_check_decls ?(prelude = []) decls =
    同じものを通らなければなりません。**
 
    入れ子の module と、module 内の effect / class / 式は未対応です。
-   受理してから落ちるのではなく、平坦化の時点で型エラーとして報告します。 *)
+   受理してから落ちるのではなく、平坦化の時点で報告します — 種別は
+   **未実装**(終了コード 4)です。module 内 let のパターン束縛だけは
+   「未対応」ではなく仕様上の制限なので型エラー(終了コード 1)にして
+   あります。 *)
 
 let flatten_modules (decls : T.decl list) : T.decl list =
   List.concat_map
