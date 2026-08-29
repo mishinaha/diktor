@@ -872,24 +872,30 @@ let register_builtin_values globals =
    時点で表を引くので、インスタンス宣言との前後関係を気にしなくて済みます。
 
    登録する名前は**非修飾と修飾の両方**です(実装記録の乖離12)。`map` でも
-   `Functor.map` でも引けます。ただし同名メソッドを持つクラスが 2 つあるとき、
-   非修飾名でどちらが勝つかは**未規定**です。「後に宣言した方が勝つ」ではありません
-   — 登録は `Hashtbl.iter Decls.classes` の走査順、つまり oid のハッシュ順で回るので、
-   宣言順とは無関係ですし、まったく別の場所に無関係な 1 行を足しただけで勝者が
-   入れ替わることを検証で実測しました。確実なのは修飾名の方です。 *)
+   `Functor.map` でも引けます。同名メソッドを持つクラスが 2 つあると非修飾名の
+   勝者争いが起きますが、その衝突は**宣言時に elab が拒否します** (§11.33)。
+   かつては受理していて、どちらが勝つかが「未規定」どころではありませんでした
+   — elab の非修飾名解決は宣言順の後勝ち、こちらの登録は `Hashtbl.iter` の
+   走査順(oid のハッシュ順)の後勝ちで、**型検査と実行が別のクラスを選び**、
+   誤った実体を静かに呼ぶか、偽の「インスタンスが見つかりません」を出しました
+   (実測。無関係な 1 行を足しただけで勝者が入れ替わることも確認)。
+
+   下の実装が走査結果をクラス名でソートしてから登録するのは念のためです。
+   衝突は elab が拒否するので勝者争いはもう起きませんが、ハッシュ順という
+   観測に漏れうる非決定性を、そもそも表の走査に残さないためです。 *)
 
 (* クラスメソッドの識別子参照は dispatch へのラッパで素通しにする(計画 §8.5) *)
 let register_class_methods globals =
-  Hashtbl.iter
-    (fun _ (ci : Decls.class_info) ->
-      let cls_name = Type.name_of ci.Decls.ci_name in
-      List.iter
-        (fun (m, _) ->
-          let wrapper = VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } in
-          Hashtbl.replace globals m wrapper;
-          Hashtbl.replace globals (cls_name ^ "." ^ m) wrapper)
-        ci.Decls.ci_methods)
-    Decls.classes
+  Hashtbl.fold (fun _ ci acc -> ci :: acc) Decls.classes []
+  |> List.sort (fun (a : Decls.class_info) b -> compare (Type.name_of a.Decls.ci_name) (Type.name_of b.Decls.ci_name))
+  |> List.iter (fun (ci : Decls.class_info) ->
+         let cls_name = Type.name_of ci.Decls.ci_name in
+         List.iter
+           (fun (m, _) ->
+             let wrapper = VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } in
+             Hashtbl.replace globals m wrapper;
+             Hashtbl.replace globals (cls_name ^ "." ^ m) wrapper)
+           ci.Decls.ci_methods)
 
 (* ## 14.13 宣言の実行 — インスタンス表に触る唯一の場所
 
@@ -1029,7 +1035,6 @@ let run ~sink decls =
    - **末尾 resume 経路の引数例外**。§14.10 のとおり、この経路だけ `discontinue` が
      走りません。単に 3 径路の判定へ戻すと §14.10 の性能特性を失うので、速い経路を
      保ったまま塞ぐ形(引数が構文的に値なら包まない、など)が要ります。
-   - **同名メソッドの非修飾名**は、どのクラスが勝つか未規定です(§14.12)。
 
    ### 静的化への移行路
 

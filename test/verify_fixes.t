@@ -204,3 +204,28 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   $ diktor --type-check cancelguard.kel
   ! 型エラー: cancel 節にガードは書けません
   [1]
+
+同名メソッドを持つ型クラスの重複宣言を拒否(非修飾名の勝者が elab
+(宣言順)と interp(ハッシュ順)で食い違い、誤った実体を呼ぶ /
+偽の「見つかりません」を出していた):
+
+  $ cat > mclash.kel <<'KEL'
+  > type class Alpha[A] { val sz: (A) => Int32 }
+  > type class Beta[A]  { val sz: (A) => Int32 }
+  > KEL
+  $ diktor --type-check mclash.kel
+  ! 型エラー: メソッド名 sz は型クラス Alpha が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
+  [1]
+
+組み込みクラスのメソッド名も同じ扱い:
+
+  $ printf 'type class MyShow[A] { val show: (A) => String }\n' > mclash2.kel
+  $ diktor --type-check mclash2.kel
+  ! 型エラー: メソッド名 show は型クラス Show が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
+  [1]
+
+組み込みと同名のクラス再宣言は従来どおり受理(照合の上で組み込みを使う):
+
+  $ printf 'type class Add[A] { val add: (A, A) => A }\necholn(show(2 + 3))\n' > readd.kel
+  $ diktor readd.kel
+  5
