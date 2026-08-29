@@ -638,24 +638,16 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    `Either` で2種類を仕分けているのは、1回の走査で `cls_vals` と `cls_derives` に
    振り分けるためです。
 
-   カンマ区切りのリストは、その多くが末尾カンマを許します。
-   `X | X COMMA | X COMMA list` という3択の形なら、`(a)` と `(a,)` を意味アクションで
-   区別できて conflict も出ません。sample.kel:397 の effect 本体や :512-515 の
-   パラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも出てきます (§3.22)。
-
-   ただし**全部ではありません**。3択にせず2択で書いた列が3本あって、そこでは末尾カンマが
-   構文エラーになります。
-
-   | 非終端 | 書けない例 |
-   |---|---|
-   | `ty_args` (型引数) | `let a: List[Int32,] = x` |
-   | `typaram_list` (型パラメータ束縛子) | `let f[A,](x) = x` |
-   | `lowline_list` (`F[_]` のアリティ) | `let m[F[_,_,]](x: Int32) = x` |
-
-   いずれも `X | X COMMA X_list` の2択で、`X COMMA` の枝がありません。計画 §6.1 は
-   型引数まで含めて「全リスト」で許すと書いていたので、ここは実装が計画に届いていない
-   ところです。引数・タプル要素・レコードのフィールド・`ctor` のフィールド・`effect` の
-   操作・ブレース型の要素は、書いたとおり末尾カンマが通ります。
+   カンマ区切りのリストは、**例外なく末尾カンマを許します** (M18 / D56)。
+   `X | X COMMA | X COMMA list` という3択が、`(a)` と `(a,)` を意味アクションで
+   区別する唯一のイディオムで、conflict も出ません。sample.kel:397 の effect 本体や
+   :512-515 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
+   出てきます (§3.22)。かつて `ty_args` / `typaram_list` / `lowline_list` の 3 本だけ
+   2択のままで末尾カンマが構文エラーでした — 計画 §6.1 の「全リスト」の字義に
+   M18 で届いた形です。区切りが `|` の `ctors` と `+` の `cls_list` はカンマ区切り
+   ではないので対象外です。なお `[A,]` は「型引数 1 個 + 末尾カンマ」であって
+   1 タプルではありません — 角括弧は引数リストで、括弧の `(A,)` (§3.20) とは
+   別物です。
 
    型パラメータ束縛子 (`typaram`) は名前・アリティ・クラス制約の3点セットです。
    `F[_]` と書いたときだけ `hkt_opt` が正の数になり、その場でカインドが `KArrow` に
@@ -709,11 +701,11 @@ eff_op: lower_id COLON ty { ($1, $3) }
 
 typarams_opt: { [] } | typarams { $1 }
 typarams: LBRACKET typaram_list RBRACKET { $2 }
-typaram_list: typaram { [ $1 ] } | typaram COMMA typaram_list { $1 :: $3 }
+typaram_list: typaram { [ $1 ] } | typaram COMMA { [ $1 ] } | typaram COMMA typaram_list { $1 :: $3 }
 typaram: ty_ident hkt_opt cls_opt { { tp_name = $1; tp_arity = $2; tp_classes = $3 } }
 ty_ident: lower_id { $1 } | upper_id { $1 }
 hkt_opt: { 0 } | LBRACKET lowline_list RBRACKET { $2 }
-lowline_list: LOWLINE { 1 } | LOWLINE COMMA lowline_list { 1 + $3 }
+lowline_list: LOWLINE { 1 } | LOWLINE COMMA { 1 } | LOWLINE COMMA lowline_list { 1 + $3 }
 cls_opt: { [] } | COLON cls_list { $2 }
 cls_list: upper_id { [ LongId [ $1 ] ] } | upper_id PLUS cls_list { LongId [ $1 ] :: $3 }
 
@@ -1031,7 +1023,7 @@ app_ty:
   | atom_ty                           { $1 }
   | atom_ty LBRACKET ty_args RBRACKET { mk $sloc (EApply ($1, $3)) }
 
-ty_args: ty_arg { [ $1 ] } | ty_arg COMMA ty_args { $1 :: $3 }
+ty_args: ty_arg { [ $1 ] } | ty_arg COMMA { [ $1 ] } | ty_arg COMMA ty_args { $1 :: $3 }
 ty_arg: ty { $1 } | LOWLINE { mk $sloc EHole }
 
 atom_ty:
