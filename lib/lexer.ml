@@ -9,9 +9,13 @@
 
    | 層 | 入口 | 仕事 |
    |---|---|---|
-   | 1. 生トークン | `read_raw_token` | 文字 → 64 種のトークン。`{` は未分類のまま |
+   | 1. 生トークン | `read_raw_token` | 文字 → 62 種のトークン。`{` は未分類のまま |
    | 2. 再分類 | `pop_reclassified` | `{` をブロック / レコード / レコード型に確定 |
    | 3. ASI | `read_token` | region スタックを見て、改行を文区切りに昇格するか捨てる |
+
+   トークン型そのものは全部で 64 種あります(第3章 (parser.mly) の `%token`
+   宣言。計画 §5.1 の「81 個 → 64 個」)。層 1 が出せるのはそのうち 62 種で、
+   残る `LBRACE_RECORD` / `LBRACE_TYPE` は層 2 だけが作ります。
 
    Keleut には 2 つの厄介な性質があります。**改行が意味を持つ**ことと、
    **`{` が 3 通りの意味を持つ**ことです(仕様 sample.kel:20-26、計画 §5.3)。
@@ -43,8 +47,12 @@
    確認しています。ゴールデンは `test/tokens.t`(`--dump-tokens` の出力)で、
    ASI とブレース分類を固定する唯一の手段です。
 
-   この層が外へ出す失敗は `Lex_error` ただ 1 つで、メッセージと位置を
-   添えます。第16章 (driver.ml) がこれを終了コード 2 に整形します。 *)
+   この層のコードが**自ら投げる**失敗は `Lex_error` ただ 1 つで、メッセージと
+   位置を添えます。第16章 (driver.ml) がこれを終了コード 2 に整形します。
+   ただし「この層を通り抜ける」失敗はほかに 2 つあります。不正な UTF-8 バイト列
+   に対して sedlex のデコーダが投げる `Sedlexing.MalFormed`(こちらも 2 — §2.6)
+   と、`from_filename` の `open_in_bin` が投げる `Sys_error`(ファイルを開け
+   なかった、で 64)で、どちらも driver 側の別の枝が受けます。 *)
 open Syntax
 
 exception Lex_error of string * Lexing.position
@@ -185,8 +193,9 @@ module Make (Data : Syntax.Data) = struct
 
    1 行目の `_` が要点です。旧実装では識別子の正規表現が長さ 1 の `_` にも
    マッチし、`LOWLINE` の分岐と長さで並んだため、先に書かれた識別子側が
-   常に勝って `LOWLINE` は一度も生成されていませんでした(既存バグ 0.2-13)。`case _ =>` も `List[_]` も
-   `LOWLINE` に依存しているので、これは文法側から見ると致命的です。
+   常に勝って `LOWLINE` は一度も生成されていませんでした(既存バグ 0.2-13)。
+   `case _ =>` も `List[_]` も `LOWLINE` に依存しているので、これは文法側から
+   見ると致命的です。
    いまは識別子として読んだうえで、**単独の `_` だけ**をこの表で
    `LOWLINE` に振り替えます。`_item`(タプルのラベル)や `_0` は識別子の
    ままである必要があるので、正規表現から裸の `_` を除くのではなく、
@@ -195,7 +204,7 @@ module Make (Data : Syntax.Data) = struct
   (* ---- 生トークン層 ---- *)
 
   let keyword_or_ident = function
-    | "_" -> LOWLINE (* 単独の _ のみ。_item / _0 は識別子(§5.1) *)
+    | "_" -> LOWLINE (* 単独の _ のみ。_item / _0 は識別子(計画 §5.1) *)
     | "and" -> AND
     | "case" -> CASE
     | "class" -> CLASS
@@ -248,23 +257,26 @@ module Make (Data : Syntax.Data) = struct
 
    コメントを足しただけで前後の行が結合したら理不尽です。逆に、改行を
    含まないコメントは行の途中に置いたのと同じ扱いにします。この判定を
-   `read_block_comment` が真偽値で返しています。なお `skip_newlines` が
-   もう 1 個 `NL` を出すことがありますが、ASI 層は連続する `NL` の 2 個目を
-   自然に捨てるので害はありません。
+   `read_block_comment` が真偽値で返しています。なお `NL` を出した直後に
+   改行を含むブロックコメントが続くと、コメント処理の側がもう 1 個 `NL` を
+   出すことがあります(`skip_newlines` はトークンを一切作らないので、これを
+   潰しません)。害はありません。ASI 層が連続する `NL` の 2 個目を自然に
+   捨てるからです。
 
    `#!` はオフセット 0 のときだけ shebang として行末までスキップし、
    それ以外の位置では字句エラーです。`#` は構造的ヴァリアントの印なので、
    ここを緩めると `#Even` の読みと衝突します。 *)
 
-  (* 連続する改行・空白を1個の NL に潰す(改行の行カウントは sedlex 3.x が自動追跡する。
-     コメントは潰さない — 後続のコメント処理がもう1個 NL を出しうるが、ASI 層が自然に破棄する) *)
+  (* 連続する改行・空白を1個の NL に潰す。トークンは作らない
+     (改行の行カウントは sedlex 3.x が自動追跡する。コメントは潰さないので、
+      後続のコメント処理がもう1個 NL を出しうるが、ASI 層が自然に破棄する) *)
   let rec skip_newlines lexbuf =
     match%sedlex lexbuf with
     | '\n' -> skip_newlines lexbuf
     | Plus (' ' | '\t' | '\r') -> skip_newlines lexbuf
     | _ -> Sedlexing.rollback lexbuf
 
-  (* 入れ子ブロックコメント。改行を含んでいたかを返す(§5.2) *)
+  (* 入れ子ブロックコメント。改行を含んでいたかを返す(計画 §5.2) *)
   let read_block_comment lexbuf =
     let saw_nl = ref false in
     let rec go depth =
@@ -368,7 +380,7 @@ module Make (Data : Syntax.Data) = struct
    sedlex の選択規則は**最長一致**で、同じ長さの候補が複数あるときだけ
    先に書かれた分岐を採ります。したがって `=>` を `=` より先に置くことは
    実は必須ではありません(長さで決着します)。順序が本当に効くのは長さが
-   並んだときだけで、旧実装の裸の `_` はまさにそこで壊れていました(2.4)。
+   並んだときだけで、旧実装の裸の `_` はまさにそこで壊れていました(§2.4)。
    多文字記号を上にまとめてあるのは、読む人のための整理です。
 
    末尾の 2 分岐が旧実装との最大の違いです。旧レキサは catch-all を
@@ -401,7 +413,7 @@ module Make (Data : Syntax.Data) = struct
     | "//", Star (Compl '\n') -> read_raw_token lexbuf
     | "/*" -> if read_block_comment lexbuf then here NL else read_raw_token lexbuf
     | "#!" ->
-        (* shebang はオフセット0のときだけ(§5.2) *)
+        (* shebang はオフセット0のときだけ(計画 §5.2) *)
         if Sedlexing.lexeme_start lexbuf = 0 then (
           skip_rest_of_line lexbuf;
           read_raw_token lexbuf)
@@ -461,19 +473,26 @@ module Make (Data : Syntax.Data) = struct
    - `last_sp` / `last_ep` — 直近に渡したトークンの位置。構文エラー報告用。
 
    `peek t i` はキューが足りなければ生トークンを継ぎ足して i 番目を返します。
-   リストの末尾追加なので二次のコストですが、先読みは常に高々 2 トークンで
-   終わるため実害はありません(`List.length` も同じ理由で許容)。
    `peek_sig t k` は `NL` を飛ばして k 個目の有意トークンを覗きます。**先読みが
    改行を跨ぐ**のは、`{` の分類でも ASI の「次に文を始められるか」の判定でも
    必要だからです。
 
-   ここでも 2.0 の不変条件が効いています。`peek` は `pending` に足すだけで、
+   末尾追加 `t.pending @ [...]` と `List.length` はキューの長さに対して二次
+   ですが、実害はありません。ただし「高々 2 トークンだから」という説明は
+   雑すぎるので、有意トークンと生トークンを言い分けておきます。高々 2 個で
+   済むのは `peek_sig` が数える**有意**トークンのほうで、`peek` が触る生
+   キューには間に挟まる `NL` がそのまま並びます。行コメントは `NL` を潰さない
+   ので、`{` の直後にコメント行を N 本置けば分類のためにキューは N+2 要素まで
+   伸びます。伸び方がソースの見た目に比例する程度に収まる、というのが実害が
+   無いことの本当の根拠です。
+
+   ここでも章頭に置いた不変条件が効いています。`peek` は `pending` に足すだけで、
    `regions` にも `prev` にも触れません。覗かれたトークンは後で自分の番が
    来たときに、あらためて `read_token` を通ります。 *)
 
   (* ---- 再分類層 + ASI 層 ---- *)
 
-  (* region(§5.4-2):
+  (* region(計画 §5.4-2):
      RBlock = 文区切り region(LBRACE_BLOCK)、
      RSuppress = NL 抑止 region(丸/角括弧・LBRACE_RECORD・LBRACE_TYPE)、
      RClause = case パターン(EQ_GREATER で pop。既存バグ 0.2-14 の修正) *)
@@ -564,7 +583,7 @@ module Make (Data : Syntax.Data) = struct
    非終端で受けます。3 分割しても Menhir の conflict は 0 のままです
    (spike S1 で確認)。分類が要るのは式位置だけです。 *)
 
-  (* §5.3 の表。t1 = `{` の次、t2 = その次(NL スキップ) *)
+  (* 計画 §5.3 の表。t1 = `{` の次、t2 = その次(NL スキップ) *)
   let classify_brace t =
     let t1 = (peek_sig t 0).tok in
     match t1 with
@@ -641,18 +660,34 @@ module Make (Data : Syntax.Data) = struct
    経路では決して pop されず、閉じ括弧の pop に偶然救われていました
    (既存バグ 0.2-14)。
 
-   **既知の制限を正直に書いておきます。** `EQ_GREATER` は深さを見ずに
-   pop するので、**ガードの中に無名関数の矢印を書くと節 region が早く
-   pop します**。
+   **既知の制限を正直に書いておきます。** ただし範囲は、計画 §5.4-3 と
+   実装記録 doc/log/260829-2-impl.md が書いている「ガード内の `fn(x) =>` で
+   早く pop する」より狭いことを、`--dump-tokens` で確かめました。
+   `EQ_GREATER` の分岐が pop するのは**スタックの先頭が `RClause` のとき
+   だけ**です。`(` `[` は `RSuppress` を、`{` は `RBlock` を積むので、
+   括弧に包まれた矢印は先頭を `RClause` でなくしてくれます。つまり
 
    ```
-   case Some(x) if pred(fn(y) => y) =>   // 内側の => で RClause が pop する
+   case Some(x) if pred(fn(y) => y) =>   // 内側の => は region を動かさない
    ```
 
-   pop 後にガードの残りで改行を跨ぐと、そこに区切りが入りかねません。
-   sample.kel に該当例が無いので v0 では放置しています。踏んだら
-   「深さ 0 の `=>` でだけ pop する」に直すのが正しい修正です
-   (計画 §5.4-3、実装記録 260829-2 の既知の制限)。
+   は無事です。region スタックが実質的に括弧の深さを見ているからです。
+
+   漏れるのは、節のパターンやガードの**最上位**に現れる `=>` だけです。
+
+   ```
+   case x: (Int32) => Int32 => e   // 型注釈の矢印で RClause が先に pop する
+   ```
+
+   `(Int32)` が積んだ `RSuppress` は `)` で消えているので、続く関数型の
+   `=>` の時点で先頭は `RClause` に戻っており、そこで pop してしまいます。
+   括弧に包まないラムダをガードの最上位に置いた場合も同じです。pop 後に
+   残りのパターンやガードで改行を跨ぐと、そこに区切りが入りかねません。
+
+   直しかたも「深さ 0 の `=>` でだけ pop する」ではありません。深さは region
+   スタックが既に見ています。要るのは「その `=>` が節の矢印か、型注釈や
+   ラムダの矢印か」を見分ける別の状態です。sample.kel に該当例が無いので
+   v0 では放置しています。
 
    閉じ括弧の pop には守るべき不変条件があります。`_ :: (_ :: _ as tl)` と
    書いてあるとおり、**残り 1 個のときは pop しません**。つまり `RTop` は
@@ -666,7 +701,7 @@ module Make (Data : Syntax.Data) = struct
    区切りが 2 つ並ぶことがありません。文法側の `items` は余分な `;` / `NL` を
    読み飛ばす形にしてありますが(計画 §5.4)、それに頼らずに済みます。 *)
 
-  (* §5.4-1 の述語(既存バグ 0.2-12: 中身を入れ替えたうえで改名済み) *)
+  (* 計画 §5.4-1 の述語(既存バグ 0.2-12: 中身を入れ替えたうえで改名済み) *)
 
   (* NL の前に来てよい = 文終端になれる *)
   let can_end_statement = function
@@ -676,7 +711,7 @@ module Make (Data : Syntax.Data) = struct
     | _ -> false
 
   (* NL の後で文を開始できる。AND / CASE / MATCH / HANDLE / DOT / BACKSLASH /
-     EXTENDS / VERTICAL / 二項演算子群は意図的に除外(行継続、§5.4) *)
+     EXTENDS / VERTICAL / 二項演算子群は意図的に除外(行継続、計画 §5.4) *)
   let can_begin_statement = function
     | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | DERIVE | WITH | PERFORM | RESUME | RUN | FN
     | LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ | HASH_IDENT _ | NUMBER _ | TEXT _ | BOOL _ | HOLE | EXCLAMATION
@@ -708,7 +743,8 @@ module Make (Data : Syntax.Data) = struct
             match t.regions with _ :: (_ :: _ as tl) -> t.regions <- tl | _ -> ())
         | CASE -> t.regions <- RClause :: t.regions
         | EQ_GREATER -> (
-            (* 既知の制限: ガード内の fn(x) => は内側の => で先に pop する(§5.4-3) *)
+            (* 先頭が RClause のときだけ pop するので、括弧の内側の => は安全。
+               漏れるのは節パターン/ガード最上位の => だけ(§2.10、計画 §5.4-3) *)
             match t.regions with RClause :: (_ :: _ as tl) -> t.regions <- tl | _ -> ())
         | _ -> ());
         t.prev <- Some tok;
@@ -752,7 +788,7 @@ module Make (Data : Syntax.Data) = struct
    ASI が**昇格させた**改行だけが現れます(捨てられた改行は列に無い)。
    `<EOF>` は最後に必ず 1 個。
 
-   数値は `show_number`(2.1)で表記を復元するので、桁区切りも接尾辞も
+   数値は `show_number`(§2.1)で表記を復元するので、桁区切りも接尾辞も
    書いたとおりに出ます。文字列だけは `String.escaped` を通した引用符つきで
    出力します。ゴールデンの中で他のトークンと見分けが付くようにするためです。 *)
 
