@@ -1325,10 +1325,20 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 
    > 行に現れる候補のうち、**最左**を採る。
 
-   最左とは何か。Scoped Labels では最左のラベルが最初に一致し、実行時には
-   最も内側のハンドラが最初に捕まえます。つまり行の最左は**最内ハンドラ**
-   です。型検査の解決と実行時の捕捉が同じ順序を見ている、というのが
-   この規則の正当化であって、単なる先勝ちの言い換えではありません。
+   最左とは何か。**行が handle の入れ子から推論で組み立てられる限り**、
+   最左は最内ハンドラです — §11.24 が本体の行を
+   TRowExtend(label, …, outer) と積むので、内側のハンドラのラベルほど
+   左に来ます。Scoped Labels の最左一致とも実行時の最内捕捉とも一致し、
+   これがこの規則の正当化です。
+
+   ただし**注釈が行を明示的に書いたときの最左は、書かれた順序**であって
+   入れ子順ではありません(M20 / I3 で本文を訂正)。同名の操作を持つ
+   E1 / E2 について `@ {E1, E2}` の関数の `perform op` は、E2 のハンドラが
+   内側にいても E1 に解決されます(実測 — test/typecheck_m6.t の
+   leftmost.kel)。それでも静的解決と実行時捕捉は食い違いません —
+   perform は解決済みの完全名 oid を運ぶので、E2 のハンドラが E1.op を
+   捕まえることはない(素通りして E1 のハンドラに届く)からです。
+   挙動は健全で、かつて誤っていたのはこの節の説明でした。
 
    `copy` で `write` が `File.write` になるのは、`with_file` が積んだ `File` が
    `Console` より内側 = 行の左にいるからです。そして人間が読んだときの
@@ -1353,8 +1363,8 @@ and resolve_perform eff li =
       | [] -> type_error ("未知の操作: " ^ op)
       | [ e ] -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
       | many -> (
-          (* 現在の eff 行に明示的に現れる候補のうち、最左(= 最内ハンドラ)を採る。
-             Scoped Labels の最左一致と実行時の最内捕捉に一致する *)
+          (* 現在の eff 行に明示的に現れる候補のうち、最左を採る。推論された
+             行では最左 = 最内ハンドラ。注釈された行では書かれた順(§11.20) *)
           let labels = List.map fst (fst (row_fields eff)) in
           let pos e =
             let rec go i = function [] -> None | l :: tl -> if l = e then Some i else go (i + 1) tl in

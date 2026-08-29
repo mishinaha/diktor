@@ -205,3 +205,19 @@ MiniLang §16-8 の runST 2例(値制限):
   $ diktor --type-check --no-prelude rigidrow.kel
   ! rigidrow.kel:5:3: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル C を足せません(注釈側に C を書き足してください)
   [1]
+
+非修飾操作名の解決は「行の最左」— 注釈された行では書かれた順であって
+入れ子順ではない(M20 / I3。かつて本文が「最左 = 最内ハンドラ」と
+一般化して書いていた誤りの反例。挙動は健全 — perform は解決済みの
+完全名を運ぶので、実行時の捕捉と食い違わない):
+
+  $ cat > leftmost.kel <<'KEL'
+  > type Unit = {}
+  > effect E1 = { op: (String) => Unit }
+  > effect E2 = { op: (String) => Unit }
+  > let f(): Unit @ {E1, E2} = perform op("f")
+  > let g(): Unit @ {E2, E1} = perform op("g")
+  > KEL
+  $ diktor --type-check --no-prelude leftmost.kel
+  f : () => {} @ {E1, E2 extends R1}
+  g : () => {} @ {E2, E1 extends R1}

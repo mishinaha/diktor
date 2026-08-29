@@ -513,3 +513,25 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   > EOF2
   $ diktor fwd9.kel
   8
+
+注釈の順序が解決を決める(I3 の実行側。h2 が内側でも {E1, E2} 注釈の
+op は E1 に解決され、E2 のハンドラを素通りして外側の h1 に届く):
+
+  $ cat > leftmostrun.kel <<'EOF2'
+  > effect E1 = { op: (String) => {} }
+  > effect E2 = { op: (String) => {} }
+  > let f[E](): {} @ {E1, E2 extends E} = perform op("f")
+  > let h1[A, E](b: () => A @ {E1, Console extends E}): A @ {Console extends E} =
+  >   b() handle {
+  >     case E1.op(s) => resume(echo("E1:" + s + "\n"))
+  >     case return(x) => x
+  >   }
+  > let h2[A, E](b: () => A @ {E2, Console extends E}): A @ {Console extends E} =
+  >   b() handle {
+  >     case E2.op(s) => resume(echo("E2:" + s + "\n"))
+  >     case return(x) => x
+  >   }
+  > h1(fn() => h2(fn() => f()))
+  > EOF2
+  $ diktor leftmostrun.kel
+  E1:f
