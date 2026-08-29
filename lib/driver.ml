@@ -158,24 +158,35 @@ exception Input_error of string
 
 let with_input f = try f () with Sys_error msg -> raise (Input_error msg)
 
-(* 出力の書き出しは終了コード規約の一部(B5 / D33)。既定の flush は
-   Format の at_exit(flush_standard_formatters)で走り、そこは §16.8 の
-   受け皿の**外**なので、落ちると規約を素通りして Fatal error + 2 に化ける。
-   だからモードの最後と exit の前に、受け皿の中で flush し切る *)
+(* 出力の書き出しは終了コード規約の一部(B5 / D33)。
+   exit の do_at_exit は Format の標準フォーマッタを flush し、書けない
+   stdout / stderr ではそこで Sys_error が受け皿の外に飛んで Fatal error +
+   終了コード 2 に化ける — つまり **exit 自身が例外を投げうる**。だから
+   終了は必ず safe_exit を通す: 終了コードを決めたらフォーマッタを無効化し、
+   チャネルは best-effort で flush してから exit する。無効化は行儀の良く
+   ない手だが、Unix._exit の依存追加(D15 違反)よりよい *)
+let null_formatter_out =
+  {
+    Format.out_string = (fun _ _ _ -> ());
+    out_flush = (fun () -> ());
+    out_newline = (fun () -> ());
+    out_spaces = (fun _ -> ());
+    out_indent = (fun _ -> ());
+  }
+
+let safe_exit n =
+  Format.pp_set_formatter_out_functions Format.std_formatter null_formatter_out;
+  Format.pp_set_formatter_out_functions Format.err_formatter null_formatter_out;
+  (* stdout → stderr の順(cram は両者を 1 本に併合するので、プログラム
+     出力 → 診断の順序を保つ)。失敗は握る — 終了コードはもう決まっていて、
+     Fatal error + 2 に上書きさせない *)
+  (try flush stdout with Sys_error _ -> ());
+  (try flush stderr with Sys_error _ -> ());
+  exit n
+
 let die_output msg =
-  (* 同じ失敗を at_exit で繰り返さないよう、標準フォーマッタの出力先を
-     無効化する。しないと exit の中でもう一度落ちて Fatal error に戻る
-     (実測)。行儀は良くないが、Unix._exit の依存追加(D15 違反)よりよい *)
-  Format.pp_set_formatter_out_functions Format.std_formatter
-    {
-      Format.out_string = (fun _ _ _ -> ());
-      out_flush = (fun () -> ());
-      out_newline = (fun () -> ());
-      out_spaces = (fun _ -> ());
-      out_indent = (fun _ -> ());
-    };
   Printf.eprintf "diktor: 標準出力に書き出せません: %s\n" msg;
-  exit 74
+  safe_exit 74
 
 let flush_stdout_or_die () = match flush stdout with () -> () | exception Sys_error msg -> die_output msg
 
@@ -195,9 +206,11 @@ let show_pos pos =
    列を出します。ここが素のトークン列だと、暗黙のセミコロン挿入を固定する
    という目的を果たしません。 *)
 let dump_tokens_file file =
-  let lexer = with_input (fun () -> Lexer'.from_filename file) in
-  Lexer'.all_tokens lexer
-  |> List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok))
+  (* 読み取りは遅延で走る(Sedlexing は open の後、字句解析の駆動中に読む)ので、
+     open だけでなくトークン列の実体化まで with_input で包む。印字は包まない —
+     出力エラーを入力エラーと誤分類しないため(検証の指摘) *)
+  let tokens = with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file)) in
+  List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
 (* 入口を 1 つにたたむ関数です。上流からは 2 種類の失敗が来ます。
 
@@ -214,7 +227,9 @@ let parse_with lexer =
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
 
-let parse_file file = parse_with (with_input (fun () -> Lexer'.from_filename file))
+(* パースの駆動ごと with_input で包む — 読み取りエラー(ディレクトリを渡した
+   ときの EISDIR 等)は open ではなく読み取りで出る *)
+let parse_file file = with_input (fun () -> parse_with (Lexer'.from_filename file))
 
 (* 文字列版は、エラー行に見せる名前を自分で決めます。山括弧つきの名前
    (prelude や string) は「実在のファイルではない」という印で、
@@ -376,13 +391,13 @@ let type_check_files ?(quiet = false) options =
       List.iter put lines;
       if options.o_strict_exhaustive && !Elab.warnings <> [] then (
         flush_stdout_or_die ();
-        exit 1);
+        safe_exit 1);
       (prelude, decls)
   | lines, Some err ->
       List.iter put lines;
       print_endline (render_error err);
       flush_stdout_or_die ();
-      exit err.Elab.e_exit
+      safe_exit err.Elab.e_exit
 
 (* ## 16.7 結線
 
@@ -409,7 +424,10 @@ let type_check_files ?(quiet = false) options =
    例外は、巻き戻しを完了させるために握り潰さざるを得ませんが、黙って
    捨てるとデバッグ不能になります。敵対的検証では、ここが生の OCaml 例外
    表現をそのまま吐いていました。文言を与える場所が第14章ではなくこの章
-   なのは、**何をどう見せるかは出口の責任**だからです。
+   なのは、**何をどう見せるかは出口の責任**だからです。ただし例外から
+   文言への写しは第14章の `run_cancel` にあり、既知の例外(`Runtime_error` /
+   `Unwind` / `Sys_error`)だけが日本語になります — 未知のものは Printexc の
+   表現のまま残り、それは内部エラーの印です。
 
    評価に渡すのは連結した `prelude @ decls` です。型検査は所有印のために
    2 つを区別しましたが、実行時に区別する理由はありません。 *)
@@ -495,61 +513,70 @@ let run_with options =
    §16.6 が印字する型エラーだけは標準出力です。`--type-check` のゴールデンが
    型の行と誤りの行を 1 本の流れとして比較するためで、意図的な非対称です。 *)
 let main () =
+  (* SIGPIPE は無視する(D33)。既定のままだと diktor f.kel | head が
+     シグナル死(128 + 13 = 141)になり、終了コード規約の外に出る。
+     無視すれば書き込みが EPIPE = Sys_error になり、出力エラー 74 に落ちる *)
+  (try Sys.set_signal Sys.sigpipe Sys.Signal_ignore with Invalid_argument _ -> ());
   match parse_args (Array.to_list Sys.argv |> List.tl) with
   | Error msg ->
       Printf.eprintf "diktor: %s\n%s" msg usage;
-      exit 64
+      safe_exit 64
   | Ok options -> (
-      try run_with options with
+      try
+        run_with options;
+        (* 正常終了も safe_exit を通す — 落とすと、書けない stderr に警告が
+           残ったとき at_exit の flush が落ちて 0 が 2 に化ける(実測) *)
+        safe_exit 0
+      with
       | NotImplemented feat ->
           Printf.eprintf "! 未実装: %s\n" feat;
-          exit 4
+          safe_exit 4
       | Lexer.Lex_error (msg, pos) ->
           Printf.eprintf "%s: 字句エラー: %s\n" (show_pos pos) msg;
-          exit 2
+          safe_exit 2
       | Parse_error msg ->
           prerr_endline msg;
-          exit 2
+          safe_exit 2
       | Input_error msg ->
           Printf.eprintf "diktor: ファイルを開けません: %s\n" msg;
-          exit 64
+          safe_exit 64
       | Sys_error msg ->
           (* 入力側は Input_error に閉じ込めてある。ここへ来るのは出力側(B5) *)
           die_output msg
       | Sedlexing.MalFormed ->
           Printf.eprintf "字句エラー: 不正な UTF-8 バイト列です\n";
-          exit 2
+          safe_exit 2
       | Aux.Type_error msg ->
           (* flatten_modules など type_check の外で投げられる型エラー *)
           Printf.eprintf "! 型エラー: %s\n" msg;
-          exit 1
+          safe_exit 1
       | Out_of_memory ->
           Printf.eprintf "実行時エラー: メモリ不足です\n";
-          exit 3
+          safe_exit 3
       | Value.Runtime_error msg ->
           Printf.eprintf "実行時エラー: %s\n" msg;
-          exit 3
+          safe_exit 3
       | Effect.Unhandled (Value.Op (op, _)) ->
           Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.name_of op);
-          exit 3
+          safe_exit 3
       | Effect.Unhandled _ ->
           (* 評価器が起こすエフェクトは Value.Op 1 種類。ここへ来たら内部異常 *)
           Printf.eprintf "実行時エラー: 未処理のエフェクトです(内部エラー)\n";
-          exit 3
+          safe_exit 3
       | Effect.Continuation_already_resumed ->
           (* アフィン検査(§14.10 の r_used)を潜り抜けた場合の床 *)
           Printf.eprintf "実行時エラー: 継続を二重に再開しました(内部エラー)\n";
-          exit 3
+          safe_exit 3
       | Value.Unwind _ ->
           (* 自動巻き戻しがハンドラの外へ漏れた(§14.10 の inst 採番の破れ) *)
           Printf.eprintf "実行時エラー: ハンドラの外へ巻き戻しが漏れました(内部エラー)\n";
-          exit 3
+          safe_exit 3
       | Stack_overflow ->
           prerr_endline "実行時エラー: スタックオーバーフロー(再帰が深すぎます)";
-          exit 3
+          safe_exit 3
       | Panic msg ->
           prerr_endline msg;
-          exit 3
+          safe_exit 3
       (* 最後の 1 枚。ここが無いと、節に無い例外は OCaml の既定で終了コード 2 —
          この規約では「構文エラー」— に化け、例外名も漏れる。足し忘れが
          コンパイルエラーにならない以上、床を張るしかない。exit は例外を
@@ -557,7 +584,7 @@ let main () =
          他の節の exit を横取りすることはない *)
       | ex ->
           Printf.eprintf "内部エラー: 予期しない例外です: %s\n" (Printexc.to_string ex);
-          exit 3 )
+          safe_exit 3 )
 
 (* ## 16.9 bin/main.ml — 1 行の入口
 

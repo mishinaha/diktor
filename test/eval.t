@@ -309,7 +309,7 @@ Run モードでも網羅性警告は stderr に出る:
   > echoln(show(r))
   > EOF2
   $ diktor deadop.kel
-  ⚠ この操作節は到達しません(前の節が既に取りこぼしません)
+  ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
   1
 
 ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
@@ -325,3 +325,104 @@ Run モードでも網羅性警告は stderr に出る:
   $ diktor handle.kel
   1
   2
+
+操作節のガードで起きた例外も 3 径路の規約に乗る(260829-5 M13 検証修正。
+かつては素の raise で cancel が一切走らなかった):
+
+  $ cat > gexc.kel <<'EOF2'
+  > effect Res = { use: (String) => Unit }
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} =
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => echoln("cancel " + name)
+  >   }
+  > let main() = {
+  >   with _ = with_res("r1")
+  >   perform use("a")
+  >   let n = perform ask(1)
+  >   echoln("got " + show(n))
+  > } handle {
+  >   case ask(n) if ??? => resume(n)
+  >   case ask(n) => resume(n * 10)
+  >   case return(x) => x
+  >   case cancel => echoln("cancel outer")
+  > }
+  > main()
+  > EOF2
+  $ diktor gexc.kel
+  r1 uses a
+  cancel r1
+  cancel outer
+  実行時エラー: ??? に到達しました
+  [3]
+
+ガードの perform で外側が継続を捨てても cancel が走る(Unwind の通過):
+
+  $ cat > gdrop.kel <<'EOF2'
+  > effect Res = { use: (String) => Unit }
+  > effect Esc = { esc: () => Boolean }
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} =
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => echoln("cancel " + name)
+  >   }
+  > let inner() = {
+  >   with _ = with_res("r1")
+  >   perform use("a")
+  >   let n = perform ask(1)
+  >   echoln("got " + show(n))
+  > } handle {
+  >   case ask(n) if perform esc() => resume(n)
+  >   case ask(n) => resume(n * 10)
+  >   case return(x) => x
+  >   case cancel => echoln("cancel inner")
+  > }
+  > let outer() = {
+  >   inner()
+  >   echoln("after inner")
+  > } handle {
+  >   case esc() => { echoln("esc: continuation dropped"); {} }
+  >   case return(x) => x
+  >   case cancel => echoln("cancel outer")
+  > }
+  > outer()
+  > echoln("done")
+  > EOF2
+  $ diktor gdrop.kel
+  r1 uses a
+  esc: continuation dropped
+  cancel r1
+  cancel inner
+  done
+
+sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じてバッファを
+溢れさせると、cancel 節の例外が抑制ログ = stderr に出る。ログが出た =
+例外が fiber へ配送された = discontinue が走った証拠):
+
+  $ cat > sinkfail.kel <<'EOF2'
+  > effect Res = { use: (String) => Unit }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} =
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => __panic("cancel of " + name + " blew up")
+  >   }
+  > let rec loop(n: Int32): Unit @ Console = (n == 0) match {
+  >   case true => {}
+  >   case false => { echoln("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); loop(n - 1) }
+  > }
+  > let main() = {
+  >   with _ = with_res("r1")
+  >   perform use("a")
+  >   loop(100000)
+  > }
+  > main()
+  > EOF2
+  $ diktor sinkfail.kel >&-
+  cancel 節で例外が抑制されました: panic: cancel of r1 blew up
+  diktor: 標準出力に書き出せません: Bad file descriptor
+  [74]

@@ -1381,7 +1381,8 @@ and elab_handle env level eff clauses body =
   let rec dead_scan seen_total = function
     | [] -> ()
     | ((o, _, _, _) as cl) :: rest ->
-        if List.mem o seen_total then warn "この操作節は到達しません(前の節が既に取りこぼしません)";
+        if List.mem o seen_total then
+          warn ("操作 " ^ name_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
         dead_scan (if total cl && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
   in
   dead_scan [] ops;
@@ -1921,7 +1922,11 @@ let register_effect env (e : T.effect') =
   List.iter
     (fun (op, _) ->
       if op = "return" || op = "cancel" then
-        type_error ("操作名 " ^ op ^ " は予約されています(handle の " ^ op ^ " 節と衝突するため宣言できません)"))
+        type_error ("操作名 " ^ op ^ " は予約されています(handle の " ^ op ^ " 節と衝突するため宣言できません)");
+      (* 節の分類器(§11.22)が操作節として読むのは英小文字始まりだけ。
+         _ 始まりを受理すると、ハンドルできない effect になる(検証の指摘) *)
+      if String.length op = 0 || not (op.[0] >= 'a' && op.[0] <= 'z') then
+        type_error ("操作名 " ^ op ^ " は英小文字で始めてください(handle の節が操作名として読めません)"))
     e.T.ef_ops;
   let ops =
     List.map

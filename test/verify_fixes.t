@@ -365,3 +365,44 @@ return / cancel は操作名として予約(D68。handle の節分類が名前�
   $ diktor --type-check opres2.kel
   ! 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
   [1]
+
+終了は必ず safe_exit を通る(260829-5 M13 検証修正。exit の at_exit が
+書けない出力で落ち、どの終了コードも Fatal error + 2 に化けていた):
+
+  $ printf 'echoln("hello")\necholn(show(1 / 0))\n' > m74.kel
+  $ diktor m74.kel > /dev/full
+  実行時エラー: ゼロ除算です
+  [3]
+
+  $ diktor m74.kel >/dev/null 2>/dev/full
+  [3]
+
+入力の読み取りエラーも 64(with_input は open だけでなく読み取りまで包む。
+ディレクトリを渡すと EISDIR は読み取りで出る):
+
+  $ mkdir -p adir
+  $ diktor adir
+  diktor: ファイルを開けません: Is a directory
+  [64]
+
+SIGPIPE は無視して出力エラー 74 に落とす(D33。既定のままだとシグナル死
+141 で終了コード規約の外に出る):
+
+  $ cat > big74.kel <<'KEL'
+  > let rec loop(n: Int32): Unit =
+  >   (n == 0) match {
+  >     case true => ()
+  >     case false => { echoln("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"); loop(n - 1) }
+  >   }
+  > loop(100000)
+  > KEL
+  $ bash -c 'diktor big74.kel | head -c 100 >/dev/null; echo "code: ${PIPESTATUS[0]}"' 2>&1 | tail -1
+  code: 74
+
+操作名は英小文字始まりに限る(節の分類器が読めない名前の effect は
+ハンドルできない):
+
+  $ printf 'effect E3 = { _foo: (Int32) => Int32 }\n' > opus.kel
+  $ diktor --type-check opus.kel
+  ! 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
+  [1]

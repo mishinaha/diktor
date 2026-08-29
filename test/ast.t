@@ -158,7 +158,7 @@ sample.kel 全文がパースできること(M3 完了条件):
 
   $ diktor --dump-ast sample/sample.kel | wc -l
   332
-  $ diktor --dump-ast sample/sample.kel | head -3
+  $ diktor --dump-ast sample/sample.kel | sed -n '1,3p'
   (type MyInt = Int32)
   (type Unit = (row))
   (type Point = (row (x: Float64) (y: Float64)))

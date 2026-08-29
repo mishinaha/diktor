@@ -122,8 +122,12 @@ let cancel_log : (string -> unit) ref = ref (fun _ -> ())
      読み直してから比較するので、`0x1` と `1` は一致します(実装記録の乖離11。
      elab の重複検出も同じ正規化を使っています)。
 
-   `bind_pat_exn` は反駁不可であるべき位置 — `let`、関数引数、`return` 節、
-   操作節の引数 — で使います。ここで落ちたら網羅性検査か elab の穴です。 *)
+   `bind_pat_exn` は反駁不可であるべき位置 — `let`、関数引数、`return` 節 —
+   で使います。操作節の引数はここを通りません — D28 以降はフォールスルーの
+   照合(`match_pat`)で、不一致は次の節へ落ちます(§14.10)。
+   ここで落ちたら網羅性検査か elab の穴です(ただし return 節と関数引数の
+   反駁可能パターンには網羅性検査がまだ配線されていません — 260829-5 の
+   課題台帳 V10。let だけが警告を出します)。 *)
 
 let rec match_pat locals ((_, p) as node : T.pat) v =
   match p with
@@ -761,6 +765,7 @@ and eval_handle env body clauses =
         with
         | Runtime_error msg -> !cancel_log msg
         | Unwind _ -> !cancel_log "cancel 節から操作の巻き戻しで脱出しようとしました"
+        | Sys_error msg -> !cancel_log ("標準出力に書き出せません: " ^ msg)
         | ex -> !cancel_log (Printexc.to_string ex))
   in
   let clause_arg_pats (c : T.clause') =
@@ -819,6 +824,11 @@ and eval_handle env body clauses =
                                     else select rest))
                       in
                       match select cands with
+                      (* 節の選択 — 引数の照合とガードの評価 — も trap の中(敵対的
+                         検証の指摘)。ガードで起きた例外も、ガードを通過する外側の
+                         Unwind も 3 径路の規約に乗せる。素の raise は fiber に
+                         届かず、捨てた継続の cancel も自分の cancel も走らない *)
+                      | exception ex -> Effect.Deep.discontinue k ex
                       | None ->
                           (* 全節が外れた。elab の総和性検査(§11.24)を通っていれば到達
                              しない防御枝 — 消さないこと。素の raise ではなく discontinue
