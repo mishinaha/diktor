@@ -493,3 +493,48 @@ sample.kel 全文のトークン化(spike と同じ 2526 トークンである�
   64002  =
   64002  2
   64003  <EOF>
+
+節の最上位の => は必ず節の矢印(M18 / F2 / D57。ガード最上位の fn の
+矢印は RClause が本数を数えて見送る。かつては fn の矢印で region が
+早期 pop し、続きの改行に区切りが入った):
+
+  $ cat > guardfn.kel <<'KEL'
+  > let g(v) = v match {
+  >   case x if fn(y) => y
+  >     (1) => x
+  >   case _ => 0
+  > }
+  > KEL
+  $ diktor --dump-tokens guardfn.kel
+     1  let
+     1  g
+     1  (
+     1  v
+     1  )
+     1  =
+     1  v
+     1  match
+     1  {blk
+     2  case
+     2  x
+     2  if
+     2  fn
+     2  (
+     2  y
+     2  )
+     2  =>
+     2  y
+     3  (
+     3  1
+     3  )
+     3  =>
+     3  x
+     4  case
+     4  _
+     4  =>
+     4  0
+     5  }
+     6  <EOF>
+  $ diktor --type-check guardfn.kel
+  ! guardfn.kel:1:12: 型エラー: 型が一致しません: ((_A) => _B) => _B と Boolean
+  [1]

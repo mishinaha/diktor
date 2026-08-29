@@ -530,8 +530,10 @@ module Make (Data : Syntax.Data) = struct
   (* region(計画 §5.4-2):
      RBlock = 文区切り region(LBRACE_BLOCK)、
      RSuppress = NL 抑止 region(丸/角括弧・LBRACE_RECORD・LBRACE_TYPE)、
-     RClause = case パターン(EQ_GREATER で pop。既存バグ 0.2-14 の修正) *)
-  type region = RTop | RBlock | RSuppress | RClause
+     RClause = case パターン(EQ_GREATER で pop。既存バグ 0.2-14 の修正)。
+     RClause の int は、まだ矢印の来ていない fn の本数(M18 / D57)。
+     節の矢印と fn の矢印を見分ける唯一の状態 *)
+  type region = RTop | RBlock | RSuppress | RClause of int
 
   type t = {
     lexbuf : Sedlexing.lexbuf;
@@ -689,7 +691,7 @@ module Make (Data : Syntax.Data) = struct
    | `RTop` | 最初から。**決して pop しない** | 述語で判定 |
    | `RBlock` | `LBRACE_BLOCK` | 述語で判定 |
    | `RSuppress` | `(` `[` `LBRACE_RECORD` `LBRACE_TYPE` | 常に捨てる |
-   | `RClause` | `case` | 常に捨てる(`=>` まで) |
+   | `RClause` | `case` | 常に捨てる(`=>` まで。fn の矢印は数えて見送る) |
 
    レコード・レコード型・エフェクト行の中で改行が文区切りになることは
    絶対にないので、`{` の 3 分割がそのまま region の分割になります。
@@ -703,34 +705,29 @@ module Make (Data : Syntax.Data) = struct
    経路では決して pop されず、閉じ括弧の pop に偶然救われていました
    (既存バグ 0.2-14)。
 
-   **既知の制限を正直に書いておきます。** ただし範囲は、計画 §5.4-3 と
-   実装記録 doc/log/260829-2-impl.md が書いている「ガード内の `fn(x) =>` で
-   早く pop する」より狭いことを、`--dump-tokens` で確かめました。
-   `EQ_GREATER` の分岐が pop するのは**スタックの先頭が `RClause` のとき
-   だけ**です。`(` `[` は `RSuppress` を、`{` は `RBlock` を積むので、
-   括弧に包まれた矢印は先頭を `RClause` でなくしてくれます。つまり
+   **節の最上位の `=>` は常に節の矢印です**(M18 / D57)。`(` `[` は
+   `RSuppress` を、`{` は `RBlock` を積むので、括弧に包まれた矢印は先頭を
+   `RClause` でなくしてくれます。つまり
 
    ```
    case Some(x) if pred(fn(y) => y) =>   // 内側の => は region を動かさない
    ```
 
-   は無事です。region スタックが実質的に括弧の深さを見ているからです。
-
-   漏れるのは、節のパターンやガードの**最上位**に現れる `=>` だけです。
-
-   ```
-   case x: (Int32) => Int32 => e   // 型注釈の矢印で RClause が先に pop する
-   ```
-
-   `(Int32)` が積んだ `RSuppress` は `)` で消えているので、続く関数型の
-   `=>` の時点で先頭は `RClause` に戻っており、そこで pop してしまいます。
-   括弧に包まないラムダをガードの最上位に置いた場合も同じです。pop 後に
-   残りのパターンやガードで改行を跨ぐと、そこに区切りが入りかねません。
-
-   直しかたも「深さ 0 の `=>` でだけ pop する」ではありません。深さは region
-   スタックが既に見ています。要るのは「その `=>` が節の矢印か、型注釈や
-   ラムダの矢印か」を見分ける別の状態です。sample.kel に該当例が無いので
-   v0 では放置しています。
+   は最初から無事でした。region スタックが実質的に括弧の深さを見ている
+   からです。唯一見分けが要るのは、ガードの**最上位**に括弧に包まず置いた
+   ラムダの矢印で、これは `RClause` が「まだ矢印の来ていない `fn` の本数」を
+   数えて見送ります。かつてはこの見分けが無く、最上位の `fn(y) => y` の
+   矢印で region が早期 pop し、続きの改行に区切りが入ってパースエラーに
+   なりました(型の付くプログラムでは踏めない — その形のガードは必ず
+   Boolean でない — ので、症状は診断品質の差だけでしたが、6 行で消えます)。
+   なお、かつて本文がここに挙げていた `case x: (Int32) => Int32 => e` という
+   例は**そもそも書けません** — 節パターンに型注釈の構文が無く、`:` の位置で
+   パースエラーになります(実測)。将来 `case p: T =>` を導入するなら、
+   型注釈の中の矢印はこのカウンタでは見分けられないので、「型注釈内の
+   矢印には括弧必須」を仕様側の規則として引き受けるのが正しい形です (D57)。
+   副作用を 1 つ正直に: 構文の壊れた入力で `fn` の矢印が来ないまま節が
+   終わると、カウンタが残って `RClause` が pop されず、その match 本体の
+   末尾まで NL が落ちます。既に壊れている入力の話なので許容しています。
 
    閉じ括弧の pop には守るべき不変条件があります。`_ :: (_ :: _ as tl)` と
    書いてあるとおり、**残り 1 個のときは pop しません**。つまり `RTop` は
@@ -767,7 +764,7 @@ module Make (Data : Syntax.Data) = struct
     match e.tok with
     | NL -> (
         match t.regions with
-        | (RSuppress | RClause) :: _ -> read_token t
+        | (RSuppress | RClause _) :: _ -> read_token t
         | _ ->
             let keep =
               match t.prev with
@@ -784,11 +781,20 @@ module Make (Data : Syntax.Data) = struct
         | LBRACE_BLOCK -> t.regions <- RBlock :: t.regions
         | RPAREN | RBRACKET | RBRACE -> (
             match t.regions with _ :: (_ :: _ as tl) -> t.regions <- tl | _ -> ())
-        | CASE -> t.regions <- RClause :: t.regions
+        | CASE -> t.regions <- RClause 0 :: t.regions
+        | FN -> (
+            (* 節のガード最上位の fn を数える(D57)。括弧内の fn は先頭が
+               RSuppress、節本体なら pop 済みなので、ここが動くのは
+               ガード最上位だけ *)
+            match t.regions with RClause n :: tl -> t.regions <- RClause (n + 1) :: tl | _ -> ())
         | EQ_GREATER -> (
-            (* 先頭が RClause のときだけ pop するので、括弧の内側の => は安全。
-               漏れるのは節パターン/ガード最上位の => だけ(§2.10、計画 §5.4-3) *)
-            match t.regions with RClause :: (_ :: _ as tl) -> t.regions <- tl | _ -> ())
+            (* 節の矢印か fn の矢印か。RClause が数えている fn の分だけ矢印を
+               見送り、余ったところで pop する(D57)。深さは region スタックが
+               既に見ている(§2.10)。括弧の内側の => は先頭が RSuppress なので
+               安全 *)
+            match t.regions with
+            | RClause n :: (_ :: _ as tl) -> if n > 0 then t.regions <- RClause (n - 1) :: tl else t.regions <- tl
+            | _ -> ())
         | _ -> ());
         t.prev <- Some tok;
         e
