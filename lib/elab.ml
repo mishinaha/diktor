@@ -2426,6 +2426,8 @@ let process_decls env ~emit decls =
           env
       | T.DExtern ex ->
           (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
+          if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
+            type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
           Decls.add_extern ex.T.ex_name;
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in

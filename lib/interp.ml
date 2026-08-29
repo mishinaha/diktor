@@ -978,7 +978,8 @@ let exec_decl env ((_, d) : T.decl) =
       Hashtbl.replace user_instances (cls, con) methods
   | T.DExtern ex ->
       let impl =
-        match Builtin.find_prim ex.T.ex_name with
+        (* 宣言の ABI で表を選ぶ(C4)。C リンケージから __* の実装には届かない *)
+        match Builtin.find_extern ~abi:ex.T.ex_abi ex.T.ex_name with
         | Some f -> f
         (* 実装が無くても宣言は通す。落ちるのは呼ばれた時点 *)
         | None -> fun _ -> runtime_error ("未実装のプリミティブ: " ^ ex.T.ex_name)

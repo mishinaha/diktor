@@ -82,6 +82,58 @@ extern の再宣言を拒否:
   ! 型エラー: プレリュードの extern __int32_add は再宣言できません
   [1]
 
+かつてプレリュードに宣言が無かった名前も、いまは登録簿に載っていて
+再宣言できない(C4。宣言漏れの名前は嘘の型で実装に到達できた):
+
+  $ printf 'extern "prim" let __string_le(x: Int32, y: Int32): Int32\n' > exr2.kel
+  $ diktor --type-check exr2.kel
+  ! 型エラー: プレリュードの extern __string_le は再宣言できません
+  [1]
+
+  $ printf 'extern "prim" let __int64_ge(x: Int64, y: Int64): Int32\n' > exr3.kel
+  $ diktor --type-check exr3.kel
+  ! 型エラー: プレリュードの extern __int64_ge は再宣言できません
+  [1]
+
+ABI が実装バインドに効く(C リンケージから __* の実装には届かない。逆も):
+
+  $ cat > abi.kel <<'KEL'
+  > extern "C" let __nosuch_prim_name(x: Int32): Int32
+  > echoln(show(__nosuch_prim_name(1)))
+  > KEL
+  $ diktor abi.kel
+  実行時エラー: 未実装のプリミティブ: __nosuch_prim_name
+  [3]
+
+  $ cat > abi2.kel <<'KEL'
+  > extern "prim" let cos(x: Float64): Float64
+  > echoln(show(cos(0.0)))
+  > KEL
+  $ diktor abi2.kel
+  実行時エラー: 未実装のプリミティブ: cos
+  [3]
+
+ABI 文字列そのものも検査する:
+
+  $ printf 'extern "wat" let foo(x: Int32): Int32\n' > abi3.kel
+  $ diktor --type-check abi3.kel
+  ! 型エラー: 未知の extern リンケージ: wat(prim か C を指定してください)
+  [1]
+
+追加した 10 本が正しい型で呼べること(プレリュード一覧の完備性の回帰):
+
+  $ cat > prims.kel <<'KEL'
+  > echoln(show(__string_le("a","b")) + show(__string_gt("a","b")) + show(__string_ge("a","a")))
+  > echoln(show(__int64_le(1i64,2i64)) + show(__int64_gt(1i64,2i64)) + show(__int64_ge(2i64,2i64)))
+  > echoln(show(__float64_le(1.0,2.0)) + show(__float64_gt(1.0,2.0)) + show(__float64_ge(2.0,2.0)))
+  > echoln(__show_int32(42))
+  > KEL
+  $ diktor prims.kel
+  truefalsetrue
+  truefalsetrue
+  truefalsetrue
+  42
+
 let rec の非関数右辺を型検査で拒否:
 
   $ cat > lrn.kel <<'EOF'

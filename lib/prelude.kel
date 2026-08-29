@@ -211,11 +211,15 @@ effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
 // `__panic[A]` だけが型パラメータを持ちます。戻り値が完全に多相なのは、
 // **値を返さない**からです。どんな型が期待される位置にも置けます。
 //
-// 一覧が組み込み表より短いことにも意味があります。`__int64_le` や
-// `__string_ge` は第13章の実装表にはありますが、ここには宣言がありません。
-// このファイルに書くのは「Keleut のソースが名前で呼べるもの」だけで、
-// Ord のインスタンスが内部で使う実装は組み込み表から直接束縛されます。
-// 呼べる名前を絞るぶんだけ、間違って名前を取られる面積が小さくなります。
+// この一覧は第13章の「prim」実装表と**完全に対応**させます。不変条件:
+// **「prim」の実装表にある名前には、必ずこのファイルが型を与える。型を
+// 与えない名前を実装表に置かない。** かつては `__int64_le` や `__string_ge` に
+// 宣言が無く、「呼べる名前を絞るぶんだけ、間違って名前を取られる面積が
+// 小さくなる」と説明していました。実際は逆でした。宣言の無い名前は
+// 第6章の登録簿に載らないため再宣言拒否が効かず、欠陥 8 と同じ嘘の型が
+// そこから入れたのです — `__int64_ge` を Int32 を返すと偽って宣言すると、
+// 型検査が Int32 と言った式が実行時に false を表示するところまで実測
+// しました。名前を隠しても取られる面積は減らず、登録簿の死角だけが残ります。
 
 // __* プリミティブ(実装は builtin.ml の表、型はこの宣言が与える。計画 §8.6)
 extern "prim" let __int32_add(x: Int32, y: Int32): Int32
@@ -260,6 +264,19 @@ extern "prim" let __open(path: String): Int32
 extern "prim" let __read(h: Int32): String
 extern "prim" let __write(h: Int32, s: String): Unit
 extern "prim" let __close(h: Int32): Unit
+
+// 比較の残り 9 本と `__show_int32`。当初この一覧に宣言が無く、登録簿の
+// 死角になっていた名前です (§15.5 の不変条件はこの 10 本の追加で立った)
+extern "prim" let __int64_le(x: Int64, y: Int64): Boolean
+extern "prim" let __int64_gt(x: Int64, y: Int64): Boolean
+extern "prim" let __int64_ge(x: Int64, y: Int64): Boolean
+extern "prim" let __float64_le(x: Float64, y: Float64): Boolean
+extern "prim" let __float64_gt(x: Float64, y: Float64): Boolean
+extern "prim" let __float64_ge(x: Float64, y: Float64): Boolean
+extern "prim" let __string_le(x: String, y: String): Boolean
+extern "prim" let __string_gt(x: String, y: String): Boolean
+extern "prim" let __string_ge(x: String, y: String): Boolean
+extern "prim" let __show_int32(x: Int32): String
 
 // ## 15.6 出力の 3 つの入口
 //

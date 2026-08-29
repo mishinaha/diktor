@@ -51,7 +51,13 @@ open Value
    `__int32_add` を第 1 引数が String の関数として `extern` 再宣言する、という
    嘘の型でここに文字列を届かせることができました。穴は登録簿での再宣言拒否
    (第6章 (decls.ml))で塞ぎましたが、**型検査の健全性が破れたときに
-   最初に踏まれる床**がここである以上、床は張ったままにしておきます。 *)
+   最初に踏まれる床**がここである以上、床は張ったままにしておきます。
+
+   ただし床が受け止められるのは「値の形が違う」場合だけです。返り値の型を
+   偽る宣言 — Boolean を返す実装を Int32 と偽るなど — では値がそのまま
+   通り抜け、型検査が Int32 と言った式が実行時に false と表示されるところ
+   まで実測しました。頼るべきは床ではなく、第6章の登録簿と第15章 §15.5 の
+   一覧の完備性です。 *)
 
 let arg_values v = List.map snd (record_fields v)
 
@@ -133,8 +139,12 @@ let float_repr f =
    `__read` は書いた覚えのないパスに空文字列を返しますし、
    ハンドルは単調増加で再利用されず、閉じたハンドルの再利用は
    無効ハンドルのエラーになります。本物の C FFI は計画 §2.1 §12 で
-   延期しており、C リンケージの `extern` も下の表
+   延期しており、C リンケージの `extern` も §13.4 の `c_prims` 表
    (sin/cos/sqrt/exp/log)にある既知名だけの張りぼてです。
+   C 側の宣言では**返り値型の嘘が残ります** — prim 側と違いプレリュードが
+   型を与えられない(sample.kel が自分で `extern "C" let sin` を宣言する
+   ため、プレリュードが先に置くと再宣言拒否で仕様が落ちる)うえ、本物の
+   C FFI は本質的に検証不能な宣言だからです。この線引きは意図的なものです。
 
    第14章の `run` は実行のたびにこの 2 枚を `Hashtbl.reset` します。
    ゴールデンテストの間で状態が漏れないのはそのおかげです。
@@ -151,9 +161,18 @@ let next_handle = ref 0l
 
 (* ## 13.4 プリミティブ表 — 名前から実装への連想リスト
 
-   表の作りは単純です。`(名前, 引数レコード -> 値)` の連想リスト 1 本。
+   表の作りは単純です。`(名前, 引数レコード -> 値)` の連想リストが、
+   リンケージごとに 1 本 — `"prim"` の `prims` と `"C"` の `c_prims`。
    `i32_bin` などのコンビネータが「引数を 2 つ取り出し、型を検査し、
    結果を包み直す」定型を吸収するので、各行は演算そのものだけになります。
+
+   2 枚に割ってあるのは、**リンケージを実装バインドに効かせる**ためです。
+   かつては 1 本の表を `extern` の ABI を見ずに引いていたので、
+   `extern "C"` で `__string_le` の実装に、`extern "prim"` で C 既知名
+   `cos` の実装に、それぞれ届いてしまいました(実測)。いまは
+   `find_extern ~abi` が宣言の ABI で表を選び、届かない組は呼ばれた時点で
+   「未実装のプリミティブ」に落ちます。ABI 文字列そのものの検査
+   (prim / C 以外の拒否)は第11章の `DExtern` 枝にあります。
 
    ここに現れる裁定をいくつか。
 
@@ -286,12 +305,6 @@ let prims : (string * (t -> t)) list =
     ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (f64_to_int "__f64_to_i64" (Int64.to_float Int64.min_int) (as_f64 (arg1 v)))));
     ("__show_int32", fun v -> VText (Int32.to_string (as_i32 (arg1 v))));
     ("__panic", fun v -> runtime_error ("panic: " ^ as_text (arg1 v)));
-    (* extern "C" の既知名テーブル(M10。真の C FFI は延期、計画 §2.1 §12) *)
-    ("sin", fun v -> VFloat64 (sin (as_f64 (arg1 v))));
-    ("cos", fun v -> VFloat64 (cos (as_f64 (arg1 v))));
-    ("sqrt", fun v -> VFloat64 (sqrt (as_f64 (arg1 v))));
-    ("exp", fun v -> VFloat64 (exp (as_f64 (arg1 v))));
-    ("log", fun v -> VFloat64 (log (as_f64 (arg1 v))));
     ( "__open",
       fun v ->
         let path = as_text (arg1 v) in
@@ -315,7 +328,25 @@ let prims : (string * (t -> t)) list =
         unit );
   ]
 
+(* extern "C" の既知名テーブル(M10。真の C FFI は延期、計画 §2.1 §12)。
+   prim 表と分けてあるのは、リンケージが実装バインドに効くようにするため *)
+let c_prims : (string * (t -> t)) list =
+  [
+    ("sin", fun v -> VFloat64 (sin (as_f64 (arg1 v))));
+    ("cos", fun v -> VFloat64 (cos (as_f64 (arg1 v))));
+    ("sqrt", fun v -> VFloat64 (sqrt (as_f64 (arg1 v))));
+    ("exp", fun v -> VFloat64 (exp (as_f64 (arg1 v))));
+    ("log", fun v -> VFloat64 (log (as_f64 (arg1 v))));
+  ]
+
+(* prim 表専用の探索(§13.5 の組み込みメソッド表の構築が使う) *)
 let find_prim name = List.assoc_opt name prims
+
+(* extern 宣言の実装バインドはこちら。宣言の ABI で表を選ぶので、
+   届かない組(C リンケージで __* や、prim リンケージで sin)は None に
+   なり、呼ばれた時点で「未実装のプリミティブ」に落ちる *)
+let find_extern ~abi name =
+  match abi with "prim" -> List.assoc_opt name prims | "C" -> List.assoc_opt name c_prims | _ -> None
 
 (* ## 13.5 組み込みインスタンスの実体
 
