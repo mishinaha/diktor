@@ -426,3 +426,39 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   cancel 節で例外が抑制されました: panic: cancel of r1 blew up
   diktor: 標準出力に書き出せません: Bad file descriptor
   [74]
+
+トップレベルの再束縛は定義時点の実体を守る(V1。かつては評価器が
+呼び出し時に globals を引くため、先に定義した関数まで新しい実体を見て
+黙って別の値を返した):
+
+  $ cat > shadow.kel <<'EOF2'
+  > let f(): String = show(42)
+  > let show(x: Int32): String = "SHADOW"
+  > echoln(f())
+  > echoln(show(1))
+  > EOF2
+  $ diktor shadow.kel
+  42
+  SHADOW
+
+前方参照(1c 署名)は途中に再束縛があっても新しい名前として届く:
+
+  $ cat > fwd5.kel <<'EOF2'
+  > let f[E](): Int32 @ E = g(1)
+  > let show(x: Int32): String = "SHADOW"
+  > let g[E](x: Int32): Int32 @ E = x + 1
+  > echoln(f() match { case 2 => "two" case _ => "other" })
+  > EOF2
+  $ diktor fwd5.kel
+  two
+
+module 内 extern による組み込み修飾名の上書きも、先に定義済みの関数には
+届かない(M14 検証 k3 の再現の解消):
+
+  $ cat > k3.kel <<'EOF2'
+  > let f(): Int32 = Add.add(1, 2)
+  > module Add { extern "prim" let add(x: String, y: String): String }
+  > echoln(show(f()))
+  > EOF2
+  $ diktor k3.kel
+  3

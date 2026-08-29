@@ -244,7 +244,8 @@ let number_value node (n : number) =
 
    - **`Ident` は 3 段引き**: locals(不変 Map)→ globals(可変 Hashtbl)→
      引数なしコンストラクタ。globals が可変なので、トップレベルの相互参照と
-     前方参照が追加コードなしで通ります(第12章の環境の二層構造)。
+     前方参照が追加コードなしで通ります(第12章の環境の二層構造)。同名の
+     **再束縛**とこの遅延引きを両立させる仕組みは §14.13 の版複製です。
    - **`BinOp`** は第7章 (prims.ml) の表を引くだけです。`&&` と `||` だけは
      型クラスにできません — 短絡するので右辺を評価しないから(D9)。
      `!=` は `Eq.eq` の否定として同じ表に入っています。
@@ -992,11 +993,12 @@ let register_builtin_values globals =
 
    ただし elab の拒否が守るのはクラスどうしの衝突**だけ**です。クラス
    メソッドと同名の**トップレベル束縛**(プレリュードの `let` / `extern` を
-   含む)は、この登録より後に `Hashtbl.replace` で globals に入り、ここで
-   置いたラッパを上書きします。elab はパス 1b でメソッドを環境に入れるので
-   逆の勝者を選び、型検査と実行が食い違います — この穴は塞がっておらず、
-   §14.15 に残してあります(トップレベル束縛の早期/遅延の分裂全体の一部。
-   260829-5 の課題台帳 V1)。 *)
+   含む)は、この登録より後に globals に入り、ここで置いたラッパを覆います。
+   かつてはそれが同じ表への `Hashtbl.replace` だったので、**再束縛より前に
+   定義済みの関数まで**新しい実体を見てしまい、elab(宣言時点で解決)と
+   逆の勝者を選びました。いまは §14.13 の版複製が働きます — 再束縛の時点で
+   表が分かれ、先に作られた閉包は古い表のラッパを見続けるので、どの呼び出し
+   地点でも elab と同じ勝者になります(260829-5 の課題台帳 V1、M15 で解消)。 *)
 
 (* クラスメソッドの識別子参照は dispatch へのラッパで素通しにする(計画 §8.5) *)
 let register_class_methods globals =
@@ -1035,30 +1037,71 @@ let register_class_methods globals =
 
    `extern` は、実装が無ければ「呼ばれた時点で落ちる prim」を登録します。宣言だけ
    して呼ばないプログラムを通すためで、**同名の extern どうし**の嘘の型の
-   再宣言は elab が拒否します(健全性 8。登録簿の射程は §6.2)。ただし上の
-   格言は、この関数の `DLet` / `DExtern` 枝自身がまだ完全には守れていません
-   — `Hashtbl.replace` は既存の globals(先行する `let`、組み込みクラス
-   メソッドの修飾名)を黙って上書きするので、トップレベルの同名再束縛では
-   型検査と実行が別の実体を選べます(§14.15 の穴、260829-5 課題台帳 V1)。
+   再宣言は elab が拒否します(健全性 8。登録簿の射程は §6.2)。上の格言を
+   この関数の `DLet` / `DExtern` 枝自身が守る仕組みが、次の `bind_globals`
+   です — かつては素の `Hashtbl.replace` で、既存の globals(先行する `let`、
+   組み込みクラスメソッドの修飾名)を黙って上書きし、トップレベルの同名
+   再束縛で型検査と実行が別の実体を選べました(260829-5 課題台帳 V1)。
    `type` / `newtype` / `effect` / `type class` は実行時に何もしません
    — 値を作らない宣言で、必要な情報は第6章の表に入っています。`module` は
    平坦化を通っていれば到達しません。 *)
 
-let exec_decl env ((_, d) : T.decl) =
+(* トップレベル束縛の早期/遅延の整合(V1)。globals は呼び出し時に引く
+   (前方参照のため)が、elab は宣言時点の環境で名前を解決する。同名の
+   再束縛を同じ表への Hashtbl.replace にすると、**先に定義済みの関数まで**
+   新しい実体を見てしまい、型検査と実行が別の実体を選ぶ(黙って別の値が
+   返る形まで実測 — 260829-5 台帳 V1)。そこで再束縛のときだけ表を複製し、
+   以後の宣言は新しい表で評価する。既存の閉包は古い表を持ち続けるので
+   定義時点の名前を見る。**新しい名前**の追加は生きている全版に入れる —
+   前方参照(1c 署名つき)は古い閉包からも見えるべきものだから。
+   複製は再束縛のときだけ走るので、通常のプログラムでは 1 度も起きない *)
+let bind_globals versions env names_values =
+  let env =
+    if List.exists (fun (n, _) -> Hashtbl.mem env.globals n) names_values then (
+      let t2 = Hashtbl.copy env.globals in
+      versions := t2 :: !versions;
+      { env with globals = t2 })
+    else env
+  in
+  List.iter
+    (fun (n, v) ->
+      if Hashtbl.mem env.globals n then Hashtbl.replace env.globals n v
+      else List.iter (fun t -> Hashtbl.replace t n v) !versions)
+    names_values;
+  env
+
+let exec_decl versions env ((_, d) : T.decl) =
   match d with
   | T.DLet ((_, b) as bnode) ->
       let v = eval_binding_value env bnode in
       let bound = bind_pat_exn SMap.empty b.T.lb_name v in
-      SMap.iter (fun n v -> Hashtbl.replace env.globals n v) bound
+      bind_globals versions env (SMap.bindings bound)
   | T.DLetRec bs ->
-      (* globals 共有なのでバックパッチ不要(名前解決は呼び出し時) *)
-      List.iter
-        (fun ((_, b) as bnode : T.let_binding) ->
-          match snd b.T.lb_name with
-          | T.PVar x -> Hashtbl.replace env.globals x (eval_binding_value env bnode)
-          | _ -> runtime_error "let rec は名前束縛のみです")
-        bs
-  | T.DExp e -> ignore (eval env e)
+      (* 再束縛があるなら、本体を評価する前に表を差し替える — 閉包が新しい
+         表を捕まえないと、自己再帰が古い実体を呼ぶ *)
+      let names =
+        List.map
+          (fun ((_, b) : T.let_binding) ->
+            match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです")
+          bs
+      in
+      let env =
+        if List.exists (fun n -> Hashtbl.mem env.globals n) names then (
+          let t2 = Hashtbl.copy env.globals in
+          versions := t2 :: !versions;
+          { env with globals = t2 })
+        else env
+      in
+      List.iter2
+        (fun ((_, _) as bnode : T.let_binding) x ->
+          let v = eval_binding_value env bnode in
+          if Hashtbl.mem env.globals x then Hashtbl.replace env.globals x v
+          else List.iter (fun t -> Hashtbl.replace t x v) !versions)
+        bs names;
+      env
+  | T.DExp e ->
+      ignore (eval env e);
+      env
   | T.DInstance i ->
       let cls = Type.intern i.T.ins_class in
       (* module 平坦化の同義語を通す(BigInt.BigInt 等。検証で発見)。
@@ -1073,7 +1116,7 @@ let exec_decl env ((_, d) : T.decl) =
       if
         (match Decls.find_class cls with Some ci -> ci.Decls.ci_builtin | None -> false)
         && Decls.builtin_instance_exists cls con
-      then () (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
+      then env (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
       else
       let methods =
         List.concat_map
@@ -1097,7 +1140,8 @@ let exec_decl env ((_, d) : T.decl) =
       Hashtbl.replace user_instances (cls, con) methods;
       (* 解決キャッシュの無効化(H12)。宣言より前の呼び出しが覚えた
          None を残すと、この宣言が二度と見えない *)
-      Hashtbl.reset resolution_cache
+      Hashtbl.reset resolution_cache;
+      env
   | T.DExtern ex ->
       let impl =
         (* 宣言の ABI で表を選ぶ(C4)。実装の鍵は非修飾の ex_prim(H14)。
@@ -1112,8 +1156,8 @@ let exec_decl env ((_, d) : T.decl) =
                 ("未実装のプリミティブ: " ^ ex.T.ex_name
                 ^ if ex.T.ex_name = ex.T.ex_prim then "" else "(実装名 " ^ ex.T.ex_prim ^ " が見つかりません)")
       in
-      Hashtbl.replace env.globals ex.T.ex_name (VPrim { p_name = ex.T.ex_name; p_fn = impl })
-  | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> ()
+      bind_globals versions env [ (ex.T.ex_name, VPrim { p_name = ex.T.ex_name; p_fn = impl }) ]
+  | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> env
   | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
 
 (* ## 14.14 run — 最外周に 1 枚だけ敷く
@@ -1142,9 +1186,10 @@ let run ~sink decls =
   register_builtin_values globals;
   register_class_methods globals;
   let env = { globals; locals = SMap.empty; resume = None } in
+  let versions = ref [ globals ] in
   ignore
     (Builtin.with_runtime ~sink (fun () ->
-         List.iter (exec_decl env) decls;
+         ignore (List.fold_left (exec_decl versions) env decls);
          unit))
 
 (* ## 14.15 この章の限界と、次に足すもの
@@ -1165,12 +1210,16 @@ let run ~sink decls =
      流すことはできません。機構は 3 行で書けることを実測済みですが、handle が
      E を消すという型付け(§11.24)と両立せず、部分ハンドラの型は仕様側の
      裁定待ちです。
-   - **トップレベル束縛の早期/遅延の分裂**。elab は宣言時点の環境で名前を
-     解決する(早期束縛)のに、評価器は呼び出し時に globals を引く(遅延
-     束縛)ので、同名の再束縛 — `let` の後の同名 `let` / `extern`、クラス
-     メソッドと同名のトップレベル束縛、パス 1c の前方参照シグネチャ — で
-     型検査と実行が別の実体を選べます。誤った値が黙って返る形まで実測済み
-     (260829-5 の課題台帳 V1。M15 の宣言環境の設計で塞ぐ予定)。
+   - **前方参照の値を、定義より前に評価される位置で使う**こと。パス 1c の
+     シグネチャで型は通りますが、`let x = g(1)` の右辺のような**即時に評価
+     される位置**から前方の `g` を呼ぶと、実行はまだ値を持たず
+     「未束縛の変数」で落ちます。かつてはこの分裂がもっと広く、同名の
+     **再束縛**(`let` の後の同名 `let` / `extern`、クラスメソッドと同名の
+     トップレベル束縛)でも型検査と実行が別の実体を選び、誤った値が黙って
+     返る形まで実測されました(260829-5 の課題台帳 V1)。そちらは §14.13 の
+     版複製で塞ぎ、残ったこの形は**黙って誤る**のではなく実行時エラーで
+     落ちる — 誤るなら見逃す側ではなく音を立てる側、という点で許容して
+     います(遅延束縛で前方参照を通す設計の代価)。
 
    ### 静的化への移行路
 
