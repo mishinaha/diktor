@@ -104,7 +104,13 @@ type env = {
 
 let warnings : string list ref = ref []
 
-let warn msg = warnings := !warnings @ [ msg ]
+let warnings_count = ref 0
+
+(* 先頭に積み、読む側が向きを戻す(M19 検証 — 末尾 @ は警告数の二乗。
+   G3b が Exhaust.queue から取り除いたのと同じ形がここに残っていた) *)
+let warn msg =
+  warnings := msg :: !warnings;
+  incr warnings_count
 
 (* 出力の 1 行。種別を値で持つ(D54)。⚠ の前置などの整形は第16章の責任で、
    表示文字列を覗いて種別を当てる(かつての先頭バイト比較)ことはしない *)
@@ -192,7 +198,9 @@ let rec irrefutable_pat ((_, p) : T.pat) =
   match p with
   | T.PVar _ | T.PWildcard -> true
   | T.PAnnot (q, _) -> irrefutable_pat q
-  | T.PRecord (fields, _) -> List.for_all (fun (_, q) -> irrefutable_pat q) fields
+  | T.PRecord (fields, rest) ->
+      List.for_all (fun (_, q) -> irrefutable_pat q) fields
+      && (match rest with None -> true | Some rp -> irrefutable_pat rp)
   | T.PCtor _ | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
 
 (* pub で @ を省略した宣言の本体行(Rigid)の vid。perform がこの行と
@@ -1281,7 +1289,13 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
             let seen = ref [] in
             let env2 = List.fold_left2 (fun env p (_, t) -> elab_pat env level seen t p) env l_params fields in
             Tree.set_ty node expected;
-            elab_check env2 level eexp l_body rexp)
+            elab_check env2 level eexp l_body rexp;
+            (* 検査モードのラムダも引数パターンを網羅性検査へ(V10 の
+               続き — M19 検証。注釈のある高階関数の引数位置はこちらへ
+               流れるので、推論側だけに積むと最も普通のラムダが素通り
+               した)。本体の後に積むのは、本体中の let の drain に
+               食われて行が早期に閉じないため *)
+            List.iter2 (fun p (_, t) -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) l_params fields)
           else fallback ()
       | _ -> fallback ())
   | T.RecordExtend (rest, l, v), TRecord row -> (
@@ -1559,17 +1573,10 @@ and elab_handle env level eff clauses body =
      ハンドラの外への後送り(re-perform)は無いので、全節が外れうる形は
      ここで拒否する — 260829-2b 健全性 9 と同じ「実行時に必ず取りこぼしうる
      プログラムを型検査で通さない」方針 *)
-  let rec irrefutable ((_, p) : T.pat) =
-    match p with
-    | T.PWildcard | T.PVar _ -> true
-    | T.PAnnot (sub, _) -> irrefutable sub
-    | T.PRecord (fields, rest) ->
-        List.for_all (fun (_, sub) -> irrefutable sub) fields
-        && (match rest with None -> true | Some rp -> irrefutable rp)
-    | _ -> false
-  in
+  (* 反駁不能判定は §11 冒頭の irrefutable_pat と共用(M19 検証 —
+     同じ判定が 2 本あった) *)
   let total (_, _, args, ((_, c) : T.clause)) =
-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable a.T.cap_pat) args
+    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
   in
   List.iter
     (fun (op, _) ->
@@ -1653,9 +1660,11 @@ and elab_handle env level eff clauses body =
       if c.T.cl_guard <> None then type_error "return 節にガードは書けません";
       let seen = ref [] in
       let env2 = elab_pat { env with resume_ty = None } level seen body_ty p in
-      (* return 節の反駁可能パターンも網羅性検査へ(M19 / V10) *)
-      if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] body_ty;
-      Unify.unify (elab_exp env2 level eff c.T.cl_body) tres
+      Unify.unify (elab_exp env2 level eff c.T.cl_body) tres;
+      (* return 節の反駁可能パターンも網羅性検査へ(M19 / V10)。本体の
+         **後**に積む — 先に積むと節本体中の let の drain に食われて行が
+         早期に閉じる(M19 検証で実測) *)
+      if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] body_ty
   | _ -> Unify.unify body_ty tres);
   (match cancels with
   | [ ((_, c) as cnode) ] ->
@@ -2044,6 +2053,7 @@ and elab_rec_bindings env level eff bs : env =
      pub を外せば通る意味論的に同一の宣言が落ちる退行だった)。群は一緒に
      純粋なので同じ行でよい。解放も群の終わりに 1 度 *)
   let shared_pub_row = ref None in
+  let rec_arg_queue = ref [] in
   let pub_pure_row lvl =
     match !shared_pub_row with
     | Some (t, r) -> (t, [ ("", t, r) ])
@@ -2081,7 +2091,11 @@ and elab_rec_bindings env level eff bs : env =
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
             Unify.unify ret_ty body_ty;
-            List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
+            (* 引数パターンの検査エントリは**群の全本体の後**に積む(下)。
+               ここで積むと、後続束縛の本体中の let の drain に食われて
+               行が早期に閉じ、受理されていたプログラムが型エラーになる
+               (M19 検証で実測) *)
+            rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
             let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
@@ -2093,6 +2107,10 @@ and elab_rec_bindings env level eff bs : env =
       release_rigids (rigids @ !extra_rigids))
     bs names;
   (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
+  List.iter
+    (fun (params, param_tys) ->
+      List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys)
+    (List.rev !rec_arg_queue);
   List.iter warn (Exhaust.drain ());
   (* 群として一括で曖昧性を見る(M17 / D48)。相互再帰の制約は群の
      どれかの型から到達できればよい *)
@@ -2900,7 +2918,7 @@ let process_decls env ~emit decls =
    崩れないように、処理の前後で個数を覚えておく方式です。 *)
 
   let step env ((_, d) as node : T.decl) =
-    let wbefore = List.length !warnings in
+    let wbefore = !warnings_count in
     let env' =
       at_node node @@ fun () ->
       with_decl_module node @@ fun () ->
@@ -3009,7 +3027,12 @@ let process_decls env ~emit decls =
       Unify.default_numerics ();
       env'
     in
-    List.iteri (fun i w -> if i >= wbefore then emit (Warning w)) !warnings;
+    (* この宣言で増えた分だけを拾う。warnings は逆順に積んであるので
+       先頭 n 個を反転して出す — 全体を数え直す O(総警告数) の走査を
+       宣言ごとに繰り返さない(M19 検証) *)
+    let fresh = !warnings_count - wbefore in
+    let rec take n l = if n = 0 then [] else match l with [] -> [] | x :: tl -> x :: take (n - 1) tl in
+    List.iter (fun w -> emit (Warning w)) (List.rev (take fresh !warnings));
     env'
   in
   (* パス 1 で溜まった制約つき変数(インスタンス頭・署名の instantiate)は
@@ -3031,6 +3054,7 @@ let process_decls env ~emit decls =
 
 let type_check_decls ?(prelude = []) decls =
   warnings := [];
+  warnings_count := 0;
   Unify.reset ();
   Exhaust.reset ();
   Hashtbl.reset pub_pure_rows;

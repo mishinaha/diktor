@@ -402,3 +402,11 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   $ diktor --type-check --no-prelude rigidcls.kel
   ! rigidcls.kel:1:41: 型エラー: 型パラメータ ς1 は Ord のインスタンスではありません。[A: Ord] のように制約を書いてください
   [1]
+
+高階型変数の適用(TApp)の採番も読み順(M19 検証。頭が引数より後に
+採番されて F より A が若くなる逆順が出ていた…はずが、頭が先):
+
+  $ printf 'let idf2[F[_], A](x: F[A]): F[A] = x\nlet use3 = fn(w) => idf2(w)\n' > tapp.kel
+  $ diktor --type-check --no-prelude tapp.kel
+  idf2 : (F[A]) => F[A]
+  use3 : (F[A]) => F[A]

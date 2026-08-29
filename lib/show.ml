@@ -113,6 +113,9 @@ let show_all ts =
   in
   let record_cs name cs =
     let cs = List.filter (fun c -> not (Unify.is_predicate c)) cs in
+    (* 同じクラスの重複は落とす(出現順は保つ)。制約集合は追加時に
+       List.mem で守られているが、防御として印字側でも(M19 検証) *)
+    let cs = List.fold_left (fun acc c -> if List.mem c acc then acc else acc @ [ c ]) [] cs in
     if cs <> [] && not (List.mem_assoc name !constrained) then constrained := !constrained @ [ (name, cs) ];
     name
   in
@@ -266,7 +269,10 @@ let show_all ts =
     | TCon (n, args) -> name_of n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TApp _ as t ->
         let h, args = app_spine t in
-        go h ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
+        (* 頭を先に採番する。^ は右辺が先に評価される(§9.4。M19 検証 —
+           TApp だけ読み順と逆だった) *)
+        let hs = go h in
+        hs ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TArrow (p, r, e) ->
         (* ^ の右辺が先に評価されると命名順が逆になるので let で順序を固定する *)
         let ps = go_args p in
@@ -322,7 +328,7 @@ let show_all ts =
     match repr p with
     | TRecord row ->
         let fields, tail = row_fields row in
-        if is_tuple_row fields tail then "(" ^ String.concat ", " (List.map (fun (_, t) -> go t) fields) ^ ")"
+        if is_tuple_row fields tail then "(" ^ String.concat ", " (map_ordered (fun (_, t) -> go t) fields) ^ ")"
         else go (TRecord row)
     | t -> go t
 

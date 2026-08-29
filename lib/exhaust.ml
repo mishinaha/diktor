@@ -213,7 +213,8 @@ let rec convert ((_, p) as node : T.pat) : ipat =
   | T.PCtor (_, args) -> (
       (* 引数列は外側のパターンで束縛する。内側でもう一度分解して
          assert false で塞ぐ形にすると、到達しないはずの枝の例外だけが
-         §16.8 の受け皿に載らず、静かに終了コード 2 に化ける(M19 / G3d) *)
+         bug の [BUG] 前置を持たず、§16.8 の catch-all に「内部エラー」と
+         して拾われる — 分類も文言も他の防御枝と不揃いだった(M19 / G3d) *)
       match Tree.get_resolved node with
       | Some (Tree.RCtorPat (_, ctor, field_to_arg)) ->
           let subs =
@@ -809,7 +810,7 @@ let rec show_ipat = function
 
    逆に `match` の瞬間に閉じてしまうのも困ります。
 
-       let f = fn(t) => { let a = t match { case #A => 1  case #B => 2 }; g(t) }
+       let f = fn(t) => { t match { case #A => 1  case #B => 2 }; g(t) }
 
    ここで `g` が `#C` を要求するなら、`match` の直後に行を閉じた `t` は
    `g` に渡せず**型エラー**になります。束縛の右辺を全部推論し終えてから
@@ -825,6 +826,17 @@ let rec show_ipat = function
    戻します (M19 / G3b)。末尾に `@` で足すと積んだ数の二乗になるので、
    順序の保証は反転のほうへ移しました。**ゴールデンテストがこの順序を
    見ています**。
+
+   正直な留保を 2 つ (M19 検証)。第一に、drain は**内側の** let の
+   一般化点でも走るので、上の例の match を `let a = t match { … }` と
+   局所束縛に包むと、内側の drain が `t` の行をそこで閉じ、`g(t)` は
+   警告ではなく型エラーになります。「いちばん遅く」が保証されるのは
+   自分の束縛の中だけです。第 11 章はこの帰結を踏み、関数引数と
+   return 節の検査エントリ(V10)を本体の推論より**後**に積みます —
+   先に積むと本体中の let に食われて、受理されていたプログラムが
+   型エラーに変わりました。第二に、順序の保証は**宣言をまたぐ順序**
+   です。1 宣言の中では、引数パターンの警告は(本体の後に積むため)
+   本体の match の警告より後に出ます。
 
    ### ガード付き節は網羅性に数えない
 
@@ -865,6 +877,10 @@ let check_entry { qe_rows; qe_ty } =
   let unguarded = List.filter_map (fun (r, g) -> if g then None else Some r) all in
   let tys = [ qe_ty ] in
   close_variant_rows unguarded tys;
+  (* 単一パターンのエントリ(let のパターン束縛・関数引数・return 節)には
+     「節」が無いので、節番号を出さない(M19 検証 — 利用者が存在しない
+     第 1 節を探すことになる) *)
+  let single = match qe_rows with [ _ ] -> true | _ -> false in
   (* ガード付き節は「必ずマッチ」と数えない(sample.kel:247-249)ので網羅性から除外 *)
   (match missing unguarded tys with
   | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
@@ -874,7 +890,13 @@ let check_entry { qe_rows; qe_ty } =
     (fun i (row, _) ->
       let prior = List.filteri (fun j _ -> j < i) all in
       let prior_unguarded = List.filter_map (fun (r, g) -> if g then None else Some r) prior in
-      if not (useful prior_unguarded row tys) then out := !out @ [ Printf.sprintf "第 %d 節は到達不能です(冗長)" (i + 1) ])
+      if not (useful prior_unguarded row tys) then
+        out :=
+          !out
+          @ [
+              (if single then "このパターンには一致する値がありません"
+               else Printf.sprintf "第 %d 節は到達不能です(冗長)" (i + 1));
+            ])
     all;
   !out
 

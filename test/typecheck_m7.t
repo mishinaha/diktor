@@ -297,7 +297,8 @@ default へ降りる。M19 / G3a の sig_complete):
   absurd : (Never) => A
   allwild : (Boolean) => Int32
 
-網羅性警告はソース順に並ぶ(§10.13 の遅延キュー。M19 / G3b):
+網羅性警告は宣言をまたいでソース順に並ぶ(§10.13 の遅延キュー。
+M19 / G3b。1 宣言の中では引数パターンの警告が本体の後に出る — §10.13):
 
   $ cat > warnorder.kel <<'KEL'
   > let a = fn(x: Boolean) => x match { case true => 1 }
@@ -362,3 +363,56 @@ M19 / G3c / G3d / G7c):
   $ diktor --type-check v10c.kel
   f : () => Int32
   ⚠ match が非網羅的です。例えば false が漏れています
+
+検査モード(注釈のある高階関数の引数位置)のラムダも V10 の対象
+(M19 検証。elab_check 経路に queue が無く、最も普通のラムダが素通り
+していた):
+
+  $ cat > v10d.kel <<'KEL'
+  > let apply2(f: (Boolean) => Int32, b: Boolean): Int32 = f(b)
+  > let r = apply2(fn(true) => 1, false)
+  > KEL
+  $ diktor --type-check v10d.kel
+  apply2 : ((Boolean) => Int32, Boolean) => Int32
+  r : Int32
+  ⚠ match が非網羅的です。例えば false が漏れています
+
+引数・return 節の検査エントリは本体の推論より後に積む(M19 検証。
+先に積むと本体中の let の drain に食われて行が早期に閉じ、受理されて
+いたプログラムが型エラーになった):
+
+  $ cat > v10e.kel <<'KEL'
+  > let g(t: #A | #B | #C): Int32 = t match { case #A => 1  case #B => 2  case #C => 3 }
+  > let rec f(#A) = 1
+  > and h(v) = { let z = f(v); g(v) }
+  > KEL
+  $ diktor --type-check --no-prelude v10e.kel
+  g : (#A | #B | #C) => Int32
+  f : (#A | #B | #C) => Int32
+  h : (#A | #B | #C) => Int32
+  ⚠ match が非網羅的です。例えば #B(_) が漏れています
+
+  $ cat > v10f.kel <<'KEL'
+  > effect Nop = { nop: () => Int32 }
+  > let g(t: #A | #B | #C): Int32 = t match { case #A => 1  case #B => 2  case #C => 3 }
+  > let f(v) = v handle {
+  >   case nop() => resume(1)
+  >   case return(#A) => { let z = 1; g(v) }
+  > }
+  > KEL
+  $ diktor --type-check --no-prelude v10f.kel
+  g : (#A | #B | #C) => Int32
+  f : (#A | #B | #C) => Int32
+  ⚠ match が非網羅的です。例えば #B(_) が漏れています
+
+単一パターンのエントリには「節」が無いので節番号を出さない:
+
+  $ cat > v10g.kel <<'KEL'
+  > newtype Empt
+  > newtype Opt2[A] = Sm(A) | Nn
+  > let f(Sm(x): Opt2[Empt]) = 1
+  > KEL
+  $ diktor --type-check --no-prelude v10g.kel
+  f : (Opt2[Empt]) => Int32
+  ⚠ match が非網羅的です。例えば Nn が漏れています
+  ⚠ このパターンには一致する値がありません
