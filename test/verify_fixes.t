@@ -352,3 +352,16 @@ flush は Format の at_exit で受け皿の外を走り、素通りして Fatal
   $ diktor --type-check outerr.kel > /dev/full
   diktor: 標準出力に書き出せません: No space left on device
   [74]
+
+return / cancel は操作名として予約(D68。handle の節分類が名前で横取り
+するため、宣言できてもハンドルできない effect になっていた):
+
+  $ printf 'effect E = { cancel: () => Int32 }\n' > opres.kel
+  $ diktor --type-check opres.kel
+  ! 型エラー: 操作名 cancel は予約されています(handle の cancel 節と衝突するため宣言できません)
+  [1]
+
+  $ printf 'effect E2 = { return: () => Int32 }\n' > opres2.kel
+  $ diktor --type-check opres2.kel
+  ! 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
+  [1]

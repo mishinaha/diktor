@@ -1911,6 +1911,14 @@ let register_newtype env (n : T.newtype') =
 
 let register_effect env (e : T.effect') =
   if e.T.ef_params <> [] then type_error "effect 宣言に型パラメータは書けません(sample.kel §9)";
+  (* return / cancel は handle 節の分類(§11.22)が名前で横取りするため、
+     操作名としては宣言できない(D68)。受理すると、その操作を含む effect は
+     修飾しても書きようがなくハンドルできない(敵対的検証 V4 で実測) *)
+  List.iter
+    (fun (op, _) ->
+      if op = "return" || op = "cancel" then
+        type_error ("操作名 " ^ op ^ " は予約されています(handle の " ^ op ^ " 節と衝突するため宣言できません)"))
+    e.T.ef_ops;
   let ops =
     List.map
       (fun (op, te) ->
