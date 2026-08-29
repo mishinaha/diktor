@@ -38,7 +38,7 @@
    1a〜1c が「表を埋める」パス、2 が「本体を推論する」パスです。
    1c の署名登録だけは半端な存在で、注釈が完全でない let は登録されず、
    宣言順に依存したままになります。その線をどこに引くかが後で問題になります
-   (11.36 節)。
+   (§11.36)。
 
    ## 主要関数の一覧
 
@@ -63,7 +63,7 @@
 
    長い章ですが、繰り返し出てくる形は多くありません。読みながら
    「レベルを上げる → 剛定数を作る → 出口で漏れを見る」という 3 行の型
-   (11.17 節と 11.28 節) が何度現れるかを数えてみてください。 *)
+   (§11.17 と §11.28) が何度現れるかを数えてみてください。 *)
 
 open Aux
 open Syntax
@@ -85,7 +85,7 @@ module SMap = Map.Make (String)
 
    `resume_ty` が env の一部であることが、resume が第一級の値でないという
    設計 (D19) の実装上の表明です。resume は値ではないので `values` には
-   入りません。11.21 節でこの選択の代償を見ます。
+   入りません。§11.21 でこの選択の代償を見ます。
 
    警告は溜めてから印字します。`current_out` は「型エラーで打ち切られるまでに
    確定した出力行」で、driver がエラー時にもここまでの結果を印字するために
@@ -98,7 +98,7 @@ module SMap = Map.Make (String)
 type env = {
   values : ty SMap.t;
   types : ty SMap.t; (* 型パラメータ束縛(リージョン変数 h を含む) *)
-  resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でのみ Some(§7.3) *)
+  resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でのみ Some(計画 §7.3) *)
 }
 
 let warnings : string list ref = ref []
@@ -158,10 +158,10 @@ let unsupported_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt6
 
    1. `env.types` にある名前 — 型パラメータとリージョン変数。ここが最優先で、
       内側の `[A]` は外側の型構成子 `A` を隠します。
-   2. 型エイリアス — あれば**その場で展開**します (11.5 節)。
+   2. 型エイリアス — あれば**その場で展開**します (§11.5)。
    3. 宣言表の型構成子 — カインドを引き、引数の個数を照合します。
 
-   `Decls.resolve_con` を必ず通すのは module 平坦化 (11.42 節) の同義語表を
+   `Decls.resolve_con` を必ず通すのは module 平坦化 (§11.42) の同義語表を
    引くためです。`module Parser` の中で `Parser` と書いても、外から
    `Parser.Parser` と書いても同じ oid に行き着きます。
 
@@ -235,7 +235,7 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
    `@` を省いた矢印は**新しい行変数**を作ります (sample.kel:315-316)。
    これは「エフェクトは何でもよい」の意味で、`@ {}` と書いたときの
    「純粋」とは全く違います。この差はあとで前方参照の穴になります
-   (11.36 節)。
+   (§11.36)。
 
    `extends` の右は 2 通り受けます。行そのものと、レコード型です。後者は
    行を取り出して splice します。`{x: Int32 extends Point}` が書けるのは
@@ -284,7 +284,7 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
       let pty = match payload with None -> t_unit | Some t -> elab_type env level ~expanding t in
       TVariant (TRowExtend (intern s, pty, TRowEmpty))
   | T.EUnion ts ->
-      (* 各要素を行に落として連結(§7.3)。開いてよいのは末尾要素だけ *)
+      (* 各要素を行に落として連結(計画 §7.3)。開いてよいのは末尾要素だけ *)
       let n = List.length ts in
       let rows =
         List.mapi
@@ -348,7 +348,7 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
 
    `al_kind` が `EffectRow` のときだけ本体をエフェクト行として精緻化します。
    Keleut では行変数とエフェクト名が構文上同形なので、エイリアスの側に
-   カインドの注記が要ります (11.6 節)。 *)
+   カインドの注記が要ります (§11.6)。 *)
 
 and check_no_hole ((_, te) as t : T.type_exp) =
   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
@@ -410,7 +410,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
       if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
       else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
   | T.EIdent (LongId [ n ]) ->
-      (* @ Print = @ {Print} の略記(§7.6) *)
+      (* @ Print = @ {Print} の略記(計画 §7.6) *)
       if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
       else type_error ("未知のエフェクト: " ^ n)
   | T.EBraceRow (elems, ext) ->
@@ -427,7 +427,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
           | T.BLabel (LongId [ n ], []) -> (
               match Hashtbl.find_opt Decls.aliases (intern n) with
               | Some info when info.Decls.al_kind = Some "EffectRow" ->
-                  row_append (expand_alias env level ~expanding info []) acc (* 行 splice(§7.6) *)
+                  row_append (expand_alias env level ~expanding info []) acc (* 行 splice(計画 §7.6) *)
               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
               | None ->
                   if SMap.mem n env.types then
@@ -463,7 +463,9 @@ let elab_eff env level t = elab_eff env level ~expanding:[] t
    別々の型で使える不健全な体系になります。
 
    `seen` は同一パターン内の変数の重複を弾くためだけの可変リストです。
-   環境そのものは不変 Map のまま持ち回るので、この 1 つの ref だけが例外です。
+   環境の値そのものは不変 Map で、足しては引数として次へ渡していきます。
+   例外はコンストラクタパターンでフィールドを走査するところだけで、そこは
+   `Array.iteri` の都合で環境を ref に溜めています (§11.8)。
 
    検査モードにしておくと得なことが 2 つあります。第 1 に、リテラル
    パターンが `number_ty` を経由するので、`case 0 =>` が `Integral` 述語つきの
@@ -553,7 +555,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
               let nfields = List.length ct.Decls.ct_fields in
               let field_to_arg = Array.make nfields None in
               let positional = List.filter (fun a -> a.T.cap_label = None) args in
-              (* 位置引数があるときは全フィールドが必要。欠落の _ 補完はラベル指定パターンのみ(§2.1) *)
+              (* 位置引数があるときは全フィールドが必要。欠落の _ 補完はラベル指定パターンのみ(計画 §2.1) *)
               if positional <> [] && List.length args <> nfields then
                 type_error
                   (Printf.sprintf "コンストラクタ %s のパターンは %d 個のフィールドを取ります(%d 個与えられました)" cname nfields
@@ -629,7 +631,7 @@ let rec is_value ((_, e) : T.exp) =
    引数は `env` / `level` / `eff` の 3 つ。`eff` が「いまここで許されている
    エフェクト行」で、下向きにだけ流れます。この向きが効くのは perform の
    ところで、上向きに集めて回る実装なら必要になる合流と差分の計算が、
-   単一化 1 回に置き換わります (11.15 節)。
+   単一化 1 回に置き換わります (§11.15)。
 
    以下、節ごとに規則を見ていきます。リテラルは即決、`Hole` は新しい変数で、
    実行時に落ちます。 *)
@@ -647,9 +649,12 @@ and elab_exp' env level eff node e =
   | T.Number n -> number_ty level n
 (* ## 11.11 変数とラムダ
 
-   変数参照は `instantiate` を呼ぶ**唯一の場所**です。∀ を剥がすのがここ
-   だけだと分かっていると、型クラス制約とカインドが複製される場所も
-   ここだけだと分かります (第8章)。
+   変数参照は `instantiate` を呼ぶ主要な場所です。ほかにも呼ぶ場所はあります —
+   演算子がクラスのメソッドスキーマを引くところ (§11.13)、perform と操作節が
+   操作スキーマを引くところ (§11.15、§11.24)、インスタンス本体の包摂検査
+   (§11.38)。ただし、どれも「**表から引いたスキーマの ∀ を剥がす**」という
+   同じ用途です。∀ を剥がす操作がこの用途に閉じているので、型クラス制約と
+   カインドが複製される場所も、スキーマを引いた直後だけだと分かります (第8章)。
 
    大文字で始まる名前が値環境に無ければ、引数ゼロのコンストラクタとして
    もう一度探します。`Nil` を `Nil()` と書かせないための小さな配慮です。
@@ -692,7 +697,7 @@ and elab_exp' env level eff node e =
 
    1. 関数を推論する
    2. **先に** `TArrow (pvar, tr, eff)` と単一化して、関数型を分解する
-   3. 引数を、その `pvar` を期待型として**検査**する (11.19 節)
+   3. 引数を、その `pvar` を期待型として**検査**する (§11.19)
 
    なぜか。引数がラムダで、その本体が `perform` を含むときに差が出ます。
    非修飾の操作名の解決 (D22) は、その時点でのエフェクト行に**どのラベルが
@@ -728,7 +733,7 @@ and elab_exp' env level eff node e =
       let tf = elab_exp env level eff f in
       let tr = new_var level in
       let pvar = new_var level in
-      (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(11.12) *)
+      (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(§11.12) *)
       Unify.unify tf (TArrow (pvar, tr, eff));
       elab_check env level eff arg pvar;
       tr
@@ -788,17 +793,17 @@ and elab_exp' env level eff node e =
       Unify.unify (elab_exp env level eff r) (TRecord (TRowExtend (intern l, tf, rest)));
       TRecord rest
   | T.RecordUpdate (r, l, v) ->
-      (* 制限してから拡張と同じ型付け(§7.3)。フィールド型は変わってよい *)
+      (* 制限してから拡張と同じ型付け(計画 §7.3)。フィールド型は変わってよい *)
       let told = new_var level in
       let rest = new_row_var level in
       Unify.unify (elab_exp env level eff r) (TRecord (TRowExtend (intern l, told, rest)));
       TRecord (TRowExtend (intern l, elab_exp env level eff v, rest))
   | T.Variant (s, v) -> TVariant (TRowExtend (intern s, elab_exp env level eff v, new_row_var level))
-(* ## 11.14 ブロック・let・match・構築子
+(* ## 11.14 ブロック・let・match・コンストラクタ
 
    ブロックは各文を同じ `eff` で推論し、末尾式の型を返します。文が無ければ
    Unit です。let と let rec は環境を足して本体へ進むだけで、面白いことは
-   すべて `elab_binding` の側で起きます (11.28 節)。
+   すべて `elab_binding` の側で起きます (§11.28)。
 
    match はスクルティニを推論し、各節のパターンをその型に対して検査し、
    ガードを Boolean と、本体を共通の結果型と単一化します。単一スクルティニ
@@ -809,12 +814,14 @@ and elab_exp' env level eff node e =
    網羅性検査はここでは**走らせません**。パターンの列と型を遅延キューに
    積むだけです。理由は順序にあります。`close_variant_rows` が Generic 化
    された行変数に単一化をかけると内部エラーになるので、検査は必ず
-   一般化の**前**に流し切らなければなりません。キューを drain する場所は
-   束縛の一般化の直前 1 箇所だけです (11.28 節、計画 §7.2)。
+   一般化の**前**に流し切らなければなりません。drain する場所は 1 箇所では
+   ありませんが、どれも一般化より前です — 束縛群 (`elab_binding` /
+   `elab_rec_bindings`) では `generalize` の直前、トップレベル式 (`DExp`) では
+   推論の直後 (§11.28、§11.40、計画 §7.2)。
 
    > 網羅性検査は一般化より前。あとで走らせると、閉じるべき行がもう凍っている。
 
-   構築子の適用は `elab_construct` に委ねます (11.18 節)。 *)
+   コンストラクタの適用は `elab_construct` に委ねます (§11.18)。 *)
 
   | T.Seq es ->
       let rec go = function
@@ -853,7 +860,7 @@ and elab_exp' env level eff node e =
         (List.map (fun (a : T.ctor_arg) -> (a.T.ca_label, a.T.ca_exp)) args)
 (* ## 11.15 perform — 行に 1 回の単一化
 
-   操作の呼び出しは 4 段です。名前を解決し (11.20 節)、完全名を木に書き、
+   操作の呼び出しは 4 段です。名前を解決し (§11.20)、完全名を木に書き、
    引数を操作スキーマの引数行と単一化し、最後に
 
    ```
@@ -897,12 +904,12 @@ and elab_exp' env level eff node e =
    同じハンドラの下で走り切り、最終結果が返ってくることを型が言っています。
 
    引数の省略は操作の返り値型が Unit のときだけ許します
-   (sample.kel:355)。`Unit` と単一化するだけなので、規則は 1 行です。
+   (sample.kel:356)。`Unit` と単一化するだけなので、規則は 1 行です。
 
    なぜ resume を値環境に入れず env のフィールドにしたのか。値として
    束縛できてしまうと、節を抜けたあとに呼べる継続が作れてしまい、
    自動巻き戻し (cancel) が成立しなくなるからです。第二級性の残りの穴は
-   次の節で塞ぎます (11.21 節)。 *)
+   次の節で塞ぎます (§11.21)。 *)
 
   | T.Handle (body, clauses) -> elab_handle env level eff clauses body
   | T.Resume arg -> (
@@ -912,7 +919,7 @@ and elab_exp' env level eff node e =
           (match arg with
           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
           | None ->
-              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:355) *)
+              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:356) *)
               Unify.unify t_unit op_ret);
           tres)
 (* ## 11.17 run — 「レベルを上げる、剛定数を作る、出口で漏れを見る」
@@ -931,7 +938,7 @@ and elab_exp' env level eff node e =
 
    MiniLang §17 が「同じ形が 3 回出てくる」と言っているのがこの 3 行です。
    runST、型注釈の skolem 化、そして (足すなら) 存在型の開封。この実装でも
-   同じ形が 2 度目に現れます — 11.25 節の `make_rigids` と 11.28 節の
+   同じ形が 2 度目に現れます — §11.25 の `make_rigids` と §11.28 の
    `lvl = level + 1` がそれで、注釈の型パラメータを剛定数にして本体を検査し、
    スコープを出るところで Generic に変えています。名前が違うだけで、
    やっていることは run と同じです。
@@ -956,9 +963,9 @@ and elab_exp' env level eff node e =
       Unify.unify result t;
       result
 
-(* ## 11.18 構築子の適用 — 式では全フィールド必須
+(* ## 11.18 コンストラクタの適用 — 式では全フィールド必須
 
-   パターン側 (11.8 節) と対になる処理です。違いは 2 つ。
+   パターン側 (§11.8) と対になる処理です。違いは 2 つ。
 
    - 式では**全フィールドが必須**です。パターンでは欠落を `_` と読みますが、
      値を作るときに欠けたフィールドを黙って埋める意味はありません。
@@ -966,7 +973,7 @@ and elab_exp' env level eff node e =
      「実引数 → フィールド」の配列を木に書きます。評価器が引数を評価した
      順のまま並べ替えられるようにするためです。
 
-   引数を推論するときだけ `eff` が要ります。引数ゼロの構築子は
+   引数を推論するときだけ `eff` が要ります。引数ゼロのコンストラクタは
    `elab_exp` の `Ident` 経路からも来るので、`eff` を省略可能引数に
    しています。引数があるのに `eff` が無いのは呼び出し側の誤りなので
    `bug` で落とします。型検査器の内部矛盾はユーザのエラーではありません。 *)
@@ -1028,7 +1035,7 @@ and elab_construct env level node cname ?eff args =
 
 (* ## 11.19 検査モード — 押し込むのは 2 種類だけ
 
-   これが 11.12 節で言った「軽い双方向化」の実体です。期待型を押し込むのは
+   これが §11.12 で言った「軽い双方向化」の実体です。期待型を押し込むのは
    **ラムダと引数レコードだけ**で、それ以外は今までどおり型を合成してから
    単一化します。合わない形に出会ったら黙って `fallback` に落ちるので、
    検査モードが失敗して全体が落ちることはありません。
@@ -1087,7 +1094,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
    (:1261-1264)、それは宣言順に依存した誤解決になるので移植しません。
 
    計画は「現在の eff 行に明示的に現れているエフェクトを優先」としていました。
-   実装してみると、これでは足りません。11.12 節の `copy` では行に `File` も
+   実装してみると、これでは足りません。§11.12 の `copy` では行に `File` も
    `Console` も見えていて、`write` が両方に該当します。そこで規則を
    一段精密にしました (乖離 3)。
 
@@ -1225,7 +1232,7 @@ and check_resume_static ?(in_lambda = false) ((_, e) : T.exp) =
    扱わない handle は、書き手が何かを間違えています。
 
    分類結果は `set_resolved` で木に書きます。評価器が節の種別を判定し直さない
-   ためです (11.8 節と同じ方針)。 *)
+   ためです (§11.8 と同じ方針)。 *)
 
 and elab_handle env level eff clauses body =
   let classify ((_, c) as cnode : T.clause) =
@@ -1263,10 +1270,12 @@ and elab_handle env level eff clauses body =
    3. ちょうど 1 つなら決まり。0 個なら網羅漏れ、2 個以上なら曖昧
 
    2 の条件があるので、`Console` と `File` のように操作名が重なるエフェクトが
-   あっても、`read` と `write` の両方を書けば `File` に決まります。
-   `write` だけを書けば `File.read` が漏れていると言われます — これは
-   `Console` を意図していたなら正しい指摘で、`Console.write` と修飾すれば
-   通ります。
+   あっても、`read` と `write` の両方を書けば `File` に決まります。`write` 節
+   だけを書いた handle は `Console` に決まります — `Console` の全操作は
+   `write` 1 つなので、覆えている候補が `Console` だけになるからです。`File` を
+   意図していたなら `File.write` と修飾するか、`read` 節も書いてください。
+   逆に「操作が漏れています」と言われるのは、**どの候補も自分の全操作を
+   覆えていない**ときです (2 操作を持つエフェクトの片方だけを書いた場合など)。
 
    修飾されたエフェクトが実在するかを、ここで確かめておくのを忘れないこと。
    検査を落とすと、後段の `Option.get` が `None` を掴んで OCaml の例外が
@@ -1355,18 +1364,18 @@ and elab_handle env level eff clauses body =
    節ごとの細部を 3 つ。
 
    - resume の型は「操作の返り値型 → handle 式全体の型」。これを
-     `resume_ty` に入れて節本体を推論します (11.16 節)。return 節と
+     `resume_ty` に入れて節本体を推論します (§11.16)。return 節と
      cancel 節では **None に戻します** — そこに継続は存在しません。
    - cancel 節の値は捨てられるので Unit と単一化します。
    - 操作節の引数はラベルで書けません。位置引数だけです。操作の引数は
      宣言の並びが意味を決めているので、並べ替えを許す理由がありません。
 
-   `check_resume_static` を呼ぶのはここ、操作節に入る直前です (11.21 節)。 *)
+   `check_resume_static` を呼ぶのはここ、操作節に入る直前です (§11.21)。 *)
 
   (* 本体は対象エフェクトを積んだ行で推論 *)
   let body_ty = elab_exp env level (TRowExtend (target, t_unit, eff)) body in
   let tres = new_var level in
-  (* return 節・cancel 節は外側の eff で推論(retc/exnc は自分のハンドラが外れた文脈で走る、§7.3) *)
+  (* return 節・cancel 節は外側の eff で推論(retc/exnc は自分のハンドラが外れた文脈で走る、計画 §7.3) *)
   (match rets with
   | [ (p, ((_, c) as cnode)) ] ->
       Tree.set_resolved cnode Tree.RReturnClause;
@@ -1380,7 +1389,7 @@ and elab_handle env level eff clauses body =
       Tree.set_resolved cnode Tree.RCancelClause;
       let env2 = { env with resume_ty = None } in
       (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
-      (* cancel 節の値は捨てられる: Unit と単一化(§7.3) *)
+      (* cancel 節の値は捨てられる: Unit と単一化(計画 §7.3) *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
   | _ -> ());
   (* 操作節 *)
@@ -1430,7 +1439,7 @@ and method_scheme cls m =
 
    正しくは skolem 化です。型パラメータを**剛定数** (Rigid) にして本体を
    検査します。剛定数は代入先になれないので、`A` を Int32 に決めようとした
-   瞬間に単一化が落ちます。11.17 節で見た run の 3 行と同じ道具立てで、
+   瞬間に単一化が落ちます。§11.17 で見た run の 3 行と同じ道具立てで、
    `make_rigids` が 2 番目の行 (剛定数を作る) を担当します。
 
    カインドは `F[_]` と書かれていればその場で確定し、`[A]` や `[E]` のように
@@ -1443,7 +1452,7 @@ and method_scheme cls m =
 
    1. `make_rigids` — 束縛のレベル + 1 で作る
    2. 本体の検査 — 代入されないことと、外へ漏れないことを単一化が見張る
-   3. `release_rigids` — スコープを出たら Generic に書き換える (11.27 節)
+   3. `release_rigids` — スコープを出たら Generic に書き換える (§11.27)
 
    この 3 段が閉じているので、注釈付きの束縛は「本体では硬く、環境では
    多相」という 2 つの顔を、型スキーマ用のデータ型を 1 つも持たずに
@@ -1569,22 +1578,26 @@ and release_rigids rigids =
    計画は「本体検査用に Rigid で 1 回、環境登録用に Generic でもう 1 回、
    合わせて 2 回 elaborate するのが最短」と見積もっていました。実装は
    1 回です。`release_rigids` が剛定数を**その場で** Generic に書き換えるので、
-   同じ型オブジェクトが 2 つの顔を順に持てるからです (11.27 節)。
+   同じ型オブジェクトが 2 つの顔を順に持てるからです (§11.27)。
    木に `set_ty` 済みの型と共有が切れないという利点も付いてきます。
 
    返り値の注釈があれば本体の型と単一化し、失敗を「注釈された返り値型を
-   満たしません」に言い換えます。エラーを注釈の側から語れるように
-   単一化を try で包むのは、この経路だけです。
+   満たしません」に言い換えます。値束縛でも同じことをします — こちらは
+   注釈が書かれているときだけ「注釈された型を満たしません」に言い換えます。
+   単一化を try で包んでエラーを注釈や宣言の側から語り直す箇所は、この 2 つの
+   ほかに perform の行単一化 (§11.15) とインスタンス本体の包摂 (§11.38) が
+   あり、合わせて 4 箇所です。
 
    ### 網羅性の drain はここ
 
-   遅延キューを流すのは `generalize` の**直前**です (11.14 節)。
+   遅延キューを流すのは `generalize` の**直前**です (§11.14)。
    パターン束縛 (`let (a, b) = ...`) は単一ケースの match と同じ扱いで、
-   単相に束縛し、網羅性のキューに載せます (乖離 7)。 *)
+   単相に束縛し、網羅性のキューに載せます (乖離 7)。この経路には一般化が
+   無いので、キューに積んだ直後にそのまま流します。 *)
 
 and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   let is_fun = b.T.lb_params <> None in
-  (* 値制限(§7.2): 一般化してよいのは関数定義か値のみ。11.28 を参照 *)
+  (* 値制限(計画 §7.2): 一般化してよいのは関数定義か値のみ。§11.28 を参照 *)
   let gen = is_fun || is_value b.T.lb_body in
   if (not gen) && b.T.lb_tparams <> [] then
     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
@@ -1617,7 +1630,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   in
   Tree.set_ty node fn_ty;
   let rigids = rigids @ !extra_rigids in
-  (* 網羅性の遅延キューは generalize の直前に drain する(§7.2) *)
+  (* 網羅性の遅延キューは generalize の直前に drain する(計画 §7.2) *)
   match snd b.T.lb_name with
   | T.PVar x ->
       List.iter warn (Exhaust.drain ());
@@ -1630,7 +1643,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       release_rigids rigids;
       env
   | _ ->
-      (* パターン束縛は単相(単一ケース match と同じ扱い、§6.4)。網羅性警告に乗せる *)
+      (* パターン束縛は単相(単一ケース match と同じ扱い、計画 §6.4)。網羅性警告に乗せる *)
       release_rigids rigids;
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in
@@ -1742,7 +1755,7 @@ let initial_env () =
 
    フィールド型の中の型パラメータは **Generic** で束縛します。つまり
    宣言表に置かれるのはスキーマで、使うたびに `subst_params` で具体化します
-   (11.8 節、11.18 節)。組み込みメソッドのスキーマとまったく同じ形なので、
+   (§11.8、§11.18)。組み込みメソッドのスキーマとまったく同じ形なので、
    使う側のコードが 1 本で済みます。
 
    パラメータのカインドは `*` か、`F[_]` と明示されたものだけです。ここで
@@ -1805,7 +1818,7 @@ let register_newtype env (n : T.newtype') =
    ランク 2 に踏み込みます。ランク 1 で取れる最大限がこの形です。
 
    同一エフェクト内での操作名の重複は拒否します。**別の**エフェクトとの
-   重複は許します — それが D22 の前提です (11.20 節)。 *)
+   重複は許します — それが D22 の前提です (§11.20)。 *)
 
 let register_effect env (e : T.effect') =
   if e.T.ef_params <> [] then type_error "effect 宣言に型パラメータは書けません(sample.kel §9)";
@@ -1845,7 +1858,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    なければならない」という制約になります。
 
    `Integral` と `Fractional` はユーザ宣言できません。リテラル述語のために
-   予約された名前です (D8、11.2 節)。
+   予約された名前です (D8、§11.2)。
 
    ### クラスパラメータが引数の頭に現れること
 
@@ -1856,7 +1869,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
    理由は実行時にあります。型クラスのディスパッチは辞書渡しではなく、
    値のタグを見る動的ディスパッチです (D3、第14章)。実行時に見えるのは
-   値の頭の構成子だけなので、`(List[A]) => ...` のようにパラメータが
+   値の頭のコンストラクタだけなので、`(List[A]) => ...` のようにパラメータが
    引数の内側に埋もれていると、`A` のインスタンスを選べません。
    「頭に現れる」は「その引数でタグディスパッチできる」の言い換えです。
 
@@ -1873,9 +1886,11 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    プレリュードに置かないと明言しているので (sample.kel:329-333)、
    v0 ではこの制約と衝突しません。
 
-   組み込みと同名のクラスをユーザが宣言したときは、メソッド名の集合だけを
-   照合して受理し、実体は組み込みを使います (乖離 4)。sample.kel 自身が
-   プレリュード相当の宣言を含んでいるための運用上の裁定です。 *)
+   組み込みと同名のクラスをユーザが宣言したときは、**組み込みに無いメソッドを
+   足していないか**だけを照合して受理し、実体は組み込みを使います (乖離 4)。
+   照合は一方向で、部分集合は許します — 組み込み `Ord` の 4 メソッドのうち
+   `lt` だけを書いた宣言もそのまま通ります。sample.kel 自身がプレリュード
+   相当の宣言を含んでいるための運用上の裁定です。 *)
 
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
@@ -1909,8 +1924,8 @@ let register_class env (c : T.class_decl') =
         let ty = elab_type { env with types } 1 v.T.cv_ty in
         Unify.generalize 0 ty;
         List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
-        (* v0 制約: クラスパラメータが少なくとも1つの引数の「頭」に現れること(§7.4)。
-           実行時ディスパッチ(tycon_of_value)は値の頭構成子しか見えないので、
+        (* v0 制約: クラスパラメータが少なくとも1つの引数の「頭」に現れること(計画 §7.4)。
+           実行時ディスパッチ(tycon_of_value)は値の頭のコンストラクタしか見えないので、
            List[A] のようにパラメータが引数の内側に埋もれた形は選べない。
            「頭に現れる」= その引数でタグディスパッチできることを保証する *)
         let head_is_param t =
@@ -1940,7 +1955,8 @@ let register_class env (c : T.class_decl') =
   with
   | `Added -> methods
   | `Builtin prev ->
-      (* 組み込みと同名: メソッド名の集合が一致することだけ照合し、実体は組み込みを使う *)
+      (* 組み込みと同名: 組み込みに無いメソッドを足していないかだけ照合し(部分集合は許す)、
+         実体は組み込みを使う *)
       List.iter
         (fun (m, _) ->
           if not (List.mem_assoc m prev.Decls.ci_methods) then
@@ -1982,7 +1998,7 @@ let instance_head (i : T.instance_decl') =
 (* ## 11.35 インスタンスの登録 — 網羅と過剰の両方を見る
 
    パス 1c ではインスタンスの**頭とメソッド名**だけを登録し、本体の検査は
-   パス 2 に回します (11.38 節)。本体の推論には値環境が揃っている必要が
+   パス 2 に回します (§11.38)。本体の推論には値環境が揃っている必要が
    あるからです。
 
    ここで見るのは 2 方向の照合です。宣言していないメソッドを書いていないか
@@ -2037,7 +2053,7 @@ let register_instance (i : T.instance_decl') =
    問題は「完全」の定義でした。計画は「引数と返り値に型注釈があること」と
    書いていました。それでは穴が空きます。
 
-   省略された `@` は**新しい行変数**を作ります (11.4 節)。本体を推論するときは
+   省略された `@` は**新しい行変数**を作ります (§11.4)。本体を推論するときは
    その行変数が呼び出し側の `eff` と結ばれて縛られますが、本体を見ずに
    署名だけを作ると、行変数は何にも縛られないまま一般化されます。すると
    その関数は「どんなエフェクトでも起こしてよい」ことになり、
@@ -2073,7 +2089,7 @@ let rec fully_effected ((_, te) : T.type_exp) =
 (* ## 11.37 署名の構築 — 失敗したら黙って諦める
 
    条件を満たした束縛について、本体を見ずに型を組み立てます。型パラメータを
-   剛定数にし、注釈を精緻化し、一般化し、解放する。11.25 節の 3 段そのままです。
+   剛定数にし、注釈を精緻化し、一般化し、解放する。§11.25 の 3 段そのままです。
 
    関数束縛では引数パターンが全て `PAnnot` (注釈付き) であることも要求します。
    注釈のない引数があれば、その型は本体からしか分かりません。
@@ -2210,7 +2226,7 @@ let check_instance_bodies env (i : T.instance_decl') =
 
    **1c — インスタンスの頭と前方参照シグネチャ。** 頭のカインド検査に
    クラス表が要るので 1b の後。署名の登録はここが最後のチャンスです
-   (11.36 節、11.37 節)。
+   (§11.36、§11.37)。
 
    **2 — 本体。** 宣言順に推論し、束縛ごとに型を印字します。印字の前に
    `default_numerics` を呼ぶのを忘れないこと。述語つきの弱い変数が残った
@@ -2297,8 +2313,8 @@ let process_decls env ~emit decls =
      本体が無いぶん短いだけです。同じ名前を 2 度 extern できないのは、
      嘘の型を後から被せられるからです (260829-2b の健全性 8)。
    - `DNewtype` / `DEffect` / `DClass` — パス 1 で済んでいます。
-   - `DInstance` — 本体を検査します (11.38 節)。
-   - `DModule` — ここには来ません。平坦化で消えているはずです (11.42 節)。
+   - `DInstance` — 本体を検査します (§11.38)。
+   - `DModule` — ここには来ません。平坦化で消えているはずです (§11.42)。
 
    警告はこの宣言で新しく増えたぶんだけを印字します。宣言と警告の対応が
    崩れないように、処理の前後で個数を覚えておく方式です。 *)
@@ -2403,8 +2419,8 @@ let type_check_decls ?(prelude = []) decls =
 
    - `newtype` / `type` は `M.名前` に改名して登録し、第6章の同義語表に
      「非修飾名 → 修飾名」を張ります。この 1 本の表で、module の内側からの
-     非修飾参照と、外側からのコンパニオン型参照 (sample.kel:581) の両方が
-     通ります。11.3 節が名前を引くたびに `Decls.resolve_con` を通していたのは
+     非修飾参照と、外側からのコンパニオン型参照 (sample.kel:580) の両方が
+     通ります。§11.3 が名前を引くたびに `Decls.resolve_con` を通していたのは
      この表のためです。
    - `let` も `M.名前` に改名します。ただし module 内の相互参照は v0 では
      通りません (改名後の名前で書かれていないため)。sample.kel は使っていません。
@@ -2476,13 +2492,13 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    1. **`eff` は下向き、`level` は引数。** どちらも大域状態にしない。
       レベルの戻し忘れという古典的なバグが原理的に起きない。
    2. **一般化してよいのは関数か構文的な値のときだけ。** 注釈は理由に
-      ならない (11.28 節)。
-   3. **網羅性検査は一般化の直前に流し切る。** 一般化のあとでは、閉じる
-      べき行がもう凍っている (11.14 節)。
+      ならない (§11.28)。
+   3. **網羅性検査は一般化より前に流し切る。** 一般化のあとでは、閉じる
+      べき行がもう凍っている (§11.14)。
    4. **剛定数は作ったスコープの中でだけ硬い。** 出口で Generic に変える
-      前に、漏れは `unify` が捕まえている (11.27 節)。
+      前に、漏れは `unify` が捕まえている (§11.27)。
    5. **解決した名前は木に書く。** コンストラクタの並べ替え、操作の完全名、
-      節の種別。評価器に同じ計算をさせない (11.8 節、11.18 節、11.22 節)。
+      節の種別。評価器に同じ計算をさせない (§11.8、§11.18、§11.22)。
 
    次の第12章からは実行時の話に移ります。この章が木に書き込んだ型と
    解決結果を、第14章の評価器がそのまま読みます。 *)
