@@ -202,3 +202,70 @@ newtype の型パラメータ制約も検証される(D6 の残り):
   $ diktor --type-check c17.kel
   ! c17.kel:1:1: 型エラー: 型エイリアス Unit の宣言がプレリュードの宣言と一致しません(型パラメータの個数が違います: プレリュードは 0、宣言は 1)
   [1]
+
+module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフォール
+バック。かつては自己再帰すら「未束縛の変数」で落ちた):
+
+  $ cat > modref.kel <<'KEL'
+  > module M {
+  >   let helper(x: Int32): Int32 = x + 1
+  >   let use(x: Int32): Int32 = helper(x) + 1
+  >   let rec down(n: Int32): Int32 = n match { case 0 => 0 case _ => down(n - 1) }
+  > }
+  > echoln(show(M.use(1)))
+  > echoln(show(M.down(3)))
+  > KEL
+  $ diktor modref.kel
+  3
+  0
+
+フォールバック専用なので外側の名前が勝つ(遮蔽の記録):
+
+  $ cat > modshadow.kel <<'KEL'
+  > let helper(x: Int32): Int32 = 100
+  > module M {
+  >   let helper(x: Int32): Int32 = x + 1
+  >   let use(x: Int32): Int32 = helper(x)
+  > }
+  > echoln(show(M.use(1)))
+  > echoln(show(M.helper(1)))
+  > KEL
+  $ diktor modshadow.kel
+  100
+  2
+
+同義語の衝突は曖昧(C5d / D39。かつては黙って後勝ち):
+
+  $ cat > modclash.kel <<'KEL'
+  > module A { newtype T = TA(Int32) }
+  > module B { newtype T = TB(Int32) }
+  > let x: T = TA(1)
+  > KEL
+  $ diktor --type-check modclash.kel
+  ! modclash.kel:3:8: 型エラー: 未知の型: T(A.T か B.T と修飾してください)
+  [1]
+
+  $ cat > modclash2.kel <<'KEL'
+  > module A { newtype T = TA(Int32) }
+  > module B { newtype T = TB(Int32) }
+  > let x: A.T = TA(1)
+  > let y: B.T = TB(2)
+  > echoln(show(x match { case TA(n) => n }) + show(y match { case TB(n) => n }))
+  > KEL
+  $ diktor modclash2.kel
+  12
+
+  $ cat > modclash3.kel <<'KEL'
+  > module A { let f(x: Int32): Int32 = x + 1 }
+  > module B { let f(x: Int32): Int32 = x + 2 }
+  > echoln(show(A.f(1)) + show(B.f(1)))
+  > KEL
+  $ diktor modclash3.kel
+  23
+
+組み込みスカラー名はエイリアスでも奪えない(V2。newtype 側と同じ検査):
+
+  $ printf 'type Float64 = String\n' > v2alias.kel
+  $ diktor --type-check v2alias.kel
+  ! v2alias.kel:1:1: 型エラー: 組み込み型 Float64 は型エイリアスで再宣言できません
+  [1]

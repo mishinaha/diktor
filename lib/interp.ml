@@ -281,10 +281,17 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           match Hashtbl.find_opt env.globals name with
           | Some v -> v
           | None -> (
-              (* 裸の引数なしコンストラクタ *)
-              match Tree.get_resolved node with
-              | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
-              | _ -> runtime_error ("未束縛の変数: " ^ name))))
+              (* module 平坦化の値同義語(D39 / C5a)。elab と同じく
+                 見つからなかったときだけのフォールバック *)
+              match
+                Option.bind (Decls.resolve_val (Type.intern name)) (fun q -> Hashtbl.find_opt env.globals (Type.name_of q))
+              with
+              | Some v -> v
+              | None -> (
+                  (* 裸の引数なしコンストラクタ *)
+                  match Tree.get_resolved node with
+                  | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
+                  | _ -> runtime_error ("未束縛の変数: " ^ name)))))
   | T.Lambda { l_params; l_body } -> VClosure { c_env = env; c_params = l_params; c_body = l_body }
   | T.Apply (f, arg) ->
       (* 左から右。OCaml の未規定評価順に任せない(計画 §8.3) *)

@@ -212,7 +212,13 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
                   match Decls.con_kind oid 0 with
                   | KStar -> TCon (oid, [])
                   | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
-                else type_error ("未知の型: " ^ n)))
+                else
+                  (* 同義語が曖昧なら候補を添える(D39) *)
+                  match Decls.con_synonym_candidates oid with
+                  | _ :: _ :: _ as cands ->
+                      type_error
+                        ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)")
+                  | _ -> type_error ("未知の型: " ^ n)))
   | T.EIdent li ->
       (* 平坦化済み module の修飾型参照(Parser.Parser 等) *)
       let oid = Decls.resolve_con (intern (show_long_id li)) in
@@ -691,12 +697,20 @@ and elab_exp' env level eff node e =
       match SMap.find_opt name env.values with
       | Some sch -> Unify.instantiate level sch
       | None -> (
-          match li with
-          | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
-              let last = List.nth comps (List.length comps - 1) in
-              if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
-              else type_error ("未束縛の変数: " ^ name)
-          | _ -> type_error ("未束縛の変数: " ^ name)))
+          (* 環境に無かったときだけ、module 平坦化の値同義語を引く(D39 / C5a)。
+             フォールバック専用なので、局所束縛による遮蔽が自動で効き、
+             既に型検査を通るプログラムの意味は 1 つも変わらない。
+             順序は 変数 → 同義語 → 引数なしコンストラクタ(第14章の
+             3 段引きと同じ) *)
+          match Option.bind (Decls.resolve_val (intern name)) (fun q -> SMap.find_opt (name_of q) env.values) with
+          | Some sch -> Unify.instantiate level sch
+          | None -> (
+              match li with
+              | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
+                  let last = List.nth comps (List.length comps - 1) in
+                  if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
+                  else type_error ("未束縛の変数: " ^ name)
+              | _ -> type_error ("未束縛の変数: " ^ name))))
   | T.Hole -> new_var level
   | T.Lambda { l_params; l_body } ->
       let param_tys = List.map (fun _ -> new_var level) l_params in
@@ -2658,8 +2672,11 @@ let type_check_decls ?(prelude = []) decls =
      非修飾参照と、外側からのコンパニオン型参照 (sample.kel:580) の両方が
      通ります。§11.3 が名前を引くたびに `Decls.resolve_con` を通していたのは
      この表のためです。
-   - `let` も `M.名前` に改名します。ただし module 内の相互参照は v0 では
-     通りません (改名後の名前で書かれていないため)。sample.kel は使っていません。
+   - `let` も `M.名前` に改名し、値の同義語(第6章 `val_synonyms`)を
+     張ります (D39)。module 内の相互参照と let rec の自己再帰は、識別子
+     解決のフォールバック(環境に無かったときだけ同義語を引く)で通ります。
+     走査も改名もしないので、束縛子の見落としによる誤改名というクラスの
+     バグは原理的に起きません。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
      import で見え方が変わるものではありません (sample.kel:576)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
@@ -2690,13 +2707,16 @@ let flatten_modules (decls : T.decl list) : T.decl list =
               match bd with
               | T.DNewtype n ->
                   let qual = mname ^ "." ^ n.T.nt_name in
-                  Hashtbl.replace Decls.con_synonyms (intern n.T.nt_name) (intern qual);
+                  Decls.add_con_synonym (intern n.T.nt_name) (intern qual);
                   [ (bdata, T.DNewtype { n with T.nt_name = qual }) ]
               | T.DType t ->
                   let qual = mname ^ "." ^ t.T.ta_name in
-                  Hashtbl.replace Decls.con_synonyms (intern t.T.ta_name) (intern qual);
+                  Decls.add_con_synonym (intern t.T.ta_name) (intern qual);
                   [ (bdata, T.DType { t with T.ta_name = qual }) ]
               | T.DLet ((bd2, b) as _bnode2) -> (
+                  (match binding_name b with
+                  | Some x -> Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
+                  | None -> ());
                   match snd b.T.lb_name with
                   | T.PVar x -> [ (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) })) ]
                   | _ -> type_error ("module 内の let はパターン束縛にできません: module " ^ mname))
@@ -2707,12 +2727,16 @@ let flatten_modules (decls : T.decl list) : T.decl list =
                         (List.map
                            (fun ((bd2, b) : T.let_binding) ->
                              match snd b.T.lb_name with
-                             | T.PVar x -> ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
+                             | T.PVar x ->
+                                 Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x));
+                                 ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
                              | _ -> type_error "module 内の let rec はパターン束縛にできません")
                            bs) );
                   ]
               | T.DInstance _ -> [ bnode ]
-              | T.DExtern ex -> [ (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
+              | T.DExtern ex ->
+                  Decls.add_val_synonym (intern ex.T.ex_name) (intern (mname ^ "." ^ ex.T.ex_name));
+                  [ (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
               | T.DModule _ -> noimpl "module の入れ子(M10)"
               | T.DEffect _ -> noimpl ("module 内の effect 宣言(M10): module " ^ mname)
               | T.DClass _ -> noimpl ("module 内の type class 宣言(M10): module " ^ mname)

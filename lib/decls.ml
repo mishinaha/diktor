@@ -202,6 +202,10 @@ let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
 (* 未知の構成子は飽和形とみなす(MiniLang:641 と同じ既定) *)
 let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | None -> Type.k_arrow nargs
 
+(* 組み込みスカラー型(Boolean/Int32/... は con_kinds にはあるが datas には
+   無い)。newtype とエイリアスの両方の再宣言検査が引くので、ここに置く *)
+let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
+
 (* ## 6.4 module 平坦化の同義語表 (裁定 D21)
 
    Keleut の `module` は、v0 では**平坦化**として実装されています。
@@ -224,16 +228,50 @@ let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | Non
    **代償も正直に書いておきます。** 同義語は大域なので、コンパニオンでない
    内部型の非修飾名も外から見えてしまいます。可視性 (`pub`) の検査を v0 で
    延期している(計画 §2.1 と計画 §13)以上、これは今のところ検出されません。
-   module の入れ子と module 内 let の相互参照も未対応です(実装記録の乖離 5)。
+   module の入れ子は未対応のままです(実装記録の乖離 5)。
+
+   値の名前にも同じ形の表(`val_synonyms`)を張ります(D39 / C5a)。
+   こちらは**フォールバック専用** — 識別子解決が環境に無かったときだけ
+   引きます。この形だから、局所束縛による遮蔽が自動で効き、既に型検査を
+   通るプログラムの意味は 1 つも変わらず、module 内 let の相互参照と
+   let rec の自己再帰が通ります(かつては自己再帰すら「未束縛の変数」で
+   落ち、module は let を 1 本ずつ書き下ろすだけの箱でした)。
+   衝突した非修飾名は**曖昧**として扱い、解決しません — 黙って後勝ちする
+   名前解決は D22(§6.7 の `op_index`)が既に否定した設計で、型・値とも
+   候補列を持つ同じ形に揃えてあります。曖昧な名前の使用点は
+   「A.T か B.T と修飾してください」と案内されます。
 
    なお**この表を引くのは第11章だけではありません**。敵対的検証で、
    第14章 (interp.ml) が `type instance Add[BigInt]` の頭を解決するときに
    同義語を通しておらず、module 内のインスタンスが実行時に見つからない、
    という欠陥が見つかりました。名前を oid に落とす経路が 2 つある以上、
    両方が同じ表を通らなければなりません。 *)
-let con_synonyms : (oid, oid) Hashtbl.t = Hashtbl.create 16
+(* 候補列を持つ(D39)。かつては Hashtbl.replace の後勝ちで、同名の内部型を
+   持つ module が 2 つあると後の宣言が黙って勝った — 黙って後勝ちする
+   名前解決は D22(op_index)が既に否定した設計で、同じ形に揃えた。
+   候補が一意でなければ非修飾名では解決せず、使用点が修飾を案内する *)
+let con_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
 
-let resolve_con c = match Hashtbl.find_opt con_synonyms c with Some c' -> c' | None -> c
+let add_con_synonym short qual =
+  let prev = Option.value ~default:[] (Hashtbl.find_opt con_synonyms short) in
+  if not (List.mem qual prev) then Hashtbl.replace con_synonyms short (prev @ [ qual ])
+
+let resolve_con c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
+
+let con_synonym_candidates c = Option.value ~default:[] (Hashtbl.find_opt con_synonyms c)
+
+(* 値の名前の同義語表(D39 / C5a)。con_synonyms と同じ形。走査も改名も
+   しない — 識別子解決が環境に無かったときだけ引く**フォールバック専用**。
+   この形だから (a) 既に型検査を通るプログラムの意味は 1 つも変わらず、
+   (b) 局所束縛による遮蔽が自動で効き、(c) let rec の自己再帰も通る
+   (改名後の名前が先に環境に入るので、本体の非修飾名がここに当たる) *)
+let val_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
+
+let add_val_synonym short qual =
+  let prev = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short) in
+  if not (List.mem qual prev) then Hashtbl.replace val_synonyms short (prev @ [ qual ])
+
+let resolve_val short = match Hashtbl.find_opt val_synonyms short with Some [ q ] -> Some q | _ -> None
 
 (* ## 6.5 型エイリアス — 透過、非再帰、部分適用禁止
 
@@ -411,7 +449,12 @@ type alias_info = {
 let aliases : (oid, alias_info) Hashtbl.t = Hashtbl.create 64
 
 let add_alias info =
-  if Hashtbl.mem aliases info.al_name then
+  (* 組み込みスカラー名はエイリアスでも奪えない(V2。newtype 側と同じ検査。
+     type Float64 = String が通ると、C 既知名の契約照合が名前照合ゆえに
+     自己矛盾した診断を出す) *)
+  if Hashtbl.mem reserved_type_names info.al_name && not !in_prelude then
+    type_error ("組み込み型 " ^ Type.name_of info.al_name ^ " は型エイリアスで再宣言できません")
+  else if Hashtbl.mem aliases info.al_name then
     if not (prelude_owned "alias" info.al_name) then
       type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
     else (
@@ -501,9 +544,6 @@ type data_info = {
 let datas : (oid, data_info) Hashtbl.t = Hashtbl.create 64
 
 let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* ctor 名 → data 名 *)
-
-(* 組み込みスカラー型(Boolean/Int32/... は con_kinds にはあるが datas には無い) *)
-let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
 (* newtype の構造照合(D35)。観測できるもの — コンストラクタ名の集合、
    フィールドの数・ラベル・型、パラメータ、不透明かどうか — を突き合わせ、
@@ -1054,6 +1094,7 @@ let reset () =
   Hashtbl.reset op_index;
   Hashtbl.reset prelude_keys;
   Hashtbl.reset con_synonyms;
+  Hashtbl.reset val_synonyms;
   Hashtbl.reset reserved_type_names;
   Hashtbl.reset reserved_predicates;
   Hashtbl.reset externs;
