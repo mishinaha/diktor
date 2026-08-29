@@ -968,6 +968,12 @@ module Make (Data : Data) = struct
      `extern` の**再宣言は拒否**します — 一度は
      `__int32_add` に嘘の型を後付けできてしまい、型検査ごと嘘に
      なりました。
+   - `ex_prim` は**実装名**です。module の平坦化 (第11章) は `ex_name` を
+     `M.f` に修飾しますが、`ex_prim` は元の非修飾名のまま残ります。
+     実装表 (第13章) と extern 登録簿 (第6章) の鍵はこちら。修飾名を
+     鍵にすると、プレリュード保護が module の中から迂回でき、module に
+     包んだ既知名 FFI の実装も黙って見つからなくなります (かつて両方が
+     実測できました)。
    - `nt_rhs` の `NtHole` は `= ???` です。`Never` はコンストラクタが
      0 個、すなわち `NtCtors []` です。
    - `DModule` の平坦化は第11章が行います(改名 + 非修飾名から
@@ -1019,6 +1025,7 @@ module Make (Data : Data) = struct
     ex_pub : bool;
     ex_abi : string; (* 「prim」 / 「C」 *)
     ex_name : string;
+    ex_prim : string; (* 実装名 = 非修飾の元の名前。module 平坦化でも変わらない *)
     ex_tparams : type_param list;
     ex_params : pat list;
     ex_ret : type_exp option;

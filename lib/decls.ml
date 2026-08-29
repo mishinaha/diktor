@@ -124,7 +124,12 @@ let prelude_owned kind name = Hashtbl.mem prelude_keys (kind, name)
    かつて比較の 9 本と `__show_int32` がこの死角にあり、嘘の型で宣言して
    実装に到達できました(型検査が Int32 と言った式が実行時に false を表示
    するところまで実測)。塞ぎ方は検査の追加ではなく、プレリュード側の
-   一覧を実装表と完全対応にすること(第15章 §15.5 の不変条件)でした。 *)
+   一覧を実装表と完全対応にすること(第15章 §15.5 の不変条件)でした。
+
+   鍵は**非修飾の実装名**です(第1章 `ex_prim`)。module 内の `extern` は
+   Keleut 側の名前が `M.f` に修飾されますが、修飾名を鍵にするとこの登録簿を
+   module の中からすり抜けられます — 塞いだはずの保護が
+   `module M { extern ... }` で迂回できた、という形で実測しました。 *)
 let externs : (oid, unit) Hashtbl.t = Hashtbl.create 64
 
 let add_extern name =

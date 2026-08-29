@@ -40,3 +40,28 @@ sample.kel:551):
   $ printf 'newtype Stmt = ???\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
   $ diktor --type-check cblk2.kel
   sqlite_step : (Stmt) => Int32 @ {Blocking extends R1}
+
+module 内の extern も、実装と登録簿の鍵は非修飾の実装名(H14。かつては
+修飾名が鍵になり、プレリュード保護が module の中から迂回できた):
+
+  $ printf 'module M { extern "prim" let __int32_add(x: String, y: String): String }\n' > mext.kel
+  $ diktor --type-check mext.kel
+  ! 型エラー: プレリュードの extern __int32_add は再宣言できません
+  [1]
+
+module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が実装表から
+外れ、黙って未実装になった):
+
+  $ cat > mffi.kel <<'KEL'
+  > module Math { pub extern "C" let sqrt(x: Float64): Float64 }
+  > echoln(show(Math.sqrt(9.0)))
+  > KEL
+  $ diktor mffi.kel
+  3.0
+
+型契約も module 越しに効く:
+
+  $ printf 'module M2 { extern "C" let sin(x: String): String }\n' > mbad.kel
+  $ diktor --type-check mbad.kel
+  ! 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
+  [1]

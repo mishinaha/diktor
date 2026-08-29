@@ -567,8 +567,8 @@ decl_body:
   | MODULE upper_id module_body                        { DModule (false, $2, $3) }
   | EXTERN TEXT LET extern_sig
       { let name, tparams, params, (ret, eff) = $4 in
-        DExtern { ex_pub = false; ex_abi = $2; ex_name = name; ex_tparams = tparams; ex_params = params;
-                  ex_ret = ret; ex_eff = eff } }
+        DExtern { ex_pub = false; ex_abi = $2; ex_name = name; ex_prim = name; ex_tparams = tparams;
+                  ex_params = params; ex_ret = ret; ex_eff = eff } }
 
 and_bindings:
   |                          { [] }

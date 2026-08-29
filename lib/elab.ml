@@ -2428,7 +2428,9 @@ let process_decls env ~emit decls =
           (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
-          Decls.add_extern ex.T.ex_name;
+          (* 登録簿の鍵は実装名(非修飾)。修飾名を鍵にすると module の中から
+             プレリュード保護が迂回できる(H14) *)
+          Decls.add_extern ex.T.ex_prim;
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
@@ -2442,7 +2444,7 @@ let process_decls env ~emit decls =
           (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
              @ Blocking を付けるかはバインディング作者の判断(sample.kel:551) *)
           (if ex.T.ex_abi = "C" then
-             match Decls.c_known_signature ex.T.ex_name with
+             match Decls.c_known_signature ex.T.ex_prim with
              | None -> ()
              | Some (arg_cons, ret_con, rendered) ->
                  let same_con c t = match repr t with TCon (c', []) -> c' = c | _ -> false in
@@ -2452,7 +2454,7 @@ let process_decls env ~emit decls =
                    && same_con ret_con ret_ty
                  in
                  if not ok then
-                   type_error ("extern \"C\" の既知名 " ^ ex.T.ex_name ^ " の型は " ^ rendered ^ " でなければなりません"));
+                   type_error ("extern \"C\" の既知名 " ^ ex.T.ex_prim ^ " の型は " ^ rendered ^ " でなければなりません"));
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
           release_rigids (rigids @ eff_rigids);
@@ -2515,6 +2517,11 @@ let type_check_decls ?(prelude = []) decls =
      通りません (改名後の名前で書かれていないため)。sample.kel は使っていません。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
      import で見え方が変わるものではありません (sample.kel:576)。
+   - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
+     元のまま**です (第1章)。実装は処理系側の表にあり、module はその表を
+     切り分けません。第6章の登録簿の鍵も `ex_prim` です — 修飾名を鍵に
+     すると、260829-2b で入れたプレリュード保護が module の中から迂回でき、
+     module に包んだ既知名 FFI の実装も黙って見つからなくなりました (実測)。
    - `pub` は受理するだけで検査しません。
 
    同義語表は実行時にも要ります。module の中の instance が実行時に
