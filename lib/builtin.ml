@@ -13,8 +13,11 @@
    - `with_runtime` — 最外周に 1 枚だけ敷くエフェクトハンドラ
 
    受け取るもの: 第12章の値表現とレコード演算、そして `Op` の宣言。
-   渡すもの: 第14章 (interp.ml) が `find_prim` / `builtin_method` /
-   `with_runtime` の 3 つを呼びます。
+   渡すもの: 第14章 (interp.ml) が使う面はいくつかあります。引数レコードの
+   取り出し (`arg_values` / `arg1` / `as_bool`、§13.1)、プリミティブ表を引く
+   `find_prim`、組み込みメソッドを引く `builtin_method`、張りぼてファイル
+   システムの `fs` / `handles`(§13.3)、そして最外周ハンドラ `with_runtime`。
+   数え上げると 8 つの名前で、いちばん多く呼ばれるのは地味な `as_bool` です。
 
    本章を貫く方針は分業です。**プリミティブの実装はここ、型は
    `lib/prelude.kel` の `extern` 宣言**(計画 §8.6。第15章)。
@@ -138,7 +141,7 @@ let float_repr f =
 
    > 張りぼてを置くのは構わない。張りぼてだと書かないのが害である。 *)
 
-(* ---- テスト用のメモリ上ダミーファイルシステム(§8.6) ---- *)
+  (* ---- テスト用のメモリ上ダミーファイルシステム(計画 §8.6) ---- *)
 
 let fs : (string, string) Hashtbl.t = Hashtbl.create 8
 
@@ -174,14 +177,17 @@ let next_handle = ref 0l
    まとめて塞ぎました。同じ理由で `__panic` は `Runtime_error` を投げます。
 
    最後に性能の正直な話を。`find_prim` は連想リストの線形探索で、しかも
-   §13.5 の `builtin_method` 経由で**演算のたびに**引かれます。`2 + 3` の
-   1 回ごとに数十要素の走査が走るということです。v0 はこれで足りています
-   (10 万回 println の回帰テストが通る)が、速くしたいなら表をハッシュ表に
+   §13.5 の `builtin_method` 経由で**演算のたびに**引かれます。ただし
+   走査量は名前が表のどこに並んでいるかで決まります。`__int32_add` は
+   たまたま表の先頭なので `2 + 3` は比較 1 回で当たり、`__close` のような
+   末尾側の名前を引くと数十要素をなめます。**当たる位置に依存する探索**である
+   ことに変わりはなく、最悪ケースは表の長さに比例します。v0 はこれで足りて
+   います(10 万回 println の回帰テストが通る)が、速くしたいなら表をハッシュ表に
    変えるか、elab が解決済みのインスタンスを呼び出し地点に注記して表引き
    自体を消すか(計画 §8.5 の将来案)のどちらかです。後者のほうが筋は良く、
    動的ディスパッチをフォールバックに残したまま段階的に移行できます。 *)
 
-(* ---- __* プリミティブ表(名前 → 実装)。型は prelude.kel の extern 宣言が与える ---- *)
+  (* ---- __* プリミティブ表(名前 → 実装)。型は prelude.kel の extern が与える ---- *)
 
 let i32_bin f = fun v -> let a, b = arg2 v in VInt32 (f (as_i32 a) (as_i32 b))
 
@@ -259,7 +265,7 @@ let prims : (string * (t -> t)) list =
     ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (as_f64 (arg1 v))));
     ("__show_int32", fun v -> VText (Int32.to_string (as_i32 (arg1 v))));
     ("__panic", fun v -> runtime_error ("panic: " ^ as_text (arg1 v)));
-    (* extern "C" の既知名テーブル(M10。真の C FFI は延期、§2.1 §12) *)
+    (* extern "C" の既知名テーブル(M10。真の C FFI は延期、計画 §2.1 §12) *)
     ("sin", fun v -> VFloat64 (sin (as_f64 (arg1 v))));
     ("cos", fun v -> VFloat64 (cos (as_f64 (arg1 v))));
     ("sqrt", fun v -> VFloat64 (sqrt (as_f64 (arg1 v))));
@@ -316,7 +322,7 @@ let find_prim name = List.assoc_opt name prims
    ユーザ再宣言も照合の上でしか受理しないので今は塞がっていますが、
    この行の安全は隣のファイルの不変条件に寄りかかっています。 *)
 
-(* ---- 組み込みクラスメソッドの実装表: (クラス, 型構成子, メソッド) → 実装 ---- *)
+  (* ---- 組み込みクラスメソッドの実装表: (クラス, 型構成子, メソッド) → 実装 ---- *)
 
 let builtin_method cls con meth : (t -> t) option =
   let p name = find_prim name in
@@ -361,16 +367,26 @@ let builtin_method cls con meth : (t -> t) option =
    そのまま再送出です。つまりこのハンドラは**値と例外に対しては透明**で、
    自分の知っている操作だけを横から捕まえます。知らない `Op` には `None` を
    返して外へ通し、その先には誰もいないので `Effect.Unhandled` になります。
-   これを操作名込みのメッセージに翻訳するのは第16章 (driver.ml) の仕事です
-   (既定の例外表示は `Op` の中身を出さないので、printer の登録が要ります)。
+   これを操作名込みのメッセージに翻訳するのは第16章 (driver.ml) の仕事です。
+   既定の例外表示は `Op` の中身を出さないので、driver は
+   `Effect.Unhandled (Op (op, _))` という形を構造で直接照合し、そこから
+   操作名を取り出します。計画 §8.4 は `Printexc.register_printer` が要ると
+   書いていましたが、実装では登録していません — 照合する場所が 1 箇所しか
+   ないなら、大域に printer を足すより、その 1 箇所でパターンを書くほうが
+   小さく済みます。
 
    - `Console.write` は `sink` へ。**出力先を引数にした**のは、
      第16章の `eval_string ~sink` がテストから出力を受け取れるように
      するためです(コマンドラインからの実行では `print_string` が入ります)。
-     `Console` はユーザにハンドルさせないエフェクトなので(第15章)、
-     ここまで登ってきた `write` は必ずこの 1 枚が受けます。出力先を
-     プログラム側で差し替えたいときはユーザ層の `Print` にハンドラを書き、
-     prelude の `with_stdout` が `Print.print` を `Console.write` へ翻訳します
+     `Console` は**仕様の約束として**ユーザにハンドルさせないエフェクトです
+     (第15章)。ただし v0 の実装にその禁止検査はありません。ユーザが
+     `case Console.write(s) => ...` と書けば内側の `handle` が操作を捕まえ、
+     この 1 枚までは登ってきません(実測で確認済み。出力を握り潰すことも
+     できてしまいます)。ここで言えるのは「**登ってきた** `write` を受けるのは
+     この 1 枚だけ」であって、「必ず登ってくる」ではありません。
+     出力先をプログラム側で差し替えたいときにユーザ層の `Print` へハンドラを
+     書き、prelude の `with_stdout` が `Print.print` を `Console.write` へ
+     翻訳する、というのが意図された道です
    - `Async.yield_` と `Async.sleep` は即 `continue`。**型は本物、実行は
      no-op** です(計画 §2.1 §11)。並行実行は v0 の範囲外で、
      `par` / `par_map` も逐次のままです。sample.kel が型検査を通ることと、
@@ -385,7 +401,7 @@ let builtin_method cls con meth : (t -> t) option =
    第12章 §12.5 にあり、ハンドラの本体 — 節の 3 径路、`discontinue` の
    必然性、cancel の LIFO、活性化 id — は第14章で語ります。 *)
 
-(* ---- ランタイムエフェクトハンドラ(最外周の1枚、§8.4) ---- *)
+  (* ---- ランタイムエフェクトハンドラ(最外周の1枚、計画 §8.4) ---- *)
 
 let op_console_write = Type.intern "Console.write"
 
@@ -407,7 +423,7 @@ let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
                   sink (as_text (arg1 args));
                   Effect.Deep.continue k unit)
           | Op (op, _) when op = op_async_yield || op = op_async_sleep ->
-              (* v0: 型 + 実行時 no-op(§2.1 §11) *)
+              (* v0: 型 + 実行時 no-op(計画 §2.1 §11) *)
               Some (fun k -> Effect.Deep.continue k unit)
           | _ -> None);
     }
