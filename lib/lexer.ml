@@ -51,7 +51,7 @@
    位置を添えます。第16章 (driver.ml) がこれを終了コード 2 に整形します。
    ただし「この層を通り抜ける」失敗はほかに 2 つあります。不正な UTF-8 バイト列
    に対して sedlex のデコーダが投げる `Sedlexing.MalFormed`(こちらも 2 — §2.6)
-   と、`from_filename` の `open_in_bin` が投げる `Sys_error`(ファイルを開け
+   と、`from_filename` の `In_channel.with_open_bin` が投げる `Sys_error`(ファイルを開け
    なかった、で 64)で、どちらも driver 側の別の枝が受けます。 *)
 open Syntax
 
@@ -559,7 +559,13 @@ module Make (Data : Syntax.Data) = struct
   let from_channel channel = Sedlexing.Utf8.from_channel channel |> from_sedlex
 
   let from_filename filename =
-    let lexbuf = Sedlexing.Utf8.from_channel (open_in_bin filename) in
+    (* チャネルはここで閉じる(M18 / F8)。sedlex の from_channel は遅延
+       読みなので、開いたまま渡すと閉じる機会が無く、入力ファイルの数だけ
+       fd がプロセス終了まで残る。先に全文を読んで文字列レキサに委ねると
+       parse_string と経路も揃う。input_all はパイプでも正しく読む
+       (in_channel_length は使えない) *)
+    let source = In_channel.with_open_bin filename In_channel.input_all in
+    let lexbuf = Sedlexing.Utf8.from_string source in
     Sedlexing.set_filename lexbuf filename;
     from_sedlex lexbuf
 
