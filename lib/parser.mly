@@ -780,6 +780,9 @@ prefix_exp:
    `resume` の引数だけは `record_of_args` を通しません (計画 §6.2)。`resume(e)` の `e` は
    「操作の返り値そのもの」であって引数リストではないからで、`{_item = e}` に包むと
    第11章で操作の返り値型と単一化できません。引数は高々1個、0個なら `Resume None` です。
+   ラベル付き引数も拒みます — ペイロードはラベル付き引数行ではないので、
+   `resume(x = e)` には専用の文面を返します (F7。数を数える文面だと
+   「高々1個です」が 1 個の入力に出て嘘になります)。
    この形が第14章 (interp.ml) のアフィンな resume にそのまま対応します。
 
    `block` は `LBRACE_BLOCK` だけを受けますが、`run h {}` の `{}` は中身が空なので
@@ -807,6 +810,7 @@ atom:
         match $3 with
         | [] -> mk $sloc (Resume None)
         | [ (None, e) ] -> mk $sloc (Resume (Some e))
+        | [ (Some _, _) ] -> raise (Syntax_error "resume の引数にラベルは付けられません")
         | _ -> raise (Syntax_error "resume の引数は高々1個です") }
   | RUN lower_id run_body                      { mk $sloc (Run ($2, $3)) }
   | block                                      { $1 }

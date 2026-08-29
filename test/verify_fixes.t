@@ -424,3 +424,25 @@ Run モードの診断は stderr(D54。stdout はプログラム出力専用):
   $ diktor --type-check --strict-exhaustive --prelude wpre.kel wu.kel; echo "exit: $?"
   x : Int32
   exit: 0
+
+resume の引数はラベルを取らない(F7。ペイロードは操作の返り値そのもの。
+かつては 1 個の入力に「高々1個です」と嘘の文面が出た):
+
+  $ cat > reslabel.kel <<'KEL'
+  > effect Ask = {
+  >   ask: () => Int32
+  > }
+  > let f(): Int32 @ {Ask} = perform ask()
+  > let g(): Int32 = f() handle {
+  >   case ask() => resume(x = 1)
+  >   case return(v) => v
+  > }
+  > KEL
+  $ diktor --type-check reslabel.kel
+  reslabel.kel:7:3: 構文エラー: resume の引数にラベルは付けられません
+  [2]
+
+  $ sed 's/resume(x = 1)/resume(1, 2)/' reslabel.kel > res2.kel
+  $ diktor --type-check res2.kel
+  res2.kel:7:3: 構文エラー: resume の引数は高々1個です
+  [2]

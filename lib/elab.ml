@@ -658,7 +658,6 @@ let rec elab_exp env level eff ((_, e) as node : T.exp) : ty =
   t
 
 and elab_exp' env level eff node e =
-  ignore node;
   match e with
   | T.Bool _ -> t_boolean
   | T.Text _ -> t_string
@@ -897,7 +896,7 @@ and elab_exp' env level eff node e =
    やり直さず、この oid でハンドラを探します (第14章)。 *)
 
   | T.Perform (li, arg) ->
-      let eff_name, op, scheme = resolve_perform env eff li in
+      let eff_name, op, scheme = resolve_perform eff li in
       Tree.set_resolved node (Tree.ROp (intern (name_of eff_name ^ "." ^ name_of op)));
       let args_row, op_ret =
         match repr (Unify.instantiate level scheme) with
@@ -1129,8 +1128,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
    行に候補が 1 つも現れないときは諦めて、`File.write` のように修飾せよと
    案内します。推測しません。 *)
 
-and resolve_perform env eff li =
-  ignore env;
+and resolve_perform eff li =
   match li with
   | LongId [ ename; op ] -> (
       let e = intern ename in
@@ -1685,11 +1683,13 @@ and release_rigids rigids =
    木に `set_ty` 済みの型と共有が切れないという利点も付いてきます。
 
    返り値の注釈があれば本体の型と単一化し、失敗を「注釈された返り値型を
-   満たしません」に言い換えます。値束縛でも同じことをします — こちらは
-   注釈が書かれているときだけ「注釈された型を満たしません」に言い換えます。
-   単一化を try で包んでエラーを注釈や宣言の側から語り直す箇所は、この 2 つの
-   ほかに perform の行単一化 (§11.15) とインスタンス本体の包摂 (§11.38) が
-   あり、合わせて 4 箇所です。
+   満たしません」に言い換えます。値束縛でも同じことをします — どちらも
+   **注釈が書かれているときだけ**のガードつきです (E6。かつて関数束縛側は
+   ガード無しで、注釈のない相手に注釈の話をする形が理屈の上では残って
+   いました)。単一化を try で包んでエラーを注釈や宣言の側から語り直す箇所は、
+   この 2 つのほかに perform の行単一化 (§11.15) とインスタンス本体の包摂
+   (§11.38) があり、合わせて 4 箇所です。いずれも包むのは `Unify.unify`
+   だけなので、`Type_error_at` を見る義務はありません (D55)。
 
    ### 網羅性の drain はここ
 
@@ -1721,8 +1721,11 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         extra_rigids := eff_rigids @ !extra_rigids;
         let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
         let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
+        (* 言い換えは注釈が書かれているときだけ(値束縛側と同じガード。E6)。
+           lb_ret = None のここで落ちる経路は現状無いが、あれば注釈の話を
+           していない相手に注釈の話をすることになる *)
         (try Unify.unify ret_ty body_ty
-         with Type_error msg -> type_error ("注釈された返り値型を満たしません(" ^ msg ^ ")"));
+         with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された返り値型を満たしません(" ^ msg ^ ")"));
         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
         let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in

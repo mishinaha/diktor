@@ -300,19 +300,20 @@ let load_prelude options =
    返り、`--strict-exhaustive` の判定と `Interp.cancel_log` の設置 (§16.7) は
    効きません。ここまでは設計です。
 
-   意図していない差がもう 1 つあります。**この 2 つは `Elab.flatten_modules` を
-   ユーザの宣言にしか掛けず、プレリュードは `embedded_prelude ()` が返した
-   未平坦化の構文木のまま `~prelude:` へ渡します。** §16.4 で「平坦化は
-   呼び出し側の責任」と書いた、その責任を半分しか果たしていない状態で、
-   CLI 経路 (§16.6) が両方を平坦化しているのと揃っていません。埋め込みの
-   プレリュードに `module` が無いので今は害が出ないだけです。API 側にも
-   `--prelude` 相当を生やす日が来たら、まずここが壊れます。
+   前処理はいまや CLI と**同じ**です (E10) — `embedded_prelude` が平坦化まで
+   済ませるので、プレリュードとユーザ宣言の両方が `flatten_modules` を
+   通ってから型検査に入ります。意図して外してあるのは上の 3 つ(終了コードの
+   層・`--strict-exhaustive`・`Interp.cancel_log`)だけ、と言い切れる状態に
+   なりました。かつてはプレリュードだけ未平坦化で、プレリュードに `module`
+   が入った日に API 経路だけが壊れる形が残っていました。
 
    また実装記録 260829-2 の乖離 6 でテスト機構が cram 一本になったため、
    現在の回帰テストは実行形を叩いています。この API は、Diktor をライブラリ
    として埋め込む利用者と、将来サブプロセスを避けたいテストのために
    残してあります。 *)
-let embedded_prelude () = parse_string ~filename:"<prelude>" Prelude_embed.source
+(* CLI 経路(§16.6)と同じ前処理を通す — 平坦化を落とすと、プレリュードに
+   module が入った日に API 経路だけ exit 4 になる(E10) *)
+let embedded_prelude () = Elab.flatten_modules (parse_string ~filename:"<prelude>" Prelude_embed.source)
 
 (* 出力行と診断の整形。種別は第11章が値で運び、見た目はここで決める(D54)。
    型行 name : type / 警告 ⚠ / エラー ! — 先頭 1 文字で読み分けられる形を保つ *)
