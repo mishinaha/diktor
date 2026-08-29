@@ -380,6 +380,8 @@ let variant_ty_payload sloc = function [ t ] -> t | ts -> tuple_ty sloc ts
 
    `pub` は宣言の前に付く修飾子です。文法で「`pub` 付き」と「無し」の2系統を書くと
    宣言の規則が倍になるので、`decl_body` を作ってから `set_pub` で被せます。
+   ここで立てたフラグは M16 から実際に検査されます — 可視性 (H1 / D41) と
+   完全注釈・「@ 省略 = 純粋」(H6 / D44) が第11章で読みます。
    付けられない宣言 — `type instance` と式文 — はここで弾きます。
 
    `newtype` の右辺は4形あります。省略・短縮形 `newtype UserId(Int32)`・コンストラクタの並び・

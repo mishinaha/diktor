@@ -178,6 +178,11 @@ let unbound_value name scoped =
       | qs ->
           type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
 
+(* pub で @ を省略した宣言の本体行(Rigid)の vid。perform がこの行と
+   衝突したとき、単一化の一般文言ではなく pub の規則を名指しで案内する
+   ため(H6 / D44) *)
+let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
+
 (* Cls.m がクラスメソッドの修飾名かどうか(可視性検査の適用除外の判定) *)
 let value_vis_exempt name =
   match String.rindex_opt name '.' with
@@ -979,7 +984,18 @@ and elab_exp' env level eff node e =
       in
       Unify.unify (elab_exp env level eff arg) args_row;
       (try Unify.unify eff (TRowExtend (eff_name, t_unit, new_row_var level))
-       with Type_error msg -> type_error ("エフェクト " ^ name_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
+       with Type_error msg ->
+         (* pub の @ 省略 = 純粋(D44)。その Rigid 行と衝突したときだけ、
+            規則を名指しで案内する(一般文言「行型ではありません: ς1」は
+            原因と結びつかない) *)
+         let pub_pure =
+           let _, tail = row_fields eff in
+           match repr tail with
+           | TVar r -> ( match !r with Rigid i -> Hashtbl.mem pub_pure_rows i.vid | _ -> false)
+           | _ -> false
+         in
+         if pub_pure then type_error "pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)"
+         else type_error ("エフェクト " ^ name_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
       op_ret
 (* ## 11.16 resume の在処 — 環境に置く継続
 
@@ -1667,6 +1683,16 @@ and make_rigids level tparams =
    | `@ Print` / `@ {A, B}` | 尾部に **Rigid** を足して開く | 尾部を **Generic** にして開く |
    | `@ {}` | 閉じたまま | 閉じたまま (純粋) |
    | `@` 省略 | 新しい行変数 (もともと開いている) | 一般化される |
+   | `@` 省略 (**pub**) | **Rigid の行**(perform を拒む = 純粋) | **Generic** にして開く (D44) |
+
+   最後の行が M16 (H6) の追加です。仕様 (sample.kel:568) の字義は
+   「省略 = `@ {}`」ですが、閉じた空行にすると sample.kel 自身が
+   落ちます(`Db.query` が `handle_request` から呼べない — 実測)。
+   そこで乖離 1 のこの表を規則に昇格し (D23-a / D44)、空の行にも
+   同じ非対称 — 本体には剛く、公開には寛く — を適用します。この読みの
+   下では `pub let f(): Unit`(省略)と `pub let f(): Unit @ {}`(明示)が
+   別の型になります。仕様の字義との食い違いは親リポジトリへの
+   フィードバック事項です(計画 §15)。
 
    なぜ本体では Rigid なのか。開くだけなら未定変数でもよさそうですが、それだと
    本体が注釈に書いていないエフェクトを起こしたときに、尾部に勝手に足されて
@@ -1776,6 +1802,17 @@ and release_rigids rigids =
 
 and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   at_node node @@ fun () ->
+  (* pub の完全注釈検査(H6 / D44)。注釈が無ければ「@ 省略 = 純粋」の
+     約束も立てられない — 検査は冒頭、本体を見る前に *)
+  (if b.T.lb_pub then (
+     (match b.T.lb_params with
+     | Some ps ->
+         List.iter
+           (fun ((_, p) : T.pat) ->
+             match p with T.PAnnot _ -> () | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
+           ps
+     | None -> ());
+     if b.T.lb_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
   let is_fun = b.T.lb_params <> None in
   (* 値制限(計画 §7.2): 一般化してよいのは関数定義か値のみ。§11.28 を参照 *)
   let gen = is_fun || is_value b.T.lb_body in
@@ -1792,7 +1829,20 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         let param_tys = List.map (fun _ -> new_var lvl) params in
         let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
         let fn_eff, eff_rigids =
-          match b.T.lb_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
+          match b.T.lb_eff with
+          | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+          | None when b.T.lb_pub ->
+              (* pub の @ 省略 = 純粋(D44 / D23-a)。仕様の字義は @ {} だが、
+                 閉じた空行にすると sample.kel 自身が落ちる(Db.query が
+                 handle_request から呼べない — 実測)。本体には Rigid を
+                 見せて perform を拒み、公開スキーマでは Generic に解放して
+                 どんな行の文脈からも呼べるようにする — open_explicit_eff が
+                 空でない行にやることを、空の行にもやる形 *)
+              let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
+              let r = ref (Rigid i) in
+              Hashtbl.replace pub_pure_rows i.vid ();
+              (TVar r, [ ("", TVar r, r) ])
+          | None -> (new_row_var lvl, [])
         in
         extra_rigids := eff_rigids @ !extra_rigids;
         let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
@@ -1873,6 +1923,19 @@ and elab_rec_bindings env level eff bs : env =
   List.iter2
     (fun ((_, b) as bnode) (_, pre) ->
       at_node bnode @@ fun () ->
+      (* pub の完全注釈検査と「@ 省略 = 純粋」は let(§11.28)と同じ規則
+         (H6 / D44) *)
+      (if b.T.lb_pub then (
+         (match b.T.lb_params with
+         | Some ps ->
+             List.iter
+               (fun ((_, p) : T.pat) ->
+                 match p with
+                 | T.PAnnot _ -> ()
+                 | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
+               ps
+         | None -> ());
+         if b.T.lb_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
       let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
       let extra_rigids = ref [] in
@@ -1885,6 +1948,11 @@ and elab_rec_bindings env level eff bs : env =
             let fn_eff, eff_rigids =
               match b.T.lb_eff with
               | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+              | None when b.T.lb_pub ->
+                  let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
+                  let r = ref (Rigid i) in
+                  Hashtbl.replace pub_pure_rows i.vid ();
+                  (TVar r, [ ("", TVar r, r) ])
               | None -> (new_row_var lvl, [])
             in
             extra_rigids := eff_rigids;
@@ -2386,8 +2454,10 @@ let signature_of_binding env (b : T.let_binding') : ty option =
   let param_tes = match b.T.lb_params with None -> [] | Some ps -> List.filter_map (fun (_, p) -> match p with T.PAnnot (_, te) -> Some te | _ -> None) ps in
   let full =
     params_annotated && b.T.lb_ret <> None
-    (* 関数束縛は自身の eff 行も明示されていること *)
-    && (match b.T.lb_params with Some _ -> b.T.lb_eff <> None | None -> true)
+    (* 関数束縛は自身の eff 行も明示されていること。pub は例外 — 省略の
+       意味が「純粋」に確定する(D44)ので、署名を作ってよい。健全性 3 の
+       懸念(独立な行変数の過剰一般化)は Rigid で消える *)
+    && (match b.T.lb_params with Some _ -> b.T.lb_eff <> None || b.T.lb_pub | None -> true)
     && List.for_all fully_effected param_tes
     && (match b.T.lb_ret with Some t -> fully_effected t | None -> false)
   in
@@ -2408,7 +2478,12 @@ let signature_of_binding env (b : T.let_binding') : ty option =
             let fn_eff, eff_rigids =
               match b.T.lb_eff with
               | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
-              | None -> (new_row_var lvl, [])
+              | None ->
+                  (* ここに来るのは pub のみ(full の条件)。本体側と同じ
+                     Rigid → Generic(D44) *)
+                  let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
+                  let r = ref (Rigid i) in
+                  (TVar r, [ ("", TVar r, r) ])
             in
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
             release_rigids eff_rigids;
@@ -2700,6 +2775,13 @@ let process_decls env ~emit decls =
           (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
+          (* pub の完全注釈検査(H6 / D44)。let 側 §11.28 と同じ規則 *)
+          (if ex.T.ex_pub then (
+             List.iter
+               (fun ((_, p) : T.pat) ->
+                 match p with T.PAnnot _ -> () | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
+               ex.T.ex_params;
+             if ex.T.ex_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
           (* プレリュード保護は実装名(非修飾)、二重宣言検査は修飾名で(H14 と
              その検証の帰結。§6.2) *)
           Decls.add_extern ~prim:ex.T.ex_prim ex.T.ex_name;
@@ -2769,6 +2851,7 @@ let type_check_decls ?(prelude = []) decls =
   warnings := [];
   Unify.reset ();
   Exhaust.reset ();
+  Hashtbl.reset pub_pure_rows;
   let out = current_out in
   out := [];
   (* 先頭に積んで最後に反転(末尾 @ 連結は宣言数の二乗になる — 検証で実測) *)
