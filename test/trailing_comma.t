@@ -28,3 +28,17 @@ ty_args は instance の型引数とエフェクト行のラベル引数でも�
   $ diktor --type-check tc2.kel
   n : Int32
   g : (Ref[A, Int32]) => Int32 @ {Heap[A] extends R1}
+
+末尾カンマが付くのは最後の**要素**の後だけ。...rest と extends T は
+要素ではなく終端子なので、その後には付けられない(検証で確定した境界):
+
+  $ printf 'let f(t) = t match { case {x, ...r,} => x }\n' > term1.kel
+  $ diktor --type-check term1.kel
+  term1.kel:1:35: パースエラー(付近のトークンを確認してください)
+  [2]
+
+D56 の帰結: 単一フィールドのパンニングが {x,} で書ける({x} はブロック):
+
+  $ printf 'let x = 1\nlet a = {x,}\necholn(show(a.x))\n' > pan1.kel
+  $ diktor pan1.kel
+  1

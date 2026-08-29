@@ -205,10 +205,17 @@ let show_pos = Location.show_pos
    列を出します。ここが素のトークン列だと、暗黙のセミコロン挿入を固定する
    という目的を果たしません。 *)
 let dump_tokens_file file =
-  (* 読み取りは遅延で走る(Sedlexing は open の後、字句解析の駆動中に読む)ので、
-     open だけでなくトークン列の実体化まで with_input で包む。印字は包まない —
-     出力エラーを入力エラーと誤分類しないため(検証の指摘) *)
-  let tokens = with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file)) in
+  (* 読み取りは from_filename が一括で行う(M18 / F8。かつては遅延読み
+     だった)。open と読み出しの両段の Sys_error を with_input で包む。
+     印字は包まない — 出力エラーを入力エラーと誤分類しないため(検証の
+     指摘) *)
+  let tokens =
+    try with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file))
+    with Sedlexing.MalFormed ->
+      (* parse_with(§16.3)と同じ扱い — このモードだけファイル名が抜けていた
+         (M18 検証) *)
+      raise (Parse_error (file ^ ": 字句エラー: 不正な UTF-8 バイト列です"))
+  in
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
 (* 入口を 1 つにたたむ関数です。上流からは 2 種類の失敗が来ます。

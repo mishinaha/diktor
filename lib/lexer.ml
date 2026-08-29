@@ -82,8 +82,8 @@ exception Lex_error of string * Lexing.position
    `int_of_string` をそのまま呼んでいたので、桁あふれの `Failure` が
    字句層から素通しで飛び、OCaml の未捕捉例外としてクラッシュしていました。
    いまは解釈できない幅を **-1** に落とし、第11章の `number_ty` が
-   「v0 では未対応の接尾辞」として通常の型エラー(終了コード 1)に整形
-   します。センチネルが -1 なのは、字句の幅が Plus digit で負の幅はソースに
+   「v0 では未対応の接尾辞」として未実装エラー(終了コード 4、G6)に
+   整形します。センチネルが -1 なのは、字句の幅が Plus digit で負の幅はソースに
    書けない — つまり**どの実装幅とも衝突しない**からです。最初は 9999 に
    落としていましたが、9999 はユーザが実際に書ける幅なので、`1i9999` と
    書いた場合と桁あふれが区別できませんでした。
@@ -307,7 +307,7 @@ module Make (Data : Syntax.Data) = struct
      ここへ来た時点で NL を 1 個出すと決まっているので、後続のコメントが
      2 個目の NL を作る理由はない — 行コメントもブロックコメントも跨いで
      潰す。これが「生トークン列に NL は連続しない」不変条件(M18 / D58)で、
-     先読みキューの長さを高々 3(NL + t1 + t2)の定数に抑える。かつては
+     先読みキューの長さを高々 4(NL + t1 + NL + t2)の定数に抑える。かつては
      コメントを跨がず、コメント 64000 行で先読みが二次の 34 秒だった *)
   let rec skip_newlines lexbuf =
     match%sedlex lexbuf with
@@ -513,8 +513,9 @@ module Make (Data : Syntax.Data) = struct
    末尾追加 `t.pending @ [...]` はキューの長さに対して二次ですが、
    **キューの長さが定数**なので実害になりません。定数で抑えているのは
    §2.5 の不変条件「生トークン列に NL は連続しない」(M18 / D58)です —
-   `peek_sig` が覗く必要があるのは高々 NL 1 個 + 有意トークン 2 個の
-   3 要素で、間に何個コメント行があっても層 1 が潰します。
+   `peek_sig` が覗く必要があるのは高々 4 要素(NL + t1 + NL + t2。有意
+   トークンの**間**にも NL は 1 個立ちうる)で、間に何個コメント行が
+   あっても層 1 が潰します。
    かつてはこの不変条件が無く、「伸び方がソースの見た目に比例する程度に
    収まるから実害が無い」と説明していました。その根拠は誤りです — 長さが
    線形に伸びれば仕事は二次になり、実測ではコメント 64000 行の入力で
@@ -564,13 +565,23 @@ module Make (Data : Syntax.Data) = struct
        fd がプロセス終了まで残る。先に全文を読んで文字列レキサに委ねると
        parse_string と経路も揃う。input_all はパイプでも正しく読む
        (in_channel_length は使えない) *)
-    let source = In_channel.with_open_bin filename In_channel.input_all in
+    let source =
+      try In_channel.with_open_bin filename In_channel.input_all
+      with Sys_error msg ->
+        (* 読み出し段(Is a directory 等)の Sys_error はファイル名を
+           含まない。open 段のものは含むので二重には付けない(M18 検証 —
+           複数ファイル指定でどれが原因か分からなかった) *)
+        let has_name =
+          String.length msg >= String.length filename && String.sub msg 0 (String.length filename) = filename
+        in
+        raise (Sys_error (if has_name then msg else filename ^ ": " ^ msg))
+    in
     let lexbuf = Sedlexing.Utf8.from_string source in
     Sedlexing.set_filename lexbuf filename;
     from_sedlex lexbuf
 
   let rec peek t i =
-    (* キュー長は不変条件 D58 で高々 3 に抑えられているが、万一破れた
+    (* キュー長は不変条件 D58 で高々 4 に抑えられているが、万一破れた
        ときに List.length で二次に戻らないよう、構造判定にしてある *)
     let rec has l i = match (l, i) with _ :: _, 0 -> true | _ :: tl, i -> has tl (i - 1) | [], _ -> false in
     if has t.pending i then List.nth t.pending i
@@ -609,9 +620,10 @@ module Make (Data : Syntax.Data) = struct
 
    この設計には正直な代償が 2 つあります。
 
-   1. **単一フィールドのレコードは `{x = x}` と書く**。`{x}` は識別子の次が
-      `}` なのでブロックです(sample.kel:26 の裁定そのもの)。パンニングは
-      2 フィールド以上でしか使えません。
+   1. **`{x}` はブロックであってレコードではない**(sample.kel:26 の裁定
+      そのもの — 識別子の次が `}`)。単一フィールドのパンニングは末尾
+      カンマで `{x,}` と書けます(t2 が `,` なのでレコードに分類される。
+      D56 の帰結)。もちろん `{x = x}` でも同じです。
    2. **`{base with ...}` の base は小文字識別子 1 個に限る**。`{p.x with ...}`
       は t2 が `.` なのでブロックに分類されます。文法側で base を式にしても
       無駄で、字句の時点で決着しています。sample.kel の用例はすべて単一
@@ -732,8 +744,10 @@ module Make (Data : Syntax.Data) = struct
    型注釈の中の矢印はこのカウンタでは見分けられないので、「型注釈内の
    矢印には括弧必須」を仕様側の規則として引き受けるのが正しい形です (D57)。
    副作用を 1 つ正直に: 構文の壊れた入力で `fn` の矢印が来ないまま節が
-   終わると、カウンタが残って `RClause` が pop されず、その match 本体の
-   末尾まで NL が落ちます。既に壊れている入力の話なので許容しています。
+   終わると、カウンタが残って `RClause` が矢印では pop されません。
+   閉じ括弧が先頭の `RClause` を強制解消するので、ずれはその閉じ括弧
+   までで止まります(強制解消が無かったときは region が 1 枚深いまま
+   **ファイル末尾まで** NL が落ちました — 検証で実測)。
 
    閉じ括弧の pop には守るべき不変条件があります。`_ :: (_ :: _ as tl)` と
    書いてあるとおり、**残り 1 個のときは pop しません**。つまり `RTop` は
@@ -786,6 +800,13 @@ module Make (Data : Syntax.Data) = struct
         | LPAREN | LBRACKET | LBRACE_RECORD | LBRACE_TYPE -> t.regions <- RSuppress :: t.regions
         | LBRACE_BLOCK -> t.regions <- RBlock :: t.regions
         | RPAREN | RBRACKET | RBRACE -> (
+            (* 節 region は閉じ括弧を跨げない。壊れた入力(fn の矢印が来ない
+               まま節が終わる形)でカウンタが残り RClause が落ちなかった
+               場合も、ここで先に強制解消して以降の対応ずれを防ぐ(M18 検証 —
+               かつては 1 枚深いままファイル末尾まで NL が落ちた) *)
+            (match t.regions with
+            | RClause _ :: (_ :: _ as tl) -> t.regions <- tl
+            | _ -> ());
             match t.regions with _ :: (_ :: _ as tl) -> t.regions <- tl | _ -> ())
         | CASE -> t.regions <- RClause 0 :: t.regions
         | FN -> (

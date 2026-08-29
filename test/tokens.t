@@ -538,3 +538,23 @@ sample.kel 全文のトークン化(spike と同じ 2526 トークンである�
   $ diktor --type-check guardfn.kel
   ! guardfn.kel:1:12: 型エラー: 型が一致しません: ((_A) => _B) => _B と Boolean
   [1]
+
+壊れた入力(fn の矢印が来ないまま節が終わる)でも、閉じ括弧が RClause を
+強制解消するので、ずれはそこで止まる(M18 検証。かつては region が
+1 枚深いままファイル末尾まで NL が落ちた):
+
+  $ cat > brokenfn.kel <<'KEL'
+  > let z = (v match {
+  >   case a if fn => 1
+  >   case _ => 0
+  > })
+  > let p = 1
+  > KEL
+  $ diktor --dump-tokens brokenfn.kel | tail -7
+     4  )
+     4  <NL>
+     5  let
+     5  p
+     5  =
+     5  1
+     6  <EOF>

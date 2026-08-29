@@ -351,3 +351,10 @@ Never の照合不一致はコンストラクタゼロを明示する:
   $ diktor --type-check nv1.kel
   ! nv1.kel:1:1: 型エラー: newtype Never の宣言がプレリュードの宣言と一致しません(コンストラクタが違います: プレリュードはコンストラクタを持ちません)
   [1]
+
+ブレース無しの引数付きエフェクトラベル @ Heap[h] は @ {Heap[h]} の略記
+(M18 検証。文法は受けるのに elab に枝が無く「未知の型: Heap」だった):
+
+  $ printf 'let g[h](r: Ref[h, Int32]): Int32 @ Heap[h] = Ref.get(r)\n' > effshort.kel
+  $ diktor --type-check effshort.kel
+  g : (Ref[A, Int32]) => Int32 @ {Heap[A] extends R1}

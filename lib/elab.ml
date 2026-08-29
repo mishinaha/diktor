@@ -546,6 +546,16 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
       (* @ Print = @ {Print} の略記(計画 §7.6) *)
       if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
       else type_error ("未知のエフェクト: " ^ n)
+  | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
+      (* @ Heap[h] = @ {Heap[h]} の略記。文法(eff_name)は受けるのに枝が
+         無く、ブレース無しの引数付きラベルだけ「未知の型: Heap」に落ちて
+         いた(M18 検証)。sample.kel:344 の略記則に引数の例外は無い *)
+      TRowExtend
+        ( intern n,
+          (match args with
+          | [ a ] -> elab_type env level ~expanding a
+          | _ -> type_error "エフェクトラベルの引数は1個までです"),
+          TRowEmpty )
   | T.EBraceRow (elems, ext) ->
       let tail =
         match ext with

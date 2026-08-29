@@ -382,7 +382,7 @@ return / cancel は操作名として予約(D68。handle の節分類が名前�
 
   $ mkdir -p adir
   $ diktor adir
-  diktor: ファイルを開けません: Is a directory
+  diktor: ファイルを開けません: adir: Is a directory
   [64]
 
 SIGPIPE は無視して出力エラー 74 に落とす(D33。既定のままだとシグナル死

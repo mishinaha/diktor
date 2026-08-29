@@ -638,9 +638,12 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    `Either` で2種類を仕分けているのは、1回の走査で `cls_vals` と `cls_derives` に
    振り分けるためです。
 
-   カンマ区切りのリストは、**例外なく末尾カンマを許します** (M18 / D56)。
-   `X | X COMMA | X COMMA list` という3択が、`(a)` と `(a,)` を意味アクションで
-   区別する唯一のイディオムで、conflict も出ません。sample.kel:397 の effect 本体や
+   カンマ区切りのリストは、**最後の要素の後の末尾カンマを許します**
+   (M18 / D56)。`...rest` と `extends T` は要素ではなくリストの**終端子**
+   なので、その後にカンマは書けません(`{x, ...r,}` と `{x: T extends R,}`
+   は構文エラー — 検証で確定した境界)。実装は `X | X COMMA | X COMMA list`
+   の3択で、`(a)` と `(a,)` を意味アクションで区別でき、conflict も
+   出ません。sample.kel:397 の effect 本体や
    :512-515 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
    出てきます (§3.22)。かつて `ty_args` / `typaram_list` / `lowline_list` の 3 本だけ
    2択のままで末尾カンマが構文エラーでした — 計画 §6.1 の「全リスト」の字義に
