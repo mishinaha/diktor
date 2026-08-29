@@ -710,6 +710,10 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    cancel 節の例外をすべて握り潰してログに回すのは仕様(sample.kel:392)です。
    OCaml の生の例外表現がそのままログに出ないよう、`Printexc.to_string` を通します。
 
+   `retc` と `run_cancel` が `cl_guard` を読まないのは、elab が return 節と
+   cancel 節のガードを拒否するからです (§11.24)。かつて elab はガードを受理して
+   いて、ここが読まないぶん実行時に黙って消えていました。
+
    ### 既知の制限
 
    ガード付きの操作節は、ガードが偽のときに「次の節へ送る」ことができません

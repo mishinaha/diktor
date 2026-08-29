@@ -1361,7 +1361,7 @@ and elab_handle env level eff clauses body =
    操作節が外側の行なのは深いハンドラだからです。節の本体は、ハンドラの
    外側と同じ文脈で走ります。
 
-   節ごとの細部を 3 つ。
+   節ごとの細部を 4 つ。
 
    - resume の型は「操作の返り値型 → handle 式全体の型」。これを
      `resume_ty` に入れて節本体を推論します (§11.16)。return 節と
@@ -1369,6 +1369,13 @@ and elab_handle env level eff clauses body =
    - cancel 節の値は捨てられるので Unit と単一化します。
    - 操作節の引数はラベルで書けません。位置引数だけです。操作の引数は
      宣言の並びが意味を決めているので、並べ替えを許す理由がありません。
+   - return 節と cancel 節に**ガードは書けません**。節の構文 (clause) は
+     汎用なのでパーサは受けますが、ここで拒否します。この 2 つは 1 ハンドラに
+     1 節まで (§11.23) なので、ガードが偽のときに落ちる先がありません。
+     かつてはガードを Boolean と単一化だけして受理していました — すると
+     第14章の `retc` / `run_cancel` はガードを一度も読まないので、型検査を
+     通った条件式が実行時に黙って消えていました。`case return(x) if c => a` と
+     書きたければ、節本体で `c` を match すれば同じことが書けます。
 
    `check_resume_static` を呼ぶのはここ、操作節に入る直前です (§11.21)。 *)
 
@@ -1379,16 +1386,16 @@ and elab_handle env level eff clauses body =
   (match rets with
   | [ (p, ((_, c) as cnode)) ] ->
       Tree.set_resolved cnode Tree.RReturnClause;
+      if c.T.cl_guard <> None then type_error "return 節にガードは書けません";
       let seen = ref [] in
       let env2 = elab_pat { env with resume_ty = None } level seen body_ty p in
-      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres
   | _ -> Unify.unify body_ty tres);
   (match cancels with
   | [ ((_, c) as cnode) ] ->
       Tree.set_resolved cnode Tree.RCancelClause;
+      if c.T.cl_guard <> None then type_error "cancel 節にガードは書けません";
       let env2 = { env with resume_ty = None } in
-      (match c.T.cl_guard with Some g -> Unify.unify (elab_exp env2 level eff g) t_boolean | None -> ());
       (* cancel 節の値は捨てられる: Unit と単一化(計画 §7.3) *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
   | _ -> ());

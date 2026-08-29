@@ -176,3 +176,31 @@ Float64 は最短往復可能表現で表示する:
   > KEL
   $ diktor seq3.kel; echo "exit: $?"
   exit: 0
+
+return / cancel 節にガードは書けない(型検査を通ったガードが実行時に
+黙って無視されていた):
+
+  $ cat > retguard.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => resume(1)
+  >   case return(x) if x > 100 => 999
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check retguard.kel
+  ! 型エラー: return 節にガードは書けません
+  [1]
+
+  $ cat > cancelguard.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => resume(1)
+  >   case return(x) => x
+  >   case cancel if false => ()
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check cancelguard.kel
+  ! 型エラー: cancel 節にガードは書けません
+  [1]
