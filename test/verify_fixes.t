@@ -59,7 +59,7 @@ module 内の type instance が実行時に見つかる(sample.kel §13 の形):
 
   $ cat > modinst.kel <<'EOF'
   > module BigInt {
-  >   newtype BigInt = Small(Int32)
+  >   pub newtype BigInt = Small(Int32)
   >   type instance Add[BigInt] { let add(x, y) = x }
   > }
   > let a = Small(1)

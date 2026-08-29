@@ -90,7 +90,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
 未実装メッセージは、表を引いた実装名が修飾名と食い違うとき両方を見せる:
 
   $ cat > mun.kel <<'KEL'
-  > module M { extern "prim" let __no_such(x: Int32): Int32 }
+  > module M { pub extern "prim" let __no_such(x: Int32): Int32 }
   > echoln(show(M.__no_such(1)))
   > KEL
   $ diktor mun.kel

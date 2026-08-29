@@ -149,7 +149,15 @@ and prim = { p_name : string; p_fn : t -> t (* 引数レコードを受け取る
    環境をハッシュ表 1 枚にして push/pop する実装より、深い再帰では
    わずかに遅く、そのかわりクロージャ捕獲が O(1) で正しくなります。 *)
 
-and env = { globals : (string, t) Hashtbl.t; locals : t SMap.t; resume : resume option }
+and env = {
+  globals : (string, t) Hashtbl.t;
+  locals : t SMap.t;
+  resume : resume option;
+  (* 出身 module(D43)。module 内の宣言から作られた閉包はこれを覚え、
+     非修飾名が globals に無かったとき module スコープの値同義語を引く。
+     第11章の current_module の評価器側の対応物 *)
+  mod_scope : string option;
+}
 
 (* ## 12.4 `resume` が値として存在しない理由(D19)
 

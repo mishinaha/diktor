@@ -235,74 +235,128 @@ let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | Non
    無い)。newtype とエイリアスの両方の再宣言検査が引くので、ここに置く *)
 let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
-(* ## 6.4 module 平坦化の同義語表 (裁定 D21)
+(* ## 6.4 module 平坦化の同義語表と可視性台帳 (裁定 D21, D41-D43)
 
    Keleut の `module` は、v0 では**平坦化**として実装されています。
    第11章 (elab.ml) の `flatten_modules` が `module M` の中身を取り出し、
-   型と let を `M.名前` へ改名してトップレベルに並べ直す。それだけです。
-   名前空間も可視性も導入しません。
+   型と let を `M.名前` へ改名してトップレベルに並べ直す。改名だけでは
+   module の中からの非修飾参照(`newtype BigInt` を `let parse(...): BigInt`
+   が参照する)が壊れるので、同義語表を張って `resolve_con` を通します。
 
-   改名だけでは、モジュールの中から内側の型を非修飾で参照している箇所
-   (`newtype BigInt` を `let parse(...): BigInt` が参照する)が壊れます。
-   そこで改名と同時に「非修飾名 → 正準の修飾名」の同義語を張り、
-   型構成子を引くところは必ず `resolve_con` を通す、という形にしました。
+   M16 からこの同義語は **module でスコープ**されています(D43)。
+   `module_con_synonyms` の鍵は `(module 名, 非修飾名)` で、引けるのは
+   「いまどの module の宣言を処理しているか」(`current_module`)が
+   その module のときだけ。かつて同義語は大域 1 枚で、`module M {
+   newtype List[A] = … }` と書くだけで**プレリュード自身の型検査が壊れ**、
+   ユーザに非の無い `!  <prelude>:…: 未知の型` が出ました(M15 検証)。
+   module の内部名は module の中でだけ意味を持つ — スコープを表の鍵に
+   刻んだ形です。
 
-   この同義語表 1 枚で、**仕様のコンパニオン型規則が自動的に出る**のが
-   気持ちのよいところです。sample.kel:580 は「モジュール名と同名の型は
-   モジュール名自体で参照できる」と述べています。`module BigInt` の中の
-   `newtype BigInt` は `BigInt.BigInt` に改名され、同義語 `BigInt` →
-   `BigInt.BigInt` が張られる。したがってモジュール名 `BigInt` を型の位置に
-   書くと、そのままコンパニオン型に解決されます。規則を別途実装していません。
+   スコープの規則は型と値で**非対称**です。どちらも実測に基づく裁定です。
 
-   **代償も正直に書いておきます。** 同義語は大域なので、コンパニオンでない
-   内部型の非修飾名も外から見えてしまいます。可視性 (`pub`) の検査を v0 で
-   延期している(計画 §2.1 と計画 §13)以上、これは今のところ検出されません。
-   module の入れ子は未対応のままです(実装記録の乖離 5)。
+   - **型は module 内先勝ち(語彙的遮蔽)**: module の中では `(M, 名前)` を
+     先に引き、無ければ大域へ。型の解決は表がそろってから始まるので
+     宣言順に依存せず、実行時(インスタンス頭)も同じ規則で引けます。
+   - **値は大域先勝ち + 衝突の禁止**: 値の解決は elab が宣言時点の環境、
+     評価器が呼び出し時点の globals と、**別の時点の環境**を見るため、
+     module 内名とトップレベル名が同名だと解決が食い違い得ます(M15 検証
+     V12: 型検査と実行が別の実体を選び黙って別の値が返る)。そこで
+     module 内の値名がユーザのトップレベル値名と同名になること自体を
+     平坦化の時点で拒否します。禁止すれば「環境に無かったときだけ
+     module スコープの同義語を引く」フォールバックが両解決器で一致します。
 
-   値の名前にも同じ形の表(`val_synonyms`)を張ります(D39 / C5a)。
-   こちらは**フォールバック専用** — 識別子解決が環境に無かったときだけ
-   引きます。この形だから、局所束縛による遮蔽が自動で効き、既に型検査を
-   通るプログラムの意味は 1 つも変わらず、module 内 let の相互参照と
-   let rec の自己再帰が通ります(かつては自己再帰すら「未束縛の変数」で
-   落ち、module は let を 1 本ずつ書き下ろすだけの箱でした)。
-   衝突した非修飾名は**曖昧**として扱い、解決しません — 黙って後勝ちする
-   名前解決は D22(§6.7 の `op_index`)が既に否定した設計で、型・値とも
-   候補列を持つ同じ形に揃えてあります。曖昧な名前の使用点は
-   「A.T か B.T と修飾してください」と案内されます。
+   コンパニオン型規則(sample.kel:580「モジュール名と同名の型は
+   モジュール名自体で参照できる」)だけは大域の `con_synonyms` に残ります。
+   `module BigInt` の `newtype BigInt` は `BigInt.BigInt` へ改名され、
+   大域同義語 `BigInt` → `BigInt.BigInt` が張られる — 外から見えてよい
+   非修飾名はコンパニオンだけ、という D43 の言い換えです。
 
-   なお**この表を引くのは第11章だけではありません**。敵対的検証で、
-   第14章 (interp.ml) が `type instance Add[BigInt]` の頭を解決するときに
-   同義語を通しておらず、module 内のインスタンスが実行時に見つからない、
-   という欠陥が見つかりました。名前を oid に落とす経路が 2 つある以上、
-   両方が同じ表を通らなければなりません。 *)
-(* 候補列を持つ(D39)。かつては Hashtbl.replace の後勝ちで、同名の内部型を
-   持つ module が 2 つあると後の宣言が黙って勝った — 黙って後勝ちする
-   名前解決は D22(op_index)が既に否定した設計で、同じ形に揃えた。
-   候補が一意でなければ非修飾名では解決せず、使用点が修飾を案内する *)
+   `con_hints` / `val_synonyms` は**診断専用**の候補列です。解決には
+   使わず、スコープ外からの非修飾参照に「A.T か B.T と修飾してください」を
+   出すためだけに引きます。黙って後勝ちする名前解決は D22(§6.7 の
+   `op_index`)が既に否定した設計です。
+
+   可視性(D41-D42)はこの隣の台帳に載ります。`value_visibility` /
+   `con_visibility` は修飾名 → { 出身 module, pub } で、検査は module
+   境界だけ(D41。Diktor は複数ファイルを 1 プログラムに連結するので、
+   ファイル境界は見ません)。コンストラクタの可視性は所属 newtype の
+   pub に従います(D42)。
+
+   なお**この表を引くのは第11章だけではありません**。第14章 (interp.ml) が
+   `type instance Add[BigInt]` の頭を解決するときも同じ表を通ります
+   (260829-2b 健全性 6)。名前を oid に落とす経路が 2 つある以上、
+   両方が同じ表を通らなければなりません。評価器側の `current_module` 相当は
+   環境の `mod_scope`(閉包が出身 module を覚える)です。 *)
+let current_module : string option ref = ref None
+
+(* コンパニオンだけの大域同義語(D43)。候補列の形は D39 のまま *)
 let con_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
 
 let add_con_synonym short qual =
   let prev = Option.value ~default:[] (Hashtbl.find_opt con_synonyms short) in
   if not (List.mem qual prev) then Hashtbl.replace con_synonyms short (prev @ [ qual ])
 
-let resolve_con c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
+(* module スコープの同義語(D43)。(module 名, 非修飾名) → 修飾名 *)
+let module_con_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 
-let con_synonym_candidates c = Option.value ~default:[] (Hashtbl.find_opt con_synonyms c)
+let module_val_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 
-(* 値の名前の同義語表(D39 / C5a)。con_synonyms と同じ形。走査も改名も
-   しない — 識別子解決が環境に無かったときだけ引く**フォールバック専用**。
-   この形だから (a) 既に型検査を通るプログラムの意味は 1 つも変わらず、
-   (b) 局所束縛による遮蔽が自動で効き、(c) let rec の自己再帰も通る
-   (改名後の名前が先に環境に入るので、本体の非修飾名がここに当たる) *)
+let resolve_con c =
+  let global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c in
+  match !current_module with
+  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> global c)
+  | None -> global c
+
+(* 診断専用の候補列。解決には使わない *)
+let con_hints : (oid, oid list) Hashtbl.t = Hashtbl.create 16
+
+let add_con_hint short qual =
+  let prev = Option.value ~default:[] (Hashtbl.find_opt con_hints short) in
+  if not (List.mem qual prev) then Hashtbl.replace con_hints short (prev @ [ qual ])
+
+let con_synonym_candidates c = Option.value ~default:[] (Hashtbl.find_opt con_hints c)
+
 let val_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
 
 let add_val_synonym short qual =
   let prev = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short) in
   if not (List.mem qual prev) then Hashtbl.replace val_synonyms short (prev @ [ qual ])
 
-let resolve_val short = match Hashtbl.find_opt val_synonyms short with Some [ q ] -> Some q | _ -> None
-
 let val_synonym_candidates short = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short)
+
+(* 可視性台帳(D41-D42)。鍵は修飾名 *)
+type visibility = { vis_module : string; vis_pub : bool }
+
+let value_visibility : (oid, visibility) Hashtbl.t = Hashtbl.create 16
+
+let con_visibility : (oid, visibility) Hashtbl.t = Hashtbl.create 16
+
+(* 宣言ノードの oid → 出身 module。第11章の 4 パスと第14章の exec_decl が
+   これで current_module / mod_scope を復元する。Tree.oid_of の最初の
+   利用者(260829-3 課題 11) *)
+let decl_module : (oid, string) Hashtbl.t = Hashtbl.create 16
+
+let visible_here (v : visibility) = v.vis_pub || !current_module = Some v.vis_module
+
+let check_con_visible oid =
+  match Hashtbl.find_opt con_visibility oid with
+  | Some v when not (visible_here v) ->
+      type_error ("型 " ^ Type.name_of oid ^ " は module " ^ v.vis_module ^ " の外からは参照できません(pub を付けてください)")
+  | _ -> ()
+
+let check_value_visible oid =
+  match Hashtbl.find_opt value_visibility oid with
+  | Some v when not (visible_here v) ->
+      type_error (Type.name_of oid ^ " は module " ^ v.vis_module ^ " の外からは参照できません(pub を付けてください)")
+  | _ -> ()
+
+let check_ctor_visible ctor owner =
+  match Hashtbl.find_opt con_visibility owner with
+  | Some v when not (visible_here v) ->
+      type_error
+        ("コンストラクタ " ^ Type.name_of ctor ^ " は module " ^ v.vis_module ^ " の外からは参照できません(newtype "
+       ^ Type.name_of owner ^ " に pub を付けてください)")
+  | _ -> ()
 
 (* ## 6.5 型エイリアス — 透過、非再帰、部分適用禁止
 
@@ -511,6 +565,10 @@ type alias_info = {
   al_params : type_param list;
   al_kind : string option; (* : Type / : EffectRow *)
   al_body : T.type_exp;
+  (* 本体は**宣言スコープ**で展開する(D43)。module 内のエイリアスが
+     内部型を指しているとき、外から展開しても壊れないように、展開時は
+     この module を current_module に立てる。引数は使用スコープのまま *)
+  al_module : string option;
 }
 
 let aliases : (oid, alias_info) Hashtbl.t = Hashtbl.create 64
@@ -1196,6 +1254,13 @@ let reset () =
   Hashtbl.reset externs;
   Hashtbl.reset type_namespace;
   Hashtbl.reset user_type_redecls;
+  Hashtbl.reset module_con_synonyms;
+  Hashtbl.reset module_val_synonyms;
+  Hashtbl.reset con_hints;
+  Hashtbl.reset value_visibility;
+  Hashtbl.reset con_visibility;
+  Hashtbl.reset decl_module;
+  current_module := None;
   in_prelude := false;
   register_builtins ()
 

@@ -209,8 +209,8 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   $ cat > modref.kel <<'KEL'
   > module M {
   >   let helper(x: Int32): Int32 = x + 1
-  >   let use(x: Int32): Int32 = helper(x) + 1
-  >   let rec down(n: Int32): Int32 = n match { case 0 => 0 case _ => down(n - 1) }
+  >   pub let use(x: Int32): Int32 = helper(x) + 1
+  >   pub let rec down(n: Int32): Int32 = n match { case 0 => 0 case _ => down(n - 1) }
   > }
   > echoln(show(M.use(1)))
   > echoln(show(M.down(3)))
@@ -219,7 +219,10 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   3
   0
 
-フォールバック専用なので外側の名前が勝つ(遮蔽の記録):
+module 内の名前とトップレベル名の衝突は宣言時に拒否する(M16 / D43。
+かつては「外側が勝つ」フォールバックだったが、elab は宣言時点・評価器は
+呼び出し時点の環境を見るため、宣言順と呼び出し時刻の組で解決が食い違い、
+黙って別の実体を選んだ — M15 検証 V12):
 
   $ cat > modshadow.kel <<'KEL'
   > let helper(x: Int32): Int32 = 100
@@ -228,11 +231,10 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   >   let use(x: Int32): Int32 = helper(x)
   > }
   > echoln(show(M.use(1)))
-  > echoln(show(M.helper(1)))
   > KEL
   $ diktor modshadow.kel
-  100
-  2
+  ! modshadow.kel:3:3: 型エラー: module M の helper はトップレベルの helper と同名です(module 内の名前とトップレベル名は同名にできません)
+  [1]
 
 同義語の衝突は曖昧(C5d / D39。かつては黙って後勝ち):
 
@@ -246,8 +248,8 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   [1]
 
   $ cat > modclash2.kel <<'KEL'
-  > module A { newtype T = TA(Int32) }
-  > module B { newtype T = TB(Int32) }
+  > module A { pub newtype T = TA(Int32) }
+  > module B { pub newtype T = TB(Int32) }
   > let x: A.T = TA(1)
   > let y: B.T = TB(2)
   > echoln(show(x match { case TA(n) => n }) + show(y match { case TB(n) => n }))
@@ -256,8 +258,8 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   12
 
   $ cat > modclash3.kel <<'KEL'
-  > module A { let f(x: Int32): Int32 = x + 1 }
-  > module B { let f(x: Int32): Int32 = x + 2 }
+  > module A { pub let f(x: Int32): Int32 = x + 1 }
+  > module B { pub let f(x: Int32): Int32 = x + 2 }
   > echoln(show(A.f(1)) + show(B.f(1)))
   > KEL
   $ diktor modclash3.kel
@@ -274,10 +276,12 @@ module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 �
 型側の「A.T か B.T と修飾してください」と同じ形):
 
   $ cat > vamb.kel <<'EOF2'
-  > module A { let rec down(n: Int32): Int32 = n match { case 0 => 0 case _ => down(n - 1) } }
-  > module B { let down(n: Int32): Int32 = n }
-  > echoln(show(A.down(3)))
+  > module A { pub let down(n: Int32): Int32 = n + 1 }
+  > module B { pub let down(n: Int32): Int32 = n }
+  > echoln(show(down(3)))
   > EOF2
   $ diktor --type-check vamb.kel
-  ! vamb.kel:1:76: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
+  A.down : (Int32) => Int32
+  B.down : (Int32) => Int32
+  ! vamb.kel:3:13: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
   [1]

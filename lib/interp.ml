@@ -283,10 +283,15 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           match Hashtbl.find_opt env.globals name with
           | Some v -> v
           | None -> (
-              (* module 平坦化の値同義語(D39 / C5a)。elab と同じく
-                 見つからなかったときだけのフォールバック *)
+              (* module スコープの値同義語(D39 / D43)。elab と同じく
+                 見つからなかったときだけのフォールバックで、引けるのは
+                 この閉包の出身 module の分だけ *)
               match
-                Option.bind (Decls.resolve_val (Type.intern name)) (fun q -> Hashtbl.find_opt env.globals (Type.name_of q))
+                Option.bind
+                  (match env.mod_scope with
+                  | Some m -> Hashtbl.find_opt Decls.module_val_synonyms (m, Type.intern name)
+                  | None -> None)
+                  (fun q -> Hashtbl.find_opt env.globals (Type.name_of q))
               with
               | Some v -> v
               | None -> (
@@ -1031,7 +1036,10 @@ let register_class_methods globals =
    型は `BigInt.BigInt` に改名されます。
    インスタンス頭に書かれた非修飾名をそのまま鍵にすると、宣言した実体が
    実行時に見つかりません(検証の健全性 6)。`Decls.resolve_con` に通して
-   elab と同じ名前へ寄せます。回帰テストは test/verify_fixes.t の modinst.kel です。
+   elab と同じ名前へ寄せます。M16 から同義語は module スコープ(D43)なので、
+   `exec_decl` の冒頭で宣言の出身 module を `Decls.current_module` に立てて
+   から引きます — elab の `with_decl_module` と同じ規律です。回帰テストは
+   test/verify_fixes.t の modinst.kel です。
 
    **(2) 組み込みインスタンスを差し替えない。** `type instance Add[Int32]` を
    ユーザが再宣言できてしまうと、elab は組み込みの `Add[Int32]` で型検査し、
@@ -1078,7 +1086,15 @@ let bind_globals versions env names_values =
     names_values;
   env
 
-let exec_decl versions env ((_, d) : T.decl) =
+let exec_decl versions env ((_, d) as node : T.decl) =
+  (* 宣言の出身 module を環境に立てる。この宣言から作られる閉包が
+     mod_scope を捕まえ、実行時の非修飾名解決が elab の current_module と
+     同じスコープ規則になる(D43)。インスタンス頭の resolve_con も同じ
+     スコープで引くため、Decls 側の current_module も一時的に立てる *)
+  let env = { env with mod_scope = Hashtbl.find_opt Decls.decl_module (Tree.oid_of node) } in
+  let saved = !Decls.current_module in
+  Decls.current_module := env.mod_scope;
+  Fun.protect ~finally:(fun () -> Decls.current_module := saved) @@ fun () ->
   match d with
   | T.DLet ((_, b) as bnode) ->
       let v = eval_binding_value env bnode in
@@ -1193,7 +1209,7 @@ let run ~sink decls =
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
-  let env = { globals; locals = SMap.empty; resume = None } in
+  let env = { globals; locals = SMap.empty; resume = None; mod_scope = None } in
   let versions = ref [ globals ] in
   ignore
     (Builtin.with_runtime ~sink (fun () ->

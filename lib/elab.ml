@@ -166,6 +166,28 @@ let number_ty level (n : number) : ty =
 (* v0 で名前だけ受理して実行できない数値型(D13) *)
 let unsupported_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt64"; "Float32" ]
 
+(* 未束縛の変数の診断。module スコープで解決済みなのに環境に届かない
+   (前方の module 名)ときは素の文言、スコープ外に候補があるときだけ
+   修飾名を案内する(D39 / D43) *)
+let unbound_value name scoped =
+  match scoped with
+  | Some _ -> type_error ("未束縛の変数: " ^ name)
+  | None -> (
+      match Decls.val_synonym_candidates (intern name) with
+      | [] -> type_error ("未束縛の変数: " ^ name)
+      | qs ->
+          type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
+
+(* Cls.m がクラスメソッドの修飾名かどうか(可視性検査の適用除外の判定) *)
+let value_vis_exempt name =
+  match String.rindex_opt name '.' with
+  | None -> false
+  | Some i -> (
+      let cls = String.sub name 0 i and m = String.sub name (i + 1) (String.length name - i - 1) in
+      match Decls.find_class (intern cls) with
+      | Some ci -> List.mem_assoc m ci.Decls.ci_methods
+      | None -> false)
+
 (* ## 11.3 型式の精緻化 — 書かれた型を内部型へ
 
    `elab_type` は表層の型式を第1章の内部型に変換します。名前解決・エイリアス
@@ -205,6 +227,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
           if List.mem n unsupported_numeric then noimpl ("数値型 " ^ n ^ "(v0 は Int32/Int64/Float64 のみ)")
           else
             let oid = Decls.resolve_con (intern n) in
+            Decls.check_con_visible oid;
             (match Hashtbl.find_opt Decls.aliases oid with
             | Some info -> expand_alias env level ~expanding info []
             | None ->
@@ -213,28 +236,37 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
                   | KStar -> TCon (oid, [])
                   | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
                 else
-                  (* 同義語が曖昧なら候補を添える(D39) *)
+                  (* スコープ外の module 内部型なら候補を添える(D39 / D43) *)
                   match Decls.con_synonym_candidates oid with
-                  | _ :: _ :: _ as cands ->
+                  | _ :: _ as cands ->
                       type_error
                         ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)")
                   | _ -> type_error ("未知の型: " ^ n)))
-  | T.EIdent li ->
-      (* 平坦化済み module の修飾型参照(Parser.Parser 等) *)
+  | T.EIdent li -> (
+      (* 平坦化済み module の修飾型参照(Parser.Parser 等)。修飾名でも
+         エイリアスは引ける(M.A の形。M16 で発見した抜け) *)
       let oid = Decls.resolve_con (intern (show_long_id li)) in
-      if Hashtbl.mem Decls.con_kinds oid then (
-        match Decls.con_kind oid 0 with
-        | KStar -> TCon (oid, [])
-        | _ -> type_error ("型構成子 " ^ show_long_id li ^ " には型引数が必要です"))
-      else type_error ("未知の型: " ^ show_long_id li)
-  | T.EApply ((_, T.EIdent (LongId comps)), args) when List.length comps > 1 ->
+      Decls.check_con_visible oid;
+      match Hashtbl.find_opt Decls.aliases oid with
+      | Some info -> expand_alias env level ~expanding info []
+      | None ->
+          if Hashtbl.mem Decls.con_kinds oid then (
+            match Decls.con_kind oid 0 with
+            | KStar -> TCon (oid, [])
+            | _ -> type_error ("型構成子 " ^ show_long_id li ^ " には型引数が必要です"))
+          else type_error ("未知の型: " ^ show_long_id li))
+  | T.EApply ((_, T.EIdent (LongId comps)), args) when List.length comps > 1 -> (
       let oid = Decls.resolve_con (intern (String.concat "." comps)) in
-      if Hashtbl.mem Decls.con_kinds oid then (
-        let k = Decls.con_kind oid (List.length args) in
-        let rec arity k = match kind_repr k with KArrow (_, r) -> 1 + arity r | _ -> 0 in
-        if arity k <> List.length args then type_error ("型構成子 " ^ String.concat "." comps ^ " の引数の個数が不正です")
-        else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
-      else type_error ("未知の型: " ^ String.concat "." comps)
+      Decls.check_con_visible oid;
+      match Hashtbl.find_opt Decls.aliases oid with
+      | Some info -> expand_alias env level ~expanding info args
+      | None ->
+          if Hashtbl.mem Decls.con_kinds oid then (
+            let k = Decls.con_kind oid (List.length args) in
+            let rec arity k = match kind_repr k with KArrow (_, r) -> 1 + arity r | _ -> 0 in
+            if arity k <> List.length args then type_error ("型構成子 " ^ String.concat "." comps ^ " の引数の個数が不正です")
+            else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
+          else type_error ("未知の型: " ^ String.concat "." comps))
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) -> (
       match SMap.find_opt n env.types with
       | Some t ->
@@ -242,6 +274,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
           List.fold_left (fun acc a -> tapp acc (elab_type env level ~expanding a)) t (List.map (fun a -> check_no_hole a) args)
       | None -> (
           let oid = Decls.resolve_con (intern n) in
+          Decls.check_con_visible oid;
           match Hashtbl.find_opt Decls.aliases oid with
           | Some info -> expand_alias env level ~expanding info args
           | None ->
@@ -389,6 +422,7 @@ and expand_alias env level ~expanding info args =
       (Printf.sprintf "型エイリアス %s の引数は %d 個必要です(%d 個与えられました。部分適用は禁止)" (name_of info.Decls.al_name)
          (List.length info.Decls.al_params) (List.length args))
   else
+    (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま) *)
     let arg_tys = List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args in
     let types =
       List.fold_left2 (fun m tp t -> SMap.add tp.tp_name t m) SMap.empty info.Decls.al_params arg_tys
@@ -396,9 +430,16 @@ and expand_alias env level ~expanding info args =
     (* エイリアス本体は閉じている: 型パラメータだけが見える *)
     let env' = { env with types } in
     let expanding = info.Decls.al_name :: expanding in
-    match info.Decls.al_kind with
-    | Some "EffectRow" -> elab_eff env' level ~expanding info.Decls.al_body
-    | _ -> elab_type env' level ~expanding info.Decls.al_body
+    (* 本体は**宣言スコープ**で展開する(D43)。module 内のエイリアスが
+       内部型を指しているとき、外から使っても壊れないように *)
+    let saved = !Decls.current_module in
+    Decls.current_module := info.Decls.al_module;
+    Fun.protect
+      ~finally:(fun () -> Decls.current_module := saved)
+      (fun () ->
+        match info.Decls.al_kind with
+        | Some "EffectRow" -> elab_eff env' level ~expanding info.Decls.al_body
+        | _ -> elab_type env' level ~expanding info.Decls.al_body)
 
 (* ## 11.6 エフェクト行の精緻化 — 同形の構文をスコープで分ける
 
@@ -577,6 +618,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
         | None -> type_error ("未知のコンストラクタ: " ^ show_long_id li)
         | Some dname ->
             let ctor = intern cname in
+            Decls.check_ctor_visible ctor dname;
             let dd = Hashtbl.find Decls.datas dname in
             if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
             else
@@ -695,31 +737,33 @@ and elab_exp' env level eff node e =
   | T.Ident li -> (
       let name = show_long_id li in
       match SMap.find_opt name env.values with
-      | Some sch -> Unify.instantiate level sch
+      | Some sch ->
+          (* 修飾名で module の値に触るときの可視性検査(D41)。組み込み
+             クラスと同名の module(module Add の中の add 等)では、この
+             名前がクラスメソッドの修飾名でもあり得る — 先勝ち(§11.33)で
+             メソッドが勝った参照を module の pub で咎めない *)
+          if not (value_vis_exempt name) then Decls.check_value_visible (intern name);
+          Unify.instantiate level sch
       | None -> (
-          (* 環境に無かったときだけ、module 平坦化の値同義語を引く(D39 / C5a)。
-             フォールバック専用なので、局所束縛による遮蔽が自動で効き、
-             既に型検査を通るプログラムの意味は 1 つも変わらない。
-             順序は 変数 → 同義語 → 引数なしコンストラクタ(第14章の
-             4 段引きと同じ)。候補が複数なら型側(§11.3)と同じ形で
-             修飾名を案内する — 素の「未束縛の変数」では、無関係な module の
-             同名 let が原因だと読み手に辿れない(M15 検証) *)
-          match Decls.val_synonym_candidates (intern name) with
-          | _ :: _ :: _ as qs ->
-              type_error
-                ("未束縛の変数: " ^ name ^ "("
-                ^ String.concat " か " (List.map Type.name_of qs)
-                ^ " と修飾してください)")
-          | cands -> (
-          match Option.bind (match cands with [ q ] -> Some q | _ -> None) (fun q -> SMap.find_opt (name_of q) env.values) with
+          (* 環境に無かったときだけ、module スコープの値同義語を引く
+             (D39 / D43)。フォールバック専用なので、局所束縛による遮蔽が
+             自動で効く。スコープの外では解決せず、候補列(診断専用)で
+             修飾名を案内する — 素の「未束縛の変数」では、module の同名
+             let が原因だと読み手に辿れない(M15 検証) *)
+          let scoped =
+            match !Decls.current_module with
+            | Some m -> Hashtbl.find_opt Decls.module_val_synonyms (m, intern name)
+            | None -> None
+          in
+          match Option.bind scoped (fun q -> SMap.find_opt (name_of q) env.values) with
           | Some sch -> Unify.instantiate level sch
           | None -> (
               match li with
               | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
                   let last = List.nth comps (List.length comps - 1) in
                   if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
-                  else type_error ("未束縛の変数: " ^ name)
-              | _ -> type_error ("未束縛の変数: " ^ name)))))
+                  else unbound_value name scoped
+              | _ -> unbound_value name scoped)))
   | T.Hole -> new_var level
   | T.Lambda { l_params; l_body } ->
       let param_tys = List.map (fun _ -> new_var level) l_params in
@@ -1028,6 +1072,8 @@ and elab_construct env level node cname ?eff args =
   match Hashtbl.find_opt Decls.ctor_owner ctor with
   | None -> type_error ("未知のコンストラクタ: " ^ cname)
   | Some dname ->
+      (* コンストラクタの可視性は所属 newtype の pub に従う(D42) *)
+      Decls.check_ctor_visible ctor dname;
       let dd = Hashtbl.find Decls.datas dname in
       if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
       else
@@ -2472,16 +2518,32 @@ let check_instance_bodies env (i : T.instance_decl') =
    プレリュードも同じ `process_decls` を通します。違いは `emit` を
    捨てることだけです。 *)
 
+(* 宣言の出身 module を current_module に立てて処理する。4 パスの**全部**を
+   包むこと(§10 特記の落とし穴): 1b の newtype フィールド型や 1c の
+   signature_of_binding も module 内の型を非修飾で参照するので、包み忘れた
+   パスだけ「未知の型」になる。§11.41 の in_prelude と同じ Fun.protect 規律 *)
+let with_decl_module node f =
+  let saved = !Decls.current_module in
+  Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
+  Fun.protect ~finally:(fun () -> Decls.current_module := saved) f
+
 let process_decls env ~emit decls =
   let eff0 = toplevel_eff () in
   (* パス1a: 型エイリアスの登録と newtype の頭(カインド) *)
   List.iter
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
+      with_decl_module node @@ fun () ->
       match d with
       | T.DType t ->
           Decls.add_alias
-            { Decls.al_name = intern t.T.ta_name; al_params = t.T.ta_params; al_kind = t.T.ta_kind; al_body = t.T.ta_body }
+            {
+              Decls.al_name = intern t.T.ta_name;
+              al_params = t.T.ta_params;
+              al_kind = t.T.ta_kind;
+              al_body = t.T.ta_body;
+              al_module = !Decls.current_module;
+            }
       | T.DNewtype n ->
           (* 名前空間の主張はここ(宣言順)で行う。add_data は 1b、add_effect
              も 1b なので、種別交差の検出を各 add に任せると 1a の add_alias が
@@ -2498,6 +2560,7 @@ let process_decls env ~emit decls =
     List.fold_left
       (fun env ((_, d) as node : T.decl) ->
         at_node node @@ fun () ->
+        with_decl_module node @@ fun () ->
         match d with
         | T.DNewtype n ->
             register_newtype env n;
@@ -2532,6 +2595,7 @@ let process_decls env ~emit decls =
   List.iter
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
+      with_decl_module node @@ fun () ->
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
@@ -2547,6 +2611,7 @@ let process_decls env ~emit decls =
     List.fold_left
       (fun env ((_, d) as node : T.decl) ->
         at_node node @@ fun () ->
+        with_decl_module node @@ fun () ->
         match d with
         | T.DInstance i ->
             register_instance i;
@@ -2600,6 +2665,7 @@ let process_decls env ~emit decls =
     let wbefore = List.length !warnings in
     let env' =
       at_node node @@ fun () ->
+      with_decl_module node @@ fun () ->
       let env' =
         match d with
       | T.DType t ->
@@ -2717,21 +2783,30 @@ let type_check_decls ?(prelude = []) decls =
   let _env = process_decls env ~emit decls in
   List.rev !out
 
-(* ## 11.42 module の平坦化 — 改名と同義語表
+(* ## 11.42 module の平坦化 — 改名・スコープつき同義語・可視性台帳
 
    v0 の module は名前空間ではなく**改名規則**です (D21)。宣言列を精緻化に
-   渡す前に平坦化し、以降のパスは module を知りません。
+   渡す前に平坦化し、以降のパスは module を知りません — ただし M16 からは
+   各宣言の**出身 module** が `Decls.decl_module` に記録され、4 パスが
+   `with_decl_module` で `current_module` を立てて処理します。走査も改名も
+   しないので、束縛子の見落としによる誤改名というクラスのバグは原理的に
+   起きません。
 
-   - `newtype` / `type` は `M.名前` に改名して登録し、第6章の同義語表に
-     「非修飾名 → 修飾名」を張ります。この 1 本の表で、module の内側からの
-     非修飾参照と、外側からのコンパニオン型参照 (sample.kel:580) の両方が
-     通ります。§11.3 が名前を引くたびに `Decls.resolve_con` を通していたのは
-     この表のためです。
-   - `let` も `M.名前` に改名し、値の同義語(第6章 `val_synonyms`)を
-     張ります (D39)。module 内の相互参照と let rec の自己再帰は、識別子
-     解決のフォールバック(環境に無かったときだけ同義語を引く)で通ります。
-     走査も改名もしないので、束縛子の見落としによる誤改名というクラスの
-     バグは原理的に起きません。
+   - `newtype` / `type` は `M.名前` に改名して登録し、module スコープの
+     同義語 `(M, 非修飾名) → M.名前` を張ります (D43)。大域に張るのは
+     **コンパニオン**(module 名と同名の型。sample.kel:580)だけです。
+     かつて同義語は大域 1 枚で、`module M { newtype List[A] = … }` と
+     書くだけでプレリュード自身の型検査が壊れました(M15 検証)。
+   - `let` も `M.名前` に改名し、module スコープの値同義語を張ります
+     (D39 / D43)。module 内の相互参照と let rec の自己再帰はフォール
+     バック(環境に無かったときだけスコープの同義語を引く)で通ります。
+     **module 内の値名がトップレベルの値名と同名になることは禁止**です —
+     elab は宣言時点、評価器は呼び出し時点の環境を見るため、同名を許すと
+     フォールバックの発火が両者で食い違い、黙って別の実体を選びます
+     (M15 検証 V12。禁止が両解決器の一致の前提)。
+   - `pub` は可視性台帳(第6章 `value_visibility` / `con_visibility`)へ
+     写します。検査は使用点(§11.3 / §11.11 / §11.8)で、境界は module
+     だけです (D41)。コンストラクタは所属 newtype の pub に従います (D42)。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
      import で見え方が変わるものではありません (sample.kel:576)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
@@ -2740,12 +2815,12 @@ let type_check_decls ?(prelude = []) decls =
      二重宣言検査を修飾名で見ます (§6.2) — 修飾名だけを鍵にすると保護が
      module の中から迂回でき、実装名だけを鍵にすると別々の module が同じ
      C シンボルを包めなくなります (どちらも実測)。
-   - `pub` は受理するだけで検査しません。
 
    同義語表は実行時にも要ります。module の中の instance が実行時に
    見つからなかったのは、評価器が同義語表を引いていなかったからでした
    (260829-2b の健全性 6)。**型検査が使う名前解決の経路は、評価器も
-   同じものを通らなければなりません。**
+   同じものを通らなければなりません。** 評価器側の `current_module` 相当は
+   環境の `mod_scope` で、module 生まれの閉包が出身を持ち歩きます(§14.13)。
 
    入れ子の module と、module 内の effect / class / 式は未対応です。
    受理してから落ちるのではなく、平坦化の時点で報告します — 種別は
@@ -2754,6 +2829,23 @@ let type_check_decls ?(prelude = []) decls =
    あります。 *)
 
 let flatten_modules (decls : T.decl list) : T.decl list =
+  (* トップレベル(module の外)の値名を先に集める。module 内の値名が
+     これと同名になるのを禁止するため(D43 の値側。§6.4 の理由 —
+     禁止しないと、宣言順と呼び出し時刻の組み合わせで elab と評価器の
+     フォールバックの発火が食い違い、黙って別の実体を選ぶ。M15 検証 V12) *)
+  let toplevel_vals = Hashtbl.create 32 in
+  List.iter
+    (fun ((_, d) : T.decl) ->
+      match d with
+      | T.DLet (_, b) -> ( match binding_name b with Some x -> Hashtbl.replace toplevel_vals x () | None -> ())
+      | T.DLetRec bs ->
+          List.iter
+            (fun ((_, b) : T.let_binding) ->
+              match binding_name b with Some x -> Hashtbl.replace toplevel_vals x () | None -> ())
+            bs
+      | T.DExtern ex -> Hashtbl.replace toplevel_vals ex.T.ex_name ()
+      | _ -> ())
+    decls;
   List.concat_map
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
@@ -2762,39 +2854,65 @@ let flatten_modules (decls : T.decl list) : T.decl list =
           List.concat_map
             (fun ((bdata, bd) as bnode : T.decl) ->
               at_node bnode @@ fun () ->
+              let claim_val x =
+                if Hashtbl.mem toplevel_vals x then
+                  type_error
+                    ("module " ^ mname ^ " の " ^ x ^ " はトップレベルの " ^ x
+                   ^ " と同名です(module 内の名前とトップレベル名は同名にできません)")
+                else Decls.(Hashtbl.replace module_val_synonyms (mname, intern x) (intern (mname ^ "." ^ x)));
+                Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
+              in
+              let claim_con name pub =
+                let qual = mname ^ "." ^ name in
+                Decls.(Hashtbl.replace module_con_synonyms (mname, intern name) (intern qual));
+                Decls.add_con_hint (intern name) (intern qual);
+                (* 大域に残す同義語はコンパニオン(module 名と同名の型)だけ
+                   (D43 / sample.kel:580)。可視性は pub の写し(D41-D42) *)
+                if name = mname then Decls.add_con_synonym (intern name) (intern qual);
+                Hashtbl.replace Decls.con_visibility (intern qual) { Decls.vis_module = mname; vis_pub = pub };
+                qual
+              in
+              let record_module (data, d') =
+                Hashtbl.replace Decls.decl_module (Tree.oid_of (data, d')) mname;
+                (data, d')
+              in
+              let vis x pub =
+                Hashtbl.replace Decls.value_visibility (intern (mname ^ "." ^ x)) { Decls.vis_module = mname; vis_pub = pub }
+              in
               match bd with
               | T.DNewtype n ->
-                  let qual = mname ^ "." ^ n.T.nt_name in
-                  Decls.add_con_synonym (intern n.T.nt_name) (intern qual);
-                  [ (bdata, T.DNewtype { n with T.nt_name = qual }) ]
+                  let qual = claim_con n.T.nt_name n.T.nt_pub in
+                  [ record_module (bdata, T.DNewtype { n with T.nt_name = qual }) ]
               | T.DType t ->
-                  let qual = mname ^ "." ^ t.T.ta_name in
-                  Decls.add_con_synonym (intern t.T.ta_name) (intern qual);
-                  [ (bdata, T.DType { t with T.ta_name = qual }) ]
+                  let qual = claim_con t.T.ta_name t.T.ta_pub in
+                  [ record_module (bdata, T.DType { t with T.ta_name = qual }) ]
               | T.DLet ((bd2, b) as _bnode2) -> (
-                  (match binding_name b with
-                  | Some x -> Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
-                  | None -> ());
                   match snd b.T.lb_name with
-                  | T.PVar x -> [ (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) })) ]
+                  | T.PVar x ->
+                      claim_val x;
+                      vis x b.T.lb_pub;
+                      [ record_module (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) })) ]
                   | _ -> type_error ("module 内の let はパターン束縛にできません: module " ^ mname))
               | T.DLetRec bs ->
                   [
-                    ( bdata,
-                      T.DLetRec
-                        (List.map
-                           (fun ((bd2, b) : T.let_binding) ->
-                             match snd b.T.lb_name with
-                             | T.PVar x ->
-                                 Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x));
-                                 ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
-                             | _ -> type_error "module 内の let rec はパターン束縛にできません")
-                           bs) );
+                    record_module
+                      ( bdata,
+                        T.DLetRec
+                          (List.map
+                             (fun ((bd2, b) : T.let_binding) ->
+                               match snd b.T.lb_name with
+                               | T.PVar x ->
+                                   claim_val x;
+                                   vis x b.T.lb_pub;
+                                   ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
+                               | _ -> type_error "module 内の let rec はパターン束縛にできません")
+                             bs) );
                   ]
-              | T.DInstance _ -> [ bnode ]
+              | T.DInstance _ -> [ record_module (bdata, bd) ]
               | T.DExtern ex ->
-                  Decls.add_val_synonym (intern ex.T.ex_name) (intern (mname ^ "." ^ ex.T.ex_name));
-                  [ (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
+                  claim_val ex.T.ex_name;
+                  vis ex.T.ex_name ex.T.ex_pub;
+                  [ record_module (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
               | T.DModule _ -> noimpl "module の入れ子(M10)"
               | T.DEffect _ -> noimpl ("module 内の effect 宣言(M10): module " ^ mname)
               | T.DClass _ -> noimpl ("module 内の type class 宣言(M10): module " ^ mname)
