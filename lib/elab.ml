@@ -1521,15 +1521,37 @@ and elab_handle env level eff clauses body =
   (* D22: 対象エフェクトは「全節が属し全操作が網羅される」候補が一意であること *)
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
+  (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。
+     Async は仕様の明文(sample.kel:480「スケジューラは書かせない」)、
+     Console は同じ扱いを提案中(D63)— 許すと出力が黙って消える恒等
+     ハンドラが書け、File.write のつもりの case write(s) が Console を
+     消す事故も起きる。判定はランタイム行に名前があり**かつ**プレリュード
+     所有であること — --no-prelude でユーザが自分の effect Console を
+     宣言した場合は禁止しない。Heap / Blocking は操作を持たないので
+     「操作節が必要です」で既に到達不能 *)
+  let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
+  let runtime_msg e =
+    if name_of e = "Console" then
+      "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:480。スケジューラは書けません)"
+  in
   let target =
     match List.sort_uniq compare quals with
     | [ e ] ->
         (* 修飾されたエフェクトが実在するか検査(未検査だと後段の Option.get で落ちる。検証で発見) *)
-        if Decls.find_effect e = None then type_error ("未知のエフェクト: " ^ name_of e) else e
+        if Decls.find_effect e = None then type_error ("未知のエフェクト: " ^ name_of e)
+        else if runtime_provided e then type_error (runtime_msg e)
+        else e
     | _ :: _ -> type_error "handle の節の修飾エフェクトが一致しません"
     | [] -> (
         let declares e op = List.mem_assoc op (Option.get (Decls.find_effect e)).Decls.ef_ops in
-        let all_effects = List.sort_uniq compare (List.concat_map Decls.op_candidates op_names) in
+        let candidates = List.sort_uniq compare (List.concat_map Decls.op_candidates op_names) in
+        (* ランタイム提供エフェクトを候補から外す。case write(s) 1 本の
+           handle は Console ではなく「File の read が漏れています」に
+           落ち、意図の取り違えがそのまま診断になる。候補が全部
+           ランタイム提供だったときだけ、その旨を名指しで言う *)
+        let all_effects = List.filter (fun e -> not (runtime_provided e)) candidates in
+        (if all_effects = [] && candidates <> [] then type_error (runtime_msg (List.hd candidates)));
         let holds_all = List.filter (fun e -> List.for_all (declares e) op_names) all_effects in
         let covered =
           List.filter
