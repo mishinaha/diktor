@@ -137,6 +137,11 @@ let show_all ts =
     record_cs n i.vcls
   in
 
+  (* 採番は副作用なので、写像の評価順も固定する(§9.4)。stdlib の
+     List.map は現状左から評価するが、仕様として保証されてはいない。
+     List.fold_left の適用順は仕様が明記している(M19 / G4b) *)
+  let map_ordered f xs = List.rev (List.fold_left (fun acc x -> f x :: acc) [] xs) in
+
 (* ## 9.2 剛定数は ς で書く
 
    `Rigid` にだけ別のプールを与え、`ς1` `ς2` と番号を振ります。
@@ -209,13 +214,17 @@ let show_all ts =
    返り値やエフェクト行の変数が先に採番され、`(B) => A` のように
    **引数より返り値のほうが若い名前になる**。型は読めるのに読みにくい、
    という最悪の壊れ方をします。`let` で順序を固定すれば直ります。
+   `TArrow` と `TRecord` の尾部つきの枝がそう書いてあります。
 
    > 副作用のある関数を `^` で並べない。名前の採番は副作用である。
 
-   同じ罠は `List.map go` にも潜んでいます。こちらは stdlib の実装が
-   `let r = f a in r :: map f l` と評価順を明示的に固定しているので
-   先頭から採番されますが、仕様として保証されているわけではありません。
-   気になるなら `List.map` も畳み込みに書き換えるのが安全です。
+   `TArrow` だけでなく `TRecord` の尾部つきの枝も同じ壊れ方をして
+   いました — `{x: {y: A extends R2} extends R1}` のように、行尾が
+   フィールドより若い番号を取る逆順が実機で出ていたのを M19 (G4b) で
+   直しました。あわせて、採番を伴う写像は `map_ordered`(適用順が仕様で
+   保証されている `List.fold_left` に落とす)に寄せてあります —
+   stdlib の `List.map` は現状先頭から適用しますが、仕様としての保証は
+   ありません。
 
    ### レコードとヴァリアント
 
@@ -243,10 +252,10 @@ let show_all ts =
         | Rigid i -> rigid_name i
         | Link t -> go t)
     | TCon (n, []) -> name_of n
-    | TCon (n, args) -> name_of n ^ "[" ^ String.concat ", " (List.map go args) ^ "]"
+    | TCon (n, args) -> name_of n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TApp _ as t ->
         let h, args = app_spine t in
-        go h ^ "[" ^ String.concat ", " (List.map go args) ^ "]"
+        go h ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TArrow (p, r, e) ->
         (* ^ の右辺が先に評価されると命名順が逆になるので let で順序を固定する *)
         let ps = go_args p in
@@ -256,17 +265,22 @@ let show_all ts =
     | TRecord row -> (
         let fields, tail = row_fields row in
         if is_tuple_row fields tail && fields <> [] then
-          "(" ^ String.concat ", " (List.map (fun (_, t) -> go t) fields) ^ if List.length fields = 1 then ",)" else ")"
+          "(" ^ String.concat ", " (map_ordered (fun (_, t) -> go t) fields) ^ if List.length fields = 1 then ",)" else ")"
         else
           match (fields, repr tail) with
           | [], TRowEmpty -> "{}"
           | [], tail -> "{extends " ^ go tail ^ "}"
-          | fields, TRowEmpty -> "{" ^ String.concat ", " (List.map field fields) ^ "}"
-          | fields, tail -> "{" ^ String.concat ", " (List.map field fields) ^ " extends " ^ go tail ^ "}")
+          | fields, TRowEmpty -> "{" ^ String.concat ", " (map_ordered field fields) ^ "}"
+          | fields, tail ->
+              (* ^ の右辺が先に評価されると尾部の行変数が先に採番される(§9.4。
+                 実測で R2 → R1 の逆順が出ていた — M19 / G4b) *)
+              let fs = String.concat ", " (map_ordered field fields) in
+              let ts = go tail in
+              "{" ^ fs ^ " extends " ^ ts ^ "}")
     | TVariant row -> (
         let fields, tail = row_fields row in
         let case (l, t) = if is_unit t then "#" ^ name_of l else "#" ^ name_of l ^ "(" ^ go t ^ ")" in
-        let parts = List.map case fields in
+        let parts = map_ordered case fields in
         let parts = match repr tail with TRowEmpty -> parts | tail -> parts @ [ go tail ] in
         match parts with [] -> "#|" (* 空ヴァリアント(Never 相当) *) | _ -> String.concat " | " parts)
     | TRowEmpty -> "{}"
@@ -329,7 +343,7 @@ let show_all ts =
   and eff_row row =
     let fields, tail = row_fields row in
     let label (l, t) = if is_unit t then name_of l else name_of l ^ "[" ^ go t ^ "]" in
-    let parts = List.map label fields in
+    let parts = map_ordered label fields in
     let ext = match repr tail with TRowEmpty -> "" | tail -> (if parts = [] then "extends " else " extends ") ^ go tail in
     "{" ^ String.concat ", " parts ^ ext ^ "}"
   and eff_suffix e =
@@ -366,7 +380,7 @@ let show_all ts =
    このトップレベル副作用がリンクされなければ、型エラーの本文は
    `<型>` だらけになります (§8.2)。 *)
 
-  let strs = List.map go ts in
+  let strs = map_ordered go ts in
   let ctx =
     match !constrained with
     | [] -> ""

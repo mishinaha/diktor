@@ -381,3 +381,14 @@ Never の照合不一致はコンストラクタゼロを明示する:
   ann : [A: Add] (A) => A
   ! rigids.kel:2:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
+
+入れ子レコードの採番は読み順(§9.4 の評価順。行尾を先に採番しない。
+M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順が出た):
+
+  $ cat > rowname.kel <<'KEL'
+  > let g = fn(r) => r.x.y
+  > let h = fn(r) => (r.x.y, r.p.q)
+  > KEL
+  $ diktor --type-check --no-prelude rowname.kel
+  g : ({x: {y: A extends R1} extends R2}) => A
+  h : ({x: {y: A extends R1}, p: {q: B extends R2} extends R3}) => (A, B)
