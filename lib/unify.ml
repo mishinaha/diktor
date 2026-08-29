@@ -428,6 +428,14 @@ let rec rewrite_row row label =
           let rest2 = new_row_var vlevel in
           v := Link (TRowExtend (label, f2, rest2));
           (f2, rest2)
+      | Rigid { vkind; _ } when same_kind vkind KRow ->
+          (* 注釈で固定された行にラベルを追加することはできない — 高階の
+             エフェクト注釈を書き間違えたとき最初に出る診断なので、
+             「行型ではありません: ς1」ではなく原因を語る(M20 / I9。
+             §8.8 の Heap の言い換え細工と同じ発想) *)
+          type_error
+            ("行 " ^ show (TVar v) ^ " は注釈で固定された行変数なので、ラベル " ^ name_of label
+           ^ " を足せません(注釈側に " ^ name_of label ^ " を書き足してください)")
       | _ -> type_error ("行型ではありません: " ^ show (TVar v)))
   | t -> type_error ("行型ではありません: " ^ show t)
 
@@ -513,7 +521,12 @@ let rec unify a b =
         | TRowEmpty, TRowEmpty -> ()
         | TRowExtend (l, f, rest), _ -> unify_row l f rest t2
         | _, TRowExtend (l, f, rest) -> unify_row l f rest t1
-        (* ここに来る TVar は Rigid(unbound は上で処理済み)。専用エラー(計画 §7.2) *)
+        (* ここに来る TVar は Rigid(unbound は上で処理済み)。専用エラー(計画 §7.2)。
+           相手が行のときは原因を語る枝を先に(M20 / I9 — 「{} と ς1」から
+           閉じた行と剛な尾部の衝突を読み取るのは難しい) *)
+        | ((TVar _ as rv), TRowEmpty) | (TRowEmpty, (TVar _ as rv)) ->
+            type_error
+              ("行 " ^ show rv ^ " は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)")
         | (TVar _, _ | _, TVar _) -> type_error ("スコープ付きの型が一致しません: " ^ show2 t1 t2)
         | _ -> type_error ("型が一致しません: " ^ show2 t1 t2))
 

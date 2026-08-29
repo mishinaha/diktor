@@ -104,7 +104,7 @@ pub let rec の相互再帰(@ 省略)は群で 1 本の Rigid 行を共有して
 
   $ printf 'pub let f(x: Int32): Int32 = { echoln("hi"); x }\n' > pub14.kel
   $ diktor --type-check pub14.kel
-  ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行型ではありません: ς1)
+  ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を書き足してください))
   [1]
   $ cat > pub15.kel <<'KEL'
   > let (helper, k) = (fn(x: Int32) => x, 0)

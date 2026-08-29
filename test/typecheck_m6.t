@@ -187,3 +187,21 @@ MiniLang §16-8 の runST 2例(値制限):
   $ diktor --type-check --no-prelude stvr.kel
   ! stvr.kel:5:14: 型エラー: Boolean は Add のインスタンスではありません
   [1]
+
+剛な行変数へのラベル追加は原因を語る(M20 / I9。かつては
+「行型ではありません: ς1」で、高階のエフェクト注釈の書き間違いに
+最初に出る診断が原因に辿れなかった):
+
+  $ cat > rigidrow.kel <<'KEL'
+  > type Unit = {}
+  > effect E1 = { op: (String) => Unit }
+  > effect C = { wr: (String) => Unit }
+  > let h1[A, E](b: () => A @ {E1 extends E}): A @ {C extends E} =
+  >   b() handle {
+  >     case op(s) => resume(perform wr(s))
+  >     case return(x) => x
+  >   }
+  > KEL
+  $ diktor --type-check --no-prelude rigidrow.kel
+  ! rigidrow.kel:5:3: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル C を足せません(注釈側に C を書き足してください)
+  [1]
