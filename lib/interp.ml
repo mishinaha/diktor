@@ -38,7 +38,7 @@
 
    ## この章が守る 3 つの規約
 
-   1. **末尾呼び出し規約**(§8.3)。`eval` の末尾位置(`Apply` のクロージャ本体、
+   1. **末尾呼び出し規約**(計画 §8.3)。`eval` の末尾位置(`Apply` のクロージャ本体、
       `Match` の節本体、ブロックの末尾式)を OCaml の末尾呼び出しに保ちます。
       とくに **`eval` の再帰を `try … with` で包まない**。Keleut に while は無く
       再帰が唯一の反復手段なので、TCO を失うと普通のループがスタックを尽くします。
@@ -115,7 +115,7 @@ let cancel_log : (string -> unit) ref = ref (fun _ -> ())
      受けて `None` に変えます。実行時エラーとして外へ出してはいけません。
    - **コンストラクタパターンは表引きだけ**。位置引数とラベル引数の混在、
      省略されたフィールドの扱いは、elab が `field_to_arg` に畳んであります
-     (第5章 tree.ml の `resolved`)。ここで名前解決をやり直すと、elab と interp が
+     (第5章 (tree.ml) の `resolved`)。ここで名前解決をやり直すと、elab と interp が
      同じ規則を二重に実装してドリフトします。`None` は「そのフィールドは
      パターンで触れていない」の意味です。
    - **数値パターンは字面ではなく値で比べる**。リテラルの字面をその値の型で
@@ -180,7 +180,7 @@ let bind_pat_exn locals pat v =
 
    `1` が `Int32` なのか `Int64` なのか `Float64` なのかは、字面からは決まりません。
    決めるのは型検査で、既定化 (defaulting、D8) の結果がノードの型に書かれています。
-   評価器が elab の書き込みを読むのは**ここだけ**です(§8.3)。ほかのノードは
+   評価器が elab の書き込みを読むのは**ここだけ**です(計画 §8.3)。ほかのノードは
    `resolved`(解決結果)しか読みません。
 
    > 型を実行時に持ち回らないための代償は、リテラル 1 か所の型読みだけで済む。
@@ -237,15 +237,18 @@ let number_value node (n : number) =
      節本体の `eval` も末尾位置にあります(規約 1)。なお同じ「ガードが偽」でも
      ハンドラの操作節では後送りできず実行時エラーです(§14.10 の既知の制限)。
    - **`Perform`** は elab が `resolved` に書いた**完全操作名**の oid をそのまま
-     使います。非修飾名の解決(D22 の「行の最左優先」)は型検査で終わっており、
-     実行時に名前で悩むことはありません。
-   - **`Resume`** は引数を**先に**評価します。`resume(f())` の `f` が例外で脱出した
-     とき、resume は未消費のまま節の例外経路(§14.10 の discontinue)に乗るべき
-     だからです。順序を入れ替えると、消費済みの継続を捨てることになります。
+     使います。非修飾名の解決(D22 と、それを精密化した実装記録の乖離3 —
+     「行の最左優先」)は型検査で終わっており、実行時に名前で悩むことはありません。
+   - **`Resume`** は引数を**先に**評価します。節本体が `{ … ; resume(f()) }` の
+     ように `Resume` そのものでない形のとき、`f` が例外で脱出すれば resume は
+     未消費のまま節の例外経路(§14.10 の discontinue)に乗ります。順序を
+     入れ替えると、消費済みの継続を捨てることになります。なお節本体が
+     `resume(…)` そのもののときは §14.10 の末尾 resume 最適化に乗るので、
+     この限りではありません(その経路には discontinue がありません)。
    - **`Run`** は実行時には恒等写像です。`run h { … }` の `h` は型だけの存在で、
      リージョン安全性は第11章の剛定数とレベルが保証済みです。操作を持たない
      エフェクトラベル(`Heap`、`Blocking`、`pinned`)が実行時 no-op という
-     §8.4 の統一規則の、一番目立つ現れがこれです。
+     計画 §8.4 の統一規則の、一番目立つ現れがこれです。
 
      > 型で守り切れたものは、実行時に守り直さない。 *)
 
@@ -253,7 +256,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   match e with
   | T.Bool b -> VBool b
   | T.Text s -> VText s
-  | T.Number n -> number_value node n (* 唯一 elab の型を読む場所(§8.3) *)
+  | T.Number n -> number_value node n (* 唯一 elab の型を読む場所(計画 §8.3) *)
   | T.Hole -> runtime_error "??? に到達しました"
   | T.Ident li -> (
       let name = show_long_id li in
@@ -269,7 +272,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
               | _ -> runtime_error ("未束縛の変数: " ^ name))))
   | T.Lambda { l_params; l_body } -> VClosure { c_env = env; c_params = l_params; c_body = l_body }
   | T.Apply (f, arg) ->
-      (* 左から右。OCaml の未規定評価順に任せない(§8.3) *)
+      (* 左から右。OCaml の未規定評価順に任せない(計画 §8.3) *)
       let vf = eval env f in
       let va = eval env arg in
       apply vf va
@@ -288,7 +291,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.BinOp (l, op, r) -> (
       match Prims.bin_op_sem op with
       | Prims.OpBool -> (
-          (* 短絡(sample.kel:283) *)
+          (* 短絡(sample.kel:282) *)
           match op with
           | And -> if Builtin.as_bool (eval env l) then eval env r else VBool false
           | Or -> if Builtin.as_bool (eval env l) then VBool true else eval env r
@@ -334,7 +337,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       try_clauses clauses
   | T.RecordEmpty -> unit
   | T.RecordExtend (rest, l, v) ->
-      (* value が先、rest が後(sample.kel:203。AST のフィールド順と逆、§8.3) *)
+      (* value が先、rest が後(sample.kel:203。AST のフィールド順と逆。計画 §8.3) *)
       let vv = eval env v in
       let vrest = eval env rest in
       record_extend vrest (Type.intern l) vv
@@ -355,15 +358,16 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       match env.resume with
       | None -> runtime_error "resume は操作節の中でのみ使えます"
       | Some r ->
-          (* 引数を先に評価する: resume(f()) の f が例外で脱出したら resume は未消費のまま
-             節の例外経路(discontinue)に乗る *)
+          (* 引数を先に評価する: 節本体が Resume そのものでない形なら、引数評価中の例外で
+             resume は未消費のまま節の例外経路(discontinue)に乗る。
+             節本体が Resume そのもののときは下の末尾 resume 最適化に乗るので走らない *)
           let v = match arg with Some e -> eval env e | None -> unit in
           if not r.r_alive then runtime_error "resume を節の外で呼び出しました(second-class)"
           else if r.r_used then runtime_error "resume は高々1回しか呼べません(アフィン)"
           else (
             r.r_used <- true;
             Effect.Deep.continue r.r_k v))
-  | T.Run (_, body) -> eval env body (* 実行時は恒等。型が安全性を保証する(§8.4) *)
+  | T.Run (_, body) -> eval env body (* 実行時は恒等。型が保証する(計画 §8.4) *)
 
 (* ## 14.5 適用 — arity 検査は閉じた行の実行時版
 
@@ -424,10 +428,14 @@ and apply vf vargs =
 
    > ディスパッチの規約は、宣言を受理する側と実行する側で同じ 1 つでなければならない。
 
-   位置が 1 つも取れなかったときは全走査に落とします。組み込みクラスのように
-   スキーマの形が想定と違う場合の安全側で、選択肢が狭まるより広い方が
-   「インスタンスが無い」で落ちにくいからです。回帰テストは
-   test/verify_fixes.t の pick.kel です。 *)
+   位置が 1 つも取れなかったときは全走査に落とします。ただし現状これは
+   **到達しない**保険です。組み込みクラス (Add / Sub / Mul / Div / Eq / Ord / Show)
+   のスキーマはどれも引数の頭がクラスパラメータそのもの、メソッドを持たない
+   Integral / Fractional はそもそも dispatch されず、ユーザ宣言クラスは上の
+   受理検査が同じ形を強制します。スキーマの形が将来想定外になったときに、
+   選択肢が狭まるより広い方が「インスタンスが無い」で落ちにくい、という
+   安全側の判断で残してあります。回帰テストは test/verify_fixes.t の
+   pick.kel です。 *)
 
 (* メソッドスキーマから「クラスパラメータが頭に現れる引数位置」を求める。
    ここだけでディスパッチする(elab.ml の register_class と同じ規約)。
@@ -459,10 +467,11 @@ and dispatch_positions ci meth =
    です(ユーザ宣言が組み込みキーを奪えないことは §14.13 で別に保証します)。
 
    どこにも無ければ**構造的導出**へ落ちます。v0 が構造的に導出するのは `Eq` だけで
-   (sample.kel:305-309 の「ユーザには書かせない。組み込みの自動導出のみが与える」)、
+   (sample.kel:297 の「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
+   自動導出のみが与える」。導出が閉じた行にしか効かないことは sample.kel:305-309)、
    クラス宣言に付いた `derive structural` が実体です。
 
-   ここで効いている不変条件があります。elab 側(第8章 unify.ml)は構造的導出を
+   ここで効いている不変条件があります。elab 側(第8章 (unify.ml))は構造的導出を
    **閉じた行のレコードとヴァリアントにしか**適用しません。それ以外の型に `Eq` が
    要求されればインスタンス表を引き、無ければ型エラーです。だから実行時に
    この分岐へ来る値は、型検査を通った範囲ではレコードかヴァリアント
@@ -482,7 +491,7 @@ and dispatch cls_name meth args =
     match Decls.find_class cls_oid with
     | Some ci -> (
         match dispatch_positions ci meth with
-        | [] -> vals (* 位置が取れなければ従来どおり全走査(組み込みの安全側) *)
+        | [] -> vals (* 位置が取れなければ全走査(現状は到達しない安全側の保険) *)
         | ps -> List.filteri (fun i _ -> List.mem i ps) vals)
     | None -> vals
   in
@@ -498,7 +507,7 @@ and dispatch cls_name meth args =
   match List.find_map find_impl cand_vals with
   | Some f -> f args
   | None -> (
-      (* 構造的導出(v0 は Eq のみ、§8.2)。コヒーレンスにより elab の判定と必ず一致 *)
+      (* 構造的導出(v0 は Eq のみ、計画 §8.2)。コヒーレンスにより elab と一致 *)
       let structural = match Decls.find_class cls_oid with Some ci -> ci.Decls.ci_derive_structural | None -> false in
       match (structural, meth, vals) with
       | true, "eq", [ a; b ] -> VBool (structural_eq a b)
@@ -527,7 +536,7 @@ and dispatch cls_name meth args =
 
 and value_eq a b = Builtin.as_bool (dispatch "Eq" "eq" (VRecord [ (Type.l_item, a); (Type.l_item, b) ]))
 
-(* レコードは「左のフィールドを順に、右から最左同名を取り出して消す」(§8.2。
+(* レコードは「左のフィールドを順に、右から最左同名を取り出して消す」(計画 §8.2。
    異ラベル間の物理順序は違いうるので単純な順序比較は誤り) *)
 and structural_eq a b =
   match (a, b) with
@@ -556,8 +565,10 @@ and structural_eq a b =
 
    `let rec` は 3 手です。**クロージャ生成 → 環境構築 → `c_env` バックパッチ**。
    相互再帰する関数は「自分たちを含む環境」を捕まえる必要があり、その環境は
-   クロージャが出来上がるまで作れないので、循環を後から結びます。第12章で
-   `c_env` だけが mutable なのはこの 3 行のためです。
+   クロージャが出来上がるまで作れないので、循環を後から結びます。第12章の
+   クロージャで `c_env` だけが mutable なのは、この 3 行のためです(章の中で
+   唯一の mutable ではありません。`resume` の `r_used` / `r_alive` は §14.10 の
+   アフィン性と second-class のためのもので、別の話です)。
 
    右辺が関数でないときは実行時エラーですが、ここへは来ません。「型検査は通るのに
    実行時に必ず落ちる」`let rec x = x + 1` の類は elab が拒否するようになりました
@@ -576,7 +587,7 @@ and eval_binding env ((_, b) as bnode : T.let_binding) =
   bind_pat_exn env.locals b.T.lb_name v
 
 and eval_rec_bindings env (bs : T.let_binding list) =
-  (* クロージャ生成 → 環境構築 → c_env バックパッチ(§8.2) *)
+  (* クロージャ生成 → 環境構築 → c_env バックパッチ(計画 §8.2) *)
   let closures =
     List.map
       (fun ((_, b) : T.let_binding) ->
@@ -639,8 +650,18 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    | 例外 `ex` で脱出 | `discontinue k ex`(未 resume なら) | 同上 + 自分の cancel |
 
    2 行目で `v` を直接返してはいけない理由は、捨てた継続の中のハンドラの
-   `cancel` 節が走らず**資源が漏れる**からです(spike TEST 14: `__close` が
-   一度も出ない)。
+   `cancel` 節が走らず**資源が漏れる**からです。spike TEST 3 が実証です
+   — `with_file` を 2 枚重ねて内側で継続を捨てると、内側 → 外側の順に
+   `cancel` が走って `__close` が 2 回出ます。diktor 側の回帰テストは
+   test/eval.t の effects.kel(`with_res` の 2 枚重ねで `cancel inner` →
+   `cancel outer`)です。
+
+   よく似た別の事実と混ぜないでください。**自分の**節が継続を捨てたとき、
+   その**当のハンドラ自身**の `return` / `cancel` 節は走りません(spike TEST 14)。
+   discontinue しても変わりません。これは穴ではなく、計画 §12 が「意図した挙動」
+   として記録した裁定です — cancel を走らせると、`try_` が正常に `#Err` を返す
+   ときにも後始末が走ってしまうからです。資源を持つハンドラが自分で継続を
+   捨てるなら、後始末は節の中に書きます。
 
    3 行目は素朴に書くと必ず落とす分岐です。節の中で `???` に到達した、実行時エラーが
    起きた、外側の `Unwind` が通過した — どの場合も `discontinue` が要ります。
@@ -654,7 +675,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    ### 末尾 resume 最適化 — 性能ではなく実用条件
 
    上の 3 径路の判定は、節の評価を `match … with exception` で包むことを要求します。
-   その 1 枚が `continue` を `effc` の末尾式でなくします。計測(§8.4)では、
+   その 1 枚が `continue` を `effc` の末尾式でなくします。計測(計画 §8.4)では、
    継続の発行を末尾にしない実装は perform 100 万回で約 26 倍、1000 万回で約 300 倍
    遅くなりました(Stack_overflow はしません。fiber のスタックは伸びます)。
 
@@ -725,7 +746,7 @@ and eval_handle env body clauses =
     {
       retc =
         (fun v ->
-          (* return 節は親スタック上で走る(§8.4) *)
+          (* return 節は親スタック上で走る(計画 §8.4) *)
           match ret_clause with
           | None -> v
           | Some (_, c) ->
@@ -762,7 +783,8 @@ and eval_handle env body clauses =
                       | None -> ());
                       match snd c.T.cl_body with
                       | T.Resume arg ->
-                          (* 末尾 resume 最適化(§8.4 の性能特性): continue を末尾発行する *)
+                          (* 末尾 resume 最適化(計画 §8.4 の性能特性):
+                             continue を末尾発行する *)
                           let r = { r_k = k; r_used = true; r_alive = true } in
                           let v =
                             match arg with Some e -> eval { env with locals; resume = Some r } e | None -> unit
@@ -846,10 +868,13 @@ let register_builtin_values globals =
    時点で表を引くので、インスタンス宣言との前後関係を気にしなくて済みます。
 
    登録する名前は**非修飾と修飾の両方**です(実装記録の乖離12)。`map` でも
-   `Functor.map` でも引けます。非修飾名は最後に登録したクラスが勝つので、
-   同名メソッドを持つクラスが 2 つあるときに確実なのは修飾名の方です。 *)
+   `Functor.map` でも引けます。ただし同名メソッドを持つクラスが 2 つあるとき、
+   非修飾名でどちらが勝つかは**未規定**です。「後に宣言した方が勝つ」ではありません
+   — 登録は `Hashtbl.iter Decls.classes` の走査順、つまり oid のハッシュ順で回るので、
+   宣言順とは無関係ですし、まったく別の場所に無関係な 1 行を足しただけで勝者が
+   入れ替わることを検証で実測しました。確実なのは修飾名の方です。 *)
 
-(* クラスメソッドの識別子参照は dispatch へのラッパで素通しにする(§8.5) *)
+(* クラスメソッドの識別子参照は dispatch へのラッパで素通しにする(計画 §8.5) *)
 let register_class_methods globals =
   Hashtbl.iter
     (fun _ (ci : Decls.class_info) ->
@@ -958,7 +983,7 @@ let exec_decl env ((_, d) : T.decl) =
    の中で走らせます。これがランタイム提供エフェクトのハンドラで、
    `Console.write` を出力シンクへ、`Async.yield_` / `Async.sleep` を即 continue へ
    落とします。ここにも届かなかった操作は `Effect.Unhandled` として driver が
-   操作名込みで報告します(§8.4)。
+   操作名込みで報告します(計画 §8.4)。
 
    > プログラムの外側はハンドラである。エフェクトを「未処理」にする場所を 1 つ決める。
 
@@ -967,7 +992,7 @@ let exec_decl env ((_, d) : T.decl) =
    実行の痕跡が次の実行に漏れると、ゴールデンが実行順に依存し始めます。
 
    返り値は捨てます。暗黙の main はなく、トップレベルの式文は順に実行されるだけで、
-   その値は誰も見ません(§8.7)。 *)
+   その値は誰も見ません(計画 §8.7)。 *)
 
 let run ~sink decls =
   Hashtbl.reset user_instances;
@@ -1000,7 +1025,7 @@ let run ~sink decls =
    - **末尾 resume 経路の引数例外**。§14.10 のとおり、この経路だけ `discontinue` が
      走りません。単に 3 径路の判定へ戻すと §14.10 の性能特性を失うので、速い経路を
      保ったまま塞ぐ形(引数が構文的に値なら包まない、など)が要ります。
-   - **同名メソッドの非修飾名**は後勝ちです(§14.12)。
+   - **同名メソッドの非修飾名**は、どのクラスが勝つか未規定です(§14.12)。
 
    ### 静的化への移行路
 
@@ -1008,7 +1033,7 @@ let run ~sink decls =
    地点の `resolved` にインスタンスを注記すれば、`dispatch` の表引きを飛ばせます。
    **動的ディスパッチをフォールバックに残したまま**段階的に移行できるので、
    v1 で高階カインドが入り `pure` のような型からしか決まらないメソッドが
-   必要になった時点で発動できます(§8.5)。
+   必要になった時点で発動できます(計画 §8.5)。
 
    この章で外すと静かに壊れるものを、最後にもう一度並べておきます。
 
