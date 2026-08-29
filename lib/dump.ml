@@ -1,12 +1,51 @@
 (* Copyright (C) 2019 Takezoe,Tomoaki <tomoaki3478@res.ac>
- *
- * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
- *
- * 脱糖後 AST の S 式ダンパ(--dump-ast、計画 §8.7)。手書きで ppx を入れない。
- *)
+   SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception *)
+
+(* # 第4章 — AST を目で見る
+
+   第3章 (parser.mly) は表面構文を畳んで AST を作りました。畳んだ結果が本当に
+   意図どおりかを確かめる方法が要ります。このファイルはそのための道具で、
+   `diktor --dump-ast FILE` が脱糖後の AST を S 式で標準出力に吐きます (計画 §8.7)。
+
+   道具としては小さく、パイプラインの本線には入っていません。第16章 (driver.ml) は
+   `--dump-ast` のときパースだけして、ここに渡し、elab を呼ばずに終わります。
+   だから**このダンプに型は出ません**。まだ書かれていないからです (第5章 tree.ml の
+   `ty_field` は `None` のまま)。型が見たいときは第9章 (show.ml) と型検査の経路が別にあります。
+
+   ここに書いてあるのは2つです。
+
+   - S 式にする写像 — AST の構成子ひとつひとつに、短い名前を1個ずつ割り当てる
+   - その読み方 — 第3章の脱糖表 (計画 §6.4) を、出力から逆に読む手順 (4.2)
+
+   ppx (`deriving show` の類) を入れずに手で書いているのは、依存を増やさないためです。
+   Diktor の依存は menhir と sedlex の2つだけ (D15) で、それは
+   「教材として最初から最後まで読める」ことと同じ目標から来ています。
+   構成子の数だけ手で書く退屈さは、依存 1 個ぶんの価値がある、という判断です。
+
+   ### 前章から受け取るもの
+
+   - 第3章が作った脱糖済みの `decl list`。注釈 (位置と、まだ空の型欄) は使いません
+
+   ### 誰にも渡さないもの
+
+   - 出力は人間の目と、`test/ast.t` の cram ゴールデンだけが読みます。
+     読み戻す機能はありません (4.2) *)
 open Syntax
 open Tree.Tree
 
+(* ## 4.1 S 式は2つの構成子で足りる
+
+   原子 (`A`) と括弧 (`L`) だけです。属性も、位置も、型も持ちません。
+   S 式を選んだ理由は、括弧の対応さえ合っていれば人間が木構造を追えることと、
+   1 行の diff がそのまま「木のどこが変わったか」になることです。
+
+   整形は `Format` に任せます。`hov` ボックスにインデント 1 を与えているので、
+   端末幅で折り返しても、続きの要素が開き括弧の直後の桁に揃います。要素の区切りに
+   `@ ` を使っているのが肝で、これは「ここは空白 1 個、ただし詰まっていれば
+   ここで改行してよい」という指示です。空白を直接書くと折り返しが起きず、
+   深い木が 1 行に伸びて読めなくなります。
+
+   > 木を見せる道具は、折り返しの位置を自分で決めてはいけない。幅を知っているのは端末だけ。 *)
 type sexp = A of string | L of sexp list
 
 let rec pp fmt = function
@@ -20,6 +59,73 @@ let rec pp fmt = function
         xs;
       Format.fprintf fmt ")@]"
 
+(* ## 4.2 出力の読み方 — 脱糖を目で確かめる
+
+   ここからが、この章の教材としての本題です。使い方は3手あります。
+
+   1. 表面構文を1行書く
+   2. 第3章のどの脱糖が効くはずかを、**先に頭の中で言う**
+   3. `--dump-ast` の出力と突き合わせる
+
+   3 で食い違ったときは、たいてい 2 のほうが間違っています。脱糖の規約は
+   3.5 の「arity 1 の3規約」のように互いに噛み合っていて、記憶で書くと1つずれます。
+
+   代表的な対応表です (実際のゴールデンは `test/ast.t` にあります)。
+
+   | 書いたもの | ダンプ | 確かめていること |
+   |---|---|---|
+   | `(1, 2)` | `(extend _item 1 (extend _item 2 {}))` | タプルは `_item` の重複行 |
+   | `(1)` | `1` | 式の括弧はグループ化 (3.5) |
+   | `(1,)` | `(extend _item 1 {})` | 1-タプルはカンマで作る |
+   | `f(1, 2)` | `(apply f (extend _item 1 (extend _item 2 {})))` | 引数も同じ行 (D5) |
+   | `t._1` | `(select _item (restrict _item t))` | 剥がしてから選ぶ (3.4) |
+   | `{x, y}` | `(extend x x (extend y y {}))` | パンニング |
+   | `{r with x = 3}` | `(update x 3 r)` | 更新は脱糖しない (3.20) |
+   | `#Point(1, 2)` | `(#Point (extend _item 1 (extend _item 2 {})))` | 2引数はタプル |
+   | `#Empty` | `(#Empty {})` | 引数なしは Unit ペイロード |
+   | `Some(1)` | `(construct Some 1)` | 構築子の引数は畳まない (3.6) |
+   | `Parser.bind(p)` | `(apply Parser.bind (extend _item p {}))` | 小文字終端は適用 |
+   | `Parser.Parser(g)` | `(construct Parser.Parser g)` | 大文字終端は構築 |
+
+   最後の3行が並ぶと、3.6 の裁定が目で見えます。`apply` の第2引数は必ず行ですが、
+   `construct` の引数は生のまま並びます。ラベル付き引数を宣言順へ並べ替えるのは
+   第11章の仕事なので、パーサは畳まずに渡している — その分担が、括弧の形の差として
+   そのまま出力に現れているわけです。
+
+   `with` の糖衣 (3.8) は、ダンプで見るといちばん納得できます。
+
+   ```
+   let f = fn() => {
+     with x = bind(p)
+     pure(x)
+   }
+   ```
+
+   のダンプは、およそこう出ます。
+
+   ```
+   (dlet
+    (binding f =
+     (fn ()
+      (apply bind
+       (extend _item p
+        (extend _item (fn (x) (apply pure (extend _item x {}))) {}))))))
+   ```
+
+   継続 `fn (x) ...` が `bind` の**引数行のいちばん内側**、つまり最後の引数に
+   入っていること、そして元の `p` が外側に残っていることが読み取れれば、
+   `with_splice` の再帰が何をしたかを理解したことになります。
+
+   ゴールデンは cram で固定してあります (実装記録 260829-2 の乖離6)。
+   `test/ast.t` には sample.kel 全文のダンプ行数まで書いてあるので、文法や脱糖を
+   変えると必ず差分が出ます。差分が出たら `dune promote` で更新できますが、
+   **更新する前に目で見ること** — このゴールデンは第3章の設計判断そのものの写しです。
+
+   なお、このダンプは読み戻せません。原子は生のまま出しますし、位置も型も落とします。
+   唯一のエスケープが下の `quoted` で、テキストリテラルだけ `String.escaped` を通します。
+   数値は第2章 (lexer.ml) の `show_number` を借りるので、桁区切りも接尾辞も
+   `--dump-tokens` と同じ見え方になります。2つのダンプが食い違わないのは、
+   表記を復元する関数が1つしかないからです。 *)
 let show_bin_op = function
   | Add -> "+"
   | Sub -> "-"
@@ -36,6 +142,25 @@ let show_bin_op = function
 
 let quoted s = "\"" ^ String.escaped s ^ "\""
 
+(* ## 4.3 型のダンプ
+
+   型式は第3章がほとんど畳まずに運んできた形そのままです。だからダンプもほぼ 1 対 1 で、
+   ここで確かめられるのは「畳まれた3か所」だけです。
+
+   - `EBraceRow` は `row` として出ます。レコード型 `{x: Int32}` も
+     エフェクト行 `{Print, Log}` も同じ `row` になり、フィールドは `x:` 付き、
+     エフェクトラベルは裸で並びます — 3.23 で1本に統合した非終端の姿がそのまま見えます
+   - 型位置の `(A)` は `(row (_item: A))` になります。式と違って常に1-タプルです (3.20)
+   - `#Foo(A, B)` はペイロードが `(row (_item: A) (_item: B))` に畳まれています
+
+   `tapp` は `EApply`、`=>` は矢印で、エフェクト行があるときだけ `@` が後ろに付きます。
+   `_` は `EHole` — 型引数に書いた `_` です。
+
+   `sexp_of_tparam` は型パラメータ束縛子で、`F[_]` のときだけ `arity=1` が付き、
+   クラス制約があるときだけ `:` で始まるリストになります (3.17)。
+   束縛子は「名前だけ」であることが多いので、既定を裸の原子にして、
+   情報がある場合だけ括弧に昇格させています。ダンプ全体がこの方針です —
+   **既定値は出さない**。出ているものだけが意味を持ちます。 *)
 let sexp_of_tparam { tp_name; tp_arity; tp_classes } =
   let name = if tp_arity = 0 then A tp_name else L [ A tp_name; A (Printf.sprintf "arity=%d" tp_arity) ] in
   match tp_classes with
@@ -62,6 +187,24 @@ let rec sexp_of_ty (_, t) =
   | EUnion ts -> L (A "union" :: List.map sexp_of_ty ts)
   | EHole -> A "_"
 
+(* ## 4.4 パターンのダンプ
+
+   パターンで目を凝らすべきは1点、**行が開いているか閉じているか**です (3.9)。
+
+   `precord` の末尾に `...` と、そのあとの尾部パターンが付いていたら開いた行です。
+   レコードパターン `{x}` は第3章が尾部に `PWildcard` を必ず置くので、
+   ダンプでは `(precord (x= x) ... _)` のように、書いた覚えのない `_` が現れます。
+   これは間違いではなく、「書いていないフィールドは無視する」という既定の姿です。
+
+   タプルパターンには `...` が付きません。`(precord (_item= x) (_item= y))` —
+   尾部が無い、すなわち閉じた行で、要素数がぴったり合うことを単一化が要求します。
+   第10章 (exhaust.ml) の網羅性検査がタプルとレコードで違う振る舞いをするのは、
+   この `...` の有無を受け取っているからです。
+
+   `pctor` は構築子パターン。ラベル付きの引数は `l=` を頭に付けた括弧になり、
+   `sexp_of_ctor_arg_pat` がその分岐だけを担当します。式側の `sexp_of_ctor_arg` と
+   同じ形なのは、`Construct` と `PCtor` が同じラベル解決 (第11章の `RCtor` /
+   `RCtorPat`) を受けるからです。 *)
 let rec sexp_of_pat (_, p) =
   match p with
   | PWildcard -> A "_"
@@ -80,6 +223,29 @@ let rec sexp_of_pat (_, p) =
 and sexp_of_ctor_arg_pat { cap_label; cap_pat } =
   match cap_label with None -> sexp_of_pat cap_pat | Some l -> L [ A (l ^ "="); sexp_of_pat cap_pat ]
 
+(* ## 4.5 式のダンプ
+
+   4.2 の表がそのまま出てくる場所です。名前の付け方だけ補足します。
+
+   レコードの4操作は `extend` / `update` / `restrict` / `select` で、
+   引数の順は**ラベルを先、対象の行を後**に固定しました。`(extend x 1 (extend y 2 {}))` は
+   書いた順に左から読め、いちばん右の `{}` が行の底になります。
+   AST の `RecordExtend (rest, l, v)` とは引数の順が違いますが、これは意図的です —
+   データ構造は「残りの行 + 1 枚」で組むのが自然で、読むときは「何のラベルか」を
+   先に知りたいからです。
+
+   `seq` が平らに並ぶのは第3章の `block_of_items` が入れ子を作らないからで (3.7)、
+   `let` が右へ深くなるのはスコープの形そのものです。ブロックのダンプを見ると、
+   `let` の連なりが右下がりの階段になり、その各段の右側がスコープの範囲になります。
+   これは Keleut の `{ }` が「宣言の列」ではなく「入れ子の `Let`」であることの絵です。
+
+   `resume` は引数ゼロなら `(resume)`、値付きなら `(resume e)` (3.19)。
+   `???` は `Hole` — 未実装の穴で、型検査は通り実行時に落ちます。
+
+   `sexp_of_binding` は束縛の全情報を並べます。`(params ...)` が**あるかどうか**が
+   関数形とパターン束縛形の違いで (3.16)、`binding-pub` というタグが `pub` の有無です。
+   型パラメータ・返り値注釈・エフェクト注釈も、書かれているときだけ現れます。
+   ここでも既定は出しません。 *)
 let rec sexp_of_exp (_, e) =
   match e with
   | Bool b -> A (string_of_bool b)
@@ -127,6 +293,29 @@ and sexp_of_binding (_, b) =
   let base = match b.lb_eff with None -> base | Some t -> base @ [ A "@"; sexp_of_ty t ] in
   L (base @ [ A "="; sexp_of_exp b.lb_body ])
 
+(* ## 4.6 宣言のダンプ
+
+   宣言はダンプで見ると平板です。第3章がほとんど脱糖しないからで、確かめられるのは
+   計画 §6.4 の表に載っている 2 件だけになります。
+
+   - `newtype UserId(Int32)` が `(newtype UserId (UserId Int32))` になっている —
+     短縮形が構築子1個に展開され、その名前が型名と同じであること (3.10)
+   - `pub` が `-pub` 付きのタグになっていること
+
+   残りは形の確認です。`class` は `val` と `derive` を並べ、`instance` は
+   クラス名・型引数・本体の宣言列を並べます。`instance` の本体が `dlet` の列に
+   なっているのは、第3章が `items` を共有している (3.15) ことの現れです。
+
+   `sexp_of_decl` が再帰なのは `module` と `instance` が宣言を含むからで、
+   その入れ子は第11章の `flatten_modules` が平らにする前の姿です。
+   つまりこのダンプは**平坦化前**を見せます — module の入れ子がどう畳まれるかを
+   知りたいときは、ここではなく第11章を読むことになります。
+
+   最後に運用上の注意を1つ。`lib/dune` は Warning 8 (非網羅 match) を有効なまま
+   残しています。AST に構成子を1つ足すと、このファイルの `match` が警告を出して
+   知らせてくれる — ダンパが構文から静かに取り残されない仕掛けです。
+   ただし `warn-error` に含まれていないのでビルドは通ります。
+   **警告を見る運用とセットで初めて効く**仕掛けだ、と正直に書いておきます。 *)
 let sexp_of_ctor_decl { cd_name; cd_fields } =
   let f { fd_label; fd_ty } =
     match fd_label with None -> sexp_of_ty fd_ty | Some l -> L [ A (l ^ ":"); sexp_of_ty fd_ty ]
@@ -180,6 +369,16 @@ let rec sexp_of_decl (_, d) =
       L base
   | DExp e -> L [ A "exp"; sexp_of_exp e ]
 
+(* ## 4.7 出力の口
+
+   宣言 1 個につき 1 回 `%a@.` で書きます。`@.` は「改行してフラッシュ」なので、
+   宣言の境目でボックスが必ず閉じ、次の宣言が新しい行から始まります。
+   ゴールデンの diff を宣言単位に保つための、小さいけれど大事な選択です
+   (`@\n` にすると前の宣言の折り返しに引きずられます)。
+
+   最後の `pp_print_flush` は、`Format` の内部バッファに残った分を出し切るためのものです。
+   これを忘れると、末尾の宣言が出ないまま終わることがあります — 標準出力の
+   バッファリングとは別に、`Format` 自身がバッファを持っているからです。 *)
 let dump_decls out decls =
   let fmt = Format.formatter_of_out_channel out in
   List.iter (fun d -> Format.fprintf fmt "%a@." pp (sexp_of_decl d)) decls;
