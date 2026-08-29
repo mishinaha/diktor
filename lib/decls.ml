@@ -582,12 +582,15 @@ let builtin_instance_exists cls con =
    矢印の引数側はいつもこの形です。閉じているのは、引数の個数が
    呼び出しで確定しなければならないからです。
 
-   `method_scheme` は `(A, A, ...) => ret @ E` 形のスキーマを組み立てる
-   一般形で、**省略された `@` が Generic 行変数になる**ことを表しています
-   (sample.kel:315-316)。ここが閉じた行だったら、クラスメソッドに純粋な
-   関数しか渡せず、高階関数が使い物になりません。なおこの一般形は現在
-   呼ばれておらず、§6.12 の登録は引数 1 個・2 個の `arrow1` / `arrow2` を
-   その場で書いています。同じ形が 3 通り書かれている状態です。 *)
+   メソッドのスキーマは §6.12 の `arrow1` / `arrow2` がその場で書きます。
+   要点は 2 つ — **省略された `@` は Generic 行変数になる**こと
+   (sample.kel:315-316。閉じた行だったらクラスメソッドに純粋な関数しか
+   渡せず、高階関数が使い物になりません)と、**クラスパラメータ変数は
+   クラス内で共有する**こと(§6.12 の代入点)。かつて arity を取る一般形
+   `method_scheme` がここにありましたが、消しました(C10)— 呼び出し元が
+   1 つも無く、しかもパラメータ変数を**自分で作る**設計だったので、
+   共有の規約と噛み合いませんでした。抽象化が要求と食い違うなら、
+   その場に 2 行書くほうが正確です。 *)
 
 (* 登録用の Generic 変数(vlevel は Generic では使われない) *)
 let generic ?(kind = Type.KStar) ?(classes = []) () =
@@ -595,13 +598,6 @@ let generic ?(kind = Type.KStar) ?(classes = []) () =
 
 let closed_args_row tys =
   List.fold_right (fun t acc -> Type.TRowExtend (Type.l_item, t, acc)) tys Type.TRowEmpty
-
-(* (A, A, ...) => ret @ E 形のメソッドスキーマ。
-   省略された @ は Generic 行変数(sample.kel:315-316) *)
-let method_scheme ~cls ~arity ~ret =
-  let a = generic ~classes:[ cls ] () in
-  let eff = generic ~kind:Type.KRow () in
-  (a, Type.TArrow (Type.TRecord (closed_args_row (List.init arity (fun _ -> a))), ret a, eff))
 
 let intern = Type.intern
 
