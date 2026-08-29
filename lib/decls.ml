@@ -527,6 +527,12 @@ type instance_info = {
 
 let instances : (oid * oid, instance_info) Hashtbl.t = Hashtbl.create 256
 
+(* 組み込みキーを再宣言したユーザ宣言の記録。「受理するが採用しない」
+   (乖離 4)は 1 回まで — 2 回目は普通のコヒーレンス違反として拒否する。
+   これが無いと「同じキーを 2 度登録したらエラー」が組み込みキーだけ
+   嘘になる(敵対的検証の指摘) *)
+let builtin_redecls : (oid * oid, unit) Hashtbl.t = Hashtbl.create 16
+
 (* 予約述語(D8)の名前表。規則を持つのはこの表 1 枚で、クラス宣言側
    (第11章 register_class)とインスタンス宣言側(下の add_instance)の
    両方がここを引く。登録は §6.12 の register_builtins *)
@@ -545,8 +551,11 @@ let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
      type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   match Hashtbl.find_opt instances (cls, con) with
   | Some prev when prev.ii_builtin && not builtin ->
-      (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い *)
-      ()
+      (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い(1 回まで) *)
+      if Hashtbl.mem builtin_redecls (cls, con) then
+        type_error
+          ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+      else Hashtbl.add builtin_redecls (cls, con) ()
   | Some _ ->
       type_error
         ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
@@ -804,6 +813,7 @@ let reset () =
   Hashtbl.reset aliases;
   Hashtbl.reset classes;
   Hashtbl.reset instances;
+  Hashtbl.reset builtin_redecls;
   Hashtbl.reset datas;
   Hashtbl.reset ctor_owner;
   Hashtbl.reset effects;

@@ -289,6 +289,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > effect Ask = { ask: () => Int32 }
   > let r = (perform ask() + 1) handle {
   >   case ask() if resume(7) > 0 => resume(1)
+  >   case ask() => resume(2)
   >   case return(x) => x
   > }
   > echoln(show(r))
@@ -303,10 +304,23 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > effect Ask = { ask: () => Int32 }
   > let r = (perform ask() + 1) handle {
   >   case ask() if (fn(u: Unit) => resume(7))(()) > 0 => resume(1)
+  >   case ask() => resume(2)
   >   case return(x) => x
   > }
   > echoln(show(r))
   > KEL
   $ diktor --type-check gresume2.kel
   ! 型エラー: resume は操作節の中でのみ使えます
+  [1]
+
+組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
+2 回目はコヒーレンス違反(「同じキーを 2 度登録したらエラー」を組み込み
+キーでも守る):
+
+  $ cat > dupinst.kel <<'KEL'
+  > type instance Add[Int32] { let add(x, y) = x }
+  > type instance Add[Int32] { let add(x, y) = y }
+  > KEL
+  $ diktor --type-check dupinst.kel
+  ! 型エラー: インスタンス Add[Int32] が二重に宣言されています(コヒーレンス違反)
   [1]

@@ -263,3 +263,45 @@ Int64 の 16 進リテラルは値で区別される(A10。63 ビットの int_o
   1.0
   2000.0
   1.0
+
+鍵は 3 通りの読みの積(260829-5 M12 検証修正)。Int32 列で読めない
+10 進と折り返す 16 進が同じ鍵に潰れず、到達可能な節に偽の冗長警告を
+出さない:
+
+  $ cat > mask.kel <<'KEL'
+  > let f(x: Int32): Int32 = x match {
+  >   case 4294967295 => 1
+  >   case 0xFFFFFFFF => 2
+  >   case _          => 3
+  > }
+  > echoln(show(f(0 - 1)))
+  > KEL
+  $ diktor mask.kel
+  2
+  $ diktor --type-check --strict-exhaustive mask.kel > /dev/null; echo "exit: $?"
+  exit: 0
+
+浮動小数の本体に整数接尾辞は書けない(D25 の副作用の封鎖。受理すると
+型検査を通ったリテラルが実行時に必ず落ちた):
+
+  $ printf 'let x = 1.i32\n' > fi.kel
+  $ diktor --type-check fi.kel
+  ! 型エラー: 数値リテラル 1.i32 は浮動小数の本体に整数接尾辞が付いています
+  [1]
+
+  $ printf 'let y = 1e0i64\n' > fe.kel
+  $ diktor --type-check fe.kel
+  ! 型エラー: 数値リテラル 1e0i64 は浮動小数の本体に整数接尾辞が付いています
+  [1]
+
+注釈の無い引数(既定化前の Fractional 変数)でも反例は浮動小数の字面:
+
+  $ cat > wit.kel <<'KEL'
+  > let h = fn(x) => x match {
+  >   case 0.0 => 1i32
+  >   case 1.0 => 2i32
+  > }
+  > KEL
+  $ diktor --type-check wit.kel
+  h : (Float64) => Int32
+  ⚠ match が非網羅的です。例えば 2.0 が漏れています

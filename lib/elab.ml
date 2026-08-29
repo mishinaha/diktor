@@ -135,6 +135,11 @@ let closed_item_row tys = List.fold_right (fun t acc -> TRowExtend (l_item, t, a
 
 let number_ty level (n : number) : ty =
   match n.n_suffix with
+  (* 浮動小数の本体に整数接尾辞(1.i32 / 1e3i64)は拒否する。受理すると
+     実行時の Int32.of_string が本体を読めず、型検査を通ったリテラルが
+     必ず落ちる(D25 で 1. が読めるようになった副作用。検証で実測) *)
+  | Some (NsInt _ | NsUInt _) when n.n_is_float ->
+      type_error ("数値リテラル " ^ Lexer.show_number n ^ " は浮動小数の本体に整数接尾辞が付いています")
   | Some (NsInt 32) -> t_int32
   | Some (NsInt 64) -> t_int64
   | Some (NsFloat 64) -> t_float64
@@ -1231,6 +1236,11 @@ and check_resume_static ?(in_lambda = false) ((_, e) : T.exp) =
    (`cancel(reason)` は将来拡張)。操作節は最低 1 つ必要です — 操作を 1 つも
    扱わない handle は、書き手が何かを間違えています。
 
+   **操作節だけは同じ操作に複数書けます**(絞り込みパターンやガードで場合を
+   分け、実行時は match と同じフォールスルーで選ぶ。D28)。return / cancel は
+   1 つまでです。総和的な節(ガード無し・反駁不可)より後ろに同じ操作の節を
+   書くと到達しないので、警告を出します (§11.24)。
+
    分類結果は `set_resolved` で木に書きます。評価器が節の種別を判定し直さない
    ためです (§11.8 と同じ方針)。 *)
 
@@ -1338,6 +1348,39 @@ and elab_handle env level eff clauses body =
       if not (List.mem_assoc op target_info.Decls.ef_ops) then
         type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
     ops;
+  (* 総和性(D29): 各操作に「ガードが無く全引数パターンが反駁不可」な節が
+     1 つ以上要る。実行時の節選択は match と同じフォールスルー(第14章)だが、
+     ハンドラの外への後送り(re-perform)は無いので、全節が外れうる形は
+     ここで拒否する — 260829-2b 健全性 9 と同じ「実行時に必ず取りこぼしうる
+     プログラムを型検査で通さない」方針 *)
+  let rec irrefutable ((_, p) : T.pat) =
+    match p with
+    | T.PWildcard | T.PVar _ -> true
+    | T.PAnnot (sub, _) -> irrefutable sub
+    | T.PRecord (fields, rest) ->
+        List.for_all (fun (_, sub) -> irrefutable sub) fields
+        && (match rest with None -> true | Some rp -> irrefutable rp)
+    | _ -> false
+  in
+  let total (_, _, args, ((_, c) : T.clause)) =
+    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable a.T.cap_pat) args
+  in
+  List.iter
+    (fun (op, _) ->
+      if not (List.exists (fun ((o, _, _, _) as cl) -> o = op && total cl) ops) then
+        type_error
+          ("操作 " ^ name_of op
+         ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
+         ^ name_of op ^ "(...) を最後に置いてください"))
+    target_info.Decls.ef_ops;
+  (* 到達不能な操作節の警告(B8): 総和的な節より後ろの同一操作の節は走らない *)
+  let rec dead_scan seen_total = function
+    | [] -> ()
+    | ((o, _, _, _) as cl) :: rest ->
+        if List.mem o seen_total then warn "この操作節は到達しません(前の節が既に取りこぼしません)";
+        dead_scan (if total cl && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
+  in
+  dead_scan [] ops;
 (* ## 11.24 本体・return・cancel・操作節をどの行で推論するか
 
    型付けの形は MiniLang §11 のハンドラ規則と同じです。
@@ -1380,6 +1423,11 @@ and elab_handle env level eff clauses body =
      ガードを resume 無しの環境で評価するので、ここで resume を許すと
      「型は付くのに実行時に落ちる」ことになります(§11.21 の構文検査は
      本体しか歩かないため、ガードが唯一の抜け道でした)。
+   - 操作節には**総和性検査**があります(D29。上の網羅検査の直後)。各操作に
+     「ガードが無く全引数パターンが反駁不可」な節が 1 つ以上要ります。
+     実行時の節選択はフォールスルーですが後送り(re-perform)は無いので、
+     全節が外れうる形はここで拒否します。総和的な節より後ろの同じ操作の
+     節には到達不能警告を出します(--strict-exhaustive でエラー化)。
 
    `check_resume_static` を呼ぶのはここ、操作節に入る直前です (§11.21)。 *)
 
@@ -2061,7 +2109,10 @@ let register_class env (c : T.class_decl') =
    探索が表引き 1 回になります。`Functor[List[_]]` の `_` はカインド検査に
    だけ使われ、キーには入りません。重なり合うインスタンスも、インスタンスの
    前提の解決も存在しないので、コヒーレンスは「同じキーを 2 度登録したら
-   エラー」の 1 行で保証できます (sample.kel:276)。
+   エラー」の 1 行で保証できます (sample.kel:276)。組み込みキーだけは
+   1 度目のユーザ宣言が「受理するが採用しない」(乖離 4、§6.9)なので、
+   エラーになるのは 2 度目からです — この数え方が第6章の
+   `builtin_redecls` 表にあります。
 
    頭のカインドはクラスパラメータのカインドと一致していなければなりません。
    `Functor` は `[_] Type` のクラスなので、`Functor[Int32]` はここで落ちます。 *)

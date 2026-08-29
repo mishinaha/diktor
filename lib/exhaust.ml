@@ -115,28 +115,31 @@ type ipat =
    実装記録 260829-2-impl.md の乖離 11 — 計画に書き漏らしていた裁定です。
 
    では「同じ値」とは何の同値関係か。**実行時の照合**です (D24)。第14章の
-   パターン照合は `float_of_string n_text = x` / `Int32.of_string n_text` /
-   `Int64.of_string n_text` の値一致なので、鍵はそれと一致させます。
+   パターン照合は**値の型で**字面を読み直します — `VInt32` なら
+   `Int32.of_string`、`VInt64` なら `Int64.of_string`、`VFloat64` なら
+   `float_of_string` の値一致。ところが検査側の正規化は**列の型を知りません**。
+   型を知らないまま 1 つの読みで鍵を作ると、どの読みを選んでも反例が
+   出ます。最初の実装は native int(**63 ビット**)で読み、
+   `0x7FFFFFFFFFFFFFFF` が -1 に折り返して `case -1` と同じ鍵になり、
+   到達可能な節に偽の冗長警告を出しました(本文の旧版は「整数の正規化は
+   往復するので健全です」と書いていましたが誤りでした)。Int64 で読み直した
+   版は、Int32 の列で `4294967295`(Int32 では読めず、どの値にも一致
+   しない)と `0xFFFFFFFF`(-1 に折り返して一致する)を同じ鍵に潰し、
+   やはり到達可能な節に「到達不能」と誤警告しました(敵対的検証で実測)。
 
-   - 整数は `Int64.of_string` を通してから文字列化します。以前は
-     `int_of_string` でしたが、OCaml の native int は **63 ビット**なので
-     `0x7FFFFFFFFFFFFFFF` がエラーにならずに -1 へ折り返し、`case -1` と
-     同じ鍵になって到達可能な節に「到達不能」と誤警告していました
-     (本文の旧版は「整数の正規化は往復するので健全です」と書いて
-     いましたが、それは誤りでした — 63 ビットの物差しで 64 ビットを
-     測ると、端が折り返します)。Int64 は 0x / 0o / 0b と `_` 区切りを
-     すべて受け、64 ビット全域を扱います。Int32 のリテラルは Int64 の
-     部分集合なのでどちらの列でも正しい鍵になります。
-   - 浮動小数は `float_of_string` を通し、`norm_float` で鍵にします。
-     ±0.0 を 1 つの鍵に畳むのは実行時の `=` がそうだから。%.17g を選ぶのは
-     binary64 を一意に決める(相異なる値は必ず別の鍵になる)からで、
-     以前の `string_of_float`(%.12g)は有効数字 13 桁目以降を潰し、
-     `case 1.0` と `case 1.0000000000001` に偽の冗長警告を出していました。
-     第12章 §12.7 の最短表現を使わないのは、**鍵は誰にも見せない**ので
-     桁を詰める理由が無く、章をまたぐ依存も作らずに済むからです。
-     inf は %.17g で `inf` になり、`1e999` と `1e1000` が同じ鍵に
-     なりますが、これは正しい — どちらも実行時には infinity です。
-     NaN はリテラルとして書けないので考えません。
+   そこで鍵は **3 通りの読みの積**にします。字面を `Int32` / `Int64` /
+   `Float64` のそれぞれで読み(読めなければその成分は「読めない」の印)、
+   3 成分を並べたものが鍵です。**すべての読みで等しい字面だけ**が同じ鍵に
+   なるので、列の型がどれであっても「違う値を同じ鍵へ」は起きません。
+   `1` と `0x1` はどの読みでも 1 なので従来どおり同じパターンです
+   (乖離 11)。`1.` と `1.0` も浮動小数の読みだけが定義され、その値が
+   同じなので同じパターンです。浮動小数の成分は `norm_float` で ±0.0 を
+   畳みます(実行時の IEEE の = がそうだから)。%.17g は binary64 を
+   一意に決めるので、相異なる値は必ず別の成分になります。第12章 §12.7 の
+   最短表現を使わないのは、**鍵は誰にも見せない**ので桁を詰める理由が
+   無く、章をまたぐ依存も作らずに済むからです。inf は `1e999` と `1e1000`
+   が同じ成分になりますが、これは正しい — どちらも実行時には infinity
+   です。NaN はリテラルとして書けないので考えません。
 
    読めなかったときに元の字面へ落ちるのは、ここが**検査であって評価ではない**
    からです。桁あふれした数値リテラルは型検査を素通りします — 第11章 (elab.ml)
@@ -147,16 +150,19 @@ type ipat =
    足ります。ここで例外を投げても、利用者に届くのは網羅性検査の内部エラーで、
    本当の原因からは遠ざかるだけです。
 
-   残る不完全性を 1 つ明記します。正規化は**列の型を知らない**ので、
-   Int32 の列の `case 0xFFFFFFFF` と `case -1` — 実行時には同じ値
-   (`Int32.of_string` が -1l に折り返す)— を別の鍵にし、本物の冗長を
-   見逃します。これは偽の警告を出さない安全側の不完全性で、直すには
+   残る不完全性は**見逃す側**に揃っています。積の鍵は「列の型で読んだ鍵」
+   より細かいので、実行時には同じ値になる組 — Int32 の列の
+   `case 0xFFFFFFFF` と `case -1`(どちらも -1l に読まれる)— を別の鍵に
+   し、本物の冗長を見逃します。また、列の型で読めない字面の節(Int32 の
+   列の `case 4294967295`)はどの値にも一致しない死に節ですが、それ自体の
+   診断はありません(式の位置なら実行時エラーになるのと非対称。260829-5 の
+   課題台帳 V8)。どちらも偽の警告を出さない側の誤りです。両方直すには
    スクルティニ型を `convert` に流す設計変更(入れ子パターンの型も要る)が
-   必要になるため、v0 では見逃す側に倒します。
+   必要になるため、v0 では積の鍵で止めます。
 
    > 正規化は「同じ値を同じ字面へ」だけでなく「違う値を違う字面へ」も
-   > 守らなければならない。片側しか守らない正規化は偽の冗長警告を作り、
-   > もう片側を守らない正規化は本物の冗長を見逃す。
+   > 守らなければならない。列の型を知らないなら、**どの型で読んでも同じ**
+   > ときだけ同じ鍵にする — 誤るなら、見逃す側で誤る。
 
    ### `PCtor` は解決結果を読んで宣言順に並べ替える
 
@@ -176,15 +182,23 @@ type ipat =
    解決が無いまま呼ばれたら `bug` で落とします。これは利用者のプログラムの
    誤りではなく elab の実装の誤りなので、型エラーではなく内部エラーが正しい報告です。 *)
 
-(* 実行時の照合は float_of_string n_text = x(第14章 §14.3)。
-   だから鍵の同値関係も IEEE の = に合わせる — +0.0 と -0.0 は同じ、
-   相異なる Float64 は必ず別の鍵。%.17g は binary64 を一意に決めるので、
-   最短表現を探すループは要らない(この鍵は誰にも見せない) *)
+(* 浮動小数の読みの正規化。±0.0 は実行時の IEEE の = に合わせて畳む。
+   %.17g は binary64 を一意に決める(この鍵は誰にも見せない) *)
 let norm_float f = if f = 0.0 then "0" else Printf.sprintf "%.17g" f
 
-let norm_num (n : number) =
-  if n.n_is_float then match float_of_string_opt n.n_text with Some f -> norm_float f | None -> n.n_text
-  else match Int64.of_string_opt n.n_text with Some i -> Int64.to_string i | None -> n.n_text
+(* 鍵は Int32 / Int64 / Float64 の 3 通りの読みの積(§10.3)。検査は列の型を
+   知らないので、どの読みでも等しい字面だけを同じ鍵にする — 列の型がどれで
+   あっても「違う値を同じ鍵へ」は起きない。誤るなら見逃す側で誤る。
+   §10.10 の反例候補も同じ norm_text で読む(鍵の形をここに閉じ込める) *)
+let norm_text s =
+  let read f to_s = match f s with Some v -> to_s v | None -> "X" in
+  read Int32.of_string_opt Int32.to_string
+  ^ "|"
+  ^ read Int64.of_string_opt Int64.to_string
+  ^ "|"
+  ^ read float_of_string_opt norm_float
+
+let norm_num (n : number) = norm_text n.n_text
 
 let rec convert ((_, p) as node : T.pat) : ipat =
   match p with
@@ -582,6 +596,10 @@ let rec close_variant_rows rows tys =
    反例に出す字面は必ず Keleut のリテラルとして読めるものにします。
    §10.3 の鍵(%.17g や ±0 畳み)はここに**流さない** — 鍵は同値判定の
    ための内部表現で、誰にも見せない、が両節の分業の不変条件です。
+   列の型がまだ既定化前の弱い変数のとき(注釈の無い引数の match は
+   宣言末の既定化より先に検査される)は、Fractional 述語が付いていれば
+   浮動小数の候補列を使います — 整数の字面 `2` はその列には書けない
+   反例だからです。
 
    > 反例は「存在する」と言うだけでは反例ではない。指させて初めて反例になる。 *)
 
@@ -634,18 +652,29 @@ let rec missing rows tys =
                     ILit (LText (fresh 0))
                   else if used_num = [] then IWild
                   else
-                    match ty with
-                    | TCon (n, []) when n = intern "Float64" ->
-                        (* 候補は 0.0, 1.0, 2.0, …。突き合わせは §10.3 と同じ鍵で
-                           行い、見せるのは読める字面のほう *)
-                        let rec fresh i =
-                          let f = float_of_int i in
-                          if List.mem (norm_float f) used_num then fresh (i + 1) else Printf.sprintf "%.1f" f
-                        in
-                        ILit (LNum (fresh 0))
-                    | _ ->
-                        let rec fresh i = if List.mem (string_of_int i) used_num then fresh (i + 1) else string_of_int i in
-                        ILit (LNum (fresh 0)))
+                    (* 列がまだ既定化前の弱い変数のとき(注釈の無い引数)は、
+                       Fractional 述語で浮動小数の列だと分かる — 整数の字面を
+                       出すと、その列には書けない反例になる(検証の指摘) *)
+                    let is_float_col =
+                      match ty with
+                      | TCon (n, []) -> n = intern "Float64"
+                      | TVar { contents = Unbound i } -> List.mem cls_fractional i.vcls
+                      | _ -> false
+                    in
+                    if is_float_col then
+                      (* 候補は 0.0, 1.0, 2.0, …。突き合わせは §10.3 と同じ鍵
+                         (norm_text)で行い、見せるのは読める字面のほう *)
+                      let rec fresh i =
+                        let s = Printf.sprintf "%.1f" (float_of_int i) in
+                        if List.mem (norm_text s) used_num then fresh (i + 1) else s
+                      in
+                      ILit (LNum (fresh 0))
+                    else
+                      let rec fresh i =
+                        let s = string_of_int i in
+                        if List.mem (norm_text s) used_num then fresh (i + 1) else s
+                      in
+                      ILit (LNum (fresh 0)))
             in
             Some (head :: w))
 
