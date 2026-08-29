@@ -125,15 +125,22 @@ let show_long_id (LongId components) = String.concat "." components
 
    `Type` モジュールに入ります。まずは名前の扱いです。
 
-   文字列の比較は型検査の内側ループには重すぎます。そこで
-   **すべての名前を整数 (`oid`) に潰します**。`intern` は同じ文字列に
-   同じ番号を返し、`name_of` が逆を引きます。
+   行のラベル比較は単一化の内側ループで何度も走るので、文字列のままでは
+   重すぎます。そこで**表の鍵になる名前を整数 (`oid`) に潰します**。
+   `intern` は同じ文字列に同じ番号を返し、`name_of` が逆を引きます。
 
-   潰す対象を分けないのが裁定です。レコードのラベル、エフェクト名、
-   型構成子、クラス名、コンストラクタ名、識別子 — 全部同じ表に入れます。
-   同じ綴りなら同じ `oid` になります。名前空間の区別は、番号ではなく
-   **使う側の表**が担います。第6章の `Decls.effects` に載っていれば
-   エフェクト名、`Decls.con_kinds` に載っていれば型構成子、という具合です。
+   潰す対象を名前空間ごとに分けないのが裁定です。レコードのラベル、
+   エフェクト名と操作の完全名、型構成子、クラス名、コンストラクタ名、
+   `extern` 名 — 全部同じ表に入れます。同じ綴りなら同じ `oid` に
+   なります。名前空間の区別は、番号ではなく**使う側の表**が担います。
+   第6章の `Decls.effects` に載っていればエフェクト名、`Decls.con_kinds`
+   に載っていれば型構成子、という具合です。
+
+   逆に、**値の識別子は潰していません**。`let` で束縛した名前も変数参照も
+   文字列のままで、型検査の環境も評価器の環境も `Map.Make (String)` を
+   鍵にします (第11章・第12章)。ですから「型検査のあらゆる名前比較が
+   整数比較になっている」わけではありません。整数になっているのは、
+   行のラベルのように**表を引く**経路だけです。
 
    この設計の利点は、行のラベル比較が `=` 1 回になることです。
    代償は、`oid` を単体で見ても何の名前か分からないことで、つまり
@@ -141,7 +148,10 @@ let show_long_id (LongId components) = String.concat "." components
    困った箇所は今のところありません。
 
    `label_to_oid` / `oid_to_label` は旧名の別名です。行を扱うコードは
-   「ラベル」と呼ぶほうが読みやすいので残してあります。 *)
+   「ラベル」と呼ぶほうが読みやすかろうと残したものですが、正直に書くと
+   **現状どこからも使われていません** — 第8章も第10章も `Type.intern` /
+   `Type.name_of` を直接呼んでいます。使うか消すか、どちらかにするのが
+   後始末です。 *)
 
 module Type = struct
   type level = int
@@ -161,7 +171,7 @@ module Type = struct
 
   let name_of oid = Hashtbl.find name_map oid
 
-  (* 旧名エイリアス。行を扱う側はラベルと呼ぶ *)
+  (* 旧名エイリアス。行を扱う側はラベルと呼ぶ。現状は未使用(§1.2) *)
   let label_to_oid = intern
 
   let oid_to_label = name_of
@@ -220,8 +230,9 @@ module Type = struct
    `Fractional` は整数・小数リテラルの型を保留するための述語で、
    クラス制約と同じ場所に置くことで `1 + x` が `{Integral, Add}` を
    持つ、という状況が自動的に正しく扱えます。ユーザは同名のクラスを
-   宣言できず(第6章が拒否)、一般化されずに既定値へ落とされる
-   (第8章)、という 2 点だけがクラス制約との違いです。
+   宣言できず(第11章の `register_class` が拒否)、一般化されずに
+   既定値へ落とされる(第8章の `default_numerics`)、という 2 点だけが
+   クラス制約との違いです。
 
    `var_info` は 4 状態が共有する中身です (D6)。カインドと制約集合を
    v0 から持たせています。MiniLang のまとめが「先に型クラスを入れて
@@ -348,8 +359,10 @@ module Type = struct
    `vkind = KRow` の**構造マッチ**で判定していました。ところが arity 0 の
    型パラメータには `new_kind_var ()` が与えられるので、行位置で
    使われた変数のカインドは `KVar` が `KRow` へリンクした形をしています。
-   構造マッチはこれを取りこぼし、sample.kel:136-138 の `fst` 適用や
-   :144-150 の `describe(#Other)` が型検査に落ちていました。判定を
+   構造マッチはこれを取りこぼし、sample.kel:130 の `fst`(:136-138 の
+   コメントが説明している `{x = 1, _item = ...}` を渡す形)と :145-150 の
+   `describe`(`describe(#Other)` の形。この再現例は仕様本文ではなく
+   回帰テスト test/verify_fixes.t にあります)が型検査に落ちていました。判定を
    `same_kind` に置き換えて直りました。**カインドを直接パターンで
    見ている箇所は、それだけでバグ候補です。**
 
@@ -552,7 +565,8 @@ module Type = struct
    `Int64` / `Float64` / `String` / `Never`。`Never` は
    コンストラクタが 0 個の名目型で、`n match {}` が網羅と判定される
    根拠になります (第10章)。他の数値幅(`Int8`、符号なし、`Float32`)は
-   名前と接尾辞を**受理はして**、第11章が v0 未対応エラーにします (D13)。
+   名前と接尾辞を**受理はして**、第11章が「v0 では未対応です」という
+   型エラーで拒否します (D13)。
 
    `t_unit` に名目型はありません。**Unit は空レコード**です
    (sample.kel:41,112)。`()` と `{}` は同じ型で、単一化はレコードの
@@ -564,10 +578,18 @@ module Type = struct
    既定化を一般化より先に走らせるので、通常は表示に出ません。
 
    `eff_heap` / `eff_blocking` は**操作を持たない**組み込みエフェクト
-   ラベルです。Keleut には操作なしエフェクトの宣言構文が無いので、
-   第6章が表へ直接登録します。`Heap` は `run` が導入して
-   `Ref.new` / `Ref.get` / `Ref.set` が要求するラベル、`Blocking` は
-   `extern` がブロックしうることを表明するラベル (sample.kel:549,560)です。
+   ラベルです。操作ゼロのエフェクト自体はソースにも書けます — 文法は
+   `effect Silent = {}` のように空の本体を許します。にもかかわらず
+   第6章がこの 2 つを表へ直接登録するのは、別の理由からです。
+
+   `Heap` は `run` が導入し `Ref.new` / `Ref.get` / `Ref.set` が要求する
+   ラベルですが、`Heap[h]` のように**エフェクトへパラメータを与える**
+   構文が v0 にありません(§1.17 の `ef_params` は場所だけ空いていて、
+   非空なら第11章が拒否します)。`Ref` / `Array` の操作の型もその `h`
+   抜きには書けないので、第6章 (decls.ml) の §6.11 がまとめて
+   組み立てます。`Blocking` は同じ組み込み表に相乗りするラベルで、
+   `extern` がブロックしうることを表明するために名指しします
+   (sample.kel:549,560)。
 
    ### 実際に踏んだ罠
 
@@ -577,7 +599,7 @@ module Type = struct
    再宣言を拒否します。名前をここに集めておくことが、その検査を
    「表を 1 つ引くだけ」にしています。 *)
 
-  let l_item = intern "_item" (* タプルのラベル(§14 TODO への裁定) *)
+  let l_item = intern "_item" (* タプルのラベル(sample.kel §14 の TODO への裁定) *)
 
   let t_boolean = TCon (intern "Boolean", [])
 
@@ -600,7 +622,8 @@ module Type = struct
 
   let cls_fractional = intern "Fractional"
 
-  (* 操作なしの組み込みエフェクトラベル(宣言構文が無いので decls.ml が直接登録する) *)
+  (* 操作なしの組み込みエフェクトラベル。Heap[h] のパラメータ構文が v0 に無いので
+     decls.ml が Ref/Array ごと直接登録する(§1.10) *)
   let eff_heap = intern "Heap"
 
   let eff_blocking = intern "Blocking"
@@ -620,7 +643,7 @@ end
 
    `n_suffix` は `1i64` / `1u8` / `1f32` の接尾辞です。v0 の実行時
    数値型は `Int32` / `Int64` / `Float64` の 3 種だけで、他の幅は
-   受理して第11章が未対応エラーにします。負のリテラルは第3章が
+   字句としては受理し、第11章が型エラーで拒否します。負のリテラルは第3章が
    `HYPHEN NUMBER` を畳んで作ります。
 
    数値パターンの重複検出は**値で正規化**して行います。`0x1` と `1` は
@@ -635,9 +658,13 @@ end
    演算子の姿を保てるという副次的な利点もあります。剰余 `%` は
    仕様の演算子表に無いので入れません(プリミティブとして提供します)。
 
-   なお Float の表示は最短往復表現にしましたが、`1.` のような
-   リテラルはパーサが受け付けないので読み戻せません。数値リテラルの
-   末尾の `.` の扱いは v1 の宿題です。 *)
+   なお Float の表示は最短往復表現ですが (第13章)、往復が保証されるのは
+   `float_of_string` に対してだけで、**Keleut のソースへ貼り戻せるとは
+   限りません**。整数値の Float は `1.0` の形で出るので問題ありませんが、
+   絶対値が 1e16 以上で有効数字が多い値は `12345678901234568` のように
+   小数点も指数も持たない字面になります。これは Keleut では整数リテラル
+   なので、`Float64` の注釈と噛み合いません。表示器と数値リテラルの字句を
+   突き合わせるのは v1 の宿題です。 *)
 
 type num_suffix = NsInt of int | NsUInt of int | NsFloat of int (* i64 / u8 / f32 *)
 
@@ -650,7 +677,7 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
    `[A]` / `[h]` / `[F[_]]` / `[A: Add + Mul]` を 1 つのレコードで受けます。
 
    `tp_name` は大文字でも小文字でも構いません。リージョン変数は
-   `run h { ... }` のように小文字で書かれます (sample.kel §11)。
+   `run h { ... }` のように小文字で書かれます (sample.kel §10)。
    型変数と値の識別子は文法上の位置で区別できるので、字句で分ける
    必要がありません。
 
@@ -739,8 +766,12 @@ module Make (Data : Data) = struct
    構造的ヴァリアントの合併とエフェクト行の合併が同じ縦棒で書かれる
    ので、AST では区別しません。
 
-   `EHole` は `List[_]` の穴です。`type instance` の頭と `F[_]` の
-   束縛子に現れます。 *)
+   `EHole` は `List[_]` の穴です。作られるのは**型引数の位置だけ**で、
+   実際の用途は `type instance` の頭 (`type instance Functor[List[_]]`) に
+   限られます。よく混同しますが、`F[_]` の束縛子の `_` は `EHole` に
+   なりません — そちらは個数を数えて §1.12 の `tp_arity` になります。
+   型引数位置に現れた `EHole` も、インスタンス頭以外では第11章が
+   型エラーにします。 *)
 
   type type_exp' =
     | EIdent of long_id (* 型変数・構成子・エイリアス・エフェクト名。区別は環境 *)
@@ -749,7 +780,7 @@ module Make (Data : Data) = struct
     | EBraceRow of brace_elem list * type_exp option (* { ... extends T }。要素の形で意味が決まる *)
     | EVariantCase of string * type_exp option (* #Foo(T) / #Foo *)
     | EUnion of type_exp list (* #A | #B | R / IoError | ParseError *)
-    | EHole (* List[_] の穴(instance 頭・F[_] 束縛子) *)
+    | EHole (* List[_] の穴。型引数位置のみ。instance 頭で使う(F[_] 束縛子は tp_arity) *)
 
   and type_exp = Data.t * type_exp'
 
@@ -881,12 +912,14 @@ module Make (Data : Data) = struct
     | Seq of exp list (* 式文の列。let を含むブロックは Let(b, 残り) の入れ子 *)
     | Match of exp * clause list (* 単一スクルティニ(D18) *)
     | RecordEmpty
-    | RecordExtend of exp * string * exp (* (rest, label, value)。評価は value → rest の順(§8.3) *)
+    | RecordExtend of exp * string * exp
+        (* (rest, label, value)。評価は value → rest の順(sample.kel:203、計画 §8.3) *)
     | RecordUpdate of exp * string * exp (* {r with l = e}。物理フィールド順保持のため専用ノード *)
     | RecordRestriction of exp * string (* r \ l *)
     | RecordSelection of exp * string
     | Perform of long_id * exp (* perform print(msg)。解決済み完全名は resolved へ *)
-    | Handle of exp * clause list (* 節は match と共通。分類は elab が行い resolved へ(§7.3) *)
+    | Handle of exp * clause list
+        (* 節は match と共通。分類は elab が行い resolved へ(計画 §7.3) *)
     | Resume of exp option (* D19。resume() / resume(e)。引数は record_of_args を通さない *)
     | Run of string * exp (* run h { ... } *)
 
