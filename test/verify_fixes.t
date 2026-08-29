@@ -159,13 +159,13 @@ let rec の非関数右辺を型検査で拒否:
 
   $ printf 'echoln(show(1i999999999999999999999))\n' > hugesuf.kel
   $ diktor hugesuf.kel
-  ! 型エラー: 数値接尾辞 1i999999999999999999999 は v0 では未対応です(i32/i64/f64 を使ってください)
-  [1]
+  ! 未実装: 数値接尾辞 1i999999999999999999999(v0 は i32/i64/f64 のみ)
+  [4]
 
   $ printf 'module A { module B { let x = 1 } }\n' > nestmod.kel
   $ diktor nestmod.kel
-  ! 型エラー: module の入れ子は未対応です(M10)
-  [1]
+  ! 未実装: module の入れ子(M10)
+  [4]
 
   $ cat > unkeff.kel <<'EOF'
   > effect A = { op1: () => Int32 }

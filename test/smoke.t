@@ -12,8 +12,15 @@
     --strict-exhaustive  網羅性・到達不能警告をエラー化
   exit: 64
 
-未実装モードは exit 4:
+最小の正常終了:
 
   $ echo 'let x = 1' > t.kel
   $ diktor t.kel; echo "exit: $?"
   exit: 0
+
+未実装は exit 4(仕様にあって v0 が実装していないもの。§16.8):
+
+  $ echo 'let x = 1u8' > u8.kel
+  $ diktor u8.kel; echo "exit: $?"
+  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  exit: 4

@@ -185,8 +185,8 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let bad = 1u8
   > EOF
   $ diktor --type-check --no-prelude numbad2.kel
-  ! 型エラー: 数値接尾辞 1u8 は v0 では未対応です(i32/i64/f64 を使ってください)
-  [1]
+  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  [4]
 
 型エイリアスの検査(非再帰・部分適用禁止):
 
@@ -204,3 +204,14 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   $ diktor --type-check --no-prelude aliasbad2.kel
   ! 型エラー: 型エイリアス Pair2 の引数は 2 個必要です(1 個与えられました。部分適用は禁止)
   [1]
+
+未実装は診断の流れに乗る(G6。それまでの型の行が消えない):
+
+  $ cat > mix.kel <<'EOF2'
+  > let ok = 1 + 2
+  > let bad = 1u8
+  > EOF2
+  $ diktor --type-check --no-prelude mix.kel
+  ok : Int32
+  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  [4]

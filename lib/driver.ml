@@ -470,7 +470,7 @@ let run_with options =
    | 1 | 型エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive` |
    | 2 | 構文・字句エラー | `Parse_error`、`Lex_error`、不正な UTF-8 |
    | 3 | 実行時エラー | `Runtime_error`、未処理エフェクト、再帰過多、メモリ不足、内部異常 |
-   | 4 | 未実装 | `Aux.NotImplemented` |
+   | 4 | 未実装(仕様にあって v0 に無い) | `Aux.NotImplemented`(1u8 / Int8 / module の入れ子 等) |
    | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルを開けない |
    | 74 | 出力に書き出せない | 標準出力への flush の失敗(D33) |
 
@@ -496,7 +496,7 @@ let run_with options =
    |---|---|---|
    | 存在しないファイル | 例外名が漏れて 2 | ファイルを開けません、64 |
    | 不正な UTF-8 バイト列 | 例外名が漏れて 2 | 字句エラー、2 |
-   | module の入れ子 / module 内の effect | 例外名が漏れて 2 | 型エラー、1 |
+   | module の入れ子 / module 内の effect | 例外名が漏れて 2 | 未実装、4 |
    | 深すぎる再帰 | 例外名が漏れて 2 | 実行時エラー、3 |
    | 巨大な割り当て | 例外名が漏れて 2 | 実行時エラー、3 |
    | 標準出力が書けない(/dev/full) | 例外名が漏れて 2 | 出力エラー、74 |
@@ -517,6 +517,11 @@ let run_with options =
      良い文言のためにあり、規約のためにあるのは最後の 1 枚です。
      `Value.Op` 以外の `Unhandled`、`Continuation_already_resumed`、
      漏れた `Unwind` の専用節は、内部異常に名前を与える防御枝です。
+   - **診断の流れに乗る例外は `Elab.type_check` にも節が要る。** 受け皿
+     だけに足すと、そこまでに出せた型の行が全部消える(§16.6 の
+     「型の行と誤りの行を 1 本の流れで」が壊れる)。`NotImplemented` は
+     両方に節がある — type_check の中で起きれば診断の流れに乗り、
+     `flatten_modules` のように外で起きればこの受け皿が受ける。
    - **入力を開く場所は必ず `with_input` で包む。** 受け皿の `Sys_error` は
      「出力に書き出せない」と読む(§16.3 の `Input_error` の分離)ので、
      包み忘れた入力エラーは 74 と誤って報告されます。

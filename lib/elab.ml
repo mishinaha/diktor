@@ -147,7 +147,7 @@ let number_ty level (n : number) : ty =
   | Some (NsInt 32) -> t_int32
   | Some (NsInt 64) -> t_int64
   | Some (NsFloat 64) -> t_float64
-  | Some _ -> type_error ("数値接尾辞 " ^ Lexer.show_number n ^ " は v0 では未対応です(i32/i64/f64 を使ってください)")
+  | Some _ -> noimpl ("数値接尾辞 " ^ Lexer.show_number n ^ "(v0 は i32/i64/f64 のみ)")
   | None ->
       let v = new_var level in
       Unify.add_class v (if n.n_is_float then cls_fractional else cls_integral);
@@ -189,7 +189,7 @@ let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
       match SMap.find_opt n env.types with
       | Some t -> t
       | None ->
-          if List.mem n unsupported_numeric then type_error ("数値型 " ^ n ^ " は v0 では未対応です(Int32/Int64/Float64 を使ってください)")
+          if List.mem n unsupported_numeric then noimpl ("数値型 " ^ n ^ "(v0 は Int32/Int64/Float64 のみ)")
           else
             let oid = Decls.resolve_con (intern n) in
             (match Hashtbl.find_opt Decls.aliases oid with
@@ -453,7 +453,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
                     | [ a ] -> elab_type env level ~expanding a
                     | _ -> type_error "エフェクトラベルの引数は1個までです"),
                     acc )
-          | T.BLabel (li, _) -> type_error ("モジュール修飾のエフェクトは未対応です(M10): " ^ show_long_id li)
+          | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
   | _ -> elab_type env level ~expanding t
@@ -1255,7 +1255,7 @@ and elab_handle env level eff clauses body =
     | T.PCtor (LongId comps, args) -> (
         match List.rev comps with
         | "cancel" :: _ ->
-            if args <> [] then type_error "cancel(reason) は将来拡張です(v0 では case cancel のみ)" else `Cancel cnode
+            if args <> [] then noimpl "cancel(reason)(v0 は case cancel のみ)" else `Cancel cnode
         | "return" :: _ -> (
             match args with
             | [ { T.cap_label = None; cap_pat } ] -> `Return (cap_pat, cnode)
@@ -2574,7 +2574,9 @@ let process_decls env ~emit decls =
       | T.DInstance i ->
           check_instance_bodies env i;
           env
-      | T.DModule _ -> noimpl "module(M10)"
+      | T.DModule _ ->
+          (* 平坦化を通っていれば到達しない。来たら不変条件違反 = 処理系の欠陥 *)
+          bug "module が平坦化されていません(flatten_modules を先に呼んでください)"
     in
     Unify.default_numerics ();
     List.iteri (fun i w -> if i >= wbefore then emit (Warning w)) !warnings;
@@ -2674,8 +2676,10 @@ let flatten_modules (decls : T.decl list) : T.decl list =
                   ]
               | T.DInstance _ -> [ bnode ]
               | T.DExtern ex -> [ (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
-              | T.DModule _ -> type_error "module の入れ子は未対応です(M10)"
-              | T.DEffect _ | T.DClass _ | T.DExp _ -> type_error ("module 内では未対応の宣言です: module " ^ mname))
+              | T.DModule _ -> noimpl "module の入れ子(M10)"
+              | T.DEffect _ -> noimpl ("module 内の effect 宣言(M10): module " ^ mname)
+              | T.DClass _ -> noimpl ("module 内の type class 宣言(M10): module " ^ mname)
+              | T.DExp _ -> noimpl ("module 内の式文(M10): module " ^ mname))
             body
       | _ -> [ node ])
     decls
