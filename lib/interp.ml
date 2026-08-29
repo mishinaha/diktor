@@ -1,21 +1,86 @@
 (* Copyright (C) 2019 Takezoe,Tomoaki <tomoaki3478@res.ac>
- *
- * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
- *
- * 評価器本体(計画 §8.3-§8.5)。
- *
- * 末尾呼び出し規約(§8.3): eval の末尾位置(Apply のクロージャ本体、Match / ブロックの
- * 本体)を OCaml の末尾呼び出しに保つ。eval の再帰を try...with で包まない(1枚で TCO が
- * 消える)。エラー装飾は driver の最外周1回だけ。
- * 評価順序「左から右」は OCaml の未規定評価順に任せず let で固定する。
- *)
+   SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception *)
+
+(* # 第14章 — 評価器: OCaml 5 のエフェクトで Keleut のエフェクトを写す
+
+   ここが実行系の核心です。第11章 (elab.ml) が型と解決結果を書き込んだ木、
+   第12章 (value.ml) の値表現とレコード演算、第13章 (builtin.ml) の
+   プリミティブと最外周ハンドラを受け取り、木を歩いて値を作ります。
+   第16章 (driver.ml) へ渡すのは「正常終了か、どの例外か」だけです。
+
+   評価器の大半は素直な木の巡回で、面白いのは 2 か所しかありません。
+   **エフェクトハンドラ**(§14.10)と**型クラスの実行時ディスパッチ**(§14.6,
+   §14.7)です。前者は Keleut の意味論を OCaml 5 の `Effect.Deep` に写す仕事、
+   後者は「elab が選ぶはずのインスタンスを実行時にもう一度当てる」仕事で、
+   どちらも**外して気づきにくい形で壊れる**部類の実装です。
+
+   ## 対応表 — Keleut のハンドラと OCaml 5 の Effect.Deep
+
+   計画 D2 の裁定は「Keleut のエフェクトを `Effect.Deep` にそのまま写す」でした。
+   写せる根拠は下の対応表で、全項目が spike (doc/log/260829-1-spike/effect) で
+   実機確認済みです。
+
+   | Keleut (sample.kel §9) | OCaml 5 の Effect.Deep |
+   |---|---|
+   | 深いハンドラ `handle { … }` | `match_with` 1 枚 |
+   | `perform op(args)` | `Effect.perform (Op (op, args))` |
+   | `resume(e)` | `Effect.Deep.continue k v` |
+   | resume を呼ばずに節を抜ける | `discontinue k (Unwind (inst, v))` |
+   | `case return(x)` | `retc`(親スタック上で走る) |
+   | `case cancel` | `exnc` の中で節を走らせる |
+   | 最内のハンドラが捕まえる | `effc` が `None` を返せば外側へ |
+   | resume はアフィン(高々 1 回) | ワンショット継続(先に自前で検査) |
+   | resume の返り値 = handle 式全体の型 | `continue` の型 = `match_with` の型 |
+   | cancel の LIFO 巻き戻し | fiber の入れ子から自動で出る |
+
+   最後の行が D2 の一番の収穫です。後始末の順序を評価器が管理する必要はなく、
+   「ハンドラの入れ子」という既にある構造から出てきます。
+
+   ## この章が守る 3 つの規約
+
+   1. **末尾呼び出し規約**(§8.3)。`eval` の末尾位置(`Apply` のクロージャ本体、
+      `Match` の節本体、ブロックの末尾式)を OCaml の末尾呼び出しに保ちます。
+      とくに **`eval` の再帰を `try … with` で包まない**。Keleut に while は無く
+      再帰が唯一の反復手段なので、TCO を失うと普通のループがスタックを尽くします。
+
+      > 評価器の再帰を 1 枚の try で包むと、その言語からループが消える。
+
+   2. **評価順序は let で固定する**。OCaml の関数適用の引数評価順は未規定で、
+      現行のコンパイラは右から左です。Keleut の仕様は左から右(sample.kel:203)
+      なので、`apply (eval env f) (eval env arg)` と書くと順序が逆になります。
+      1 つずつ `let` で束縛して順序を言語仕様から切り離します。
+
+   3. **エラー装飾は driver の最外周 1 回だけ**。途中で捕まえて包み直すと、
+      規約 1 が壊れるうえ、例外がエフェクトの巻き戻しにも使われている
+      (§14.10 の `Unwind`)ため、捕まえ損ねが意味論の破壊に直結します。
+
+   ## 章の見取り図
+
+   表 (§14.1) → パターン照合 (§14.2) → 数値リテラル (§14.3) →
+   `eval` の骨格 (§14.4) → 適用 (§14.5) → ディスパッチ (§14.6-§14.8) →
+   束縛 (§14.9) → **ハンドラ** (§14.10) → トップレベル (§14.11-§14.14)。 *)
 open Aux
 open Syntax
 open Value
 module T = Tree.Tree
 
+(* ## 14.1 実行時に引く 2 つの表
+
+   計画 D3 の裁定により、型クラスは**辞書渡しをしません**。呼び出し地点に
+   辞書を通す代わりに、実行時に値のタグでインスタンスを引きます。そのために
+   必要なのはこの `user_instances` 1 枚と、第13章の組み込みメソッド表だけです。
+
+   引き方は `(クラス, 型構成子) → メソッド名 → 値`。型構成子は第1章の
+   インターン表の oid で、型側と同じ番号を使います。 *)
+
 (* ユーザ宣言インスタンスのメソッド実体: (クラス, 型構成子) → メソッド名 → 値 *)
 let user_instances : (oid * oid, (oid * Value.t) list) Hashtbl.t = Hashtbl.create 32
+
+(* ここがディスパッチの入口です。値から「名目的な型の名前」を 1 つ取り出します。
+   `VRecord` と `VVariant` が `None` なのは偶然ではありません。レコードと
+   ヴァリアントは構造的な型で、名前を持たないので名目的なインスタンス表を引く
+   鍵になりません。ここで `None` になった値は §14.7 の構造的導出へ回ります。
+   `VClosure` / `VPrim` も `None` — 関数にインスタンスは付きません。 *)
 
 let tycon_of_value = function
   | VBool _ -> Some (Type.intern "Boolean")
@@ -28,10 +93,37 @@ let tycon_of_value = function
   | VArray _ -> Some (Type.intern "Array")
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
+(* cancel 節で握り潰した例外の行き先です(sample.kel:392 の「cancel 節は自身の行から
+   抜け出せない。例外相当を投げても抑制されてログに回る」)。ライブラリが直接
+   stderr を触らないよう 1 段はさみ、driver (第16章) が差し替えます。 *)
+
 (* cancel 節内の例外の抑制ログ(sample.kel:392)。driver が差し替える *)
 let cancel_log : (string -> unit) ref = ref (fun _ -> ())
 
-(* ---- パターン照合 ---- *)
+(* ## 14.2 パターン照合 — 失敗は例外ではない
+
+   `match_pat` は「成功したら束縛を積んだ locals を `Some` で、失敗したら `None`」
+   を返します。**失敗を例外にしない**のが要点です。照合の失敗は match の次の節へ
+   進むための正常な制御であって、エラーではありません。
+
+   細部で効いているのは 3 つです。
+
+   - **レコードは最左一致**(Scoped Labels、第12章)。`record_take` が最左の同名を
+     1 つ取り出して残りを返すので、同名ラベルを 2 つ持つ値から 2 回取ると
+     2 回目は隠れていた方に当たります。ラベルが無いときに `record_take` が投げる
+     `Runtime_error` は、ここでは**照合の失敗**なので `exception` パターンで
+     受けて `None` に変えます。実行時エラーとして外へ出してはいけません。
+   - **コンストラクタパターンは表引きだけ**。位置引数とラベル引数の混在、
+     省略されたフィールドの扱いは、elab が `field_to_arg` に畳んであります
+     (第5章 tree.ml の `resolved`)。ここで名前解決をやり直すと、elab と interp が
+     同じ規則を二重に実装してドリフトします。`None` は「そのフィールドは
+     パターンで触れていない」の意味です。
+   - **数値パターンは字面ではなく値で比べる**。リテラルの字面をその値の型で
+     読み直してから比較するので、`0x1` と `1` は一致します(実装記録の乖離11。
+     elab の重複検出も同じ正規化を使っています)。
+
+   `bind_pat_exn` は反駁不可であるべき位置 — `let`、関数引数、`return` 節、
+   操作節の引数 — で使います。ここで落ちたら網羅性検査か elab の穴です。 *)
 
 let rec match_pat locals ((_, p) as node : T.pat) v =
   match p with
@@ -55,6 +147,7 @@ let rec match_pat locals ((_, p) as node : T.pat) v =
         | (l, sub) :: tl -> (
             match record_take remaining (Type.intern l) with
             | x, remaining' -> ( match match_pat locals sub x with Some locals -> go locals remaining' tl | None -> None)
+            (* ラベルが無いのは照合の失敗であって実行時エラーではない *)
             | exception Runtime_error _ -> None)
       in
       match v with VRecord _ -> go locals v fields | _ -> None)
@@ -67,6 +160,7 @@ let rec match_pat locals ((_, p) as node : T.pat) v =
                 if fi >= Array.length field_to_arg then Some locals
                 else
                   match field_to_arg.(fi) with
+                  (* 省略されたフィールドは触らない *)
                   | None -> go locals (fi + 1)
                   | Some ai -> (
                       match match_pat locals (List.nth args ai).T.cap_pat d.d_fields.(fi) with
@@ -82,7 +176,20 @@ let bind_pat_exn locals pat v =
   | Some locals -> locals
   | None -> runtime_error ("パターンに値が一致しません: " ^ show v)
 
-(* ---- 評価器 ---- *)
+(* ## 14.3 数値リテラル — 評価器が elab の型を読む唯一の場所
+
+   `1` が `Int32` なのか `Int64` なのか `Float64` なのかは、字面からは決まりません。
+   決めるのは型検査で、既定化 (defaulting、D8) の結果がノードの型に書かれています。
+   評価器が elab の書き込みを読むのは**ここだけ**です(§8.3)。ほかのノードは
+   `resolved`(解決結果)しか読みません。
+
+   > 型を実行時に持ち回らないための代償は、リテラル 1 か所の型読みだけで済む。
+
+   字面は字句解析のまま(`0x` 接頭辞やアンダースコア区切りを含む)保持されており、
+   OCaml の `Int32.of_string` がそれをそのまま解釈できます。範囲外は `Failure` を
+   `Runtime_error` に包み直します。包み忘れると OCaml の生の例外が driver の
+   終了コード規約(第16章)を素通りします — 敵対的検証の頑健性の項でまとめて
+   塞いだ穴の 1 つです。 *)
 
 let number_value node (n : number) =
   let head =
@@ -97,6 +204,50 @@ let number_value node (n : number) =
     | "Float64" -> VFloat64 (float_of_string n.n_text)
     | t -> runtime_error ("数値リテラルの型が不正です: " ^ t)
   with Failure _ -> runtime_error ("数値リテラルが範囲外です: " ^ Lexer.show_number n)
+
+(* ## 14.4 eval の骨格 — 順序を言語仕様から切り離す
+
+   本体は素直な木の巡回です。ノードごとに注意点だけ書きます。
+
+   ### 評価順序
+
+   `Apply` / `BinOp` / `RecordUpdate` は `let` で左から右を固定します。OCaml に
+   任せると右から左になるので、副作用のあるプログラム(perform を含む)の
+   出力順が仕様と食い違います。書き味の問題ではなく、**観測できる意味論**です。
+
+   `RecordExtend (rest, l, v)` だけは **value が先、rest が後**です。AST の
+   フィールド順と逆なので目で追うと間違えます。仕様(sample.kel:203)が
+   `{l = e extends r}` を「e を先、r を最後」と定めているためで、タプルの脱糖が
+   この規則に乗ることで `(a, b, c)` が a → b → c の順に評価されます。
+
+   `Construct` は 2 つの順序を分けます。**評価はソース順、格納は宣言フィールド順**。
+   `List.iteri` の副作用でソース順に評価し、書き込み先は elab が作った
+   `arg_to_field` 表で引きます。ラベル引数を宣言と違う順で書いたときに、
+   評価順だけがソースに従います。
+
+   ### ノードごとの要点
+
+   - **`Ident` は 3 段引き**: locals(不変 Map)→ globals(可変 Hashtbl)→
+     引数なしコンストラクタ。globals が可変なので、トップレベルの相互参照と
+     前方参照が追加コードなしで通ります(第12章の環境の二層構造)。
+   - **`BinOp`** は第7章 (prims.ml) の表を引くだけです。`&&` と `||` だけは
+     型クラスにできません — 短絡するので右辺を評価しないから(D9)。
+     `!=` は `Eq.eq` の否定として同じ表に入っています。
+   - **`Match`** のガードが偽なら**次の節へ落ちます**。`try_clauses` は末尾再帰で、
+     節本体の `eval` も末尾位置にあります(規約 1)。なお同じ「ガードが偽」でも
+     ハンドラの操作節では後送りできず実行時エラーです(§14.10 の既知の制限)。
+   - **`Perform`** は elab が `resolved` に書いた**完全操作名**の oid をそのまま
+     使います。非修飾名の解決(D22 の「行の最左優先」)は型検査で終わっており、
+     実行時に名前で悩むことはありません。
+   - **`Resume`** は引数を**先に**評価します。`resume(f())` の `f` が例外で脱出した
+     とき、resume は未消費のまま節の例外経路(§14.10 の discontinue)に乗るべき
+     だからです。順序を入れ替えると、消費済みの継続を捨てることになります。
+   - **`Run`** は実行時には恒等写像です。`run h { … }` の `h` は型だけの存在で、
+     リージョン安全性は第11章の剛定数とレベルが保証済みです。操作を持たない
+     エフェクトラベル(`Heap`、`Blocking`、`pinned`)が実行時 no-op という
+     §8.4 の統一規則の、一番目立つ現れがこれです。
+
+     > 型で守り切れたものは、実行時に守り直さない。 *)
 
 let rec eval env ((_, e) as node : T.exp) : Value.t =
   match e with
@@ -118,6 +269,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
               | _ -> runtime_error ("未束縛の変数: " ^ name))))
   | T.Lambda { l_params; l_body } -> VClosure { c_env = env; c_params = l_params; c_body = l_body }
   | T.Apply (f, arg) ->
+      (* 左から右。OCaml の未規定評価順に任せない(§8.3) *)
       let vf = eval env f in
       let va = eval env arg in
       apply vf va
@@ -159,7 +311,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.Seq es ->
       let rec go = function
         | [] -> unit
-        | [ last ] -> eval env last
+        | [ last ] -> eval env last (* 末尾式は末尾呼び出しのまま *)
         | s :: rest ->
             let _ = eval env s in
             go rest
@@ -175,6 +327,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
             | Some locals -> (
                 let env2 = { env with locals } in
                 match c.T.cl_guard with
+                (* ガードが偽なら次の節へ落ちる *)
                 | Some g -> if Builtin.as_bool (eval env2 g) then eval env2 c.T.cl_body else try_clauses rest
                 | None -> eval env2 c.T.cl_body))
       in
@@ -212,6 +365,19 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
             Effect.Deep.continue r.r_k v))
   | T.Run (_, body) -> eval env body (* 実行時は恒等。型が安全性を保証する(§8.4) *)
 
+(* ## 14.5 適用 — arity 検査は閉じた行の実行時版
+
+   関数は多引数で単値を返し、引数は 1 つのレコードに詰めて渡します(D5)。
+   よって適用は「引数レコードのフィールドを仮引数パターンに順に束縛する」だけです。
+
+   個数の不一致はここでは本来起きません。arity は矢印型の一部で、閉じた `_item`
+   行の単一化として型検査が弾いているからです(sample.kel:125-126)。残してある
+   のは、プリミティブ経由や内部バグで壊れた引数が来たときに `Array.for_all2` の
+   `Invalid_argument` のような無関係な例外に化けさせないための保険です。
+
+   束縛の土台が `c.c_env.locals`(定義時の環境)であることが静的スコープの実装です。
+   呼び出し側の locals は一切混ざりません。 *)
+
 and apply vf vargs =
   match vf with
   | VClosure c ->
@@ -223,11 +389,45 @@ and apply vf vargs =
         let locals =
           List.fold_left2 (fun locals p (_, v) -> bind_pat_exn locals p v) c.c_env.locals c.c_params fields
         in
+        (* 本体は末尾位置(規約 1) *)
         eval { c.c_env with locals } c.c_body
   | VPrim p -> p.p_fn vargs
   | v -> runtime_error ("関数ではない値を適用しました: " ^ show v)
 
-(* ---- 型クラスの実行時ディスパッチ(D3、§8.5) ---- *)
+(* ## 14.6 どの引数でディスパッチするか — 実際に踏んだ健全性のバグ
+
+   辞書渡しをしない実装(D3)は、実行時に「どの値のタグでインスタンスを選ぶか」を
+   決めなければなりません。素朴な答えは「引数を左から見て、最初にインスタンスを
+   持つ値で決める」です。**これは誤りでした。**
+
+   反例は 260829-2b の敵対的検証で実際に動かしたものです。
+
+   ```keleut
+   type class Pick[A] { val pick: (Int32, A) => Int32 }
+   type instance Pick[Int32]  { let pick(n, a) = a }
+   type instance Pick[String] { let pick(n, a) = n }
+   let s: String = ...    // 何か String の値
+   pick(0, s)
+   ```
+
+   左から走査すると第 1 引数の `Int32` に `Pick[Int32]` が当たり、実行時は
+   `Pick[Int32]` を選びます。ところが elab はクラスパラメータ `A` の位置で
+   解決するので `Pick[String]` を選びます。**型検査と実行が別のインスタンスを
+   選ぶ**、つまりコヒーレンスが実行時に破れている状態です。
+
+   正しい規約は「**クラスパラメータが頭に現れる引数位置だけで選ぶ**」。
+   `dispatch_positions` はメソッドスキーマ(Generic マーク済み)の引数レコードを
+   走り、型適用の背骨 (`app_spine`) の頭が当のクラスパラメータである位置を
+   集めます。elab 側の `register_class` は、宣言時に「少なくとも 1 つの引数の
+   頭にパラメータが現れること」を要求しており(`List[A]` のように内側へ埋もれた
+   形は宣言を拒否)、**両側がまったく同じ述語を見ています**。
+
+   > ディスパッチの規約は、宣言を受理する側と実行する側で同じ 1 つでなければならない。
+
+   位置が 1 つも取れなかったときは全走査に落とします。組み込みクラスのように
+   スキーマの形が想定と違う場合の安全側で、選択肢が狭まるより広い方が
+   「インスタンスが無い」で落ちにくいからです。回帰テストは
+   test/verify_fixes.t の pick.kel です。 *)
 
 (* メソッドスキーマから「クラスパラメータが頭に現れる引数位置」を求める。
    ここだけでディスパッチする(elab.ml の register_class と同じ規約)。
@@ -251,6 +451,29 @@ and dispatch_positions ci meth =
           | _ -> [])
       | _ -> [])
   | None -> []
+
+(* ## 14.7 dispatch — 探索の順序とフォールバック
+
+   候補位置の値を左から見て、最初に実装が見つかった値でメソッドを決めます。
+   1 つの値について引く順序は **ユーザ宣言インスタンス → 組み込みメソッド表**
+   です(ユーザ宣言が組み込みキーを奪えないことは §14.13 で別に保証します)。
+
+   どこにも無ければ**構造的導出**へ落ちます。v0 が構造的に導出するのは `Eq` だけで
+   (sample.kel:305-309 の「ユーザには書かせない。組み込みの自動導出のみが与える」)、
+   クラス宣言に付いた `derive structural` が実体です。
+
+   ここで効いている不変条件があります。elab 側(第8章 unify.ml)は構造的導出を
+   **閉じた行のレコードとヴァリアントにしか**適用しません。それ以外の型に `Eq` が
+   要求されればインスタンス表を引き、無ければ型エラーです。だから実行時に
+   この分岐へ来る値は、型検査を通った範囲ではレコードかヴァリアント
+   — `tycon_of_value` が `None` を返した値 — に限られ、elab の判定と選択が一致します。
+
+   逆に言えば、ここで「インスタンスが見つかりません」が出たら、それは実行時の
+   問題ではなく**型検査側か表の登録側の穴の報告**です。実際、module の中で宣言した
+   instance が実行時に見つからない欠陥は、この形で表に出ました(§14.13)。
+
+   > 実行時ディスパッチが正しいのは、コヒーレンスが保証されているからであって、
+   > 探索が賢いからではない。 *)
 
 and dispatch cls_name meth args =
   let cls_oid = Type.intern cls_name in
@@ -284,6 +507,24 @@ and dispatch cls_name meth args =
             (cls_name ^ "." ^ meth ^ " のインスタンスが見つかりません: "
             ^ String.concat ", " (List.map show vals)))
 
+(* ## 14.8 構造的等価 — 物理順序で比べてはいけない
+
+   `{p = 1, q = 2}` と `{q = 2, p = 1}` は同じ値です。行の型は最左一致で決まる
+   一方、異なるラベルの間には順序がありません。よって値のフィールドリストを
+   前から突き合わせる比較は**誤り**です。正しい手順は「左のフィールドを順に取り、
+   右から**最左の同名**を取り出して消す」。最後に右が空になれば一致です
+   (右に余分なフィールドがあればここで落ちます)。
+
+   フィールドの比較を直接の再帰ではなく `value_eq`(= `dispatch Eq.eq`)に通すのも
+   意図的です。フィールドにユーザ定義の `Eq` を持つ newtype があるとき、宣言された
+   インスタンスを無視して構造をのぞき込んではいけません。
+
+   引数レコードに `_item` が 2 つ並ぶのは Scoped Labels だからです(D5)。重複を
+   許すと決めたことが、そのまま多引数の表現になっています。
+
+   関数の比較は実行時エラー。Float は `__float64_eq` に落ちるので IEEE の意味論
+   (NaN ≠ NaN)がそのまま出ます。 *)
+
 and value_eq a b = Builtin.as_bool (dispatch "Eq" "eq" (VRecord [ (Type.l_item, a); (Type.l_item, b) ]))
 
 (* レコードは「左のフィールドを順に、右から最左同名を取り出して消す」(§8.2。
@@ -293,7 +534,7 @@ and structural_eq a b =
   | VRecord fs1, VRecord _ ->
       let rec go fs1 rv =
         match fs1 with
-        | [] -> record_fields rv = []
+        | [] -> record_fields rv = [] (* 右に余りがあれば不一致 *)
         | (l, x) :: rest -> (
             match record_take rv l with
             | y, rv' -> value_eq x y && go rest rv'
@@ -308,7 +549,22 @@ and structural_eq a b =
   | (VClosure _ | VPrim _), _ | _, (VClosure _ | VPrim _) -> runtime_error "関数は比較できません"
   | _ -> value_eq a b
 
-(* ---- let 束縛 ---- *)
+(* ## 14.9 let と let rec — バックパッチが要る場所、要らない場所
+
+   `eval_binding_value` は、引数リストが付いていれば右辺を**評価せずに**
+   クロージャを作ります。`let f(x) = …` は関数定義であって、右辺の式ではありません。
+
+   `let rec` は 3 手です。**クロージャ生成 → 環境構築 → `c_env` バックパッチ**。
+   相互再帰する関数は「自分たちを含む環境」を捕まえる必要があり、その環境は
+   クロージャが出来上がるまで作れないので、循環を後から結びます。第12章で
+   `c_env` だけが mutable なのはこの 3 行のためです。
+
+   右辺が関数でないときは実行時エラーですが、ここへは来ません。「型検査は通るのに
+   実行時に必ず落ちる」`let rec x = x + 1` の類は elab が拒否するようになりました
+   (260829-2b の健全性 9)。**必ず落ちるプログラムを実行時まで運ばない**のが方針です。
+
+   トップレベルの `let rec` (§14.13) にバックパッチが要らないのは、globals が
+   共有の可変表で、名前解決が呼び出し時に起きるからです。 *)
 
 and eval_binding_value env ((_, b) : T.let_binding) =
   match b.T.lb_params with
@@ -340,7 +596,104 @@ and eval_rec_bindings env (bs : T.let_binding list) =
   List.iter (fun (_, c) -> c.c_env <- { env with locals }) closures;
   locals
 
-(* ---- エフェクトハンドラ(§8.4。spike S2 のプロトコル) ---- *)
+(* ## 14.10 ハンドラ — この章の心臓
+
+   1 つの `handle` 式は `Effect.Deep.match_with` 1 枚です。節の振り分けは elab が
+   `resolved` に書いたタグ(`ROp` / `RReturnClause` / `RCancelClause`)を読むだけで、
+   操作名の解決はここではやりません。
+
+   ### 起動ごとの inst — ハンドラの同一性は「場所」ではなく「起動」
+
+   `inst` は **Handle ノードを評価するたびに** `new_oid ()` で採番します。AST の
+   ノード id を流用してはいけません。同じ handle 式が入れ子に活性化する場面
+   — 再帰の中の handle、`with_file` を 2 回呼んだ入れ子 — で、内側が**外側宛の
+   `Unwind` を自分宛と誤認して飲み込む**からです。spike の TEST 6 で、共有した
+   場合に結果が `#Err(boom)` ではなく `#Ok(#Err(boom))` に化けることを実測しました。
+
+   > ハンドラの同一性は、書かれた場所ではなく、その起動そのものである。
+
+   ### Unwind が運ぶプロトコル
+
+   `Unwind (inst, v)` は例外の形をした手紙です。中身は「resume されずに終わった
+   節の値 `v` を、`inst` 番のハンドラの handle 式全体の値として届けてほしい」。
+
+   1. 節が resume を呼ばずに `v` を返す。
+   2. `discontinue k (Unwind (inst, v))` で、捨てる継続の中にこの例外を叩き込む。
+   3. 中断されたフラグメントが内側から巻き戻る。途中のハンドラは `exnc` で
+      「自分宛でない `Unwind`」を見て、`cancel` 節を走らせてから再送出する。
+   4. 最後に自分の `exnc` が `id = inst` を見て `v` を返す。これが handle 式の値。
+
+   後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからです。
+   評価器に順序を管理するコードはありません(spike TEST 3 で `with_file` 2 枚重ねの
+   close 順を確認済み)。仕様(sample.kel:379-392)が defer 構文を持たず「後始末は
+   ハンドラの cancel 節」と決めたことが、実装ではこの 4 行に落ちます。
+
+   ### 3 つの径路 — resume されない経路と例外経路
+
+   `effc` が返す関数は、節の評価が**どう終わったか**で 3 つに分かれます。
+
+   | 節の終わり方 | すること | 理由 |
+   |---|---|---|
+   | resume 済み、値 `v` | `v` を返す | 継続は消費済み。返り値が handle 式の値 |
+   | 未 resume、値 `v` | `discontinue k (Unwind (inst, v))` | 捨てた継続の cancel |
+   | 例外 `ex` で脱出 | `discontinue k ex`(未 resume なら) | 同上 + 自分の cancel |
+
+   2 行目で `v` を直接返してはいけない理由は、捨てた継続の中のハンドラの
+   `cancel` 節が走らず**資源が漏れる**からです(spike TEST 14: `__close` が
+   一度も出ない)。
+
+   3 行目は素朴に書くと必ず落とす分岐です。節の中で `???` に到達した、実行時エラーが
+   起きた、外側の `Unwind` が通過した — どの場合も `discontinue` が要ります。
+   落とすと 2 つ壊れます。(a) 捨てた継続の中の cancel が走らない。(b) `effc` から
+   の素の `raise` は**親スタック上を伝播するので自分の `exnc` を素通りし**、
+   自分の cancel すら走らない。spike の TEST 4b / 4c で両方を実測し、回帰テストは
+   test/eval.t の holecancel.kel(節本体が `???` でも内側の cancel が走る)です。
+
+   > 継続を捨てるときは、捨てたことを継続に知らせる。
+
+   ### 末尾 resume 最適化 — 性能ではなく実用条件
+
+   上の 3 径路の判定は、節の評価を `match … with exception` で包むことを要求します。
+   その 1 枚が `continue` を `effc` の末尾式でなくします。計測(§8.4)では、
+   継続の発行を末尾にしない実装は perform 100 万回で約 26 倍、1000 万回で約 300 倍
+   遅くなりました(Stack_overflow はしません。fiber のスタックは伸びます)。
+
+   `case op(x) => resume(…)` はプレリュードのハンドラのほぼ全部です。そこで
+   **節本体が構文的に `Resume` そのものなら**、3 径路の判定ごと畳んで
+   `Effect.Deep.continue k v` を末尾発行します。ゴールデン test/eval.t の
+   「10 万回の println」がこの経路の回帰テストで、最適化が外れれば実行時間で
+   気づけます。**最適化というより実用条件**で、M10 送りにしなかったのはそのためです。
+
+   代償は正直に書きます。この経路だけは節を包んでいないので、**resume の引数の
+   評価が例外で脱出したときに `discontinue` が走りません**。引数が純粋な計算で
+   ある限り踏みませんが、穴であることに変わりはありません。
+
+   ### アフィンな resume と second-class
+
+   `r_used` はアフィン性(高々 1 回)、`r_alive` は second-class(節の外へ
+   持ち出さない)の実行時側です。OCaml も 2 度目の `continue` で
+   `Continuation_already_resumed` を投げますが、それでは Keleut のエラーとして
+   説明にならないので、先に自前で弾いて日本語のメッセージを出します。
+   `r_alive` は D19 の 2 段構えの片方で、もう片方 — 節本体のラムダの中に
+   `resume` があれば拒否する構文検査 — は elab にあります。
+
+   ### cancel 節の実行文脈
+
+   `run_cancel` は `exnc` の中、つまり**巻き戻しの途中**で走ります。このとき
+   外側のハンドラに加えて「いま巻き戻しを起こしている当のハンドラ」も有効です
+   (deep handler は discontinue のあとも再設置されるため)。cancel 節からその
+   ハンドラの操作を perform すると再入が起き、生成される `Unwind` は cancel 節内の
+   例外として抑制されます(spike TEST 7b で実測)。型検査を通る正当なプログラムで
+   起きるので、仕様側への申し送り事項として記録してあります。
+
+   cancel 節の例外をすべて握り潰してログに回すのは仕様(sample.kel:392)です。
+   OCaml の生の例外表現がそのままログに出ないよう、`Printexc.to_string` を通します。
+
+   ### 既知の制限
+
+   ガード付きの操作節は、ガードが偽のときに「次の節へ送る」ことができません
+   (match のガードとは違う)。継続を保持したまま節を後送りする意味論を v0 では
+   決めていないため、実行時エラーにしています。sample.kel に該当例はありません。 *)
 
 and eval_handle env body clauses =
   (* inst は Handle ノードの評価のたびに採番する(入れ子活性化が外側宛の Unwind を
@@ -382,6 +735,7 @@ and eval_handle env body clauses =
       exnc =
         (fun ex ->
           match ex with
+          (* 自分宛の巻き戻し: 保留していた節の値が handle 式の値になる *)
           | Unwind (id, v) when id = inst -> v
           | ex ->
               (* 外側による巻き戻し(または実行時エラー)の通過: cancel 節を実行してから再送出 *)
@@ -420,6 +774,7 @@ and eval_handle env body clauses =
                           match eval { env with locals; resume = Some r } c.T.cl_body with
                           | v ->
                               r.r_alive <- false;
+                              (* 未 resume なら継続を巻き戻し、自分の exnc で v を拾い直す *)
                               if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
                           | exception ex ->
                               (* 節が例外で脱出したときも必ず discontinue(捨てた継続の中の
@@ -429,7 +784,20 @@ and eval_handle env body clauses =
           | _ -> None);
     }
 
-(* ---- トップレベル ---- *)
+(* ## 14.11 組み込み値 — Ref と Array は素の OCaml
+
+   `Ref` は OCaml の `ref`、`Array` は OCaml の配列です。リージョン安全性
+   (`run h { … }` の外へ持ち出せないこと)は第11章の剛定数とレベルが型で
+   保証しているので、実行時には包みも検査もありません。§14.4 の `Run` が
+   恒等写像であることと同じ話の裏側です。
+
+   一方で配列の**範囲検査は実行時**です。長さは型に載っていないので、
+   ここは型では守れません。負の長さの `Array.new` も同じ理由で実行時に弾きます。
+
+   `Array.each` が `apply` を呼ぶことには意味があります。渡された関数の中で
+   `perform` が起きても、OCaml のエフェクトは間に挟まる `Array.iter` の
+   スタックフレームを越えて外側のハンドラまで届きます。組み込み関数を
+   「エフェクトを通す穴」にするための特別な仕掛けは要りません。 *)
 
 let register_builtin_values globals =
   let reg n f = Hashtbl.replace globals n (VPrim { p_name = n; p_fn = f }) in
@@ -452,6 +820,7 @@ let register_builtin_values globals =
       match Builtin.arg_values args with
       | [ VArray a; VInt32 i ] ->
           let i = Int32.to_int i in
+          (* 長さは型に載っていないので、ここだけは実行時に守る *)
           if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です" else a.(i)
       | _ -> runtime_error "Array.get の引数が不正です");
   reg "Array.set" (fun args ->
@@ -470,6 +839,16 @@ let register_builtin_values globals =
           unit
       | _ -> runtime_error "Array.each の引数が不正です")
 
+(* ## 14.12 クラスメソッドの識別子参照
+
+   `eq(a, b)` や `show(x)` のようなメソッドの**識別子参照**は、`dispatch` を
+   呼ぶだけのラッパ prim を globals に置いて素通しにします。ラッパは呼ばれた
+   時点で表を引くので、インスタンス宣言との前後関係を気にしなくて済みます。
+
+   登録する名前は**非修飾と修飾の両方**です(実装記録の乖離12)。`map` でも
+   `Functor.map` でも引けます。非修飾名は最後に登録したクラスが勝つので、
+   同名メソッドを持つクラスが 2 つあるときに確実なのは修飾名の方です。 *)
+
 (* クラスメソッドの識別子参照は dispatch へのラッパで素通しにする(§8.5) *)
 let register_class_methods globals =
   Hashtbl.iter
@@ -482,6 +861,34 @@ let register_class_methods globals =
           Hashtbl.replace globals (cls_name ^ "." ^ m) wrapper)
         ci.Decls.ci_methods)
     Decls.classes
+
+(* ## 14.13 宣言の実行 — インスタンス表に触る唯一の場所
+
+   トップレベルの `let` / `let rec` は globals へ直に置きます。バックパッチが
+   要らないのは §14.9 で述べたとおりです。
+
+   `type instance` の処理には、敵対的検証で見つけた欠陥の修正が 2 つ入っています。
+
+   **(1) 同義語表を引く。** module は型検査の前に平坦化されます(第11章の
+   `flatten_modules`、実装記録の乖離5)。`module BigInt { newtype BigInt … }` の
+   型は `BigInt.BigInt` に改名されます。
+   インスタンス頭に書かれた非修飾名をそのまま鍵にすると、宣言した実体が
+   実行時に見つかりません(検証の健全性 6)。`Decls.resolve_con` に通して
+   elab と同じ名前へ寄せます。回帰テストは test/verify_fixes.t の modinst.kel です。
+
+   **(2) 組み込みインスタンスを差し替えない。** `type instance Add[Int32]` を
+   ユーザが再宣言できてしまうと、elab は組み込みの `Add[Int32]` で型検査し、
+   実行時だけユーザの実体が使われます。検証では `2 + 3` が `-1` になりました
+   (健全性 5)。組み込みクラスの組み込みキーと同じ `(cls, con)` は、宣言を
+   受理したうえで**実体を差し替えません**。
+
+   > 実行時にだけ効く差し替えは、型検査が見ている世界との分裂である。
+
+   `extern` は、実装が無ければ「呼ばれた時点で落ちる prim」を登録します。宣言だけ
+   して呼ばないプログラムを通すためで、嘘の型での再宣言は elab が拒否します
+   (健全性 8)。`type` / `newtype` / `effect` / `type class` は実行時に何もしません
+   — 値を作らない宣言で、必要な情報は第6章の表に入っています。`module` は
+   平坦化を通っていれば到達しません。 *)
 
 let exec_decl env ((_, d) : T.decl) =
   match d with
@@ -538,11 +945,29 @@ let exec_decl env ((_, d) : T.decl) =
       let impl =
         match Builtin.find_prim ex.T.ex_name with
         | Some f -> f
+        (* 実装が無くても宣言は通す。落ちるのは呼ばれた時点 *)
         | None -> fun _ -> runtime_error ("未実装のプリミティブ: " ^ ex.T.ex_name)
       in
       Hashtbl.replace env.globals ex.T.ex_name (VPrim { p_name = ex.T.ex_name; p_fn = impl })
   | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> ()
   | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
+
+(* ## 14.14 run — 最外周に 1 枚だけ敷く
+
+   `run` は宣言を順に実行するだけですが、全体を `Builtin.with_runtime`(第13章)
+   の中で走らせます。これがランタイム提供エフェクトのハンドラで、
+   `Console.write` を出力シンクへ、`Async.yield_` / `Async.sleep` を即 continue へ
+   落とします。ここにも届かなかった操作は `Effect.Unhandled` として driver が
+   操作名込みで報告します(§8.4)。
+
+   > プログラムの外側はハンドラである。エフェクトを「未処理」にする場所を 1 つ決める。
+
+   冒頭の 3 つの `Hashtbl.reset` は、同じプロセスで `run` を繰り返すテストのため
+   です(インスタンス表と、第13章のメモリ上ダミーファイルシステム)。前回の
+   実行の痕跡が次の実行に漏れると、ゴールデンが実行順に依存し始めます。
+
+   返り値は捨てます。暗黙の main はなく、トップレベルの式文は順に実行されるだけで、
+   その値は誰も見ません(§8.7)。 *)
 
 let run ~sink decls =
   Hashtbl.reset user_instances;
@@ -556,3 +981,39 @@ let run ~sink decls =
     (Builtin.with_runtime ~sink (fun () ->
          List.iter (exec_decl env) decls;
          unit))
+
+(* ## 14.15 この章の限界と、次に足すもの
+
+   ### fiber の上では Stack_overflow が遅れて来る
+
+   ハンドラの本体は fiber の上で走ります。fiber のスタックはヒープ上で伸びるので、
+   暴走した再帰が `Stack_overflow` として現れるのは通常のスタックより**遅い**
+   — 先にメモリを食い、`Out_of_memory` として現れることもあります。だから
+   driver (第16章) は `Stack_overflow` と `Out_of_memory` を同じ終了コード 3 に
+   落としています。同じ理由で、深い非末尾再帰の「限界」を評価器のテストで
+   固定するのは意味がありません(環境のメモリ量で変わるため)。
+
+   ### 残している穴
+
+   - **ガード付き操作節の後送り**。ガードが偽のとき、継続を保持したまま次の節へ
+     送る意味論を決めていないので実行時エラーです。
+   - **末尾 resume 経路の引数例外**。§14.10 のとおり、この経路だけ `discontinue` が
+     走りません。単に 3 径路の判定へ戻すと §14.10 の性能特性を失うので、速い経路を
+     保ったまま塞ぐ形(引数が構文的に値なら包まない、など)が要ります。
+   - **同名メソッドの非修飾名**は後勝ちです(§14.12)。
+
+   ### 静的化への移行路
+
+   D3 は動的ディスパッチを選びましたが、逃げ道は開けてあります。elab が呼び出し
+   地点の `resolved` にインスタンスを注記すれば、`dispatch` の表引きを飛ばせます。
+   **動的ディスパッチをフォールバックに残したまま**段階的に移行できるので、
+   v1 で高階カインドが入り `pure` のような型からしか決まらないメソッドが
+   必要になった時点で発動できます(§8.5)。
+
+   この章で外すと静かに壊れるものを、最後にもう一度並べておきます。
+
+   1. 起動ごとの `inst` 採番(共有すると入れ子で `Unwind` を横取りする)
+   2. 未 resume と例外脱出の両方での `discontinue`(落とすと資源が漏れる)
+   3. 節本体が `Resume` のときの末尾 `continue`(落とすと実用速度を失う)
+   4. クラスパラメータ位置だけでのディスパッチ(外すとコヒーレンスが破れる)
+   5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)
