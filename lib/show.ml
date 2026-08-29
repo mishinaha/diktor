@@ -156,22 +156,28 @@ let show_all ts =
    どちらも「あなたが `A` と書いたその `A` は、ここでは
    何にでもなれるわけではない」という話なので、`ς` の見え方が効きます。
 
+   剛定数の制約は台帳に載せません (M19 / G4c)。載せると `[ς1: Add] ς1`
+   と出て、§9.7 の角括弧 — ユーザがそのまま束縛子へ書き写せる形式 — に
+   書き写せない名前が混ざります。剛定数に足りない制約の直し方は、それを
+   報告するメッセージ自身が「[A: Ord] のように」と述べています。
+   **同じ情報を、書き写せない形式でもう一度見せない。**
+
    なお `kind_repr` の分岐で `KVar` が `_` (最後の枝) に落ちて `Type` 扱いに
    なる点は意図どおりです。カインドが未確定のまま印字に来た変数は、
    宣言終了時に `KStar` へ既定化される運命 (D7) なので、
    先回りして `Type` のプールから名前を採ります。 *)
 
   let rigid_name i =
-    let n =
-      match Hashtbl.find_opt names i.vid with
-      | Some n -> n
-      | None ->
-          incr rigid_count;
-          let n = "ς" ^ string_of_int !rigid_count in
-          Hashtbl.add names i.vid n;
-          n
-    in
-    record_cs n i.vcls
+    (* 剛定数は制約台帳に載せない(M19 / G4c)。ς はユーザが書ける名前では
+       ないので、角括弧の前置に出すと「書き写せる制約」に見える
+       (§9.2 / §9.7)。直し方は報告メッセージ自身が述べている *)
+    match Hashtbl.find_opt names i.vid with
+    | Some n -> n
+    | None ->
+        incr rigid_count;
+        let n = "ς" ^ string_of_int !rigid_count in
+        Hashtbl.add names i.vid n;
+        n
   in
 
 (* ## 9.3 タプルの再糖衣化
@@ -359,7 +365,8 @@ let show_all ts =
    全部の型を印字し終えてから、台帳に溜まった制約を前置します。
    `[A: Add + Mul, F: Functor] (F[A]) => A` の形で、これは Keleut の
    型パラメータ束縛子の構文そのものです。ユーザは制約を見たら
-   そのまま `let f[A: Add + Mul]...` と書き写せます。
+   そのまま `let f[A: Add + Mul]...` と書き写せます(だから前置に
+   載るのは Generic と Unbound の変数だけです — §9.2)。
 
    ここも印字が最後に走る点が重要です。`go` を先に全部走らせないと、
    どの変数に名前が付き、どの制約が実際に登場したかが確定しません。

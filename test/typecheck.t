@@ -392,3 +392,13 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   $ diktor --type-check --no-prelude rowname.kel
   g : ({x: {y: A extends R1} extends R2}) => A
   h : ({x: {y: A extends R1}, p: {q: B extends R2} extends R3}) => (A, B)
+
+剛定数の制約は角括弧の前置に出さない(§9.2: ς はユーザが書ける名前では
+ない。M19 / G4c — かつては [ς1: Add] ς1 と出た):
+
+  $ cat > rigidcls.kel <<'KEL'
+  > let cmp2[A: Add](x: A, y: A): Boolean = x < y
+  > KEL
+  $ diktor --type-check --no-prelude rigidcls.kel
+  ! rigidcls.kel:1:41: 型エラー: 型パラメータ ς1 は Ord のインスタンスではありません。[A: Ord] のように制約を書いてください
+  [1]
