@@ -15,7 +15,7 @@
    | 渡すもの | 受け取る章 |
    |---|---|
    | `unify` / `add_class` | 第11章 (elab.ml) の全規則、第10章 (exhaust.ml) の 1 か所 |
-   | `generalize` / `default_numerics` / `reset` | 第11章 — let と宣言の終端 |
+   | `generalize` / `default_numerics` / `check_ambiguity` / `reset` | 第11章 — let と宣言の終端 |
    | `instantiate` / `skolemize` | 第11章 — 変数参照と、インスタンス本体の包摂検査 |
    | `subst_params` | 第10章・第11章 — コンストラクタのフィールドの展開 |
    | `rewrite_row` | 第11章 — フィールドアクセスの規則 |
@@ -224,20 +224,22 @@ let rec occurs_adjust tv lvl t =
    「型変数」か「具体型の頭」にしか貼れません。MiniLang §5.3 と同じ限界で、
    ここを越えたければ制約を持ち回る仕組み一式が必要になります。
 
-   ### 台帳 predicate_vars
+   ### 台帳 class_vars
 
-   予約述語が乗った変数だけを別に記録しておきます。一般化点に到達しない
-   述語つき変数 — 途中で捨てられる中間結果の型など — を、宣言の終わりに
-   まとめて既定値へ落とすためです (§8.9 の `default_numerics`)。
-   MiniLang の `classVars` は曖昧性検査のための台帳でしたが、
-   Keleut では曖昧性検査を v1 に送り、代わりに既定化の掃除に使っています。
-   同じ台帳が別の目的に転用できるのは、どちらも
-   「型から到達できない制約つき変数を見つける」問題だからです。 *)
+   制約が乗った変数を記録しておきます(MiniLang の `classVars` と同じ)。
+   台帳は 2 つの仕事を兼ねます — 予約述語つきの弱変数を宣言の終わりに
+   既定値へ落とす掃除 (§8.9 の `default_numerics`) と、型から到達できない
+   制約つき変数を報告する曖昧性検査 (§8.9 の `check_ambiguity`、M17 / D48)。
+   同じ台帳で両方できるのは、どちらも
+   「型から到達できない制約つき変数を見つける」問題だからです。
+   かつては予約述語つきだけを控えて掃除にしか使わず、曖昧性検査は
+   「残っている穴の 1 つ」(第1章 §1.4)でした。 *)
 
 let is_predicate c = c = cls_integral || c = cls_fractional
 
-(* 述語つき変数の台帳(宣言終了時の default_numerics が掃く) *)
-let predicate_vars : tvar ref list ref = ref []
+(* 制約つき変数の台帳(宣言終了時の default_numerics が掃き、
+   check_ambiguity が到達不能な制約を報告する) *)
+let class_vars : tvar ref list ref = ref []
 
 let rec add_class t c =
   let ci =
@@ -252,7 +254,7 @@ let rec add_class t c =
       | Unbound i ->
           if not (List.mem c i.vcls) then (
             v := Unbound { i with vcls = c :: i.vcls };
-            if is_predicate c then predicate_vars := v :: !predicate_vars)
+            class_vars := v :: !class_vars)
       | Rigid i ->
           if not (List.mem c i.vcls) then
             if is_predicate c then
@@ -611,7 +613,8 @@ let rec generalize level t =
       generalize level f;
       generalize level rest
 
-(* 宣言終了時: 台帳に残った述語つき弱変数を既定値に落とす(計画 §7.2) *)
+(* 宣言終了時: 台帳に残った述語つき弱変数を既定値に落とす(計画 §7.2)。
+   非述語の変数はどちらの分岐にも当たらず素通りする *)
 let default_numerics () =
   List.iter
     (fun v ->
@@ -620,8 +623,58 @@ let default_numerics () =
           if List.mem cls_integral vcls then bind v t_int32
           else if List.mem cls_fractional vcls then bind v t_float64
       | _ -> ())
-    !predicate_vars;
-  predicate_vars := []
+    !class_vars;
+  class_vars := []
+
+(* 型に現れる変数の vid 集合(MiniLang の collectVars) *)
+let rec collect_vars t (acc : (oid, unit) Hashtbl.t) =
+  match repr t with
+  | TVar r -> ( match !r with Link _ -> () | _ -> Hashtbl.replace acc (var_info_of r).vid ())
+  | TCon (_, args) -> List.iter (fun a -> collect_vars a acc) args
+  | TApp (f, a) ->
+      collect_vars f acc;
+      collect_vars a acc
+  | TArrow (p, r, e) ->
+      collect_vars p acc;
+      collect_vars r acc;
+      collect_vars e acc
+  | TRecord row | TVariant row -> collect_vars row acc
+  | TRowEmpty -> ()
+  | TRowExtend (_, f, rest) ->
+      collect_vars f acc;
+      collect_vars rest acc
+
+(* 一般化されようとしている(all なら宣言の終わりまで残った)制約つき
+   変数のうち、スキーマの型から到達できないものを曖昧として報告する
+   (M17 / D48。MiniLang §7 の checkAmbiguity)。
+   予約述語 (Integral / Fractional) が乗った変数は既定化で必ず決まる
+   ので対象外(D8 / D49)— 免除しないと let ne = 1 != 2 のような
+   既定化頼みの形が全部落ちる。kept には「まだ Unbound のもの」だけを
+   残す — 到達不能な述語つき変数を default_numerics に届け続けるため
+   であり、Link / Generic の死んだ項目を刈って走査を線形に保つためでも
+   ある(台帳は instantiate のたびに伸びる) *)
+let check_ambiguity ~all ~level tys =
+  let reach = Hashtbl.create 32 in
+  List.iter (fun t -> collect_vars t reach) tys;
+  let kept = ref [] in
+  List.iter
+    (fun v ->
+      match !v with
+      | Unbound i ->
+          kept := v :: !kept;
+          if
+            (all || i.vlevel > level)
+            && i.vcls <> []
+            && (not (List.exists is_predicate i.vcls))
+            && not (Hashtbl.mem reach i.vid)
+          then
+            type_error
+              ("曖昧な制約: "
+              ^ String.concat " + " (List.sort compare (List.map name_of i.vcls))
+              ^ " を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)")
+      | _ -> ())
+    !class_vars;
+  class_vars := List.rev !kept
 
 (* ## 8.10 map_generics — 3 つの写像の共通骨格
 
@@ -728,7 +781,7 @@ let instantiate level t =
     (fun i ->
       let v = new_var ~kind:i.vkind ~classes:i.vcls level in
       (match v with
-      | TVar r when List.exists is_predicate i.vcls -> predicate_vars := r :: !predicate_vars
+      | TVar r when i.vcls <> [] -> class_vars := r :: !class_vars
       | _ -> ());
       v)
     t
@@ -742,4 +795,4 @@ let subst_params level args t =
     (fun i -> match List.assoc_opt i.vid args with Some t -> t | None -> new_var ~kind:i.vkind ~classes:i.vcls level)
     t
 
-let reset () = predicate_vars := []
+let reset () = class_vars := []

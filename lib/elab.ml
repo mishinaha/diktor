@@ -467,6 +467,14 @@ and expand_alias env level ~expanding info args =
   else
     (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま) *)
     let arg_tys = List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args in
+    (* パラメータ制約は展開時に課す(M17 / D51。newtype と同じ扱い)。
+       エイリアスは透過で、展開後の型に制約の痕跡が残らない — だから
+       その場で見るしかない。かつては tp_classes を一切見ず、同じ構文が
+       newtype では効きエイリアスでは黙って無視されるという不整合だった
+       (type P[A: Show] = (A, A) に非 Show の型が通った — 実測) *)
+    List.iter2
+      (fun (tp : type_param) t -> List.iter (fun li -> Unify.add_class t (intern (show_long_id li))) tp.tp_classes)
+      info.Decls.al_params arg_tys;
     let types =
       List.fold_left2 (fun m tp t -> SMap.add tp.tp_name t m) SMap.empty info.Decls.al_params arg_tys
     in
@@ -1927,12 +1935,19 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   match snd b.T.lb_name with
   | T.PVar x ->
       List.iter warn (Exhaust.drain ());
-      if gen then Unify.generalize level fn_ty;
+      if gen then (
+        (* 一般化の直前に曖昧性を見る(M17 / D48)。drain → 曖昧性 →
+           generalize の順 — 一般化の後では Unbound が Generic に変わって
+           判定できず、drain より前では警告の順序が入れ替わる *)
+        Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+        Unify.generalize level fn_ty);
       release_rigids rigids;
       { env with values = SMap.add x fn_ty env.values }
   | T.PWildcard ->
       List.iter warn (Exhaust.drain ());
-      if gen then Unify.generalize level fn_ty;
+      if gen then (
+        Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+        Unify.generalize level fn_ty);
       release_rigids rigids;
       env
   | _ ->
@@ -2036,6 +2051,9 @@ and elab_rec_bindings env level eff bs : env =
     bs names;
   (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
   List.iter warn (Exhaust.drain ());
+  (* 群として一括で曖昧性を見る(M17 / D48)。相互再帰の制約は群の
+     どれかの型から到達できればよい *)
+  Unify.check_ambiguity ~all:false ~level (List.map snd names);
   List.iter (fun (_, t) -> Unify.generalize level t) names;
   { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names }
 
@@ -2253,6 +2271,10 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    (260829-5 課題台帳 V1。M15 検証で echo / println / __string_length の
    乗っ取りとして実測し、1b / 1c の先勝ち化で塞いだ形)。 *)
 
+(* v0 の宣言条件(クラスパラメータは引数の頭に現れよ、§11.33)は
+   MiniLang の Read のような「返り値からしか決まらない」クラスを閉め出す。
+   だから曖昧性検査(D48)のテストは同じ型を持つ普通の多相 let
+   — let read_[A: Show](s: String): A = ??? — で代用している *)
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
   (if Decls.reserved_predicate cls then
@@ -2269,6 +2291,15 @@ let register_class env (c : T.class_decl') =
   List.iter
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
+  (* derive structural のカインド検査(M17 / D9 — sample.kel:597 の TODO
+     「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」への
+     回答: 弾ける)。構造的導出はレコード・ヴァリアントに配る規則なので
+     Type のクラスにしか意味が無い。[_] Type のクラスに書いても第8章の
+     add_class のカインド検査に届く前に、宣言時にここで落とす *)
+  (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
+     type_error
+       ("derive structural は Type のクラスにしか付けられません(" ^ c.T.cls_name ^ " のパラメータは "
+      ^ show_kind param_kind ^ " です)"));
   (* derive structural はユーザの新クラスには書けない(sample.kel:297
      「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
      自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
@@ -2836,17 +2867,26 @@ let process_decls env ~emit decls =
           env
       | T.DLet b ->
           let env' = elab_binding env 0 eff0 b in
+          (* 宣言の終端の曖昧性検査(M17 / D48。all=true — 宣言の型から
+             到達できない制約は誰にも決められない)。既定化の直前 —
+             逆順だと述語つき変数が先に消え、免除の判定が要らなくなる
+             代わりに Eq / Show だけが乗った変数の検出が遅れる *)
+          Unify.check_ambiguity ~all:true ~level:0 [ Tree.get_ty b ];
           Unify.default_numerics () (* 表示前に述語つき弱変数を既定化する(D8) *);
           show_binding env' b;
           env'
       | T.DLetRec bs ->
           let env' = elab_rec_bindings env 0 eff0 bs in
+          Unify.check_ambiguity ~all:true ~level:0 (List.map Tree.get_ty bs);
           Unify.default_numerics ();
           List.iter (show_binding env') bs;
           env'
       | T.DExp e ->
           let t = elab_exp env 0 eff0 e in
           List.iter warn (Exhaust.drain ());
+          (* 文の位置の式も検査対象 — 捨てられる値の制約は誰にも決まらない。
+             MiniLang(seq を let に脱糖)より厳しくなる点で、本文に明記 *)
+          Unify.check_ambiguity ~all:true ~level:0 [ t ];
           Unify.default_numerics ();
           emit (Binding ("_ : " ^ Show.show t));
           env
@@ -2907,6 +2947,9 @@ let process_decls env ~emit decls =
     List.iteri (fun i w -> if i >= wbefore then emit (Warning w)) !warnings;
     env'
   in
+  (* パス 1 で溜まった制約つき変数(インスタンス頭・署名の instantiate)は
+     宣言ごとの曖昧性判定に関係しない — 台帳だけを空にしてから畳み込む *)
+  Unify.reset ();
   List.fold_left step env decls
 
 (* ## 11.41 入口 — プレリュードを先に、フラグは必ず戻す
