@@ -1096,7 +1096,10 @@ let register_ref_array () =
    def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
-  (* Array は h を持たない(計画 §11.2。既知の穴も計画 §12 に記録済み) *)
+  (* Array は h を持たない(計画 §11.2)。この穴 — 引数を破壊する関数が
+     純粋として型付く — は test/spec_gaps.t がゴールデンとして見張り、
+     仕様への対案(Array / MutArray 分離)は doc/log/260830-1-m20.md に
+     ある(M20 / I1 / D64) *)
   (let h = generic () and a = generic () in
    def "Array.new" (arrow [ Type.t_int32; a ] (Type.TCon (arr_oid, [ a ])) (heap_row h)));
   (let a = generic () in
@@ -1105,8 +1108,15 @@ let register_ref_array () =
    def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Array.set" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
-  (let a = generic () and e = generic ~kind:Type.KRow () in
-   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
+  (let h = generic () and a = generic () and e = generic ~kind:Type.KRow () in
+   (* Array.each にも Heap を課す(M20 / I12 — get / set は要求するのに
+      全要素を読む each が純粋、という表の中の割れを直す一貫性の修正)。
+      h は結果型に現れない自由変数のままなので、**健全性は 1 ミリも
+      上がらない** — Array がリージョンを型に持たない穴(I1、
+      test/spec_gaps.t)は塞がっていない。Array.length だけは要素を
+      読まない(生成時に確定する値)ので純粋のまま残す *)
+   let er = Type.TRowExtend (Type.eff_heap, h, e) in
+   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit er ] Type.t_unit er))
 
 (* ## 6.11b par / par_map — 型は書けるが値が書けない組(H2 / D45)
 
