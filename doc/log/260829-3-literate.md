@@ -59,13 +59,17 @@ lowline_list は不可)、EQ_GREATER の pop 条件の過大な説明、浮動�
 
 1. builtin.ml `f64_cmp` が多相 compare のため NaN の順序が IEEE と異なる
    (`__float64_lt(nan, 1.0)` が真になる。等価だけは `=` で NaN <> NaN を守っている)
+   — **260829-4 M12(A1)で修正済み**(NaN ガード、D23)
 2. value.ml `show` の VFloat64 が `string_of_float`(%.12g)のまま。実行時
    エラーメッセージ内の Float64 表示だけ 0.1+0.2 が 0.3 に丸まる
    (Show[Float64] は float_repr に修正済み)
+   — **260829-4 M12(A2)で修正済み**(float_repr を第12章へ移設し共用、D27)
 3. interp.ml 末尾 resume 最適化の経路は、`resume(f())` の引数評価が例外で
    脱出すると discontinue が走らず、捨てた継続内の cancel が動かない
 4. exhaust.ml の数値パターン重複判定: 浮動小数の正規化が `string_of_float`
    (%.12g)なので、有効数字 13 桁目以降だけが違うリテラルを重複と誤判定し得る
+   — **260829-4 M12(A3 / A10)で修正済み**(±0 畳み + %.17g の単射鍵、
+   整数も Int64 全域に。D24)
 5. decls.ml `add_data`: プレリュード所有名を**異なるコンストラクタ集合**で
    再宣言しても黙って無視される(sample.kel は同じ定義を書くので実害未発生)
 6. interp.ml `register_class_methods`: 同名メソッドを持つクラスが複数あると
@@ -80,6 +84,8 @@ lowline_list は不可)、EQ_GREATER の pop 条件の過大な説明、浮動�
    実行時に落ちる実害があった(詳細は 260829-4 §7 E2)
 8. lexer.ml `parse_number` の幅 9999 センチネルが、エラーメッセージに元の桁数
    ではなく `1i9999` を出す
+   — **260829-4 M12(A5)で修正済み**(接尾辞原文 n_suffix_text を保持、
+   センチネルは書けない -1 に)
 9. driver.ml の警告判定が表示文字列の先頭バイト覗き見(`'\xe2'`)
 
 負債・未使用(消すか使うかを決める):

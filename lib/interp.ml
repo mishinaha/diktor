@@ -234,17 +234,17 @@ let number_value node (n : number) =
      型クラスにできません — 短絡するので右辺を評価しないから(D9)。
      `!=` は `Eq.eq` の否定として同じ表に入っています。
    - **`Match`** のガードが偽なら**次の節へ落ちます**。`try_clauses` は末尾再帰で、
-     節本体の `eval` も末尾位置にあります(規約 1)。なお同じ「ガードが偽」でも
-     ハンドラの操作節では後送りできず実行時エラーです(§14.10 の既知の制限)。
+     節本体の `eval` も末尾位置にあります(規約 1)。ハンドラの操作節も同じ
+     規則です — パターン不一致もガードの偽も次の節へ落ちます(§14.10、D28)。
    - **`Perform`** は elab が `resolved` に書いた**完全操作名**の oid をそのまま
      使います。非修飾名の解決(D22 と、それを精密化した実装記録の乖離3 —
      「行の最左優先」)は型検査で終わっており、実行時に名前で悩むことはありません。
    - **`Resume`** は引数を**先に**評価します。節本体が `{ … ; resume(f()) }` の
      ように `Resume` そのものでない形のとき、`f` が例外で脱出すれば resume は
      未消費のまま節の例外経路(§14.10 の discontinue)に乗ります。順序を
-     入れ替えると、消費済みの継続を捨てることになります。なお節本体が
-     `resume(…)` そのもののときは §14.10 の末尾 resume 最適化に乗るので、
-     この限りではありません(その経路には discontinue がありません)。
+     入れ替えると、消費済みの継続を捨てることになります。節本体が
+     `resume(…)` そのもののときは §14.10 の末尾 resume 最適化に乗りますが、
+     その経路でも引数の評価は包んであり、例外なら discontinue します。
    - **`Run`** は実行時には恒等写像です。`run h { … }` の `h` は型だけの存在で、
      リージョン安全性は第11章の剛定数とレベルが保証済みです。操作を持たない
      エフェクトラベル(`Heap`、`Blocking`、`pinned`)が実行時 no-op という
@@ -685,9 +685,14 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    「10 万回の println」がこの経路の回帰テストで、最適化が外れれば実行時間で
    気づけます。**最適化というより実用条件**で、M10 送りにしなかったのはそのためです。
 
-   代償は正直に書きます。この経路だけは節を包んでいないので、**resume の引数の
-   評価が例外で脱出したときに `discontinue` が走りません**。引数が純粋な計算で
-   ある限り踏みませんが、穴であることに変わりはありません。
+   速い経路も 3 径路の規約を守ります。`match … with exception` が覆うのは
+   **引数の評価だけ**で、`continue` は値の枝 — trap を抜けたあと — にあるので
+   末尾発行のまま(OCaml は値ケースを trywith の外に下げます)。引数が例外で
+   脱出したら通常経路と同じく `discontinue` します。かつてはこの経路だけ
+   引数評価が包まれておらず、`resume(???)` の形で捨てた継続の cancel も自分の
+   cancel も走りませんでした(実測)。マイクロベンチ(perform 1000 万回)で
+   引数だけ包む形は現行と同時間・同メモリ、`continue` を trap の内側に置く形は
+   約 120 倍遅いことを確認して、この形を選んでいます。
 
    ### アフィンな resume と second-class
 
@@ -714,11 +719,23 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    cancel 節のガードを拒否するからです (§11.24)。かつて elab はガードを受理して
    いて、ここが読まないぶん実行時に黙って消えていました。
 
-   ### 既知の制限
+   ### 操作節の選択は match と同じ(D28)
 
-   ガード付きの操作節は、ガードが偽のときに「次の節へ送る」ことができません
-   (match のガードとは違う)。継続を保持したまま節を後送りする意味論を v0 では
-   決めていないため、実行時エラーにしています。sample.kel に該当例はありません。 *)
+   操作節はソース順に試し、**パターン不一致もガードの偽も次の節へ落ちます**
+   — §14.2 の match と完全に同じ規則です。ガードは resume 無しの環境で
+   評価します(ガードから継続は見えません。§11.24)。全節が外れたときは
+   `discontinue` で実行時エラーにしますが、elab の総和性検査(各操作に
+   ガード無し・反駁不可の節を 1 つ要求する。§11.24)を通っていれば到達
+   しない防御枝です — 消さないこと。素の raise にしないのは 3 径路の
+   規約どおり、捨てた継続の cancel を走らせるためです。
+
+   **ハンドラの外への後送り(re-perform)は v0 にはありません。** 機構は
+   書けます — `effc` のハンドラ関数は fiber の外で走るので、そこから
+   `Effect.perform` すれば自分を飛ばして外側に届きます(実測済み)。塞いで
+   いるのは型です。handle の型付けは対象エフェクト E を**消す**と言い切る
+   ので(§11.24)、ガード偽で E.op を外へ流すと E の無い行の文脈に操作が
+   漏れ、型が嘘になります。部分ハンドラの型付け(サブエフェクティング)は
+   仕様側の裁定待ちです。 *)
 
 and eval_handle env body clauses =
   (* inst は Handle ノードの評価のたびに採番する(入れ子活性化が外側宛の Unwind を
@@ -770,43 +787,76 @@ and eval_handle env body clauses =
         (fun (type a) (eff : a Effect.t) ->
           match eff with
           | Op (op, args) -> (
-              match List.find_opt (fun (o, _) -> o = op) op_clauses with
-              | None -> None (* 自分の操作でなければ外側へ *)
-              | Some (_, (_, c)) ->
+              match List.filter (fun (o, _) -> o = op) op_clauses with
+              | [] -> None (* 自分の操作でなければ外側へ *)
+              | cands ->
                   Some
                     (fun (k : (a, _) Effect.Deep.continuation) ->
-                      let pats = clause_arg_pats c in
                       let fields = record_fields args in
-                      let locals =
-                        List.fold_left2 (fun locals p (_, v) -> bind_pat_exn locals p v) env.locals pats fields
+                      let rec bind locals ps fs =
+                        match (ps, fs) with
+                        | [], [] -> Some locals
+                        | p :: ps, (_, v) :: fs -> (
+                            match match_pat locals p v with Some locals -> bind locals ps fs | None -> None)
+                        | _ -> bug "操作節の引数の個数が合いません"
                       in
-                      (match c.T.cl_guard with
-                      | Some g ->
-                          if not (Builtin.as_bool (eval { env with locals; resume = None } g)) then
-                            runtime_error "ハンドラ節のガードが偽になりました(v0 ではガード付き操作節の後送りは未対応)"
-                      | None -> ());
-                      match snd c.T.cl_body with
-                      | T.Resume arg ->
-                          (* 末尾 resume 最適化(計画 §8.4 の性能特性):
-                             continue を末尾発行する *)
-                          let r = { r_k = k; r_used = true; r_alive = true } in
-                          let v =
-                            match arg with Some e -> eval { env with locals; resume = Some r } e | None -> unit
-                          in
-                          r.r_alive <- false;
-                          Effect.Deep.continue k v
-                      | _ -> (
-                          let r = { r_k = k; r_used = false; r_alive = true } in
-                          match eval { env with locals; resume = Some r } c.T.cl_body with
-                          | v ->
-                              r.r_alive <- false;
-                              (* 未 resume なら継続を巻き戻し、自分の exnc で v を拾い直す *)
-                              if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
-                          | exception ex ->
-                              (* 節が例外で脱出したときも必ず discontinue(捨てた継続の中の
-                                 cancel を走らせる。落とすと資源が漏れることを spike で実測済み) *)
-                              r.r_alive <- false;
-                              if r.r_used then raise ex else Effect.Deep.discontinue k ex)))
+                      (* 節を宣言順に試す。パターン不一致もガードの偽も次の節へ落ちる
+                         (§14.2 の match と同じ規則、D28)。ガードから継続は見えない *)
+                      let rec select = function
+                        | [] -> None
+                        | (_, ((_, c) : T.clause)) :: rest -> (
+                            match bind env.locals (clause_arg_pats c) fields with
+                            | None -> select rest
+                            | Some locals -> (
+                                match c.T.cl_guard with
+                                | None -> Some (locals, c)
+                                | Some g ->
+                                    if Builtin.as_bool (eval { env with locals; resume = None } g) then
+                                      Some (locals, c)
+                                    else select rest))
+                      in
+                      match select cands with
+                      | None ->
+                          (* 全節が外れた。elab の総和性検査(§11.24)を通っていれば到達
+                             しない防御枝 — 消さないこと。素の raise ではなく discontinue
+                             (捨てた継続の cancel を走らせる。3 径路の規約) *)
+                          Effect.Deep.discontinue k
+                            (Runtime_error ("handle のどの節にも一致しません: " ^ Type.name_of op ^ show args))
+                      | Some (locals, c) -> (
+                          match snd c.T.cl_body with
+                          | T.Resume arg -> (
+                              (* 末尾 resume 最適化(計画 §8.4 の性能特性)。exception 節が
+                                 覆うのは引数の評価だけで、continue は値の枝 — trap を抜けた
+                                 あと — にあるので末尾発行のまま。引数が例外で脱出したときは
+                                 通常経路と同じく discontinue する(捨てた継続の cancel を
+                                 走らせるため)。r_used を先に true にしてあるので、引数の中の
+                                 入れ子 resume はアフィン検査で先に落ち、例外の時点で k は
+                                 必ず未消費 — discontinue は常に安全 *)
+                              let r = { r_k = k; r_used = true; r_alive = true } in
+                              match arg with
+                              | None ->
+                                  r.r_alive <- false;
+                                  Effect.Deep.continue k unit
+                              | Some e -> (
+                                  match eval { env with locals; resume = Some r } e with
+                                  | v ->
+                                      r.r_alive <- false;
+                                      Effect.Deep.continue k v
+                                  | exception ex ->
+                                      r.r_alive <- false;
+                                      Effect.Deep.discontinue k ex))
+                          | _ -> (
+                              let r = { r_k = k; r_used = false; r_alive = true } in
+                              match eval { env with locals; resume = Some r } c.T.cl_body with
+                              | v ->
+                                  r.r_alive <- false;
+                                  (* 未 resume なら継続を巻き戻し、自分の exnc で v を拾い直す *)
+                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
+                              | exception ex ->
+                                  (* 節が例外で脱出したときも必ず discontinue(捨てた継続の中の
+                                     cancel を走らせる。落とすと資源が漏れることを spike で実測済み) *)
+                                  r.r_alive <- false;
+                                  if r.r_used then raise ex else Effect.Deep.discontinue k ex))))
           | _ -> None);
     }
 
@@ -1050,11 +1100,11 @@ let run ~sink decls =
 
    ### 残している穴
 
-   - **ガード付き操作節の後送り**。ガードが偽のとき、継続を保持したまま次の節へ
-     送る意味論を決めていないので実行時エラーです。
-   - **末尾 resume 経路の引数例外**。§14.10 のとおり、この経路だけ `discontinue` が
-     走りません。単に 3 径路の判定へ戻すと §14.10 の性能特性を失うので、速い経路を
-     保ったまま塞ぐ形(引数が構文的に値なら包まない、など)が要ります。
+   - **ハンドラの外への後送り(re-perform)**。同じハンドラの中の節どうしは
+     フォールスルーします(§14.10、D28)が、全節が外れた操作を外側のハンドラへ
+     流すことはできません。機構は 3 行で書けることを実測済みですが、handle が
+     E を消すという型付け(§11.24)と両立せず、部分ハンドラの型は仕様側の
+     裁定待ちです。
    - **トップレベル束縛の早期/遅延の分裂**。elab は宣言時点の環境で名前を
      解決する(早期束縛)のに、評価器は呼び出し時に globals を引く(遅延
      束縛)ので、同名の再束縛 — `let` の後の同名 `let` / `extern`、クラス
@@ -1074,6 +1124,7 @@ let run ~sink decls =
 
    1. 起動ごとの `inst` 採番(共有すると入れ子で `Unwind` を横取りする)
    2. 未 resume と例外脱出の両方での `discontinue`(落とすと資源が漏れる)
-   3. 節本体が `Resume` のときの末尾 `continue`(落とすと実用速度を失う)
+   3. 節本体が `Resume` のときの末尾 `continue`(落とすと実用速度を失う。
+      ただし引数の評価は包む — 包み忘れると資源が漏れる)
    4. クラスパラメータ位置だけでのディスパッチ(外すとコヒーレンスが破れる)
    5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)

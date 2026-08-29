@@ -324,3 +324,18 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   $ diktor --type-check dupinst.kel
   ! 型エラー: インスタンス Add[Int32] が二重に宣言されています(コヒーレンス違反)
   [1]
+
+既定の節が無い操作節は型検査で拒否(B2 / D29。v0 には後送りの意味論が
+無いので、全節が外れうる形を通さない):
+
+  $ cat > guardonly.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(2)) handle {
+  >   case ask(n) if n == 1 => resume(100)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check guardonly.kel
+  ! 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  [1]

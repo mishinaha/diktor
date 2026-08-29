@@ -237,3 +237,77 @@ Run モードでも網羅性警告は stderr に出る:
   $ diktor warn.kel
   ⚠ match が非網羅的です。例えば None2 が漏れています
   ran
+
+末尾 resume 経路でも引数の例外で discontinue が走る(B1 / §14.10。
+捨てた継続の cancel と自分の cancel の両方):
+
+  $ cat > tailresume.kel <<'EOF2'
+  > effect Res = { use: (String) => Unit }
+  > effect Boom = { boom: () => Unit }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} =
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => echoln("cancel " + name)
+  >   }
+  > let r = {
+  >   with _ = with_res("r1")
+  >   perform use("a")
+  >   perform boom()
+  >   0
+  > } handle {
+  >   case boom() => resume(???)
+  >   case return(x) => x
+  >   case cancel    => echoln("cancel outer")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor tailresume.kel
+  r1 uses a
+  cancel r1
+  cancel outer
+  実行時エラー: ??? に到達しました
+  [3]
+
+ガード付き操作節は同じハンドラの次の節へ落ちる(B2 / D28。match と同じ規則):
+
+  $ cat > guardop.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(2)) handle {
+  >   case ask(n) if n == 1 => resume(100)
+  >   case ask(n)           => resume(n * 10)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor guardop.kel
+  120
+
+操作節の絞り込みパターンも次の節へ落ちる:
+
+  $ cat > patop.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(2)) handle {
+  >   case ask(1) => resume(100)
+  >   case ask(n) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor patop.kel
+  102
+
+総和的な節より後ろの同じ操作の節には到達不能警告(B8):
+
+  $ cat > deadop.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1)) handle {
+  >   case ask(n) => resume(n)
+  >   case ask(n) => resume(99)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor deadop.kel
+  ⚠ この操作節は到達しません(前の節が既に取りこぼしません)
+  1
