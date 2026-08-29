@@ -185,7 +185,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let bad = 1u8
   > EOF
   $ diktor --type-check --no-prelude numbad2.kel
-  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  ! numbad2.kel:1:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   [4]
 
 型エイリアスの検査(非再帰・部分適用禁止):
@@ -213,5 +213,5 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > EOF2
   $ diktor --type-check --no-prelude mix.kel
   ok : Int32
-  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  ! mix.kel:2:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   [4]

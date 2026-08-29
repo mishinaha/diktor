@@ -88,7 +88,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type instance C[Int32] { let f(x) = x == x }
   > EOF
   $ diktor --type-check --no-prelude c3.kel
-  ! c3.kel:2:1: 型エラー: インスタンスメソッド f がクラス宣言の型を満たしません(型が一致しません: Boolean と Int32)
+  ! c3.kel:2:30: 型エラー: インスタンスメソッド f がクラス宣言の型を満たしません(型が一致しません: Boolean と Int32)
   [1]
 
   $ cat > c4.kel <<'EOF'

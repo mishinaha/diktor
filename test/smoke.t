@@ -22,5 +22,5 @@
 
   $ echo 'let x = 1u8' > u8.kel
   $ diktor u8.kel; echo "exit: $?"
-  ! 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  ! u8.kel:1:9: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   exit: 4

@@ -221,6 +221,10 @@ let dump_tokens_file file =
    よい — 分岐点を 1 か所に集めておく価値はそこにあります。 *)
 let parse_with lexer =
   try Lexer'.parse Parser'.program lexer with
+  | Sedlexing.MalFormed ->
+      (* 位置は失われているがファイル名は分かる(検証の指摘: 複数ファイルで
+         どれが壊れているか分からなかった) *)
+      raise (Parse_error (Printf.sprintf "%s: 字句エラー: 不正な UTF-8 バイト列です" lexer.Lexer'.last_sp.Lexing.pos_fname))
   | Parser'.Error ->
       raise (Parse_error (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
@@ -320,8 +324,9 @@ let embedded_prelude () = Elab.flatten_modules (parse_string ~filename:"<prelude
 let render_line = function Elab.Binding s -> s | Elab.Warning s -> "⚠ " ^ s
 
 let render_error (e : Elab.error) =
-  match e.Elab.e_loc with
-  | Some loc -> Printf.sprintf "! %s: %s: %s" (show_pos loc.Location.start) e.Elab.e_word e.Elab.e_msg
+  (* start_of 経由にする — dummy span なら位置なしの形に落ちる(ガードの実配線) *)
+  match Option.bind e.Elab.e_loc Location.start_of with
+  | Some pos -> Printf.sprintf "! %s: %s: %s" pos e.Elab.e_word e.Elab.e_msg
   | None -> Printf.sprintf "! %s: %s" e.Elab.e_word e.Elab.e_msg
 
 (* 型検査のみ。(出力行, エラー行 option) *)
@@ -383,17 +388,37 @@ let eval_string ?(prelude = true) ~sink source =
    種別は値で判定する — 表示文字列の先頭バイトを覗いていた頃は、
    U+2000〜U+2FFF で始まる任意の行が警告扱いだった(D54) *)
 let type_check_files ?(quiet = false) options =
-  let prelude = Elab.flatten_modules (load_prelude options) in
-  let decls = Elab.flatten_modules (List.concat_map parse_file options.o_files) in
+  (* 平坦化の診断も出力先のモード規約(D54)に乗せる。素通しにすると
+     --type-check の「! 未実装:」だけが stderr に出て規約が二股になる
+     (検証の指摘)。平坦化は型検査より前のパスなので、その診断より前に
+     型の行が無いのは構造どおり *)
+  let report (err : Elab.error) =
+    (if quiet then (
+       flush_stdout_or_die ();
+       try prerr_endline (render_error err) with Sys_error _ -> ())
+     else print_endline (render_error err));
+    flush_stdout_or_die ();
+    safe_exit err.Elab.e_exit
+  in
+  let flatten ds =
+    try Elab.flatten_modules ds with
+    | Aux.Type_error_at (loc, msg) -> report { Elab.e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+    | Aux.Type_error msg -> report { Elab.e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+    | Aux.NotImplemented_at (loc, feat) -> report { Elab.e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
+    | NotImplemented feat -> report { Elab.e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  in
+  let prelude = flatten (load_prelude options) in
+  let decls = flatten (List.concat_map parse_file options.o_files) in
   let put l =
     if quiet then (
       match l with
       | Elab.Warning _ ->
           (* stderr へ書く直前に stdout を flush する(D54)。stdout は
              バッファつき・stderr は行ごとに flush されるので、挟まないと
-             両者を 1 本に併合する cram で順序が入れ替わる *)
+             両者を 1 本に併合する cram で順序が入れ替わる。stderr が
+             壊れていても診断は best-effort — プログラムの実行は続ける *)
           flush_stdout_or_die ();
-          prerr_endline (render_line l)
+          (try prerr_endline (render_line l) with Sys_error _ -> ())
       | Elab.Binding _ -> ())
     else print_endline (render_line l)
   in
@@ -414,7 +439,7 @@ let type_check_files ?(quiet = false) options =
          stdout、Run は stdout をプログラム出力専用にして診断は stderr *)
       (if quiet then (
          flush_stdout_or_die ();
-         prerr_endline (render_error err))
+         try prerr_endline (render_error err) with Sys_error _ -> ())
        else print_endline (render_error err));
       flush_stdout_or_die ();
       safe_exit err.Elab.e_exit
@@ -458,7 +483,11 @@ let run_with options =
   | TypeCheck -> ignore (type_check_files options)
   | Run ->
       let prelude, decls = type_check_files ~quiet:true options in
-      Interp.cancel_log := (fun msg -> Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg);
+      Interp.cancel_log :=
+        (fun msg ->
+          (* stderr へ書く直前の flush(D54 の順序規約はここにも効く) *)
+          flush_stdout_or_die ();
+          try Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg; flush stderr with Sys_error _ -> ());
       Interp.run ~sink:print_string (prelude @ decls));
   (* モードの最後に必ず flush し切る(§16.8 の受け皿の中で。B5) *)
   flush_stdout_or_die ()
@@ -566,6 +595,9 @@ let main () =
       | NotImplemented feat ->
           Printf.eprintf "! 未実装: %s\n" feat;
           safe_exit 4
+      | Aux.NotImplemented_at (loc, feat) ->
+          Printf.eprintf "! %s: 未実装: %s\n" (show_pos loc.Location.start) feat;
+          safe_exit 4
       | Lexer.Lex_error (msg, pos) ->
           Printf.eprintf "%s: 字句エラー: %s\n" (show_pos pos) msg;
           safe_exit 2
@@ -611,10 +643,10 @@ let main () =
           Printf.eprintf "実行時エラー: ハンドラの外へ巻き戻しが漏れました(内部エラー)\n";
           safe_exit 3
       | Stack_overflow ->
-          prerr_endline "実行時エラー: スタックオーバーフロー(再帰が深すぎます)";
+          Printf.eprintf "実行時エラー: スタックオーバーフロー(再帰が深すぎます)\n";
           safe_exit 3
       | Panic msg ->
-          prerr_endline msg;
+          Printf.eprintf "%s\n" msg;
           safe_exit 3
       (* 最後の 1 枚。ここが無いと、節に無い例外は OCaml の既定で終了コード 2 —
          この規約では「構文エラー」— に化け、例外名も漏れる。足し忘れが

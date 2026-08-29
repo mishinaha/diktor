@@ -154,17 +154,17 @@ let rec の非関数右辺を型検査で拒否:
 
   $ printf 'let x = 1\n// \xff\xfe\n' > badutf8.kel
   $ diktor badutf8.kel
-  字句エラー: 不正な UTF-8 バイト列です
+  badutf8.kel: 字句エラー: 不正な UTF-8 バイト列です
   [2]
 
   $ printf 'echoln(show(1i999999999999999999999))\n' > hugesuf.kel
   $ diktor hugesuf.kel
-  ! 未実装: 数値接尾辞 1i999999999999999999999(v0 は i32/i64/f64 のみ)
+  ! hugesuf.kel:1:13: 未実装: 数値接尾辞 1i999999999999999999999(v0 は i32/i64/f64 のみ)
   [4]
 
   $ printf 'module A { module B { let x = 1 } }\n' > nestmod.kel
   $ diktor nestmod.kel
-  ! 未実装: module の入れ子(M10)
+  ! nestmod.kel:1:12: 未実装: module の入れ子(M10)
   [4]
 
   $ cat > unkeff.kel <<'EOF'

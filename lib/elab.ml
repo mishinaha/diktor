@@ -119,7 +119,10 @@ let closed_item_row tys = List.fold_right (fun t acc -> TRowExtend (l_item, t, a
    位置つきの Type_error_at は素通りするので、外側の at_node は上書きしない。
    大域の「最後に訪れたノード」は持たない — eff は下向き・level は引数、
    という本章の「大域状態にしない」不変条件を診断でも守るため *)
-let at_node node f = try f () with Type_error msg -> raise (Type_error_at (Tree.loc_of node, msg))
+let at_node node f =
+  try f () with
+  | Type_error msg -> raise (Type_error_at (Tree.loc_of node, msg))
+  | NotImplemented feat -> raise (NotImplemented_at (Tree.loc_of node, feat))
 
 (* ## 11.2 数値リテラルの型 — 述語を制約集合に相乗りさせる
 
@@ -190,7 +193,10 @@ let unsupported_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt6
    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
    時間を返せるからです。 *)
 
-let rec elab_type env level ~expanding ((_, te) : T.type_exp) : ty =
+let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
+  (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
+     注釈のどこで落ちても注釈全体の先頭がアンカーになってしまう *)
+  at_node t @@ fun () ->
   match te with
   | T.EIdent (LongId [ n ]) -> (
       match SMap.find_opt n env.types with
@@ -417,6 +423,7 @@ and expand_alias env level ~expanding info args =
    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
 
 and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
+  at_node t @@ fun () ->
   match te with
   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
       let tv = SMap.find n env.types in
@@ -2321,7 +2328,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
       Unify.generalize 0 ty;
       release_rigids rigids;
       Some ty
-    with Type_error _ | Type_error_at _ | NotImplemented _ -> None
+    with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> None
 
 (* ## 11.38 インスタンス本体の検査 — instantiate と skolemize の非対称
 
@@ -2377,13 +2384,15 @@ let check_instance_bodies env (i : T.instance_decl') =
       | T.DLet ((_, b) as bnode) ->
           let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
           let env2 = elab_binding env 0 (new_row_var 0) bnode in
-          subsume mname (SMap.find mname env2.values)
+          (* 包摂エラーは当該メソッドの束縛を指す(検証の指摘。宣言先頭だと
+             複数メソッドのどれが悪いか位置から読めない) *)
+          at_node bnode (fun () -> subsume mname (SMap.find mname env2.values))
       | T.DLetRec bs ->
           let env2 = elab_rec_bindings env 0 (new_row_var 0) bs in
           List.iter
-            (fun ((_, b) : T.let_binding) ->
+            (fun (((_, b) as bnode) : T.let_binding) ->
               let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
-              subsume mname (SMap.find mname env2.values))
+              at_node bnode (fun () -> subsume mname (SMap.find mname env2.values)))
             bs
       | _ -> type_error "インスタンス本体には let だけが書けます")
     i.T.ins_body
@@ -2527,7 +2536,8 @@ let process_decls env ~emit decls =
     let wbefore = List.length !warnings in
     let env' =
       at_node node @@ fun () ->
-      match d with
+      let env' =
+        match d with
       | T.DType t ->
           (* 実在検査(未知の型・再帰・部分適用)をここで走らせる。結果は捨てる *)
           let info = Hashtbl.find Decls.aliases (intern t.T.ta_name) in
@@ -2601,8 +2611,13 @@ let process_decls env ~emit decls =
       | T.DModule _ ->
           (* 平坦化を通っていれば到達しない。来たら不変条件違反 = 処理系の欠陥 *)
           bug "module が平坦化されていません(flatten_modules を先に呼んでください)"
+      in
+      (* 既定化も宣言の包みの中で走らせる(検証の指摘)。DInstance の本体で
+         作られた数値リテラルの述語は、ここで初めて落ちることがある —
+         包みの外だと位置なしの型エラーに戻ってしまう *)
+      Unify.default_numerics ();
+      env'
     in
-    Unify.default_numerics ();
     List.iteri (fun i w -> if i >= wbefore then emit (Warning w)) !warnings;
     env'
   in
@@ -2626,7 +2641,8 @@ let type_check_decls ?(prelude = []) decls =
   Exhaust.reset ();
   let out = current_out in
   out := [];
-  let emit s = out := !out @ [ s ] in
+  (* 先頭に積んで最後に反転(末尾 @ 連結は宣言数の二乗になる — 検証で実測) *)
+  let emit s = out := s :: !out in
   let env0 = initial_env () in
   Decls.in_prelude := true;
   let env =
@@ -2635,7 +2651,7 @@ let type_check_decls ?(prelude = []) decls =
       (fun () -> process_decls env0 ~emit:(fun _ -> ()) prelude)
   in
   let _env = process_decls env ~emit decls in
-  !out
+  List.rev !out
 
 (* ## 11.42 module の平坦化 — 改名と同義語表
 
@@ -2729,7 +2745,7 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    例外を型付きの返り値に変えるのはこの 1 箇所です。受けるのは
    `Type_error` / `Type_error_at`(終了コード 1)と `NotImplemented`
    (終了コード 4、G6)の 2 系統だけ — `Syntax_error` の節はかつてありましたが到達不能でした。
-   raise 元は parser.mly の 7 か所だけで、第16章の `parse_with` が全部
+   raise 元は parser.mly に限られ、第16章の `parse_with` が全部
    `Parse_error` に包み直してから型検査に入るからです。防御的に節を足し
    直したくなったら、この段落がその根拠の記録です(E12)。診断は `error`
    レコード(位置・種別語・終了コード・本文)として返し、以降 — 整形と
@@ -2760,9 +2776,10 @@ type error = { e_loc : Location.span option; e_word : string; e_exit : int; e_ms
 let type_check ?(prelude = []) decls =
   current_out := [];
   try (type_check_decls ~prelude decls, None) with
-  | Type_error_at (loc, msg) -> (!current_out, Some { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
-  | Type_error msg -> (!current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
+  | Type_error_at (loc, msg) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
+  | Type_error msg -> (List.rev !current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   (* Syntax_error の節は置かない — raise 元は parser.mly だけで、第16章の
      parse_with が全部 Parse_error に包み直してから型検査に入る。届く例外は
      Type_error(と、未実装の NotImplemented)の 2 系統だけ(E12) *)
-  | NotImplemented feat -> (!current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })
+  | NotImplemented_at (loc, feat) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })
+  | NotImplemented feat -> (List.rev !current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })

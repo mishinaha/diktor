@@ -93,3 +93,7 @@ let type_error msg = raise (Type_error msg)
    (c) Unify.unify だけを包んで言い換える節は見なくてよい — unify は
    位置を知らないので、そこから Type_error_at は出ない *)
 exception Type_error_at of Location.span * string
+
+(* 位置つきの未実装(E1 の続き。検証の指摘で追加)。at_node は
+   NotImplemented にも同じ規則で span を貼る *)
+exception NotImplemented_at of Location.span * string
