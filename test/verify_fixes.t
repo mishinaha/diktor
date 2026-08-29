@@ -446,3 +446,41 @@ resume の引数はラベルを取らない(F7。ペイロードは操作の返�
   $ diktor --type-check res2.kel
   res2.kel:7:3: 構文エラー: resume の引数は高々1個です
   [2]
+
+組み込みメソッド表の全 39 組が実際に選ばれる(C2 / D37 の網羅回帰):
+
+  $ cat > ordall.kel <<'KEL'
+  > echoln(show(1 < 2) + show(1 <= 2) + show(1 > 2) + show(1 >= 2))
+  > echoln(show(1i64 < 2i64) + show(1i64 <= 2i64) + show(1i64 > 2i64) + show(1i64 >= 2i64))
+  > echoln(show(1.0 < 2.0) + show(1.0 <= 2.0) + show(1.0 > 2.0) + show(1.0 >= 2.0))
+  > echoln(show("a" < "b") + show("a" <= "b") + show("a" > "b") + show("a" >= "b"))
+  > echoln(show(1 + 2) + show(1i64 + 2i64) + show(1.0 + 2.0) + ("a" + "b"))
+  > echoln(show(3 - 1) + show(3i64 - 1i64) + show(3.0 - 1.0))
+  > echoln(show(3 * 2) + show(3i64 * 2i64) + show(3.0 * 2.0))
+  > echoln(show(6 / 2) + show(6i64 / 2i64) + show(6.0 / 2.0))
+  > echoln(show(1 == 1) + show(1i64 == 1i64) + show(1.0 == 1.0) + show("a" == "a") + show(true == true))
+  > KEL
+  $ diktor ordall.kel
+  truetruefalsefalse
+  truetruefalsefalse
+  truetruefalsefalse
+  truetruefalsefalse
+  333.0ab
+  222.0
+  666.0
+  333.0
+  truetruetruetruetrue
+
+解決キャッシュはインスタンス宣言で無効化される(H12。宣言前の呼び出しが
+覚えた「見つからない」が残ると、後の宣言が二度と見えない):
+
+  $ cat > cacheinv.kel <<'KEL'
+  > type class Pick2[A] { val pick2: (Int32, A) => Int32 }
+  > type instance Pick2[Int32] { let pick2(n, a) = a }
+  > echoln(show(pick2(0, 7)))
+  > type instance Pick2[String] { let pick2(n, a) = n }
+  > echoln(show(pick2(5, "x")))
+  > KEL
+  $ diktor cacheinv.kel
+  7
+  5

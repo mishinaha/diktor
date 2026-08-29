@@ -197,16 +197,14 @@ let reset_fs () =
    整数なので、2^31 未満は 2^31 - 1 以下と同値)。逆向きの `__i64_to_i32` は
    wrap-around のまま — あちらは整数算術の裁定に揃えています。
 
-   最後に性能の正直な話を。`find_prim` は連想リストの線形探索で、しかも
-   §13.5 の `builtin_method` 経由で**演算のたびに**引かれます。ただし
-   走査量は名前が表のどこに並んでいるかで決まります。`__int32_add` は
-   たまたま表の先頭なので `2 + 3` は比較 1 回で当たり、`__close` のような
-   末尾側の名前を引くと数十要素をなめます。**当たる位置に依存する探索**である
-   ことに変わりはなく、最悪ケースは表の長さに比例します。v0 はこれで足りて
-   います(10 万回 println の回帰テストが通る)が、速くしたいなら表をハッシュ表に
-   変えるか、elab が解決済みのインスタンスを呼び出し地点に注記して表引き
-   自体を消すか(計画 §8.5 の将来案)のどちらかです。後者のほうが筋は良く、
-   動的ディスパッチをフォールバックに残したまま段階的に移行できます。 *)
+   最後に性能の話を。`find_prim` は連想リストの線形探索のままですが、
+   引かれるのは **extern のバインド(宣言 1 回につき 1 回)と、§13.5 の
+   メソッド表の起動時解決だけ**になりました(D37)。演算のたびの探索は、
+   §13.5 のハッシュ表と第14章の解決キャッシュが受け持ちます。かつては
+   `builtin_method` 経由で演算のたびに線形探索が走り、当たる位置で
+   1 回あたり 105ns〜370ns(3.5 倍差)を払っていました — 計画 §8.5 の
+   静的焼き込みは、v1 の HKT が「値タグから決まらないメソッド」を要求する
+   までこのキャッシュで足ります。 *)
 
   (* ---- __* プリミティブ表(名前 → 実装)。型は prelude.kel の extern が与える ---- *)
 
@@ -370,48 +368,88 @@ let find_extern ~abi name =
    `Show` インスタンスを与えた型でも診断は構造の印字のままです。
    診断は値の**構造**を、`show` は値の**表示**を返す、という役割の差です。
 
-   `Ord` の 4 行だけ、メソッド名 `m` をそのまま型ごとの接頭辞に連結しています。
-   `lt` / `le` / `gt` / `ge` がプリミティブ名と 1 対 1 に対応するので 4 行で
-   済みますが、ここだけは表の項目ではなく**名前の組み立て規則**です。
-   `Ord` に別のメソッド名が来ると、対応するプリミティブが無ければ `None`、
-   たまたま同じ名前のプリミティブがあれば**それが選ばれてしまいます**。
-   `Ord` のメソッド集合は第6章 (decls.ml) の組み込みクラス表が固定しており、
-   ユーザ再宣言も照合の上でしか受理しないので今は塞がっていますが、
-   この行の安全は隣のファイルの不変条件に寄りかかっています。 *)
+   表は**明示の 39 行**です(D37)。名前の組み立て規則は 1 つも置きません。
+   かつて `Ord` の 4 行はメソッド名 `m` をワイルドカードで受けて
+   `__int32_ ^ m` を組み立てており、`Ord` に別名のメソッドが来ると、
+   たまたま同名のプリミティブがあればそれが選ばれる形でした — その行の
+   安全は隣のファイル 3 つの不変条件の積に寄りかかっていました(C2)。
+   いまは起動時に全行をプリミティブ表に対して解決してハッシュ表に焼くので、
+   書き写しのタイプミスは最初の起動で `[BUG]` として落ち、呼び出しは
+   位置に依存しない 1 引きです。 *)
 
   (* ---- 組み込みクラスメソッドの実装表: (クラス, 型構成子, メソッド) → 実装 ---- *)
 
-let builtin_method cls con meth : (t -> t) option =
-  let p name = find_prim name in
-  match (cls, con, meth) with
-  | "Add", "Int32", "add" -> p "__int32_add"
-  | "Add", "Int64", "add" -> p "__int64_add"
-  | "Add", "Float64", "add" -> p "__float64_add"
-  | "Add", "String", "add" -> p "__string_concat"
-  | "Sub", "Int32", "sub" -> p "__int32_sub"
-  | "Sub", "Int64", "sub" -> p "__int64_sub"
-  | "Sub", "Float64", "sub" -> p "__float64_sub"
-  | "Mul", "Int32", "mul" -> p "__int32_mul"
-  | "Mul", "Int64", "mul" -> p "__int64_mul"
-  | "Mul", "Float64", "mul" -> p "__float64_mul"
-  | "Div", "Int32", "div" -> p "__int32_div"
-  | "Div", "Int64", "div" -> p "__int64_div"
-  | "Div", "Float64", "div" -> p "__float64_div"
-  | "Eq", "Int32", "eq" -> p "__int32_eq"
-  | "Eq", "Int64", "eq" -> p "__int64_eq"
-  | "Eq", "Float64", "eq" -> p "__float64_eq"
-  | "Eq", "String", "eq" -> p "__string_eq"
-  | "Eq", "Boolean", "eq" -> Some (fun v -> let a, b = arg2 v in VBool (as_bool a = as_bool b))
-  | "Ord", "Int32", m -> p ("__int32_" ^ m)
-  | "Ord", "Int64", m -> p ("__int64_" ^ m)
-  | "Ord", "Float64", m -> p ("__float64_" ^ m)
-  | "Ord", "String", m -> p ("__string_" ^ m)
-  | "Show", "Int32", "show" -> Some (fun v -> VText (Int32.to_string (as_i32 (arg1 v))))
-  | "Show", "Int64", "show" -> Some (fun v -> VText (Int64.to_string (as_i64 (arg1 v))))
-  | "Show", "Float64", "show" -> Some (fun v -> VText (float_repr (as_f64 (arg1 v))))
-  | "Show", "String", "show" -> Some (fun v -> VText (as_text (arg1 v)))
-  | "Show", "Boolean", "show" -> Some (fun v -> VText (string_of_bool (as_bool (arg1 v))))
-  | _ -> None
+(* 組み込みインスタンスの実体は (クラス, 型構成子, メソッド) の明示表
+   (D37)。名前の組み立て規則は置かない — 39 行すべて書き切る。かつて
+   Ord の 4 行はメソッド名 m をワイルドカードで受けて __int32_ ^ m を
+   組み立てており、その行の安全は隣のファイル 3 つの不変条件の積に
+   寄りかかっていた(C2)。表の網羅は第6章の組み込みクラス × インスタンス
+   の積(Add 4 / Sub 3 / Mul 3 / Div 3 / Eq 5 / Ord 16 / Show 5 = 39)と
+   一致させる *)
+let builtin_method_prims : ((string * string * string) * string) list =
+  [
+    (("Add", "Int32", "add"), "__int32_add");
+    (("Add", "Int64", "add"), "__int64_add");
+    (("Add", "Float64", "add"), "__float64_add");
+    (("Add", "String", "add"), "__string_concat");
+    (("Sub", "Int32", "sub"), "__int32_sub");
+    (("Sub", "Int64", "sub"), "__int64_sub");
+    (("Sub", "Float64", "sub"), "__float64_sub");
+    (("Mul", "Int32", "mul"), "__int32_mul");
+    (("Mul", "Int64", "mul"), "__int64_mul");
+    (("Mul", "Float64", "mul"), "__float64_mul");
+    (("Div", "Int32", "div"), "__int32_div");
+    (("Div", "Int64", "div"), "__int64_div");
+    (("Div", "Float64", "div"), "__float64_div");
+    (("Eq", "Int32", "eq"), "__int32_eq");
+    (("Eq", "Int64", "eq"), "__int64_eq");
+    (("Eq", "Float64", "eq"), "__float64_eq");
+    (("Eq", "String", "eq"), "__string_eq");
+    (("Ord", "Int32", "lt"), "__int32_lt");
+    (("Ord", "Int32", "le"), "__int32_le");
+    (("Ord", "Int32", "gt"), "__int32_gt");
+    (("Ord", "Int32", "ge"), "__int32_ge");
+    (("Ord", "Int64", "lt"), "__int64_lt");
+    (("Ord", "Int64", "le"), "__int64_le");
+    (("Ord", "Int64", "gt"), "__int64_gt");
+    (("Ord", "Int64", "ge"), "__int64_ge");
+    (("Ord", "Float64", "lt"), "__float64_lt");
+    (("Ord", "Float64", "le"), "__float64_le");
+    (("Ord", "Float64", "gt"), "__float64_gt");
+    (("Ord", "Float64", "ge"), "__float64_ge");
+    (("Ord", "String", "lt"), "__string_lt");
+    (("Ord", "String", "le"), "__string_le");
+    (("Ord", "String", "gt"), "__string_gt");
+    (("Ord", "String", "ge"), "__string_ge");
+    (* C9: 実装表で死んでいた __show_int32 をここで生かす(入口は 1 つ) *)
+    (("Show", "Int32", "show"), "__show_int32");
+  ]
+
+(* プリミティブ名を持たない実体は OCaml で直接書く *)
+let builtin_method_direct : ((string * string * string) * (t -> t)) list =
+  [
+    (("Eq", "Boolean", "eq"), fun v -> let a, b = arg2 v in VBool (as_bool a = as_bool b));
+    (("Show", "Int64", "show"), fun v -> VText (Int64.to_string (as_i64 (arg1 v))));
+    (("Show", "Float64", "show"), fun v -> VText (float_repr (as_f64 (arg1 v))));
+    (("Show", "String", "show"), fun v -> VText (as_text (arg1 v)));
+    (("Show", "Boolean", "show"), fun v -> VText (string_of_bool (as_bool (arg1 v))));
+  ]
+
+(* 起動時に 1 度だけプリミティブ名を解決してハッシュ表に焼く(D37)。
+   書き写しのタイプミスは最初の起動で bug として落ちる — 実行時の
+   「そのメソッドだけインスタンスが見つかりません」に化けさせない *)
+let builtin_method_table : (string * string * string, t -> t) Hashtbl.t =
+  let tbl = Hashtbl.create 64 in
+  List.iter
+    (fun (key, prim) ->
+      match find_prim prim with
+      | Some f -> Hashtbl.replace tbl key f
+      | None -> raise (Aux.Panic ("[BUG] 組み込みメソッド表のプリミティブ名が解決できません: " ^ prim)))
+    builtin_method_prims;
+  List.iter (fun (key, f) -> Hashtbl.replace tbl key f) builtin_method_direct;
+  tbl
+
+let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_method_table (cls, con, meth)
 
 (* ## 13.6 `with_runtime` — 一番外側の 1 枚
 

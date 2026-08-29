@@ -76,6 +76,17 @@ module T = Tree.Tree
 (* ユーザ宣言インスタンスのメソッド実体: (クラス, 型構成子) → メソッド名 → 値 *)
 let user_instances : (oid * oid, (oid * Value.t) list) Hashtbl.t = Hashtbl.create 32
 
+(* dispatch の解決キャッシュ(D37 / H12)。(クラス, 型構成子, メソッド)→
+   実装。None(見つからない = 構造的導出へ落ちる)も覚える。
+   user_instances への書き込み点は exec_decl の DInstance の 1 か所だけで、
+   そこで必ずこの表を無効化する。書き込み点を増やすときは 1 か所を保つ
+   こと — 無効化漏れは「宣言順で結果が変わる」最悪の壊れ方をする *)
+let resolution_cache : (oid * oid * oid, (Value.t -> Value.t) option) Hashtbl.t = Hashtbl.create 64
+
+(* dispatch_positions のメモ((クラス, メソッド)→ 候補位置)。スキーマは
+   宣言後は不変なので無効化は run のリセットだけでよい *)
+let positions_cache : (oid * oid, int list) Hashtbl.t = Hashtbl.create 64
+
 (* ここがディスパッチの入口です。値から「名目的な型の名前」を 1 つ取り出します。
    `VRecord` と `VVariant` が `None` なのは偶然ではありません。レコードと
    ヴァリアントは構造的な型で、名前を持たないので名目的なインスタンス表を引く
@@ -486,15 +497,31 @@ and dispatch_positions ci meth =
    instance が実行時に見つからない欠陥は、この形で表に出ました(§14.13)。
 
    > 実行時ディスパッチが正しいのは、コヒーレンスが保証されているからであって、
-   > 探索が賢いからではない。 *)
+   > 探索が賢いからではない。だから賢くしてよい — 正しさが探索に依らないと
+   > 分かっているから、結果を覚えても意味は変わらない。
+
+   その「覚える」が `resolution_cache`(解決の結果。None も含む)と
+   `positions_cache`(候補位置)です(D37 / H12)。無効化点は 2 つだけ —
+   `run` の冒頭のリセットと、`exec_decl` の `DInstance` 登録(そこで
+   `resolution_cache` を空にする)。user_instances への書き込み点を
+   1 か所に保つことが、この表の正しさの前提です。 *)
 
 and dispatch cls_name meth args =
   let cls_oid = Type.intern cls_name in
+  let meth_oid = Type.intern meth in
   let vals = Builtin.arg_values args in
   let cand_vals =
     match Decls.find_class cls_oid with
     | Some ci -> (
-        match dispatch_positions ci meth with
+        let ps =
+          match Hashtbl.find_opt positions_cache (cls_oid, meth_oid) with
+          | Some ps -> ps
+          | None ->
+              let ps = dispatch_positions ci meth in
+              Hashtbl.replace positions_cache (cls_oid, meth_oid) ps;
+              ps
+        in
+        match ps with
         | [] -> vals (* 位置が取れなければ全走査(現状は到達しない安全側の保険) *)
         | ps -> List.filteri (fun i _ -> List.mem i ps) vals)
     | None -> vals
@@ -502,10 +529,19 @@ and dispatch cls_name meth args =
   let find_impl v =
     match tycon_of_value v with
     | Some con -> (
-        match Hashtbl.find_opt user_instances (cls_oid, con) with
-        | Some methods -> (
-            match List.assoc_opt (Type.intern meth) methods with Some f -> Some (fun args -> apply f args) | None -> None)
-        | None -> Builtin.builtin_method cls_name (Type.name_of con) meth)
+        (* 解決はキャッシュ越し(H12)。賢くしてよいのは、正しさが探索に
+           依らない — コヒーレンスが保証されている — と分かっているから *)
+        match Hashtbl.find_opt resolution_cache (cls_oid, con, meth_oid) with
+        | Some r -> r
+        | None ->
+            let r =
+              match Hashtbl.find_opt user_instances (cls_oid, con) with
+              | Some methods -> (
+                  match List.assoc_opt meth_oid methods with Some f -> Some (fun args -> apply f args) | None -> None)
+              | None -> Builtin.builtin_method cls_name (Type.name_of con) meth
+            in
+            Hashtbl.replace resolution_cache (cls_oid, con, meth_oid) r;
+            r)
     | None -> None
   in
   match List.find_map find_impl cand_vals with
@@ -1051,7 +1087,10 @@ let exec_decl env ((_, d) : T.decl) =
             | _ -> [])
           i.T.ins_body
       in
-      Hashtbl.replace user_instances (cls, con) methods
+      Hashtbl.replace user_instances (cls, con) methods;
+      (* 解決キャッシュの無効化(H12)。宣言より前の呼び出しが覚えた
+         None を残すと、この宣言が二度と見えない *)
+      Hashtbl.reset resolution_cache
   | T.DExtern ex ->
       let impl =
         (* 宣言の ABI で表を選ぶ(C4)。実装の鍵は非修飾の ex_prim(H14)。
@@ -1089,6 +1128,8 @@ let exec_decl env ((_, d) : T.decl) =
 
 let run ~sink decls =
   Hashtbl.reset user_instances;
+  Hashtbl.reset resolution_cache;
+  Hashtbl.reset positions_cache;
   Builtin.reset_fs ();
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
@@ -1130,7 +1171,8 @@ let run ~sink decls =
    地点の `resolved` にインスタンスを注記すれば、`dispatch` の表引きを飛ばせます。
    **動的ディスパッチをフォールバックに残したまま**段階的に移行できるので、
    v1 で高階カインドが入り `pure` のような型からしか決まらないメソッドが
-   必要になった時点で発動できます(計画 §8.5)。
+   必要になった時点で発動できます(計画 §8.5)。§14.7 の解決キャッシュが
+   入ったので、焼き込みの動機は性能から HKT へ移りました(D37)。
 
    この章で外すと静かに壊れるものを、最後にもう一度並べておきます。
 
