@@ -176,6 +176,17 @@ let next_handle = ref 0l
    例外がユーザに見えます。260829-2b の頑健性の検証でこの種の素通しを
    まとめて塞ぎました。同じ理由で `__panic` は `Runtime_error` を投げます。
 
+   **Float64 → 整数の変換は、表現できる値が無ければ実行時エラーです。**
+   `Int32.of_float` / `Int64.of_float` は範囲外や NaN で結果が未規定で、
+   x86 では黙って INT_MIN を返していました。整数算術の wrap-around と扱いを
+   分けるのは、算術は必ず表現できる値を返すのに対し、**変換には返せる値が
+   無いことがある**からです。ゼロ除算や範囲外の数値リテラル(第14章)と
+   同じ側に倒します。`f64_to_int` の範囲判定が上限を「目標型の最小値の
+   符号反転の**未満**」と書いているのは、`Int64.to_float Int64.max_int` が
+   2^63 に丸め上がって上限側の境界に使えないためです(切り捨て後の値は
+   整数なので、2^31 未満は 2^31 - 1 以下と同値)。逆向きの `__i64_to_i32` は
+   wrap-around のまま — あちらは整数算術の裁定に揃えています。
+
    最後に性能の正直な話を。`find_prim` は連想リストの線形探索で、しかも
    §13.5 の `builtin_method` 経由で**演算のたびに**引かれます。ただし
    走査量は名前が表のどこに並んでいるかで決まります。`__int32_add` は
@@ -208,6 +219,16 @@ let div_check_i64 a b = if b = 0L then runtime_error "ゼロ除算です" else I
 let rem_check_i32 a b = if b = 0l then runtime_error "ゼロ除算です" else Int32.rem a b
 
 let rem_check_i64 a b = if b = 0L then runtime_error "ゼロ除算です" else Int64.rem a b
+
+(* Float64 → 整数の変換は、表現できる値が無ければ実行時エラーにする(上の
+   §13.4 の 4 つ目の裁定)。lo は目標型の最小値を float にしたもの。上限を
+   -.lo の未満と書くのは、Int64.to_float Int64.max_int が 2^63 に丸め上がって
+   上限側の境界に使えないため(切り捨て後の t は整数値なので同値) *)
+let f64_to_int name lo f =
+  if Float.is_nan f then runtime_error (name ^ ": NaN は整数に変換できません")
+  else
+    let t = Float.trunc f in
+    if t >= lo && t < -.lo then t else runtime_error (name ^ ": 変換結果が範囲外です: " ^ float_repr f)
 
 let prims : (string * (t -> t)) list =
   [
@@ -261,8 +282,8 @@ let prims : (string * (t -> t)) list =
     ("__i32_to_f64", fun v -> VFloat64 (Int32.to_float (as_i32 (arg1 v))));
     ("__i64_to_i32", fun v -> VInt32 (Int64.to_int32 (as_i64 (arg1 v))));
     ("__i64_to_f64", fun v -> VFloat64 (Int64.to_float (as_i64 (arg1 v))));
-    ("__f64_to_i32", fun v -> VInt32 (Int32.of_float (as_f64 (arg1 v))));
-    ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (as_f64 (arg1 v))));
+    ("__f64_to_i32", fun v -> VInt32 (Int32.of_float (f64_to_int "__f64_to_i32" (Int32.to_float Int32.min_int) (as_f64 (arg1 v)))));
+    ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (f64_to_int "__f64_to_i64" (Int64.to_float Int64.min_int) (as_f64 (arg1 v)))));
     ("__show_int32", fun v -> VText (Int32.to_string (as_i32 (arg1 v))));
     ("__panic", fun v -> runtime_error ("panic: " ^ as_text (arg1 v)));
     (* extern "C" の既知名テーブル(M10。真の C FFI は延期、計画 §2.1 §12) *)
