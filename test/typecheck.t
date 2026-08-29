@@ -79,7 +79,7 @@ MiniLang §16-1(HM 多相と let 一般化):
   > let bad = fn(f) => {a = f(1), b = f(true)}
   > EOF
   $ diktor --type-check --no-prelude ml1b.kel
-  ! 型エラー: Boolean は Integral のインスタンスではありません
+  ! ml1b.kel:1:37: 型エラー: Boolean は Integral のインスタンスではありません
   [1]
 
 MiniLang §16-4(行多相レコードと Scoped Labels は rows.kel で対応済み)。
@@ -106,7 +106,7 @@ MiniLang §16-5(型注釈と skolem 化):
   > let bad[A](x: A): A = x + 1
   > EOF
   $ diktor --type-check --no-prelude ml5b.kel
-  ! 型エラー: 型パラメータ ς1 は Add のインスタンスではありません。[A: Add] のように制約を書いてください
+  ! ml5b.kel:1:23: 型エラー: 型パラメータ ς1 は Add のインスタンスではありません。[A: Add] のように制約を書いてください
   [1]
 
   $ cat > ml5c.kel <<'EOF'
@@ -116,7 +116,7 @@ MiniLang §16-5(型注釈と skolem 化):
   > }
   > EOF
   $ diktor --type-check --no-prelude ml5c.kel
-  ! 型エラー: 注釈された返り値型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
+  ! ml5c.kel:2:7: 型エラー: 注釈された返り値型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
   [1]
 
 let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順に依存しない。§7.2 の2パス。
@@ -140,7 +140,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let helper(y: Int32): Int32 = y + 1
   > EOF
   $ diktor --type-check --no-prelude fwdbad.kel
-  ! 型エラー: 未束縛の変数: helper
+  ! fwdbad.kel:1:32: 型エラー: 未束縛の変数: helper
   [1]
 
 エフェクト行つき矢印型の注釈と純粋注釈:
@@ -169,7 +169,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let same[R](p: {x: Int32 extends R}, q: {x: Int32 extends R}): Boolean = p == q
   > EOF
   $ diktor --type-check --no-prelude eqbad.kel
-  ! 型エラー: 行変数を含む型 {x: Int32 extends ς1} に Eq の構造的導出は適用できません(行が閉じていません)
+  ! eqbad.kel:1:74: 型エラー: 行変数を含む型 {x: Int32 extends ς1} に Eq の構造的導出は適用できません(行が閉じていません)
   [1]
 
 数値まわりのエラー(D8, D13):
@@ -178,7 +178,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let bad = 0 + "x"
   > EOF
   $ diktor --type-check --no-prelude numbad.kel
-  ! 型エラー: String は Integral のインスタンスではありません
+  ! numbad.kel:1:11: 型エラー: String は Integral のインスタンスではありません
   [1]
 
   $ cat > numbad2.kel <<'EOF'
@@ -194,7 +194,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > type X = X
   > EOF
   $ diktor --type-check --no-prelude aliasbad.kel
-  ! 型エラー: 型エイリアス X が再帰しています(エイリアスは非再帰)
+  ! aliasbad.kel:1:10: 型エラー: 型エイリアス X が再帰しています(エイリアスは非再帰)
   [1]
 
   $ cat > aliasbad2.kel <<'EOF'
@@ -202,7 +202,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let q: Pair2[Int32] = (1, "a")
   > EOF
   $ diktor --type-check --no-prelude aliasbad2.kel
-  ! 型エラー: 型エイリアス Pair2 の引数は 2 個必要です(1 個与えられました。部分適用は禁止)
+  ! aliasbad2.kel:2:8: 型エラー: 型エイリアス Pair2 の引数は 2 個必要です(1 個与えられました。部分適用は禁止)
   [1]
 
 未実装は診断の流れに乗る(G6。それまでの型の行が消えない):

@@ -138,7 +138,7 @@ Never は節ゼロの match で網羅(§7.5):
   > let bad = Some(1, 2)
   > EOF
   $ diktor --type-check --no-prelude ctorbad.kel
-  ! 型エラー: コンストラクタ Some の引数が多すぎます
+  ! ctorbad.kel:2:11: 型エラー: コンストラクタ Some の引数が多すぎます
   [1]
 
   $ cat > ctorbad2.kel <<'EOF'
@@ -146,7 +146,7 @@ Never は節ゼロの match で網羅(§7.5):
   > let bad = Cons(1)
   > EOF
   $ diktor --type-check --no-prelude ctorbad2.kel
-  ! 型エラー: コンストラクタ Cons の引数が不足しています(式では全フィールド必須)
+  ! ctorbad2.kel:2:11: 型エラー: コンストラクタ Cons の引数が不足しています(式では全フィールド必須)
   [1]
 
   $ cat > ctorbad3.kel <<'EOF'
@@ -154,5 +154,5 @@ Never は節ゼロの match で網羅(§7.5):
   > let bad = fn(o) => o match { case Opaque(x) => x }
   > EOF
   $ diktor --type-check --no-prelude ctorbad3.kel
-  ! 型エラー: 未知のコンストラクタ: Opaque
+  ! ctorbad3.kel:2:35: 型エラー: 未知のコンストラクタ: Opaque
   [1]

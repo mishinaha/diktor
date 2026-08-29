@@ -61,7 +61,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   s : String
   f : [A: Show] (A) => String
   cmp : [A: Ord] (A) => Boolean
-  ! 型エラー: (_A) => _A は Show のインスタンスではありません
+  ! ml9.kel:4:16: 型エラー: (_A) => _A は Show のインスタンスではありません
   [1]
 
 エラー経路(コヒーレンス / v0 出現位置制約 / 型不一致 / 網羅 / 多パラメータ / 予約述語):
@@ -72,7 +72,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type instance C[Int32] { let f(x) = x }
   > EOF
   $ diktor --type-check --no-prelude c1.kel
-  ! 型エラー: インスタンス C[Int32] が二重に宣言されています(コヒーレンス違反)
+  ! c1.kel:3:1: 型エラー: インスタンス C[Int32] が二重に宣言されています(コヒーレンス違反)
   [1]
 
   $ cat > c2.kel <<'EOF'
@@ -80,7 +80,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type class Pure[F[_]] { val pure[A]: (A) => F[A] }
   > EOF
   $ diktor --type-check --no-prelude c2.kel
-  ! 型エラー: メソッド pure はクラスパラメータが引数の頭に現れないため v0 では宣言できません(実行時タグディスパッチの前提、§7.4)
+  ! c2.kel:2:1: 型エラー: メソッド pure はクラスパラメータが引数の頭に現れないため v0 では宣言できません(実行時タグディスパッチの前提、§7.4)
   [1]
 
   $ cat > c3.kel <<'EOF'
@@ -88,7 +88,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type instance C[Int32] { let f(x) = x == x }
   > EOF
   $ diktor --type-check --no-prelude c3.kel
-  ! 型エラー: インスタンスメソッド f がクラス宣言の型を満たしません(型が一致しません: Boolean と Int32)
+  ! c3.kel:2:1: 型エラー: インスタンスメソッド f がクラス宣言の型を満たしません(型が一致しません: Boolean と Int32)
   [1]
 
   $ cat > c4.kel <<'EOF'
@@ -99,21 +99,21 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type instance C[Int32] { let f(x) = x }
   > EOF
   $ diktor --type-check --no-prelude c4.kel
-  ! 型エラー: インスタンスがメソッドを網羅していません: g が漏れています
+  ! c4.kel:5:1: 型エラー: インスタンスがメソッドを網羅していません: g が漏れています
   [1]
 
   $ cat > c5.kel <<'EOF'
   > type class C[A, B] { val f: (A) => B }
   > EOF
   $ diktor --type-check --no-prelude c5.kel
-  ! 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)
+  ! c5.kel:1:1: 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)
   [1]
 
   $ cat > c6.kel <<'EOF'
   > type class Integral[A] { val toi: (A) => Int32 }
   > EOF
   $ diktor --type-check --no-prelude c6.kel
-  ! 型エラー: Integral は予約されたリテラル述語です(ユーザ宣言不可、D8)
+  ! c6.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(ユーザ宣言不可、D8)
   [1]
 
 予約述語はインスタンス宣言側の入口でも拒否される(D8。かつては素通りして
@@ -121,12 +121,12 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
 
   $ printf 'type instance Integral[String] { }\n' > c7.kel
   $ diktor --type-check --no-prelude c7.kel
-  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  ! c7.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
   $ printf 'type instance Fractional[String] { }\n' > c8.kel
   $ diktor --type-check --no-prelude c8.kel
-  ! 型エラー: Fractional は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  ! c8.kel:1:1: 型エラー: Fractional は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
 型パラメータ制約の未知クラスは宣言時に落ちる(かつては宣言の印字が出てから
@@ -134,12 +134,12 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
 
   $ printf 'let f[A: Bogus](x: A): A = x\n' > c9.kel
   $ diktor --type-check --no-prelude c9.kel
-  ! 型エラー: 未知のクラス: Bogus
+  ! c9.kel:1:5: 型エラー: 未知のクラス: Bogus
   [1]
 
   $ printf 'type class C3[A] { val m[B: Bogus]: (A, B) => A }\n' > c10.kel
   $ diktor --type-check --no-prelude c10.kel
-  ! 型エラー: 未知のクラス: Bogus
+  ! c10.kel:1:1: 型エラー: 未知のクラス: Bogus
   [1]
 
 制約のクラスは後方で宣言されていてもよい(検査はクラス表が出揃ってから):
@@ -157,24 +157,24 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   $ printf 'type instance Integral[String] { }\n' > pre_evil.kel
   $ printf 'let s: String = 1\n' > main1.kel
   $ diktor --prelude pre_evil.kel --type-check main1.kel
-  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  ! pre_evil.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
   $ printf 'let f[A: Integral](): A = 1\n' > c12.kel
   $ diktor --type-check c12.kel
-  ! 型エラー: Integral は予約されたリテラル述語です(制約には書けません、D8)
+  ! c12.kel:1:5: 型エラー: Integral は予約されたリテラル述語です(制約には書けません、D8)
   [1]
 
   $ printf 'type class C4[A] { val m[B: Fractional]: (A, B) => A }\n' > c13.kel
   $ diktor --type-check c13.kel
-  ! 型エラー: Fractional は予約されたリテラル述語です(制約には書けません、D8)
+  ! c13.kel:1:1: 型エラー: Fractional は予約されたリテラル述語です(制約には書けません、D8)
   [1]
 
 インスタンス頭の書き方に関わらず、予約述語の拒否理由が最初に出る:
 
   $ printf 'type instance Integral[Nope] { }\n' > c14.kel
   $ diktor --type-check --no-prelude c14.kel
-  ! 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
+  ! c14.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
 同一クラス内の重複メソッドを拒否(素通りすると elab は最後の宣言で
@@ -185,14 +185,14 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   >  val f: (A) => String }
   > KEL
   $ diktor --type-check --no-prelude c15.kel
-  ! 型エラー: メソッド f が二重に宣言されています
+  ! c15.kel:1:1: 型エラー: メソッド f が二重に宣言されています
   [1]
 
 newtype の型パラメータ制約も検証される(D6 の残り):
 
   $ printf 'newtype Box[A: Bogus] = Box(A)\n' > c16.kel
   $ diktor --type-check --no-prelude c16.kel
-  ! 型エラー: 未知のクラス: Bogus
+  ! c16.kel:1:1: 型エラー: 未知のクラス: Bogus
   [1]
 
 プレリュード所有のエイリアス名の再宣言でも、型パラメータ制約は検証される
@@ -200,5 +200,5 @@ newtype の型パラメータ制約も検証される(D6 の残り):
 
   $ printf 'type Unit[A: Bogus] = A\n' > c17.kel
   $ diktor --type-check c17.kel
-  ! 型エラー: 未知のクラス: Bogus
+  ! c17.kel:1:1: 型エラー: 未知のクラス: Bogus
   [1]

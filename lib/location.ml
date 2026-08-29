@@ -23,11 +23,10 @@
    書いています。だから `Data.allocate` の引数を `unit` から `span` に
    変え (§1.13)、すべてのノードが位置の置き場所を持つようにしました。
 
-   正直に書いておくと、**接続はまだ終わっていません**。
-   第5章の `ElabData.loc` には全ノードの位置が入っていますが、
-   第11章の型エラーはまだ `ファイル:行` を前置していません。
-   字句エラーと構文エラー (第16章) は位置つきで出ます。
-   残っているのは配線だけで、置き場所の設計はここで済んでいます。
+   接続は**済んでいます**(E1 / D53)。第5章の `ElabData.loc` に入った
+   全ノードの位置を、第11章の `at_node` が型エラーに貼り、この章の
+   `show_pos` / `start_of` が `ファイル:行:桁` に整形します。字句エラーと
+   構文エラー(第16章)も同じ `show_pos` の定義で出ます。
 
    ### 細部
 
@@ -53,3 +52,13 @@ let show_span { start; finish } =
   if start == Lexing.dummy_pos then "<unknown>"
   else if line start = line finish then Printf.sprintf "%d:%d-%d" (line start) (col start) (col finish)
   else Printf.sprintf "%d:%d-%d:%d" (line start) (col start) (line finish) (col finish)
+
+(* 位置の表示 ファイル:行:桁(E1 / D53)。桁は行頭からのコードポイント差 + 1 —
+   バイト差ではないこと(sedlex の Utf8 がコードポイントで数える)は第16章
+   §16.3 の実測が根拠で、その不変条件はこの定義に引き継がれた *)
+let show_pos (p : Lexing.position) =
+  Printf.sprintf "%s:%d:%d" p.Lexing.pos_fname p.Lexing.pos_lnum (p.Lexing.pos_cnum - p.Lexing.pos_bol + 1)
+
+(* span の開始位置の表示。穴埋め(dummy)なら None。終端は出さない —
+   長い span を 2 行ぶん書くと、本文より位置のほうが長くなる *)
+let start_of { start; _ } = if start == Lexing.dummy_pos then None else Some (show_pos start)

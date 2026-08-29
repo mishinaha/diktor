@@ -87,7 +87,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   > let bad(): Unit = perform op1("x")
   > EOF
   $ diktor --type-check --no-prelude ambig.kel
-  ! 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
+  ! ambig.kel:4:19: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
   [1]
 
   $ cat > qual.kel <<'EOF'
@@ -107,7 +107,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   > let bad(): Unit @ {} = perform print("x")
   > EOF
   $ diktor --type-check --no-prelude efferr.kel
-  ! 型エラー: エフェクト Print をここでは実行できません(ラベル Print がありません(行は閉じています))
+  ! efferr.kel:3:24: 型エラー: エフェクト Print をここでは実行できません(ラベル Print がありません(行は閉じています))
   [1]
 
   $ cat > efferr2.kel <<'EOF'
@@ -119,14 +119,14 @@ D22 のエラー経路(修飾要求)と修飾解決:
   > }
   > EOF
   $ diktor --type-check --no-prelude efferr2.kel
-  ! 型エラー: ハンドラが操作を網羅していません: File2 の write2 が漏れています
+  ! efferr2.kel:3:23: 型エラー: ハンドラが操作を網羅していません: File2 の write2 が漏れています
   [1]
 
   $ cat > efferr3.kel <<'EOF'
   > let bad = resume(1)
   > EOF
   $ diktor --type-check --no-prelude efferr3.kel
-  ! 型エラー: resume は操作節の中でのみ使えます
+  ! efferr3.kel:1:11: 型エラー: resume は操作節の中でのみ使えます
   [1]
 
   $ cat > efferr4.kel <<'EOF'
@@ -138,7 +138,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   > }
   > EOF
   $ diktor --type-check --no-prelude efferr4.kel
-  ! 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  ! efferr4.kel:4:28: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
   [1]
 
 MiniLang §16-7(run と脱出検査、全6例。§9.3 の期待どおり):
@@ -157,21 +157,21 @@ MiniLang §16-7(run と脱出検査、全6例。§9.3 の期待どおり):
   > let bad = run h { Ref.new(0) }
   > EOF
   $ diktor --type-check --no-prelude stbad1.kel
-  ! 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! stbad1.kel:1:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
   $ cat > stbad2.kel <<'EOF'
   > let bad = run h { let r = Ref.new(0); fn(u) => Ref.get(r) }
   > EOF
   $ diktor --type-check --no-prelude stbad2.kel
-  ! 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! stbad2.kel:1:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
   $ cat > stbad3.kel <<'EOF'
   > let bad = run h { let r = Ref.new(0); run h2 { Ref.get(r) } }
   > EOF
   $ diktor --type-check --no-prelude stbad3.kel
-  ! 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! stbad3.kel:1:56: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
 MiniLang §16-8 の runST 2例(値制限):
@@ -185,5 +185,5 @@ MiniLang §16-8 の runST 2例(値制限):
   > }
   > EOF
   $ diktor --type-check --no-prelude stvr.kel
-  ! 型エラー: Boolean は Add のインスタンスではありません
+  ! stvr.kel:5:14: 型エラー: Boolean は Add のインスタンスではありません
   [1]

@@ -199,8 +199,7 @@ let flush_stdout_or_die () = match flush stdout with () -> () | exception Sys_er
    全角の表示幅も異体字セレクタも 1 と数えるので、エディタが見せる桁とは
    食い違い得ます。そこまで合わせるには表示幅の表を持つ必要があり、
    誤りの位置を指すという目的に対しては割に合いません。 *)
-let show_pos pos =
-  Printf.sprintf "%s:%d:%d" pos.Lexing.pos_fname pos.Lexing.pos_lnum (pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1)
+let show_pos = Location.show_pos
 
 (* `--dump-tokens` の実体。第2章の 3 層のうち、ASI を通した**いちばん外側**の
    列を出します。ここが素のトークン列だと、暗黙のセミコロン挿入を固定する
@@ -235,12 +234,11 @@ let parse_file file = with_input (fun () -> parse_with (Lexer'.from_filename fil
    (prelude や string) は「実在のファイルではない」という印で、
    利用者がその名前でファイルを探さないようにするための慣習です。
 
-   ただしこの印は、`--prelude PATH` のときだけ嘘になります。差し替えた
-   プレリュードも `load_prelude` (§16.4) が自分で読んでこの関数に流すので、
-   実在するファイルの誤りが `<prelude>:2:1: パースエラー…` と名乗り、
-   利用者は自分が渡したパスを画面から拾えません。渡す名前をパスにするだけで
-   直りますが、そのときは「山括弧なら仮想」という読み方も一緒に手放すことに
-   なります。v0 は読み方のほうを取っています。 *)
+   規約はこう読みます: **山括弧は実在しないもの(埋め込み・文字列 API)
+   専用**。`--prelude PATH` で差し替えたプレリュードは実在するファイル
+   なので、実在のパスを名乗ります(E9)。かつては差し替え側も `<prelude>` を
+   名乗り、実在するファイルの誤りが `<prelude>:2:1: パースエラー…` と出て、
+   利用者が自分の渡したパスを画面から拾えませんでした。 *)
 let parse_string ~filename source =
   let lexbuf = Sedlexing.Utf8.from_string source in
   Sedlexing.set_filename lexbuf filename;
@@ -275,10 +273,14 @@ let load_prelude options =
   else
     let source =
       match options.o_prelude with
-      | Some path -> with_input (fun () -> In_channel.with_open_bin path In_channel.input_all)
-      | None -> Prelude_embed.source
+      (* --prelude PATH は実在のファイルなので、実在のパスを名乗る(E9)。
+         山括弧の印は「実在しないもの」(埋め込み・文字列 API)専用 *)
+      | Some path ->
+          (path, with_input (fun () -> In_channel.with_open_bin path In_channel.input_all))
+      | None -> ("<prelude>", Prelude_embed.source)
     in
-    parse_string ~filename:"<prelude>" source
+    let filename, source = source in
+    parse_string ~filename source
 
 (* ## 16.5 サブプロセスなしで叩ける API
 
@@ -578,8 +580,12 @@ let main () =
       | Sedlexing.MalFormed ->
           Printf.eprintf "字句エラー: 不正な UTF-8 バイト列です\n";
           safe_exit 2
+      | Aux.Type_error_at (loc, msg) ->
+          (* flatten_modules など type_check の外で投げられる型エラー(位置つき) *)
+          Printf.eprintf "! %s: 型エラー: %s\n" (show_pos loc.Location.start) msg;
+          safe_exit 1
       | Aux.Type_error msg ->
-          (* flatten_modules など type_check の外で投げられる型エラー *)
+          (* 同上(位置なし) *)
           Printf.eprintf "! 型エラー: %s\n" msg;
           safe_exit 1
       | Out_of_memory ->

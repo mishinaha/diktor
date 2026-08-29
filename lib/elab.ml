@@ -51,6 +51,7 @@
    | `elab_exp` / `elab_exp'` | 式 → 型。木に型を書き込む |
    | `elab_check` | 軽い検査モード。ラムダと引数レコードにだけ期待型を押し込む |
    | `resolve_perform` | 操作名 → (エフェクト, 操作, スキーマ)。非修飾は行の最左優先 |
+   | `at_node` | 位置なしの型エラーに最内ノードの span を貼る (E1 / D53) |
    | `check_resume_static` | resume が第二級であることの構文検査 (D19) |
    | `elab_handle` | handle の節分類・対象エフェクト決定・型付け |
    | `elab_binding` / `elab_rec_bindings` | let / let rec。Rigid の生成と解放 |
@@ -113,6 +114,12 @@ type out_line = Binding of string | Warning of string
 let current_out : out_line list ref = ref []
 
 let closed_item_row tys = List.fold_right (fun t acc -> TRowExtend (l_item, t, acc)) tys TRowEmpty
+
+(* 位置なしの Type_error に、投げた**最内**ノードの span を貼る(E1 / D53)。
+   位置つきの Type_error_at は素通りするので、外側の at_node は上書きしない。
+   大域の「最後に訪れたノード」は持たない — eff は下向き・level は引数、
+   という本章の「大域状態にしない」不変条件を診断でも守るため *)
+let at_node node f = try f () with Type_error msg -> raise (Type_error_at (Tree.loc_of node, msg))
 
 (* ## 11.2 数値リテラルの型 — 述語を制約集合に相乗りさせる
 
@@ -458,9 +465,9 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
         elems tail
   | _ -> elab_type env level ~expanding t
 
-let elab_type env level t = elab_type env level ~expanding:[] t
+let elab_type env level t = at_node t (fun () -> elab_type env level ~expanding:[] t)
 
-let elab_eff env level t = elab_eff env level ~expanding:[] t
+let elab_eff env level t = at_node t (fun () -> elab_eff env level ~expanding:[] t)
 
 (* ## 11.7 パターン — 期待型に対する検査、束縛は単相
 
@@ -487,8 +494,8 @@ let elab_eff env level t = elab_eff env level ~expanding:[] t
    同じ型を後から引けるようにするためです。 *)
 
 let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
-  let set t = Tree.set_ty node t in
-  set expected;
+  Tree.set_ty node expected;
+  at_node node @@ fun () ->
   match p with
   | T.PWildcard -> env
   | T.PVar x ->
@@ -646,7 +653,7 @@ let rec is_value ((_, e) : T.exp) =
    実行時に落ちます。 *)
 
 let rec elab_exp env level eff ((_, e) as node : T.exp) : ty =
-  let t = elab_exp' env level eff node e in
+  let t = at_node node (fun () -> elab_exp' env level eff node e) in
   Tree.set_ty node t;
   t
 
@@ -1065,6 +1072,7 @@ and elab_construct env level node cname ?eff args =
    ノードは `elab_exp` を通らないので、ここで書かないと木に穴が空きます。 *)
 
 and elab_check env level eff ((_, e) as node : T.exp) expected =
+  at_node node @@ fun () ->
   let fallback () = Unify.unify (elab_exp env level eff node) expected in
   match (e, repr expected) with
   | T.Lambda { l_params; l_body }, TArrow (pexp, rexp, eexp) -> (
@@ -1185,7 +1193,8 @@ and resolve_perform env eff li =
    継続がどこかのクロージャに生き残っている可能性があると、巻き戻しの
    タイミングが決められません。 *)
 
-and check_resume_static ?(in_lambda = false) ((_, e) : T.exp) =
+and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+  at_node node @@ fun () ->
   let go = check_resume_static ~in_lambda in
   match e with
   | T.Resume arg ->
@@ -1690,6 +1699,7 @@ and release_rigids rigids =
    無いので、キューに積んだ直後にそのまま流します。 *)
 
 and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
+  at_node node @@ fun () ->
   let is_fun = b.T.lb_params <> None in
   (* 値制限(計画 §7.2): 一般化してよいのは関数定義か値のみ。§11.28 を参照 *)
   let gen = is_fun || is_value b.T.lb_body in
@@ -1783,6 +1793,7 @@ and elab_rec_bindings env level eff bs : env =
   let env_rec = { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names } in
   List.iter2
     (fun ((_, b) as bnode) (_, pre) ->
+      at_node bnode @@ fun () ->
       let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
       let extra_rigids = ref [] in
@@ -2259,7 +2270,12 @@ let rec fully_effected ((_, te) : T.type_exp) =
    このパスの目的は署名を**登録できるものは登録する**ことであり、エラーを
    報告することではありません。ここで落ちる型注釈は、パス 2 で本体を
    推論するときにもう一度精緻化され、そのとき正しい文脈で正しいエラーに
-   なります。1c で早まって報告すると、エラーの出る位置が宣言順に依存します。 *)
+   なります。1c で早まって報告すると、エラーの出る位置が宣言順に依存します。
+
+   握り潰す節には `Type_error_at` も必ず並べます(D55)。位置つきの
+   ほうだけ素通りさせると、1c が「黙って諦める」はずの注釈エラーをその場で
+   報告してしまい、まさに避けたかった宣言順依存が位置つきで復活します。
+   この形の回帰は test/errloc.t の sig.kel が見張っています。 *)
 
 let signature_of_binding env (b : T.let_binding') : ty option =
   let params_annotated =
@@ -2302,7 +2318,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
       Unify.generalize 0 ty;
       release_rigids rigids;
       Some ty
-    with Type_error _ | NotImplemented _ -> None
+    with Type_error _ | Type_error_at _ | NotImplemented _ -> None
 
 (* ## 11.38 インスタンス本体の検査 — instantiate と skolemize の非対称
 
@@ -2404,7 +2420,8 @@ let process_decls env ~emit decls =
   let eff0 = toplevel_eff () in
   (* パス1a: 型エイリアスの登録と newtype の頭(カインド) *)
   List.iter
-    (fun ((_, d) : T.decl) ->
+    (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
       match d with
       | T.DType t ->
           Decls.add_alias
@@ -2417,7 +2434,8 @@ let process_decls env ~emit decls =
   (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
   let env =
     List.fold_left
-      (fun env ((_, d) : T.decl) ->
+      (fun env ((_, d) as node : T.decl) ->
+        at_node node @@ fun () ->
         match d with
         | T.DNewtype n ->
             register_newtype env n;
@@ -2442,7 +2460,8 @@ let process_decls env ~emit decls =
      宣言順に走るので、そこで検査すると後方のクラスを制約に書いた形が
      落ちる。クラス表が出揃ったここで見れば宣言順に依存しない *)
   List.iter
-    (fun ((_, d) : T.decl) ->
+    (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
@@ -2456,7 +2475,8 @@ let process_decls env ~emit decls =
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
   let env =
     List.fold_left
-      (fun env ((_, d) : T.decl) ->
+      (fun env ((_, d) as node : T.decl) ->
+        at_node node @@ fun () ->
         match d with
         | T.DInstance i ->
             register_instance i;
@@ -2500,9 +2520,10 @@ let process_decls env ~emit decls =
    警告はこの宣言で新しく増えたぶんだけを印字します。宣言と警告の対応が
    崩れないように、処理の前後で個数を覚えておく方式です。 *)
 
-  let step env ((_, d) : T.decl) =
+  let step env ((_, d) as node : T.decl) =
     let wbefore = List.length !warnings in
     let env' =
+      at_node node @@ fun () ->
       match d with
       | T.DType t ->
           (* 実在検査(未知の型・再帰・部分適用)をここで走らせる。結果は捨てる *)
@@ -2646,10 +2667,12 @@ let type_check_decls ?(prelude = []) decls =
 let flatten_modules (decls : T.decl list) : T.decl list =
   List.concat_map
     (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
       match d with
       | T.DModule (_, mname, body) ->
           List.concat_map
             (fun ((bdata, bd) as bnode : T.decl) ->
+              at_node bnode @@ fun () ->
               match bd with
               | T.DNewtype n ->
                   let qual = mname ^ "." ^ n.T.nt_name in
@@ -2691,9 +2714,18 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    影響を受けた嘘になりがちで、それを並べても読み手の役に立たないからです。
    ここまでの型が見えれば、どこまで通ってどこで止まったかが分かります。
 
+   位置のアンカー規則(D53): 型エラーの位置は「そのエラーを投げた
+   **最内**の精緻化ノード」の開始位置です。`at_node` は位置なしの
+   `Type_error` にだけ span を貼り、位置つきの `Type_error_at` を素通り
+   させる — この 1 本の規則で、外側の包みが内側の位置を上書きしません。
+   包んであるのは elab_exp / elab_check / elab_pat / elab_type / elab_eff /
+   elab_binding / elab_rec_bindings / check_resume_static、そして
+   process_decls の 4 パスと flatten_modules の宣言単位です。宣言単位の
+   包みが最後の受けなので、どのエラーにも最低限「その宣言の先頭」が付きます。
+
    例外を型付きの返り値に変えるのはこの 1 箇所です。受けるのは
-   `Type_error`(終了コード 1)と `NotImplemented`(終了コード 4、G6)の
-   2 系統だけ — `Syntax_error` の節はかつてありましたが到達不能でした。
+   `Type_error` / `Type_error_at`(終了コード 1)と `NotImplemented`
+   (終了コード 4、G6)の 2 系統だけ — `Syntax_error` の節はかつてありましたが到達不能でした。
    raise 元は parser.mly の 7 か所だけで、第16章の `parse_with` が全部
    `Parse_error` に包み直してから型検査に入るからです。防御的に節を足し
    直したくなったら、この段落がその根拠の記録です(E12)。診断は `error`
@@ -2725,6 +2757,7 @@ type error = { e_loc : Location.span option; e_word : string; e_exit : int; e_ms
 let type_check ?(prelude = []) decls =
   current_out := [];
   try (type_check_decls ~prelude decls, None) with
+  | Type_error_at (loc, msg) -> (!current_out, Some { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   | Type_error msg -> (!current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   (* Syntax_error の節は置かない — raise 元は parser.mly だけで、第16章の
      parse_with が全部 Parse_error に包み直してから型検査に入る。届く例外は

@@ -5,7 +5,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
 
   $ printf 'extern "C" let sin(x: String): String\n' > cbad.kel
   $ diktor --type-check cbad.kel
-  ! 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
+  ! cbad.kel:1:1: 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
   [1]
 
 契約どおりの宣言は通り、実装に届く:
@@ -46,7 +46,7 @@ module 内の extern も、実装と登録簿の鍵は非修飾の実装名(H14�
 
   $ printf 'module M { extern "prim" let __int32_add(x: String, y: String): String }\n' > mext.kel
   $ diktor --type-check mext.kel
-  ! 型エラー: プレリュードの extern __int32_add は再宣言できません
+  ! mext.kel:1:12: 型エラー: プレリュードの extern __int32_add は再宣言できません
   [1]
 
 module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が実装表から
@@ -63,7 +63,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
 
   $ printf 'module M2 { extern "C" let sin(x: String): String }\n' > mbad.kel
   $ diktor --type-check mbad.kel
-  ! 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
+  ! mbad.kel:1:13: 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
   [1]
 
 別々の module は同じ C シンボルをそれぞれの名前で束縛できる
@@ -84,7 +84,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   $ printf 'extern "C" let sqrt(x: Float64): Float64\nextern "C" let sqrt(x: Float64): Float64\n' > dd.kel
   $ diktor --type-check dd.kel
   sqrt : (Float64) => Float64
-  ! 型エラー: extern sqrt が二重に宣言されています
+  ! dd.kel:2:1: 型エラー: extern sqrt が二重に宣言されています
   [1]
 
 未実装メッセージは、表を引いた実装名が修飾名と食い違うとき両方を見せる:

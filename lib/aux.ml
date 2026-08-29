@@ -34,6 +34,7 @@
    | 例外 | 誰の誤りか | 投げる関数 | 終了コード |
    |---|---|---|---|
    | `Type_error` | ユーザのプログラム | `type_error` | 1 |
+   | `Type_error_at` | 同上(位置つき。E1) | 第11章の `at_node` | 1 |
    | `NotImplemented` | v0 の未対応機能 | `noimpl` | 4 |
    | `Panic` | **実装の不変条件違反** | `bug` | 3 |
 
@@ -84,3 +85,11 @@ let bug msg = raise (Panic ("[BUG] " ^ msg))
 exception Type_error of string
 
 let type_error msg = raise (Type_error msg)
+
+(* 位置つきの型エラー(E1 / D53)。第11章の at_node が、位置なしの
+   Type_error に最内ノードの span を貼って投げ直す。捕まえる節の義務は
+   3 分類(D55): (a) 握り潰す節(signature_of_binding)と (b) 受け皿
+   (Elab.type_check / Driver.main)は Type_error_at も必ず見る。
+   (c) Unify.unify だけを包んで言い換える節は見なくてよい — unify は
+   位置を知らないので、そこから Type_error_at は出ない *)
+exception Type_error_at of Location.span * string

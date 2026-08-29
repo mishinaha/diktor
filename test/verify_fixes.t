@@ -32,7 +32,7 @@
   > }
   > EOF
   $ diktor --type-check vr.kel
-  ! 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! vr.kel:1:60: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
@@ -72,14 +72,14 @@ module 内の type instance が実行時に見つかる(sample.kel §13 の形):
 
   $ printf 'newtype Boolean = Yes\n' > redef.kel
   $ diktor --type-check redef.kel
-  ! 型エラー: 組み込み型 Boolean は newtype で再宣言できません
+  ! redef.kel:1:1: 型エラー: 組み込み型 Boolean は newtype で再宣言できません
   [1]
 
 extern の再宣言を拒否:
 
   $ printf 'extern "prim" let __int32_add(x: String, y: String): String\n' > exr.kel
   $ diktor --type-check exr.kel
-  ! 型エラー: プレリュードの extern __int32_add は再宣言できません
+  ! exr.kel:1:1: 型エラー: プレリュードの extern __int32_add は再宣言できません
   [1]
 
 かつてプレリュードに宣言が無かった名前も、いまは登録簿に載っていて
@@ -87,12 +87,12 @@ extern の再宣言を拒否:
 
   $ printf 'extern "prim" let __string_le(x: Int32, y: Int32): Int32\n' > exr2.kel
   $ diktor --type-check exr2.kel
-  ! 型エラー: プレリュードの extern __string_le は再宣言できません
+  ! exr2.kel:1:1: 型エラー: プレリュードの extern __string_le は再宣言できません
   [1]
 
   $ printf 'extern "prim" let __int64_ge(x: Int64, y: Int64): Int32\n' > exr3.kel
   $ diktor --type-check exr3.kel
-  ! 型エラー: プレリュードの extern __int64_ge は再宣言できません
+  ! exr3.kel:1:1: 型エラー: プレリュードの extern __int64_ge は再宣言できません
   [1]
 
 ABI が実装バインドに効く(C リンケージから __* の実装には届かない。逆も):
@@ -117,7 +117,7 @@ ABI 文字列そのものも検査する:
 
   $ printf 'extern "wat" let foo(x: Int32): Int32\n' > abi3.kel
   $ diktor --type-check abi3.kel
-  ! 型エラー: 未知の extern リンケージ: wat(prim か C を指定してください)
+  ! abi3.kel:1:1: 型エラー: 未知の extern リンケージ: wat(prim か C を指定してください)
   [1]
 
 追加した 10 本が正しい型で呼べること(プレリュード一覧の完備性の回帰):
@@ -143,7 +143,7 @@ let rec の非関数右辺を型検査で拒否:
   > }
   > EOF
   $ diktor --type-check lrn.kel
-  ! 型エラー: let rec の右辺は関数でなければなりません
+  ! lrn.kel:2:3: 型エラー: let rec の右辺は関数でなければなりません
   [1]
 
 頑健性: OCaml 例外を素通しせず終了コード規約に落とす:
@@ -176,7 +176,7 @@ let rec の非関数右辺を型検査で拒否:
   > echoln(show(r))
   > EOF
   $ diktor unkeff.kel
-  ! 型エラー: 未知のエフェクト: Nope
+  ! unkeff.kel:2:9: 型エラー: 未知のエフェクト: Nope
   [1]
 
 Float64 は最短往復可能表現で表示する:
@@ -201,7 +201,7 @@ Float64 は最短往復可能表現で表示する:
   > }
   > EOF
   $ diktor --type-check nestrun.kel
-  ! 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! nestrun.kel:3:48: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
 ブロックの Seq は文のノードを借りない(260829-3 課題 7)。借りていた頃は
@@ -241,7 +241,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check retguard.kel
-  ! 型エラー: return 節にガードは書けません
+  ! retguard.kel:2:9: 型エラー: return 節にガードは書けません
   [1]
 
   $ cat > cancelguard.kel <<'KEL'
@@ -254,7 +254,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check cancelguard.kel
-  ! 型エラー: cancel 節にガードは書けません
+  ! cancelguard.kel:2:9: 型エラー: cancel 節にガードは書けません
   [1]
 
 同名メソッドを持つ型クラスの重複宣言を拒否(非修飾名の勝者が elab
@@ -266,14 +266,14 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > type class Beta[A]  { val sz: (A) => Int32 }
   > KEL
   $ diktor --type-check mclash.kel
-  ! 型エラー: メソッド名 sz は型クラス Alpha が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
+  ! mclash.kel:2:1: 型エラー: メソッド名 sz は型クラス Alpha が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
   [1]
 
 組み込みクラスのメソッド名も同じ扱い:
 
   $ printf 'type class MyShow[A] { val show: (A) => String }\n' > mclash2.kel
   $ diktor --type-check mclash2.kel
-  ! 型エラー: メソッド名 show は型クラス Show が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
+  ! mclash2.kel:1:1: 型エラー: メソッド名 show は型クラス Show が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
   [1]
 
 組み込みと同名のクラス再宣言は従来どおり受理(照合の上で組み込みを使う):
@@ -295,7 +295,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check gresume.kel
-  ! 型エラー: resume は操作節の中でのみ使えます
+  ! gresume.kel:3:17: 型エラー: resume は操作節の中でのみ使えます
   [1]
 
 クロージャに包んでも同じ(§11.21 の迂回にならない):
@@ -310,7 +310,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check gresume2.kel
-  ! 型エラー: resume は操作節の中でのみ使えます
+  ! gresume2.kel:3:33: 型エラー: resume は操作節の中でのみ使えます
   [1]
 
 組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
@@ -322,7 +322,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > type instance Add[Int32] { let add(x, y) = y }
   > KEL
   $ diktor --type-check dupinst.kel
-  ! 型エラー: インスタンス Add[Int32] が二重に宣言されています(コヒーレンス違反)
+  ! dupinst.kel:2:1: 型エラー: インスタンス Add[Int32] が二重に宣言されています(コヒーレンス違反)
   [1]
 
 既定の節が無い操作節は型検査で拒否(B2 / D29。v0 には後送りの意味論が
@@ -337,7 +337,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check guardonly.kel
-  ! 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  ! guardonly.kel:2:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
   [1]
 
 標準出力に書き出せないときも終了コード規約に落ちる(B5 / D33。既定の
@@ -358,12 +358,12 @@ return / cancel は操作名として予約(D68。handle の節分類が名前�
 
   $ printf 'effect E = { cancel: () => Int32 }\n' > opres.kel
   $ diktor --type-check opres.kel
-  ! 型エラー: 操作名 cancel は予約されています(handle の cancel 節と衝突するため宣言できません)
+  ! opres.kel:1:1: 型エラー: 操作名 cancel は予約されています(handle の cancel 節と衝突するため宣言できません)
   [1]
 
   $ printf 'effect E2 = { return: () => Int32 }\n' > opres2.kel
   $ diktor --type-check opres2.kel
-  ! 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
+  ! opres2.kel:1:1: 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
   [1]
 
 終了は必ず safe_exit を通る(260829-5 M13 検証修正。exit の at_exit が
@@ -404,7 +404,7 @@ SIGPIPE は無視して出力エラー 74 に落とす(D33。既定のままだ�
 
   $ printf 'effect E3 = { _foo: (Int32) => Int32 }\n' > opus.kel
   $ diktor --type-check opus.kel
-  ! 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
+  ! opus.kel:1:1: 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
   [1]
 
 Run モードの診断は stderr(D54。stdout はプログラム出力専用):
