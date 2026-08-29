@@ -23,8 +23,6 @@
    番号をそのまま印字すると、同じプログラムでも前に何を型検査したかで
    表示が変わってしまうからです。
 
-   `with_oid` と `concat_list_option` は小道具です。
-
    ### 例外の 3 系統
 
    例外の種類が、そのまま**誰の誤りか**の分類になっています。
@@ -61,7 +59,6 @@
    終了コードの全体像 — 2 が字句・構文エラー、3 が実行時の異常、
    64 が使い方の誤り — は第16章 (driver.ml) にまとめてあります。 *)
 
-let concat_list_option = function None -> [] | Some xs -> xs
 
 type oid = int
 
@@ -72,7 +69,6 @@ let new_oid () =
   current_oid := ret + 1;
   ret
 
-let with_oid x = (new_oid (), x)
 
 exception NotImplemented of string
 

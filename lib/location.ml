@@ -28,30 +28,14 @@
    `show_pos` / `start_of` が `ファイル:行:桁` に整形します。字句エラーと
    構文エラー(第16章)も同じ `show_pos` の定義で出ます。
 
-   ### 細部
-
-   `dummy_span` の判定に `==`(物理等価)を使っています。
-   `Lexing.dummy_pos` は 1 個の共有された値なので、これが真になるのは
-   `dummy_span` 由来の位置だけです。構造比較でも同じ結果になりますが、
-   意図が「同じ値か」ではなく「あの穴埋めそのものか」なので
-   物理等価のほうが正確です。
-
-   桁は 1 起点です (`pos_cnum - pos_bol + 1`)。行が同じなら
-   `行:桁-桁`、またぐなら `行:桁-行:桁` と縮めます。長い span を
-   2 行ぶん書くと、エラーメッセージの本文より位置のほうが長くなります。 *)
-
-type t = Lexing.position
+   かつてここには `type t`(旧実装がトークンに載せていた位置の型)、
+   `dummy_span`、範囲ごと印字する `show_span` がありましたが、E1 の配線が
+   `show_pos` / `start_of`(開始位置だけを `ファイル:行:桁` で出す)で
+   完成したため、呼び出し元の無い 3 つは消しました (M19 / G1f)。範囲の
+   終端を見せる診断が要るようになったら、そのときの書式で書き直すほうが
+   よい — 使われない関数の書式は誰にも検証されません。 *)
 
 type span = { start : Lexing.position; finish : Lexing.position }
-
-let dummy_span = { start = Lexing.dummy_pos; finish = Lexing.dummy_pos }
-
-let show_span { start; finish } =
-  let line p = p.Lexing.pos_lnum in
-  let col p = p.Lexing.pos_cnum - p.Lexing.pos_bol + 1 in
-  if start == Lexing.dummy_pos then "<unknown>"
-  else if line start = line finish then Printf.sprintf "%d:%d-%d" (line start) (col start) (col finish)
-  else Printf.sprintf "%d:%d-%d:%d" (line start) (col start) (line finish) (col finish)
 
 (* 位置の表示 ファイル:行:桁(E1 / D53)。桁は行頭からのコードポイント差 + 1 —
    バイト差ではないこと(sedlex の Utf8 がコードポイントで数える)は第16章
