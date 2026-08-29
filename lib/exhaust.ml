@@ -108,13 +108,35 @@ type ipat =
 
 (* ## 10.3 木から行列へ — 数値の正規化とフィールドの整列
 
-   ### 数値は字面でなく値で比べる
+   ### 数値は字面でなく値で比べる — 同値関係は実行時の照合が決める
 
    `case 1` と `case 0x1` は同じ値です。字面のまま `ILit` に入れると、
-   後者が「別のコンストラクタ」に見えて冗長節の検出を取りこぼします。そこで
-   整数は `int_of_string` を通してから文字列化し、浮動小数は
-   `float_of_string` を通します。実装記録 260829-2-impl.md の乖離 11 —
-   計画に書き漏らしていた裁定です。
+   後者が「別のコンストラクタ」に見えて冗長節の検出を取りこぼします。
+   実装記録 260829-2-impl.md の乖離 11 — 計画に書き漏らしていた裁定です。
+
+   では「同じ値」とは何の同値関係か。**実行時の照合**です (D24)。第14章の
+   パターン照合は `float_of_string n_text = x` / `Int32.of_string n_text` /
+   `Int64.of_string n_text` の値一致なので、鍵はそれと一致させます。
+
+   - 整数は `Int64.of_string` を通してから文字列化します。以前は
+     `int_of_string` でしたが、OCaml の native int は **63 ビット**なので
+     `0x7FFFFFFFFFFFFFFF` がエラーにならずに -1 へ折り返し、`case -1` と
+     同じ鍵になって到達可能な節に「到達不能」と誤警告していました
+     (本文の旧版は「整数の正規化は往復するので健全です」と書いて
+     いましたが、それは誤りでした — 63 ビットの物差しで 64 ビットを
+     測ると、端が折り返します)。Int64 は 0x / 0o / 0b と `_` 区切りを
+     すべて受け、64 ビット全域を扱います。Int32 のリテラルは Int64 の
+     部分集合なのでどちらの列でも正しい鍵になります。
+   - 浮動小数は `float_of_string` を通し、`norm_float` で鍵にします。
+     ±0.0 を 1 つの鍵に畳むのは実行時の `=` がそうだから。%.17g を選ぶのは
+     binary64 を一意に決める(相異なる値は必ず別の鍵になる)からで、
+     以前の `string_of_float`(%.12g)は有効数字 13 桁目以降を潰し、
+     `case 1.0` と `case 1.0000000000001` に偽の冗長警告を出していました。
+     第12章 §12.7 の最短表現を使わないのは、**鍵は誰にも見せない**ので
+     桁を詰める理由が無く、章をまたぐ依存も作らずに済むからです。
+     inf は %.17g で `inf` になり、`1e999` と `1e1000` が同じ鍵に
+     なりますが、これは正しい — どちらも実行時には infinity です。
+     NaN はリテラルとして書けないので考えません。
 
    読めなかったときに元の字面へ落ちるのは、ここが**検査であって評価ではない**
    からです。桁あふれした数値リテラルは型検査を素通りします — 第11章 (elab.ml)
@@ -125,25 +147,16 @@ type ipat =
    足ります。ここで例外を投げても、利用者に届くのは網羅性検査の内部エラーで、
    本当の原因からは遠ざかるだけです。
 
-   ### 浮動小数の正規化は健全ではない (既知の穴)
-
-   整数の正規化は往復するので健全です。しかし浮動小数に使っている
-   `string_of_float` は `%.12g` なので、有効数字 13 桁目以降が潰れます。
-   相異なる Float64 リテラルが同じ `LNum` に化けるということで、
-   `case 1.0` と `case 1.0000000000001` はどちらも `1.` に正規化され、
-   後者が**到達可能なのに「到達不能(冗長)」と誤警告されます**
-   (実行すれば `f(1.0000000000001)` はちゃんと第 2 節を選びますし、
-   `1.0 == 1.0000000000001` も `false` です)。正しくは往復可能な最短表現
-   (`%.17g` からの短縮) を使うべきで、いま信用できるのは整数の正規化だけです。
-
-   この粗さが出るのは表示側ではありません。反例に載る数値リテラルは
-   §10.10 の `fresh` が `string_of_int` で作る整数字面だけで、パターン由来の
-   `LNum` が反例に組み込まれる経路はないからです (`rebuild` に `CLit` が渡るのは
-   `complete_sig` が返す Boolean の場合だけ)。効くのは**重複判定の健全性**、
-   つまり冗長警告のほうです。
+   残る不完全性を 1 つ明記します。正規化は**列の型を知らない**ので、
+   Int32 の列の `case 0xFFFFFFFF` と `case -1` — 実行時には同じ値
+   (`Int32.of_string` が -1l に折り返す)— を別の鍵にし、本物の冗長を
+   見逃します。これは偽の警告を出さない安全側の不完全性で、直すには
+   スクルティニ型を `convert` に流す設計変更(入れ子パターンの型も要る)が
+   必要になるため、v0 では見逃す側に倒します。
 
    > 正規化は「同じ値を同じ字面へ」だけでなく「違う値を違う字面へ」も
-   > 守らなければならない。片側しか守らない正規化は、偽の冗長警告を作る。
+   > 守らなければならない。片側しか守らない正規化は偽の冗長警告を作り、
+   > もう片側を守らない正規化は本物の冗長を見逃す。
 
    ### `PCtor` は解決結果を読んで宣言順に並べ替える
 
@@ -163,9 +176,15 @@ type ipat =
    解決が無いまま呼ばれたら `bug` で落とします。これは利用者のプログラムの
    誤りではなく elab の実装の誤りなので、型エラーではなく内部エラーが正しい報告です。 *)
 
+(* 実行時の照合は float_of_string n_text = x(第14章 §14.3)。
+   だから鍵の同値関係も IEEE の = に合わせる — +0.0 と -0.0 は同じ、
+   相異なる Float64 は必ず別の鍵。%.17g は binary64 を一意に決めるので、
+   最短表現を探すループは要らない(この鍵は誰にも見せない) *)
+let norm_float f = if f = 0.0 then "0" else Printf.sprintf "%.17g" f
+
 let norm_num (n : number) =
-  if n.n_is_float then match float_of_string_opt n.n_text with Some f -> string_of_float f | None -> n.n_text
-  else match int_of_string_opt n.n_text with Some i -> string_of_int i | None -> n.n_text
+  if n.n_is_float then match float_of_string_opt n.n_text with Some f -> norm_float f | None -> n.n_text
+  else match Int64.of_string_opt n.n_text with Some i -> Int64.to_string i | None -> n.n_text
 
 let rec convert ((_, p) as node : T.pat) : ipat =
   match p with
@@ -540,26 +559,31 @@ let rec close_variant_rows rows tys =
    空でない以上、結論を変えない冗長な連言です。お手本との対応を
    目で追えるように、あえて残してあります。
 
-   ### 整数の反例
+   ### 反例を構成する — 整数・浮動小数・文字列
 
    シグネチャが `None` の型 (`Int32` など) では、使われていないコンストラクタを
-   一覧から選ぶことができません。そこで数値リテラルが並んでいるときだけ、
-   `fresh` が 0 から順に「パターンに現れていない整数」を探して具体的な反例を
-   作ります。`case 0 => ... case 1 => ...` に対して `2` が漏れていると
-   言えるほうが、`_` が漏れていると言うより役に立ちます。
+   一覧から選ぶことができません。そこで「まだパターンに現れていない値」を
+   候補列から探して具体的な反例にします。`case 0 => ... case 1 => ...` に
+   対して `2` が漏れていると言えるほうが、`_` が漏れていると言うより
+   役に立ちます。候補列は 3 通りです。
 
-   **これが当てになるのは整数 (`Int32` / `Int64`) だけです。** `fresh` の比較は
-   `string_of_int i` と、正規化済みの `LNum` 文字列の集合との `List.mem` です。
-   Float64 の `match` でも同じ経路が走りますが、`case 0.0` は §10.3 の正規化で
-   `0.` として記録されるので、`fresh` は `0` を「まだ現れていない」と判定します。
-   `x match { case 0.0 => 1  case 1.0 => 2 }` に対して出る
-   「例えば 0 が漏れています」は、非網羅という結論こそ正しいものの、
-   提示された値は witness になっていない — 既知の粗さです。
+   - 整数: 0, 1, 2, …(`string_of_int`)
+   - 浮動小数: 0.0, 1.0, 2.0, …(表示は `%.1f`)
+   - 文字列: 空文字列, a, aa, …(`String.make i` の a の反復)
 
-   文字列にはこの構成をしていないので、`case` に文字列リテラルだけを
-   並べた `match` の反例は `_` になります。お手本と同じ限界で、
-   直すなら数値と同じ「使われていない値を探す」を書き足すことになります。
-   ただし数値のほうも、まず §10.3 の正規化を往復可能なものに直すのが先です。 *)
+   いずれも roots(現れているリテラル)は有限なので必ず止まります。
+   要は**突き合わせは §10.3 の鍵で、表示は読める字面で**という分業です。
+   以前は鍵と `string_of_int` を直に突き合わせていたため、Float64 の列では
+   `case 0.0` の鍵(`0.` の類)と字面 `0` が噛み合わず、既に覆われている
+   `0` を witness として提示していました — 非網羅という結論は正しくても、
+   利用者がその値で試すと第 1 節に当たり、警告が嘘に見えます。文字列には
+   構成そのものが無く、反例は情報量ゼロの `_` でした。
+
+   反例に出す字面は必ず Keleut のリテラルとして読めるものにします。
+   §10.3 の鍵(%.17g や ±0 畳み)はここに**流さない** — 鍵は同値判定の
+   ための内部表現で、誰にも見せない、が両節の分業の不変条件です。
+
+   > 反例は「存在する」と言うだけでは反例ではない。指させて初めて反例になる。 *)
 
 let roots_of rows ty =
   List.sort_uniq compare (List.concat_map (fun r -> match r with h :: _ -> Option.to_list (ctor_of h ty) | [] -> []) rows)
@@ -596,12 +620,32 @@ let rec missing rows tys =
                   | Some c -> List.hd (rebuild c (List.init (arity c) (fun _ -> IWild)))
                   | None -> IWild)
               | None -> (
-                  (* 数値は反例を構成する(健全なのは整数だけ。§10.10) *)
-                  let used = List.filter_map (function CLit (LNum n) -> Some n | _ -> None) roots in
-                  if used <> [] then
-                    let rec fresh i = if List.mem (string_of_int i) used then fresh (i + 1) else string_of_int i in
-                    ILit (LNum (fresh 0))
-                  else IWild)
+                  (* シグネチャが無い型 (Int32/Int64/Float64/String) は、まだ
+                     使われていない値を候補列から探して具体的な反例にする。
+                     候補は必ず読める字面にする — 鍵 (§10.3) は表示しない *)
+                  let used_num = List.filter_map (function CLit (LNum n) -> Some n | _ -> None) roots in
+                  let used_txt = List.filter_map (function CLit (LText s) -> Some s | _ -> None) roots in
+                  if used_txt <> [] then
+                    (* 候補列は空文字列, a, aa, … 。roots は有限なので必ず止まる *)
+                    let rec fresh i =
+                      let s = String.make i 'a' in
+                      if List.mem s used_txt then fresh (i + 1) else s
+                    in
+                    ILit (LText (fresh 0))
+                  else if used_num = [] then IWild
+                  else
+                    match ty with
+                    | TCon (n, []) when n = intern "Float64" ->
+                        (* 候補は 0.0, 1.0, 2.0, …。突き合わせは §10.3 と同じ鍵で
+                           行い、見せるのは読める字面のほう *)
+                        let rec fresh i =
+                          let f = float_of_int i in
+                          if List.mem (norm_float f) used_num then fresh (i + 1) else Printf.sprintf "%.1f" f
+                        in
+                        ILit (LNum (fresh 0))
+                    | _ ->
+                        let rec fresh i = if List.mem (string_of_int i) used_num then fresh (i + 1) else string_of_int i in
+                        ILit (LNum (fresh 0)))
             in
             Some (head :: w))
 
