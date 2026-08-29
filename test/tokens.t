@@ -443,3 +443,22 @@ sample.kel 全文のトークン化(spike と同じ 2526 トークンである�
    582  "456"
    582  )
    608  <EOF>
+
+小数部の省略(1. / 2.e3)と、その後の ASI(D25。行末の 1. は NUMBER で
+文を終えられる — 以前は DOT で継続していた):
+
+  $ cat > dotasi.kel <<'EOF2'
+  > let x = 1.
+  > let y = 2.e3
+  > EOF2
+  $ diktor --dump-tokens dotasi.kel
+     1  let
+     1  x
+     1  =
+     1  1.
+     1  <NL>
+     2  let
+     2  y
+     2  =
+     2  2.e3
+     3  <EOF>

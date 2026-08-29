@@ -159,7 +159,7 @@ let rec の非関数右辺を型検査で拒否:
 
   $ printf 'echoln(show(1i999999999999999999999))\n' > hugesuf.kel
   $ diktor hugesuf.kel
-  ! 型エラー: 数値接尾辞 1i9999 は v0 では未対応です(i32/i64/f64 を使ってください)
+  ! 型エラー: 数値接尾辞 1i999999999999999999999 は v0 では未対応です(i32/i64/f64 を使ってください)
   [1]
 
   $ printf 'module A { module B { let x = 1 } }\n' > nestmod.kel

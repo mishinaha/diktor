@@ -228,3 +228,38 @@ Int64 の 16 進リテラルは値で区別される(A10。63 ビットの int_o
   ⚠ match が非網羅的です。例えば 2 が漏れています
   e : (String) => Int32
   ⚠ match が非網羅的です。例えば "a" が漏れています
+
+未対応の接尾辞は書いたとおりの字面で報告する(A5。かつて桁あふれは
+1i9999 という書ける幅に化け、区別が付かなかった):
+
+  $ printf 'echoln(show(1u8))\n' > u8.kel
+  $ diktor u8.kel
+  ! 型エラー: 数値接尾辞 1u8 は v0 では未対応です(i32/i64/f64 を使ってください)
+  [1]
+
+  $ printf 'echoln(show(1i9999))\n' > w9999.kel
+  $ diktor w9999.kel
+  ! 型エラー: 数値接尾辞 1i9999 は v0 では未対応です(i32/i64/f64 を使ってください)
+  [1]
+
+先頭ゼロの接尾辞も原文のまま(1i032 が 1i32 に化けない):
+
+  $ printf 'let x = 1i032\n' > lead0.kel
+  $ diktor --dump-tokens lead0.kel | tail -2
+     1  1i032
+     2  <EOF>
+
+小数部を省いた浮動小数リテラル(A4 / D25。1. / 2.e3 / 1.f64):
+
+  $ cat > dotlit.kel <<'KEL'
+  > let x: Float64 = 1.
+  > let y = 2.e3
+  > let z = 1.f64
+  > echoln(show(x))
+  > echoln(show(y))
+  > echoln(show(z))
+  > KEL
+  $ diktor dotlit.kel
+  1.0
+  2000.0
+  1.0

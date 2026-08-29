@@ -81,9 +81,12 @@ exception Lex_error of string * Lexing.position
    `1i999999999999999999999` を食わせて見つけた穴の修正です。以前は
    `int_of_string` をそのまま呼んでいたので、桁あふれの `Failure` が
    字句層から素通しで飛び、OCaml の未捕捉例外としてクラッシュしていました。
-   いまは解釈できない幅を **9999 という存在しない幅**に落とし、第11章の
-   `number_ty` が「v0 では未対応の接尾辞」として通常の型エラー(終了コード 1)
-   に整形します。
+   いまは解釈できない幅を **-1** に落とし、第11章の `number_ty` が
+   「v0 では未対応の接尾辞」として通常の型エラー(終了コード 1)に整形
+   します。センチネルが -1 なのは、字句の幅が Plus digit で負の幅はソースに
+   書けない — つまり**どの実装幅とも衝突しない**からです。最初は 9999 に
+   落としていましたが、9999 はユーザが実際に書ける幅なので、`1i9999` と
+   書いた場合と桁あふれが区別できませんでした。
 
    > 字句層が投げてよい例外は `Lex_error` だけ。それ以外は終了コード規約から漏れる。
 
@@ -93,9 +96,13 @@ exception Lex_error of string * Lexing.position
    AST の上では「単項マイナス演算子が存在しない」という sample.kel:72 の
    意味論がそのまま保たれます。
 
-   `show_number` は表記を復元します。ゴールデンテストと型エラーの文面が
-   これを使うので、9999 に落ちた接尾辞は `1i9999` と表示されます
-   (元の桁数は復元されません。診断としては十分だと割り切っています)。 *)
+   `show_number` は、いまや復元ではなく**原文の連結**です。number は
+   接尾辞の原文 `n_suffix_text` を持っていて(第1章)、ゴールデンテストと
+   型エラーの文面はそれをそのまま出します。かつては解釈済みの `n_suffix`
+   から表記を再構成していたので、桁あふれの接尾辞が `1i9999` に、先頭
+   ゼロの `1i032` が `1i32` に化けていました。
+
+   > 診断に出す字面は、再構成するのではなく取っておく。 *)
 
 let parse_number text =
   let len = String.length text in
@@ -110,24 +117,19 @@ let parse_number text =
     (not has_radix_prefix) && String.exists (fun c -> c = '.' || c = 'e' || c = 'E') body
   in
   match suffix_at with
-  | None -> { n_text = text; n_is_float = lexically_float text; n_suffix = None }
+  | None -> { n_text = text; n_is_float = lexically_float text; n_suffix = None; n_suffix_text = "" }
   | Some i ->
       let body = String.sub text 0 i in
-      (* 解釈できない幅は 9999 に落として elab の型エラーへ回す(頑健性、260829-2b) *)
-      let width = match int_of_string_opt (String.sub text (i + 1) (len - i - 1)) with Some w -> w | None -> 9999 in
+      let raw = String.sub text i (len - i) in
+      (* 解釈できない幅は -1 に落として elab の型エラーへ回す(頑健性、260829-2b)。
+         字句は Plus digit なので負の幅はソースに書けない = どの実装幅とも
+         衝突しない真のセンチネル *)
+      let width = match int_of_string_opt (String.sub text (i + 1) (len - i - 1)) with Some w -> w | None -> -1 in
       let suffix = match text.[i] with 'i' -> NsInt width | 'u' -> NsUInt width | _ -> NsFloat width in
       let is_float = match suffix with NsFloat _ -> true | _ -> lexically_float body in
-      { n_text = body; n_is_float = is_float; n_suffix = Some suffix }
+      { n_text = body; n_is_float = is_float; n_suffix = Some suffix; n_suffix_text = raw }
 
-let show_number { n_text; n_suffix; _ } =
-  let suffix =
-    match n_suffix with
-    | None -> ""
-    | Some (NsInt w) -> "i" ^ string_of_int w
-    | Some (NsUInt w) -> "u" ^ string_of_int w
-    | Some (NsFloat w) -> "f" ^ string_of_int w
-  in
-  n_text ^ suffix
+let show_number { n_text; n_suffix_text; _ } = n_text ^ n_suffix_text
 
 (* ## 2.2 sedlex の正規表現
 
@@ -135,6 +137,16 @@ let show_number { n_text; n_suffix; _ } =
    意図的に落としたものが 1 つあります。**先頭 `0` の 8 進表記**です。
    `010` が 8 になる罠は持ち込まない、8 進が要るなら `0o` と書く、という
    裁定です(計画 §5.5)。
+
+   小数部は省略できます (D25) — `1.` は 1.0、`1.e5` は 1e5 です。規則を
+   `Opt ('.', Opt (digit, Star (digit | '_')))` と書き、`Star` を小数点の
+   直後に**直接置かない**のは、`1._1` が丸ごと 1 つの数値に吸われない
+   ためです(小数点の直後が数字でなければ小数部は空で、そこで数値が
+   切れます)。最長一致の帰結として `1._1` / `1.foo` は「数値リテラル +
+   識別子」に読まれ、数値リテラルへのレコード射影は書けなくなりますが、
+   数値は行を持たない値なので失うプログラムはありません。先頭小数点
+   (`.5`)は入れません — `t._0` の射影と読み分けが要る形は、仕様が
+   `t.0` を避けたのと同じ理由で避けます (sample.kel:119-123)。
 
    `int_suffix` を基数つきの側だけに使い、10 進側は正規表現の中に
    `('i' | 'u' | 'f'), Plus digit` を直接書いているのは、2.1 で述べた
@@ -154,7 +166,9 @@ let dec_number =
   [%sedlex.regexp?
     ( digit,
       Star (digit | '_'),
-      Opt ('.', digit, Star (digit | '_')),
+      (* 小数部は省略可(D25): 1. も 1.5 も。Opt (digit, Star ...) であって
+         Star を直接置かないのは、1._1 が丸ごと 1 つの数値にならないため *)
+      Opt ('.', Opt (digit, Star (digit | '_'))),
       Opt (('e' | 'E'), Opt ('+' | '-'), Plus digit),
       Opt (('i' | 'u' | 'f'), Plus digit) )]
 
@@ -625,6 +639,11 @@ module Make (Data : Syntax.Data) = struct
    - `DOT` / `BACKSLASH` — メソッドチェーンとレコード制限の折り返し。
    - `EXTENDS` / `VERTICAL` — 行の続きと `#X | #Y` の折り返し。
    - 二項演算子群 — `1 + ⏎ 2` が繋がる。
+
+   なお行末の `1.` は、小数部の省略 (D25、§2.2) を入れてからは 1 個の
+   NUMBER なので文を終えられます。以前は `1` + `DOT` の 2 トークンに
+   割れ、DOT が除外側なので改行が捨てられていました — 浮動小数リテラルで
+   文が終わるいまの読みのほうが正しい形です。
 
    逆に `LPAREN` は**入れて**あります。sample.kel:220 の「行頭の `(` は
    前の行の継続とみなさない(改行が優先される)」の実装です。`VAL` と
