@@ -124,22 +124,10 @@ let rec pp fmt = function
    なお、このダンプは読み戻せません。原子は生のまま出しますし、位置も型も落とします。
    唯一のエスケープが下の `quoted` で、テキストリテラルだけ `String.escaped` を通します。
    数値は第2章 (lexer.ml) の `show_number` を借りるので、桁区切りも接尾辞も
-   `--dump-tokens` と同じ見え方になります。2つのダンプが食い違わないのは、
-   表記を復元する関数が1つしかないからです。 *)
-let show_bin_op = function
-  | Add -> "+"
-  | Sub -> "-"
-  | Mul -> "*"
-  | Div -> "/"
-  | Eq -> "=="
-  | Ne -> "!="
-  | Lt -> "<"
-  | Le -> "<="
-  | Gt -> ">"
-  | Ge -> ">="
-  | And -> "&&"
-  | Or -> "||"
-
+   `--dump-tokens` と同じ見え方になります。演算子も同じで、字面へ戻す表は
+   第7章 (prims.ml) の `show_bin_op` から借ります (M19 / G2)。
+   **2 つのダンプが食い違わないのは、表記を復元する関数が 1 つしか
+   ないからです** — この原則は数値だけでなく演算子にも掛かっています。 *)
 let quoted s = "\"" ^ String.escaped s ^ "\""
 
 (* ## 4.3 型のダンプ
@@ -260,7 +248,7 @@ let rec sexp_of_exp (_, e) =
   | Apply (f, a) -> L [ A "apply"; sexp_of_exp f; sexp_of_exp a ]
   | Construct (li, args) -> L (A "construct" :: A (show_long_id li) :: List.map sexp_of_ctor_arg args)
   | Variant (s, e) -> L [ A ("#" ^ s); sexp_of_exp e ]
-  | BinOp (l, op, r) -> L [ A (show_bin_op op); sexp_of_exp l; sexp_of_exp r ]
+  | BinOp (l, op, r) -> L [ A (Prims.show_bin_op op); sexp_of_exp l; sexp_of_exp r ]
   | Not e -> L [ A "!"; sexp_of_exp e ]
   | Lambda { l_params; l_body } -> L [ A "fn"; L (List.map sexp_of_pat l_params); sexp_of_exp l_body ]
   | Let (b, e) -> L [ A "let"; sexp_of_binding b; sexp_of_exp e ]

@@ -103,7 +103,7 @@ type ipat =
   | IWild
   | ILit of lit
   | IVariant of oid * ipat
-  | ICtor of oid * oid * ipat list (* data, ctor, フィールド宣言順に整列済み *)
+  | ICtor of oid * ipat list (* ctor、フィールド宣言順に整列済み *)
   | IRecord of (oid * ipat) list * bool (* フィールド列, closed? *)
 
 (* ## 10.3 木から行列へ — 数値の正規化とフィールドの整列
@@ -210,17 +210,19 @@ let rec convert ((_, p) as node : T.pat) : ipat =
   | T.PVariant (s, sub) -> IVariant (intern s, convert sub)
   | T.PRecord (fields, rest) ->
       IRecord (List.map (fun (l, sub) -> (intern l, convert sub)) fields, rest = None)
-  | T.PCtor _ -> (
+  | T.PCtor (_, args) -> (
+      (* 引数列は外側のパターンで束縛する。内側でもう一度分解して
+         assert false で塞ぐ形にすると、到達しないはずの枝の例外だけが
+         §16.8 の受け皿に載らず、静かに終了コード 2 に化ける(M19 / G3d) *)
       match Tree.get_resolved node with
-      | Some (Tree.RCtorPat (data, ctor, field_to_arg)) ->
-          let args = match p with T.PCtor (_, args) -> args | _ -> assert false in
+      | Some (Tree.RCtorPat (_, ctor, field_to_arg)) ->
           let subs =
             Array.to_list
               (Array.map
                  (fun ai -> match ai with Some i -> convert (List.nth args i).T.cap_pat | None -> IWild)
                  field_to_arg)
           in
-          ICtor (data, ctor, subs)
+          ICtor (ctor, subs)
       | _ -> bug "PCtor が解決されていません(elab_pat が resolved を書いていない)")
 
 (* ## 10.4 コンストラクタ・arity・部分型
@@ -279,7 +281,7 @@ let ctor_of (p : ipat) ty =
   | IWild -> None
   | ILit l -> Some (CLit l)
   | IVariant (l, _) -> Some (CVariant l)
-  | ICtor (_, c, _) -> Some (CData c)
+  | ICtor (c, _) -> Some (CData c)
   | IRecord _ -> Some (CRecord (record_labels ty))
 
 let field_type_of row label =
@@ -375,7 +377,7 @@ let specialize c _ty rows =
           match (h, c) with
           | IWild, _ -> [ List.init (arity c) (fun _ -> IWild) @ rest ]
           | IVariant (l1, sub), CVariant l2 when l1 = l2 -> [ sub :: rest ]
-          | ICtor (_, l1, subs), CData l2 when l1 = l2 -> [ subs @ rest ]
+          | ICtor (l1, subs), CData l2 when l1 = l2 -> [ subs @ rest ]
           | ILit a, CLit b when a = b -> [ rest ]
           | IRecord (fs, _), CRecord labels -> [ align_record_pat labels fs @ rest ]
           | _ -> []))
@@ -431,6 +433,11 @@ let default_matrix rows =
    `Unit` に専用ケースが無いのは、Keleut の `()` が空レコードだからです。
    `TRecord` の枝が `CRecord []` (arity 0) を返して、そのまま処理されます。 *)
 
+(* Boolean の oid。intern は表引きなので、complete_sig のたびに引かず
+   1 回で済ませる。Type.intern_map は reset されない(第1章 §1.2)ので
+   初期化時に確定してよい(M19 / G3e) *)
+let oid_boolean = intern "Boolean"
+
 let complete_sig ty =
   match repr ty with
   | TVariant row -> (
@@ -441,7 +448,7 @@ let complete_sig ty =
   | TCon (n, _) when Hashtbl.mem Decls.datas n ->
       let dd = Hashtbl.find Decls.datas n in
       if dd.Decls.dd_opaque then None else Some (List.map (fun ct -> CData ct.Decls.ct_name) dd.Decls.dd_ctors)
-  | TCon (n, []) when n = intern "Boolean" -> Some [ CLit (LBool true); CLit (LBool false) ]
+  | TCon (n, []) when n = oid_boolean -> Some [ CLit (LBool true); CLit (LBool false) ]
   | TRecord row -> Some [ CRecord (List.map fst (fst (row_fields row))) ]
   | _ -> None
 
@@ -452,10 +459,12 @@ let complete_sig ty =
    `rebuild` です。`ws` は「このコンストラクタの引数」と「残りの列」が
    連結された 1 本のリストなので、arity で切り分けて先頭だけを包み直します。
 
-   `take` / `drop` を局所に定義しているのは、標準ライブラリの
-   `List.filteri` 系だけでは切り出しが書きにくいためです。この 2 つは空リストを
-   先に見るので `ws` が arity より短くても落ちませんが、**この関数全体が
-   例外を投げないわけではありません**。`CRecord` 枝の `List.combine ls (take n ws)`
+   `split_at` を直前に 1 つ置いているのは、標準ライブラリに無く
+   `List.filteri` 系では書きにくいからです (M19 / G3c)。1 回の走査で
+   切り出しと残りを両方返すので、`take` と `drop` を別々に書いて 2 回
+   歩く形にはしていません(かつては同じ 2 本組が 2 か所に複製されて
+   いました)。`ws` が短くても落ちませんが、**この関数全体が
+   例外を投げないわけではありません**。`CRecord` 枝の `List.combine ls fs`
    は長さが違えば `Invalid_argument` を、`CVariant` 枝の `List.hd ws` は
    空リストで `Failure` を送出します。つまりここは
    「行列とベクトルと型リストが同じ幅で歩く」という §10.11 の不変条件に
@@ -466,20 +475,29 @@ let complete_sig ty =
    常に全フィールドを書き下したものだからです。この `true` が
    §10.12 のタプル再糖衣化の入口になります。 *)
 
+(* 先頭 n 個とその残りに割る。stdlib に無く、List.filteri 系では書きにくい。
+   ws が n より短くても落ちない(§10.8 の不変条件が破れたときの被害を
+   ここで増やさないため。M19 / G3c — かつて take / drop の 2 本組を
+   2 か所に複製し、リストを 2 回歩いていた) *)
+let rec split_at n xs =
+  if n = 0 then ([], xs)
+  else
+    match xs with
+    | [] -> ([], [])
+    | x :: tl ->
+        let a, b = split_at (n - 1) tl in
+        (x :: a, b)
+
 let rebuild c ws =
   match c with
   | CVariant l -> IVariant (l, List.hd ws) :: List.tl ws
   | CData l ->
-      let n = arity (CData l) in
-      let rec take n = function [] -> [] | x :: tl -> if n = 0 then [] else x :: take (n - 1) tl in
-      let rec drop n = function [] -> [] | _ :: tl as xs -> if n = 0 then xs else drop (n - 1) tl in
-      ICtor (Hashtbl.find Decls.ctor_owner l, l, take n ws) :: drop n ws
+      let args, rest = split_at (arity (CData l)) ws in
+      ICtor (l, args) :: rest
   | CLit l -> ILit l :: ws
   | CRecord ls ->
-      let n = List.length ls in
-      let rec take n = function [] -> [] | x :: tl -> if n = 0 then [] else x :: take (n - 1) tl in
-      let rec drop n = function [] -> [] | _ :: tl as xs -> if n = 0 then xs else drop (n - 1) tl in
-      IRecord (List.combine ls (take n ws), true) :: drop n ws
+      let fs, rest = split_at (List.length ls) ws in
+      IRecord (List.combine ls fs, true) :: rest
 
 (* ## 10.9 構造的ヴァリアントの行を閉じる
 
@@ -569,9 +587,12 @@ let rec close_variant_rows rows tys =
 
    > 「コンストラクタが全部覆われている」の全部は、0 個の全部でもよい。
 
-   `Some s` の枝に残っている `roots <> []` は、この枝に届く `s` が
-   空でない以上、結論を変えない冗長な連言です。お手本との対応を
-   目で追えるように、あえて残してあります。
+   `Some s` の枝に `roots <> []` の連言は要りません — この枝に届く `s` が
+   空でない以上、`roots` が空なら `List.for_all` は必ず偽です。以前は
+   「お手本との対応を目で追えるように」と冗長な連言をあえて残して
+   いましたが、同じ 6 行が `missing` と `useful` に**複製**された時点で
+   その理由は持たなくなりました。判定は `sig_complete` の 1 か所にあり、
+   §10.11 も同じものを引きます (M19 / G3a)。
 
    ### 反例を構成する — 整数・浮動小数・文字列
 
@@ -606,6 +627,16 @@ let rec close_variant_rows rows tys =
 let roots_of rows ty =
   List.sort_uniq compare (List.concat_map (fun r -> match r with h :: _ -> Option.to_list (ctor_of h ty) | [] -> []) rows)
 
+(* シグネチャが完全か。Some [] = コンストラクタゼロ(Never)は節が
+   無くても網羅(計画 §7.5)。Some s の枝に roots <> [] は要らない —
+   s が非空なら List.for_all は roots が空のとき必ず偽になる(§10.10。
+   M19 / G3a — かつて同じ 6 行が missing / useful に複製されていた) *)
+let sig_complete sig_ roots =
+  match sig_ with
+  | Some [] -> true
+  | Some s -> List.for_all (fun c -> List.mem c roots) s
+  | None -> false
+
 let rec missing rows tys =
   match tys with
   | [] -> if rows = [] then Some [] else None
@@ -613,13 +644,7 @@ let rec missing rows tys =
       let ty = repr ty in
       let roots = roots_of rows ty in
       let sig_ = complete_sig ty in
-      let is_complete =
-        (* Some [] = コンストラクタゼロ(Never)。節が無くても網羅(計画 §7.5) *)
-        match sig_ with
-        | Some [] -> true
-        | Some s -> roots <> [] && List.for_all (fun c -> List.mem c roots) s
-        | None -> false
-      in
+      let is_complete = sig_complete sig_ roots in
       if is_complete then
         List.find_map
           (fun c ->
@@ -718,12 +743,7 @@ let rec useful rows q tys =
       | None ->
           let roots = roots_of rows ty in
           let sig_ = complete_sig ty in
-          let is_complete =
-            match sig_ with
-            | Some [] -> true
-            | Some s -> roots <> [] && List.for_all (fun c -> List.mem c roots) s
-            | None -> false
-          in
+          let is_complete = sig_complete sig_ roots in
           if is_complete then
             List.exists
               (fun c ->
@@ -760,8 +780,8 @@ let rec show_ipat = function
   | ILit l -> show_lit l
   | IVariant (l, IRecord ([], true)) -> "#" ^ name_of l
   | IVariant (l, sub) -> "#" ^ name_of l ^ "(" ^ show_ipat sub ^ ")"
-  | ICtor (_, c, []) -> name_of c
-  | ICtor (_, c, subs) -> name_of c ^ "(" ^ String.concat ", " (List.map show_ipat subs) ^ ")"
+  | ICtor (c, []) -> name_of c
+  | ICtor (c, subs) -> name_of c ^ "(" ^ String.concat ", " (List.map show_ipat subs) ^ ")"
   | IRecord ([], true) -> "()"
   | IRecord (fs, closed) ->
       if closed && fs <> [] && List.for_all (fun (l, _) -> l = l_item) fs then
@@ -801,8 +821,10 @@ let rec show_ipat = function
 
    この 2 つの制約が挟み込むただ 1 つの時点が、
    各 let 束縛群の `generalize` の直前です。第11章 (elab.ml) はそこで
-   `drain` を呼びます。`queue` が末尾に追加するのは、警告の順序を
-   ソース順に保つためです (ゴールデンテストがこの順序を見ています)。
+   `drain` を呼びます。`queue` は先頭に積み、`drain` が `List.rev` で
+   戻します (M19 / G3b)。末尾に `@` で足すと積んだ数の二乗になるので、
+   順序の保証は反転のほうへ移しました。**ゴールデンテストがこの順序を
+   見ています**。
 
    ### ガード付き節は網羅性に数えない
 
@@ -833,7 +855,9 @@ type entry = { qe_rows : (T.pat * bool (* ガードつき *)) list; qe_ty : ty }
 
 let pending : entry list ref = ref []
 
-let queue rows ty = pending := !pending @ [ { qe_rows = rows; qe_ty = ty } ]
+(* 積むのは先頭。ソース順は drain の List.rev が戻す(§10.13。
+   M19 / G3b — 末尾 @ は積んだ数の二乗) *)
+let queue rows ty = pending := { qe_rows = rows; qe_ty = ty } :: !pending
 
 let check_entry { qe_rows; qe_ty } =
   let out = ref [] in
@@ -855,7 +879,7 @@ let check_entry { qe_rows; qe_ty } =
   !out
 
 let drain () =
-  let entries = !pending in
+  let entries = List.rev !pending in
   pending := [];
   List.concat_map check_entry entries
 

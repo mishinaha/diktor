@@ -358,3 +358,26 @@ Never の照合不一致はコンストラクタゼロを明示する:
   $ printf 'let g[h](r: Ref[h, Int32]): Int32 @ Heap[h] = Ref.get(r)\n' > effshort.kel
   $ diktor --type-check effshort.kel
   g : (Ref[A, Int32]) => Int32 @ {Heap[A] extends R1}
+
+組み込みクラスのメソッドスキーマ(arrow1 / arrow2 の 1 枚から出る):
+
+  $ cat > methods.kel <<'KEL'
+  > let a = add(1, 2)
+  > let b = lt(1, 2)
+  > let c = show(1)
+  > KEL
+  $ diktor --type-check --no-prelude methods.kel
+  a : Int32
+  b : Boolean
+  c : String
+
+剛定数の 3 つの生成点を 1 ファイルで(M19 / G5 の new_rigid_ref 集約):
+
+  $ cat > rigids.kel <<'KEL'
+  > let ann[A: Add](x: A): A @ {} = x + x
+  > let esc = run h { Ref.new(0) }
+  > KEL
+  $ diktor --type-check rigids.kel
+  ann : [A: Add] (A) => A
+  ! rigids.kel:2:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]

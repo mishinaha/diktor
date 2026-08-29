@@ -1745,7 +1745,7 @@ and make_rigids level tparams =
     (fun tp ->
       let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
       let classes = class_names_of tp in
-      let r = ref (Rigid { vid = new_oid (); vlevel = level; vkind = kind; vcls = classes }) in
+      let r = new_rigid_ref ~kind ~classes level in
       (tp.tp_name, TVar r, r))
     tparams
 
@@ -1810,7 +1810,7 @@ and open_explicit_eff lvl eff =
   let fields, tail = row_fields eff in
   match repr tail with
   | TRowEmpty when fields <> [] ->
-      let r = ref (Rigid { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] }) in
+      let r = new_rigid_ref ~kind:KRow lvl in
       (row_append eff (TVar r), [ ("", TVar r, r) ])
   | _ -> (eff, [])
 
@@ -1928,9 +1928,8 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
                  見せて perform を拒み、公開スキーマでは Generic に解放して
                  どんな行の文脈からも呼べるようにする — open_explicit_eff が
                  空でない行にやることを、空の行にもやる形 *)
-              let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
-              let r = ref (Rigid i) in
-              Hashtbl.replace pub_pure_rows i.vid ();
+              let r = new_rigid_ref ~kind:KRow lvl in
+              (match !r with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
               (TVar r, [ ("", TVar r, r) ])
           | None -> (new_row_var lvl, [])
         in
@@ -2027,9 +2026,8 @@ and elab_rec_bindings env level eff bs : env =
     match !shared_pub_row with
     | Some (t, r) -> (t, [ ("", t, r) ])
     | None ->
-        let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
-        let r = ref (Rigid i) in
-        Hashtbl.replace pub_pure_rows i.vid ();
+        let r = new_rigid_ref ~kind:KRow lvl in
+        (match !r with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
         shared_pub_row := Some (TVar r, r);
         (TVar r, [ ("", TVar r, r) ])
   in
@@ -2595,8 +2593,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
               | None ->
                   (* ここに来るのは pub のみ(full の条件)。本体側と同じ
                      Rigid → Generic(D44) *)
-                  let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
-                  let r = ref (Rigid i) in
+                  let r = new_rigid_ref ~kind:KRow lvl in
                   (TVar r, [ ("", TVar r, r) ])
             in
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in

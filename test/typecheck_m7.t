@@ -285,3 +285,47 @@ module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 �
   B.down : (Int32) => Int32
   ! vamb.kel:3:13: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
   [1]
+
+完全シグネチャ判定(Some [] = Never の節ゼロは網羅、roots が空なら
+default へ降りる。M19 / G3a の sig_complete):
+
+  $ cat > sigc.kel <<'KEL'
+  > let absurd[A](n: Never): A = n match {}
+  > let allwild = fn(b: Boolean) => b match { case _ => 0 }
+  > KEL
+  $ diktor --type-check --no-prelude sigc.kel
+  absurd : (Never) => A
+  allwild : (Boolean) => Int32
+
+網羅性警告はソース順に並ぶ(§10.13 の遅延キュー。M19 / G3b):
+
+  $ cat > warnorder.kel <<'KEL'
+  > let a = fn(x: Boolean) => x match { case true => 1 }
+  > let b = fn(p: (Boolean, Boolean)) => p match { case (true, true) => 1  case (false, false) => 2 }
+  > let c = fn(x: Int32) => x match { case 0 => 1  case 1 => 2 }
+  > let d = fn(x: Boolean) => x match { case true => 1  case false => 2  case _ => 3 }
+  > KEL
+  $ diktor --type-check --no-prelude warnorder.kel
+  a : (Boolean) => Int32
+  ⚠ match が非網羅的です。例えば false が漏れています
+  b : ((Boolean, Boolean)) => Int32
+  ⚠ match が非網羅的です。例えば (true, false) が漏れています
+  c : (Int32) => Int32
+  ⚠ match が非網羅的です。例えば 2 が漏れています
+  d : (Boolean) => Int32
+  ⚠ 第 3 節は到達不能です(冗長)
+
+反例の組み立て(CData / CRecord の両方が rebuild の split_at を通る。
+M19 / G3c / G3d / G7c):
+
+  $ cat > rebuild.kel <<'KEL'
+  > newtype Shape = Dot | Seg(Boolean, Boolean) | Box(w: Boolean, h: Boolean)
+  > let f = fn(s: Shape) => s match {
+  >   case Dot => 0
+  >   case Seg(true, true) => 1
+  >   case Box(w = true, h = true) => 2
+  > }
+  > KEL
+  $ diktor --type-check --no-prelude rebuild.kel
+  f : (Shape) => Int32
+  ⚠ match が非網羅的です。例えば Seg(false, true) が漏れています

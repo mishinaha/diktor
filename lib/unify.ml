@@ -809,8 +809,9 @@ let instantiate level t =
       new_class_var ~kind:i.vkind ~classes:i.vcls level)
     t
 
-(* Generic → 現在のレベルの新しい剛定数(注釈の skolem 化) *)
-let skolemize level t = map_generics (fun i -> TVar (ref (Rigid { i with vid = new_oid (); vlevel = level }))) t
+(* Generic → 現在のレベルの新しい剛定数。使うのはインスタンス本体の
+   包摂検査だけ(§11.38)。注釈の skolem 化は elab の make_rigids *)
+let skolemize level t = map_generics (fun i -> new_rigid ~kind:i.vkind ~classes:i.vcls level) t
 
 (* Generic → 指定した型(データ宣言・エフェクト宣言のパラメータ置換) *)
 let subst_params level args t =

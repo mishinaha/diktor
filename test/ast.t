@@ -162,3 +162,25 @@ sample.kel 全文がパースできること(M3 完了条件):
   (type MyInt = Int32)
   (type Unit = (row))
   (type Point = (row (x: Float64) (y: Float64)))
+
+二項演算子の字面(第7章の表 1 枚から出る。M19 / G2。§4.2 / §7.2):
+
+  $ cat > ops.kel <<'KEL'
+  > let arith = fn(a, b) => a + b - a * b / a
+  > let cmp = fn(a, b) => (a == b, a != b, a < b, a <= b, a > b, a >= b)
+  > let bools = fn(p, q) => (p && q, p || q, !p)
+  > KEL
+  $ diktor --dump-ast ops.kel
+  (dlet (binding arith = (fn (a b) (- (+ a b) (/ (* a b) a)))))
+  (dlet
+   (binding cmp =
+    (fn (a b)
+     (extend _item (== a b)
+      (extend _item (!= a b)
+       (extend _item (< a b)
+        (extend _item (<= a b)
+         (extend _item (> a b) (extend _item (>= a b) {})))))))))
+  (dlet
+   (binding bools =
+    (fn (p q)
+     (extend _item (&& p q) (extend _item (|| p q) (extend _item (! p) {}))))))

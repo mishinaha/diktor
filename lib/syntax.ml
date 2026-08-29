@@ -147,11 +147,12 @@ let show_long_id (LongId components) = String.concat "." components
    **表を引く側が名前空間を知っている責任を持ちます**。実際にこれで
    困った箇所は今のところありません。
 
-   `label_to_oid` / `oid_to_label` は旧名の別名です。行を扱うコードは
-   「ラベル」と呼ぶほうが読みやすかろうと残したものですが、正直に書くと
-   **現状どこからも使われていません** — 第8章も第10章も `Type.intern` /
-   `Type.name_of` を直接呼んでいます。使うか消すか、どちらかにするのが
-   後始末です。 *)
+   名前空間ごとに表を分けないので、ラベルもエフェクト名も型構成子も
+   `intern` / `name_of` の 1 組で足ります。以前は行を扱う側のために
+   `label_to_oid` / `oid_to_label` という別名を置いていましたが、
+   呼び出し側が 1 つも現れなかったので消しました (M19 / G1a)。
+   **同じ操作に 2 つの名前を与えると、どちらを使うかの判断が読み手の
+   負担になります。** *)
 
 module Type = struct
   type level = int
@@ -170,11 +171,6 @@ module Type = struct
         ret
 
   let name_of oid = Hashtbl.find name_map oid
-
-  (* 旧名エイリアス。行を扱う側はラベルと呼ぶ。現状は未使用(§1.2) *)
-  let label_to_oid = intern
-
-  let oid_to_label = name_of
 
 (* ## 1.3 カインド
 
@@ -537,17 +533,24 @@ module Type = struct
    した別名で、名前が付いているだけで得があります — 行変数を作る
    つもりで `KStar` の変数を作ってしまう事故が読んで分かります。
 
-   `new_rigid` は**制約を持たない**剛定数を作ります。第11章の
-   `run h { ... }` のヒープがこれを使います。型注釈の型パラメータから
-   作る剛定数は `[A: Add]` の制約を運ぶ必要があるので、そちらは
-   第11章が `Rigid` を直接組み立てます。 *)
+   `new_rigid` は `?classes` を取ります。剛定数を作る場所は `run` の
+   ヒープ、注釈の型パラメータ、明示エフェクト注釈と pub の尾部、
+   インスタンス検査の skolem 化 — と複数ありますが、後の方は制約を
+   運ぶか、あとから中身を書き換えるために `ref` そのものを要ります。
+   だから `new_rigid_ref` と `new_rigid` の 2 段にしてあり、**`Rigid` を
+   組み立てる式はこの 1 か所しかありません** (M19 / G5)。 *)
 
   let new_var ?(kind = KStar) ?(classes = []) level =
     TVar (ref (Unbound { vid = new_oid (); vlevel = level; vkind = kind; vcls = classes }))
 
   let new_row_var level = new_var ~kind:KRow level
 
-  let new_rigid ?(kind = KStar) level = TVar (ref (Rigid { vid = new_oid (); vlevel = level; vkind = kind; vcls = [] }))
+  (* 剛定数のセル。release_rigids のように後から中身を書き換える側は
+     ty ではなくこの ref を持つ必要がある(第11章 §11.27) *)
+  let new_rigid_ref ?(kind = KStar) ?(classes = []) level =
+    ref (Rigid { vid = new_oid (); vlevel = level; vkind = kind; vcls = classes })
+
+  let new_rigid ?(kind = KStar) ?(classes = []) level = TVar (new_rigid_ref ~kind ~classes level)
 
   (* ---- 組み込み名(v0) ---- *)
 
