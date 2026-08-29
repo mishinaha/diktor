@@ -297,18 +297,28 @@ let load_prelude options =
    残してあります。 *)
 let embedded_prelude () = parse_string ~filename:"<prelude>" Prelude_embed.source
 
+(* 出力行と診断の整形。種別は第11章が値で運び、見た目はここで決める(D54)。
+   型行 name : type / 警告 ⚠ / エラー ! — 先頭 1 文字で読み分けられる形を保つ *)
+let render_line = function Elab.Binding s -> s | Elab.Warning s -> "⚠ " ^ s
+
+let render_error (e : Elab.error) =
+  match e.Elab.e_loc with
+  | Some loc -> Printf.sprintf "! %s: %s: %s" (show_pos loc.Location.start) e.Elab.e_word e.Elab.e_msg
+  | None -> Printf.sprintf "! %s: %s" e.Elab.e_word e.Elab.e_msg
+
 (* 型検査のみ。(出力行, エラー行 option) *)
 let type_check_string ?(prelude = true) source =
   let pre = if prelude then embedded_prelude () else [] in
   let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
-  Elab.type_check ~prelude:pre decls
+  let lines, err = Elab.type_check ~prelude:pre decls in
+  (List.map render_line lines, Option.map render_error err)
 
 (* 型検査 + 評価。出力は sink へ。型エラー時は Error を返す *)
 let eval_string ?(prelude = true) ~sink source =
   let pre = if prelude then embedded_prelude () else [] in
   let decls = Elab.flatten_modules (parse_string ~filename:"<string>" source) in
   match Elab.type_check ~prelude:pre decls with
-  | _, Some err -> Error err
+  | _, Some err -> Error (render_error err)
   | _, None ->
       Interp.run ~sink (pre @ decls);
       Ok ()
@@ -322,18 +332,21 @@ let eval_string ?(prelude = true) ~sink source =
    この印があるおかげで、仕様 sample.kel が `Unit` や `Console` を
    もう一度宣言しても二重宣言にならずに済みます。
 
-   ### 警告だけを拾う 1 行
+   ### 行の種別は値で運ばれてくる
 
    `--type-check` では型の行がそのまま欲しく、`Run` では型の行は邪魔ですが
-   警告は捨てたくない。そこで `quiet` のときだけ、警告に見える行を標準エラーへ
-   逃がします。判定は**行の先頭バイト**の覗き見です。警告は警告記号で始まり、
-   その記号は U+26A0、UTF-8 の先頭バイトが `\xe2` — だから 1 バイト比較で済む。
+   警告は捨てたくない。そこで `quiet` のときは警告だけを標準エラーへ
+   逃がします。判定は第11章が返す `out_line` の**構造照合**です — 行は
+   `Binding` か `Warning` かの値として届き、`⚠ ` の前置はこの章の
+   `render_line` が最後に貼ります(D54)。
 
-   短くて速い代わりに、U+2000 から U+2FFF までのどの文字で始まる行も警告と
-   見なされます。行の種類を値として持たず、表示用の文字列の見た目で
-   判別しているのが原因で、本来の直し方は行に種別のタグを付けることです。
+   かつては表示済み文字列の**先頭バイト**を覗いていました。警告記号
+   U+26A0 の UTF-8 先頭バイトが `\xe2` だから 1 バイト比較で済む — 短くて
+   速い代わりに、U+2000 から U+2FFF までのどの文字で始まる行も警告と
+   見なされていました。だから種別を値で持たせたのです。
 
    > 出力の種類を文字列の見た目で判定すると、いつか見た目が変わって壊れる。
+   > だから種別は値で持ち、見た目は出口で 1 度だけ作る。
 
    ### 2 つの脱出口
 
@@ -348,11 +361,16 @@ let eval_string ?(prelude = true) ~sink source =
    §16.8 の受け皿に横取りされません。もし例外で抜けていたら、型エラーが
    `Panic` や `Type_error` の節に吸い込まれて別のコードになり得ました。 *)
 
-(* quiet = Run モード: 型行は出さず、警告だけ stderr に出す *)
+(* quiet = Run モード: 型行は出さず、警告だけ stderr に出す。
+   種別は値で判定する — 表示文字列の先頭バイトを覗いていた頃は、
+   U+2000〜U+2FFF で始まる任意の行が警告扱いだった(D54) *)
 let type_check_files ?(quiet = false) options =
   let prelude = Elab.flatten_modules (load_prelude options) in
   let decls = Elab.flatten_modules (List.concat_map parse_file options.o_files) in
-  let put line = if quiet then (if String.length line > 0 && line.[0] = '\xe2' then prerr_endline line) else print_endline line in
+  let put l =
+    if quiet then (match l with Elab.Warning _ -> prerr_endline (render_line l) | Elab.Binding _ -> ())
+    else print_endline (render_line l)
+  in
   match Elab.type_check ~prelude decls with
   | lines, None ->
       List.iter put lines;
@@ -362,9 +380,9 @@ let type_check_files ?(quiet = false) options =
       (prelude, decls)
   | lines, Some err ->
       List.iter put lines;
-      print_endline err;
+      print_endline (render_error err);
       flush_stdout_or_die ();
-      exit 1
+      exit err.Elab.e_exit
 
 (* ## 16.7 結線
 
@@ -484,7 +502,7 @@ let main () =
   | Ok options -> (
       try run_with options with
       | NotImplemented feat ->
-          Printf.eprintf "未実装: %s\n" feat;
+          Printf.eprintf "! 未実装: %s\n" feat;
           exit 4
       | Lexer.Lex_error (msg, pos) ->
           Printf.eprintf "%s: 字句エラー: %s\n" (show_pos pos) msg;

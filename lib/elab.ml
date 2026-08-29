@@ -105,8 +105,12 @@ let warnings : string list ref = ref []
 
 let warn msg = warnings := !warnings @ [ msg ]
 
+(* 出力の 1 行。種別を値で持つ(D54)。⚠ の前置などの整形は第16章の責任で、
+   表示文字列を覗いて種別を当てる(かつての先頭バイト比較)ことはしない *)
+type out_line = Binding of string | Warning of string
+
 (* 型エラーで打ち切られるまでの出力行(driver がエラー時にも印字する) *)
-let current_out : string list ref = ref []
+let current_out : out_line list ref = ref []
 
 let closed_item_row tys = List.fold_right (fun t acc -> TRowExtend (l_item, t, acc)) tys TRowEmpty
 
@@ -2468,7 +2472,7 @@ let process_decls env ~emit decls =
   in
   (* パス2: 本体の推論(宣言順) *)
   let show_binding env ((_, b) : T.let_binding) =
-    match binding_name b with Some x -> emit (x ^ " : " ^ Show.show (SMap.find x env.values)) | None -> ()
+    match binding_name b with Some x -> emit (Binding (x ^ " : " ^ Show.show (SMap.find x env.values))) | None -> ()
   in
 (* ## 11.40 パス 2 の 1 歩 — 宣言ごとに何が起きるか
 
@@ -2521,7 +2525,7 @@ let process_decls env ~emit decls =
           let t = elab_exp env 0 eff0 e in
           List.iter warn (Exhaust.drain ());
           Unify.default_numerics ();
-          emit ("_ : " ^ Show.show t);
+          emit (Binding ("_ : " ^ Show.show t));
           env
       | T.DExtern ex ->
           (* extern 宣言は署名のみ(実装は builtin.ml の表)。重複・プレリュード保護 *)
@@ -2557,7 +2561,7 @@ let process_decls env ~emit decls =
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
           release_rigids (rigids @ eff_rigids);
-          emit (ex.T.ex_name ^ " : " ^ Show.show ty);
+          emit (Binding (ex.T.ex_name ^ " : " ^ Show.show ty));
           { env with values = SMap.add ex.T.ex_name ty env.values }
       | T.DNewtype _ -> env (* パス1で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> env (* パス1で登録済み *)
@@ -2568,7 +2572,7 @@ let process_decls env ~emit decls =
       | T.DModule _ -> noimpl "module(M10)"
     in
     Unify.default_numerics ();
-    List.iteri (fun i w -> if i >= wbefore then emit ("⚠ " ^ w)) !warnings;
+    List.iteri (fun i w -> if i >= wbefore then emit (Warning w)) !warnings;
     env'
   in
   List.fold_left step env decls
@@ -2678,8 +2682,14 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    影響を受けた嘘になりがちで、それを並べても読み手の役に立たないからです。
    ここまでの型が見えれば、どこまで通ってどこで止まったかが分かります。
 
-   例外を型付きの返り値に変えるのはこの 1 箇所です。以降 — 終了コードの
-   規約と印字 — は第16章 (driver.ml) の仕事です。
+   例外を型付きの返り値に変えるのはこの 1 箇所です。受けるのは
+   `Type_error`(終了コード 1)と `NotImplemented`(終了コード 4、G6)の
+   2 系統だけ — `Syntax_error` の節はかつてありましたが到達不能でした。
+   raise 元は parser.mly の 7 か所だけで、第16章の `parse_with` が全部
+   `Parse_error` に包み直してから型検査に入るからです。防御的に節を足し
+   直したくなったら、この段落がその根拠の記録です(E12)。診断は `error`
+   レコード(位置・種別語・終了コード・本文)として返し、以降 — 整形と
+   印字 — は第16章 (driver.ml) の仕事です。
 
    ## この章が守っている不変条件
 
@@ -2699,8 +2709,15 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    次の第12章からは実行時の話に移ります。この章が木に書き込んだ型と
    解決結果を、第14章の評価器がそのまま読みます。 *)
 
+(* 診断 1 本。位置・種別語・終了コード・本文を値で持つ(D54 / G6)。
+   表示の整形は第16章の責任。e_loc は E1(位置の配線)が埋める *)
+type error = { e_loc : Location.span option; e_word : string; e_exit : int; e_msg : string }
+
 let type_check ?(prelude = []) decls =
   current_out := [];
   try (type_check_decls ~prelude decls, None) with
-  | Type_error msg -> (!current_out, Some ("! 型エラー: " ^ msg))
-  | Syntax_error msg -> (!current_out, Some ("! 構文エラー: " ^ msg))
+  | Type_error msg -> (!current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
+  (* Syntax_error の節は置かない — raise 元は parser.mly だけで、第16章の
+     parse_with が全部 Parse_error に包み直してから型検査に入る。届く例外は
+     Type_error(と、未実装の NotImplemented)の 2 系統だけ(E12) *)
+  | NotImplemented feat -> (!current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })
