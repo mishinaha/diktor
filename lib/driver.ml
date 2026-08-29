@@ -150,6 +150,35 @@ module Parser' = Parser.Make (Tree.ElabData)
    `main` は受け取って印字し、終了コード 2 を返すだけになります (§16.8)。 *)
 exception Parse_error of string
 
+(* 入力を開けない誤りだけをこの例外に閉じ込める(B5)。受け皿に届く裸の
+   Sys_error は「出力に書き出せない」を意味する — 文字列を覗いて種類を
+   当てるのをやめるための分離。入力を開く場所を新設したら必ず with_input で
+   包むこと(包み忘れると、その Sys_error は出力エラーとして 74 に化ける) *)
+exception Input_error of string
+
+let with_input f = try f () with Sys_error msg -> raise (Input_error msg)
+
+(* 出力の書き出しは終了コード規約の一部(B5 / D33)。既定の flush は
+   Format の at_exit(flush_standard_formatters)で走り、そこは §16.8 の
+   受け皿の**外**なので、落ちると規約を素通りして Fatal error + 2 に化ける。
+   だからモードの最後と exit の前に、受け皿の中で flush し切る *)
+let die_output msg =
+  (* 同じ失敗を at_exit で繰り返さないよう、標準フォーマッタの出力先を
+     無効化する。しないと exit の中でもう一度落ちて Fatal error に戻る
+     (実測)。行儀は良くないが、Unix._exit の依存追加(D15 違反)よりよい *)
+  Format.pp_set_formatter_out_functions Format.std_formatter
+    {
+      Format.out_string = (fun _ _ _ -> ());
+      out_flush = (fun () -> ());
+      out_newline = (fun () -> ());
+      out_spaces = (fun _ -> ());
+      out_indent = (fun _ -> ());
+    };
+  Printf.eprintf "diktor: 標準出力に書き出せません: %s\n" msg;
+  exit 74
+
+let flush_stdout_or_die () = match flush stdout with () -> () | exception Sys_error msg -> die_output msg
+
 (* 位置は ファイル:行:桁。桁は行頭からの**コードポイント差** + 1 です。バイト差
    ではありません — 第2章がそのまま運んでくる `Sedlexing.lexing_positions` は
    コードポイント単位で数えるので、多バイト文字を含む行でも桁はずれません
@@ -166,7 +195,7 @@ let show_pos pos =
    列を出します。ここが素のトークン列だと、暗黙のセミコロン挿入を固定する
    という目的を果たしません。 *)
 let dump_tokens_file file =
-  let lexer = Lexer'.from_filename file in
+  let lexer = with_input (fun () -> Lexer'.from_filename file) in
   Lexer'.all_tokens lexer
   |> List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok))
 
@@ -185,7 +214,7 @@ let parse_with lexer =
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
 
-let parse_file file = parse_with (Lexer'.from_filename file)
+let parse_file file = parse_with (with_input (fun () -> Lexer'.from_filename file))
 
 (* 文字列版は、エラー行に見せる名前を自分で決めます。山括弧つきの名前
    (prelude や string) は「実在のファイルではない」という印で、
@@ -231,7 +260,7 @@ let load_prelude options =
   else
     let source =
       match options.o_prelude with
-      | Some path -> In_channel.with_open_bin path In_channel.input_all
+      | Some path -> with_input (fun () -> In_channel.with_open_bin path In_channel.input_all)
       | None -> Prelude_embed.source
     in
     parse_string ~filename:"<prelude>" source
@@ -327,11 +356,14 @@ let type_check_files ?(quiet = false) options =
   match Elab.type_check ~prelude decls with
   | lines, None ->
       List.iter put lines;
-      if options.o_strict_exhaustive && !Elab.warnings <> [] then exit 1;
+      if options.o_strict_exhaustive && !Elab.warnings <> [] then (
+        flush_stdout_or_die ();
+        exit 1);
       (prelude, decls)
   | lines, Some err ->
       List.iter put lines;
       print_endline err;
+      flush_stdout_or_die ();
       exit 1
 
 (* ## 16.7 結線
@@ -364,14 +396,16 @@ let type_check_files ?(quiet = false) options =
    評価に渡すのは連結した `prelude @ decls` です。型検査は所有印のために
    2 つを区別しましたが、実行時に区別する理由はありません。 *)
 let run_with options =
-  match options.o_mode with
+  (match options.o_mode with
   | DumpTokens -> List.iter dump_tokens_file options.o_files
   | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
   | TypeCheck -> ignore (type_check_files options)
   | Run ->
       let prelude, decls = type_check_files ~quiet:true options in
       Interp.cancel_log := (fun msg -> Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg);
-      Interp.run ~sink:print_string (prelude @ decls)
+      Interp.run ~sink:print_string (prelude @ decls));
+  (* モードの最後に必ず flush し切る(§16.8 の受け皿の中で。B5) *)
+  flush_stdout_or_die ()
 
 (* ## 16.8 終了コード規約 — 例外を 1 か所で受け止める
 
@@ -384,10 +418,13 @@ let run_with options =
    | 2 | 構文・字句エラー | `Parse_error`、`Lex_error`、不正な UTF-8 |
    | 3 | 実行時エラー | `Runtime_error`、未処理エフェクト、再帰過多、メモリ不足、内部異常 |
    | 4 | 未実装 | `Aux.NotImplemented` |
-   | 64 | 使い方の誤り | 引数解析の失敗、ファイルを開けない |
+   | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルを開けない |
+   | 74 | 出力に書き出せない | 標準出力への flush の失敗(D33) |
 
-   64 は BSD の sysexits の EX_USAGE です。独自の番号を選ぶより、既にある
-   慣習に乗るほうがシェルスクリプトから扱いやすい。
+   64 は BSD の sysexits の EX_USAGE、74 は EX_IOERR です。独自の番号を
+   選ぶより、既にある慣習に乗るほうがシェルスクリプトから扱いやすい。
+   74 がプログラムの誤り(3)と分かれているのは、出力先が壊れているのは
+   プログラムの責任ではないからです。
 
    ### なぜ全部の例外を受けるのか
 
@@ -409,6 +446,7 @@ let run_with options =
    | module の入れ子 / module 内の effect | 例外名が漏れて 2 | 型エラー、1 |
    | 深すぎる再帰 | 例外名が漏れて 2 | 実行時エラー、3 |
    | 巨大な割り当て | 例外名が漏れて 2 | 実行時エラー、3 |
+   | 標準出力が書けない(/dev/full) | 例外名が漏れて 2 | 出力エラー、74 |
 
    3 行目が地味に効きます。第11章の `flatten_modules` は `type_check` の
    **外**で走るので、そこが投げる `Type_error` は型検査器の診断経路を通りません。
@@ -419,11 +457,19 @@ let run_with options =
    - **`run_with` を丸ごと囲む。** 受け皿を分割していないので、型検査中の
      再帰過多も評価中の再帰過多も同じ 3 になります。フェーズごとに分けたければ
      受け皿を割る必要がある — v0 は 1 枚で妥協しています。
-   - **未処理エフェクトの節は `Value.Op` の形しか見ない。** 評価器が起こす
-     エフェクトはこれ 1 種類なので今は十分ですが、別の形を足すならこの節も
-     足すこと。落とすと、その例外は素通りして 2 に化けます。
-   - **新しい例外を作ったら、必ずここに節を足す。** 足し忘れは
-     コンパイルエラーになりません。静かに 2 になるだけです。
+   - **規約の担保は最後の catch-all が担う。** OCaml は例外パターンの
+     網羅性を検査しないので、「新しい例外には節を足す」という規律は人間の
+     記憶にしか無い — 足し忘れた例外は素通りして 2 に化けていました。
+     いまは規約外の例外はすべて「内部エラー + 3」に落ちます。具体的な節は
+     良い文言のためにあり、規約のためにあるのは最後の 1 枚です。
+     `Value.Op` 以外の `Unhandled`、`Continuation_already_resumed`、
+     漏れた `Unwind` の専用節は、内部異常に名前を与える防御枝です。
+   - **入力を開く場所は必ず `with_input` で包む。** 受け皿の `Sys_error` は
+     「出力に書き出せない」と読む(§16.3 の `Input_error` の分離)ので、
+     包み忘れた入力エラーは 74 と誤って報告されます。
+   - **モードの最後と exit の前に flush し切る。** 既定の flush は Format の
+     at_exit で受け皿の外を走り、失敗が Fatal error + 2 に化けます(B5 で
+     実測)。`flush_stdout_or_die` が受け皿の中で 74 に落とします。
 
    > 終了コードの規約は、最後の受け皿が漏れていない限りでしか規約ではない。
 
@@ -446,9 +492,12 @@ let main () =
       | Parse_error msg ->
           prerr_endline msg;
           exit 2
-      | Sys_error msg ->
+      | Input_error msg ->
           Printf.eprintf "diktor: ファイルを開けません: %s\n" msg;
           exit 64
+      | Sys_error msg ->
+          (* 入力側は Input_error に閉じ込めてある。ここへ来るのは出力側(B5) *)
+          die_output msg
       | Sedlexing.MalFormed ->
           Printf.eprintf "字句エラー: 不正な UTF-8 バイト列です\n";
           exit 2
@@ -465,11 +514,31 @@ let main () =
       | Effect.Unhandled (Value.Op (op, _)) ->
           Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.name_of op);
           exit 3
+      | Effect.Unhandled _ ->
+          (* 評価器が起こすエフェクトは Value.Op 1 種類。ここへ来たら内部異常 *)
+          Printf.eprintf "実行時エラー: 未処理のエフェクトです(内部エラー)\n";
+          exit 3
+      | Effect.Continuation_already_resumed ->
+          (* アフィン検査(§14.10 の r_used)を潜り抜けた場合の床 *)
+          Printf.eprintf "実行時エラー: 継続を二重に再開しました(内部エラー)\n";
+          exit 3
+      | Value.Unwind _ ->
+          (* 自動巻き戻しがハンドラの外へ漏れた(§14.10 の inst 採番の破れ) *)
+          Printf.eprintf "実行時エラー: ハンドラの外へ巻き戻しが漏れました(内部エラー)\n";
+          exit 3
       | Stack_overflow ->
           prerr_endline "実行時エラー: スタックオーバーフロー(再帰が深すぎます)";
           exit 3
       | Panic msg ->
           prerr_endline msg;
+          exit 3
+      (* 最後の 1 枚。ここが無いと、節に無い例外は OCaml の既定で終了コード 2 —
+         この規約では「構文エラー」— に化け、例外名も漏れる。足し忘れが
+         コンパイルエラーにならない以上、床を張るしかない。exit は例外を
+         投げない(Stdlib.exit は do_at_exit + sys_exit)ので、この節が
+         他の節の exit を横取りすることはない *)
+      | ex ->
+          Printf.eprintf "内部エラー: 予期しない例外です: %s\n" (Printexc.to_string ex);
           exit 3 )
 
 (* ## 16.9 bin/main.ml — 1 行の入口
@@ -515,4 +584,5 @@ let main () =
       それでも §16.5 のように、合流点の**手前**の前処理が揃わない形で
       分岐は忍び込む。合流点を作ったら、そこまでの道も見張ること。
    3. **受け皿を漏らさない。** 例外が 1 つ漏れるたびに、終了コードの表が
-      1 行ずつ嘘になっていく。 *)
+      1 行ずつ嘘になっていく。規約の底は catch-all が支え、出力の flush まで
+      受け皿の中で済ませる(§16.8)。 *)

@@ -339,3 +339,16 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   $ diktor --type-check guardonly.kel
   ! 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
   [1]
+
+標準出力に書き出せないときも終了コード規約に落ちる(B5 / D33。既定の
+flush は Format の at_exit で受け皿の外を走り、素通りして Fatal error +
+2 に化けていた):
+
+  $ printf 'echoln("hello")\n' > outerr.kel
+  $ diktor outerr.kel > /dev/full
+  diktor: 標準出力に書き出せません: No space left on device
+  [74]
+
+  $ diktor --type-check outerr.kel > /dev/full
+  diktor: 標準出力に書き出せません: No space left on device
+  [74]
