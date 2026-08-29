@@ -383,19 +383,36 @@ let type_check_files ?(quiet = false) options =
   let prelude = Elab.flatten_modules (load_prelude options) in
   let decls = Elab.flatten_modules (List.concat_map parse_file options.o_files) in
   let put l =
-    if quiet then (match l with Elab.Warning _ -> prerr_endline (render_line l) | Elab.Binding _ -> ())
+    if quiet then (
+      match l with
+      | Elab.Warning _ ->
+          (* stderr へ書く直前に stdout を flush する(D54)。stdout は
+             バッファつき・stderr は行ごとに flush されるので、挟まないと
+             両者を 1 本に併合する cram で順序が入れ替わる *)
+          flush_stdout_or_die ();
+          prerr_endline (render_line l)
+      | Elab.Binding _ -> ())
     else print_endline (render_line l)
   in
   match Elab.type_check ~prelude decls with
   | lines, None ->
       List.iter put lines;
-      if options.o_strict_exhaustive && !Elab.warnings <> [] then (
+      (* --strict-exhaustive が数えるのは「利用者に見せた警告」= 返って
+         きた行だけ(D54 / E11)。大域の Elab.warnings を数えると、表示
+         されないプレリュードの警告で「警告を 1 行も出さずに exit 1」
+         という理由の分からない失敗になる(--prelude で実測) *)
+      if options.o_strict_exhaustive && List.exists (function Elab.Warning _ -> true | _ -> false) lines then (
         flush_stdout_or_die ();
         safe_exit 1);
       (prelude, decls)
   | lines, Some err ->
       List.iter put lines;
-      print_endline (render_error err);
+      (* 出力先はモード単位(D54): --type-check はレポートなので全部
+         stdout、Run は stdout をプログラム出力専用にして診断は stderr *)
+      (if quiet then (
+         flush_stdout_or_die ();
+         prerr_endline (render_error err))
+       else print_endline (render_error err));
       flush_stdout_or_die ();
       safe_exit err.Elab.e_exit
 
@@ -509,9 +526,19 @@ let run_with options =
 
    > 終了コードの規約は、最後の受け皿が漏れていない限りでしか規約ではない。
 
-   最後に印字先の話を 1 つ。ここで捕まえた誤りはすべて標準エラーへ出しますが、
-   §16.6 が印字する型エラーだけは標準出力です。`--type-check` のゴールデンが
-   型の行と誤りの行を 1 本の流れとして比較するためで、意図的な非対称です。 *)
+   最後に印字先の話を 1 つ。出力先は**モード単位**の規約です(D54)。
+
+   | モード | 型行 | 警告 | 型エラー |
+   |---|---|---|---|
+   | --type-check | stdout | stdout | stdout |
+   | Run | 出さない | stderr | stderr |
+
+   --type-check はレポートモードなので、型の行と誤りの行を 1 本の流れとして
+   比較できるよう全部 stdout。Run は stdout を**プログラムの出力専用**にし、
+   診断を混ぜません(かつては Run でも型エラーが stdout に出て、プログラムの
+   出力に診断が混ざりました)。この受け皿が捕まえる誤りは従来どおり stderr。
+   stderr へ書く直前には必ず stdout を flush します — 挟まないと、両者を
+   1 本に併合する cram で順序が入れ替わります。 *)
 let main () =
   (* SIGPIPE は無視する(D33)。既定のままだと diktor f.kel | head が
      シグナル死(128 + 13 = 141)になり、終了コード規約の外に出る。

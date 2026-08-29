@@ -406,3 +406,21 @@ SIGPIPE は無視して出力エラー 74 に落とす(D33。既定のままだ�
   $ diktor --type-check opus.kel
   ! 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
   [1]
+
+Run モードの診断は stderr(D54。stdout はプログラム出力専用):
+
+  $ printf 'let bad = 1 + true\n' > terr.kel
+  $ diktor terr.kel 2>/dev/null; echo "exit: $?"
+  exit: 1
+
+--strict-exhaustive が数えるのは表示した警告だけ(E11。プレリュードの
+見えない警告で無言の exit 1 になっていた):
+
+  $ cat > wpre.kel <<'KEL'
+  > newtype Opt3[A] = None3 | Some3(A)
+  > let pf = fn(o) => o match { case Some3(x) => x }
+  > KEL
+  $ printf 'let x = 1\n' > wu.kel
+  $ diktor --type-check --strict-exhaustive --prelude wpre.kel wu.kel; echo "exit: $?"
+  x : Int32
+  exit: 0
