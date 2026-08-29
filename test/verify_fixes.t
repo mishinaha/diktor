@@ -151,3 +151,28 @@ Float64 は最短往復可能表現で表示する:
   $ diktor --type-check nestrun.kel
   ! 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
+
+ブロックの Seq は文のノードを借りない(260829-3 課題 7)。借りていた頃は
+末尾から2番目の文の型が Seq の型で上書きされ、数値リテラルの値化
+(第14章 number_value)が壊れて実行時に落ちた:
+
+  $ cat > seq1.kel <<'KEL'
+  > let f() = { 1; "x" }
+  > echoln(f())
+  > KEL
+  $ diktor seq1.kel
+  x
+
+  $ cat > seq2.kel <<'KEL'
+  > let g() = { "a"; 1; "b" }
+  > echoln(g())
+  > KEL
+  $ diktor seq2.kel
+  b
+
+  $ cat > seq3.kel <<'KEL'
+  > let h() = { 1; () }
+  > let _ = h()
+  > KEL
+  $ diktor seq3.kel; echo "exit: $?"
+  exit: 0
