@@ -329,3 +329,36 @@ M19 / G3c / G3d / G7c):
   $ diktor --type-check --no-prelude rebuild.kel
   f : (Shape) => Int32
   ⚠ match が非網羅的です。例えば Seg(false, true) が漏れています
+
+反駁可能な関数引数・return 節のパターンも網羅性検査に乗る(M19 / V10。
+かつては let のパターン束縛だけが警告を出し、型検査を通って実行時に
+「パターンに値が一致しません」で落ちた):
+
+  $ cat > v10.kel <<'KEL'
+  > let g(true: Boolean): Int32 = 1
+  > let h = fn(0) => 1
+  > KEL
+  $ diktor --type-check --no-prelude v10.kel
+  g : (Boolean) => Int32
+  ⚠ match が非網羅的です。例えば false が漏れています
+  h : (Int32) => Int32
+  ⚠ match が非網羅的です。例えば 1 が漏れています
+
+  $ cat > v10b.kel <<'KEL'
+  > newtype Pair = P(Boolean, Boolean)
+  > let f(P(true, b): Pair): Boolean = b
+  > KEL
+  $ diktor --type-check --no-prelude v10b.kel
+  f : (Pair) => Boolean
+  ⚠ match が非網羅的です。例えば P(false, true) が漏れています
+
+  $ cat > v10c.kel <<'KEL'
+  > effect E1 = { op1: () => Boolean }
+  > let f(): Int32 @ {} = (perform op1()) handle {
+  >   case op1() => resume(true)
+  >   case return(true) => 1
+  > }
+  > KEL
+  $ diktor --type-check v10c.kel
+  f : () => Int32
+  ⚠ match が非網羅的です。例えば false が漏れています

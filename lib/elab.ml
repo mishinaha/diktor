@@ -185,6 +185,16 @@ let unbound_value name scoped =
       | qs ->
           type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
 
+(* 構文的に反駁不能なパターンか。関数引数・return 節の網羅性検査
+   (M19 / V10)で、確実に警告の出ない形を queue に積まないための
+   節約。判定を厳しくしすぎても安全側(queue が正しく判定する) *)
+let rec irrefutable_pat ((_, p) : T.pat) =
+  match p with
+  | T.PVar _ | T.PWildcard -> true
+  | T.PAnnot (q, _) -> irrefutable_pat q
+  | T.PRecord (fields, _) -> List.for_all (fun (_, q) -> irrefutable_pat q) fields
+  | T.PCtor _ | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
+
 (* pub で @ を省略した宣言の本体行(Rigid)の vid。perform がこの行と
    衝突したとき、単一化の一般文言ではなく pub の規則を名指しで案内する
    ため(H6 / D44) *)
@@ -845,6 +855,10 @@ and elab_exp' env level eff node e =
       let env2 = List.fold_left2 (fun env p t -> elab_pat env level seen t p) env l_params param_tys in
       let body_eff = new_row_var level in
       let tr = elab_exp env2 level body_eff l_body in
+      (* 反駁可能な引数パターンは網羅性検査へ(M19 / V10。let のパターン
+         束縛と同じ扱い — かつては型検査を通って実行時に「パターンに値が
+         一致しません」で落ちた) *)
+      List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) l_params param_tys;
       TArrow (TRecord (closed_item_row param_tys), tr, body_eff)
 (* ## 11.12 適用 — 軽い双方向化と、その必然性
 
@@ -1634,6 +1648,8 @@ and elab_handle env level eff clauses body =
       if c.T.cl_guard <> None then type_error "return 節にガードは書けません";
       let seen = ref [] in
       let env2 = elab_pat { env with resume_ty = None } level seen body_ty p in
+      (* return 節の反駁可能パターンも網羅性検査へ(M19 / V10) *)
+      if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] body_ty;
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres
   | _ -> Unify.unify body_ty tres);
   (match cancels with
@@ -1941,6 +1957,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
            していない相手に注釈の話をすることになる *)
         (try Unify.unify ret_ty body_ty
          with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された返り値型を満たしません(" ^ msg ^ ")"));
+        List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
         let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
@@ -2059,6 +2076,7 @@ and elab_rec_bindings env level eff bs : env =
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
             Unify.unify ret_ty body_ty;
+            List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
             let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
