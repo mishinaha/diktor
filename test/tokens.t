@@ -462,3 +462,34 @@ sample.kel 全文のトークン化(spike と同じ 2526 トークンである�
      2  =
      2  2.e3
      3  <EOF>
+
+連続するコメント行は NL 1 個に潰れる(M18 / F3 / D58 の不変条件
+「生トークン列に NL は連続しない」の明示):
+
+  $ cat > manycomments.kel <<'KEL'
+  > let a = 1
+  > // one
+  > // two
+  > // three
+  > let b = 2
+  > KEL
+  $ diktor --dump-tokens manycomments.kel
+     1  let
+     1  a
+     1  =
+     1  1
+     1  <NL>
+     5  let
+     5  b
+     5  =
+     5  2
+     6  <EOF>
+
+先読みキューは定数長(かつてはコメント 64000 行で二次の 34 秒。
+不変条件 D58 でキュー長が高々 3 に落ち、線形になった):
+
+  $ awk 'BEGIN{print "let a = 1"; for(i=0;i<64000;i++) print "// filler"; print "let b = 2"}' > big.kel
+  $ timeout 10 diktor --dump-tokens big.kel | tail -3
+  64002  =
+  64002  2
+  64003  <EOF>

@@ -271,26 +271,20 @@ module Make (Data : Syntax.Data) = struct
 
    コメントを足しただけで前後の行が結合したら理不尽です。逆に、改行を
    含まないコメントは行の途中に置いたのと同じ扱いにします。この判定を
-   `read_block_comment` が真偽値で返しています。なお `NL` を出した直後に
-   改行を含むブロックコメントが続くと、コメント処理の側がもう 1 個 `NL` を
-   出すことがあります(`skip_newlines` はトークンを一切作らないので、これを
-   潰しません)。害はありません。ASI 層が連続する `NL` の 2 個目を自然に
-   捨てるからです。
+   `read_block_comment` が真偽値で返しています。そして **生の `NL` は
+   連続しません** (M18 / D58) — 潰すのは層 1 の仕事で、`skip_newlines` が
+   行コメントもブロックコメントも跨いで潰します。層 3 の ASI が
+   `can_end_statement NL = false` で余分を捨てるのは保険であって仕様では
+   ありません(かつてはこの保険に頼っており、それが §2.8 の二次コストの
+   入口でした)。
 
    `#!` はオフセット 0 のときだけ shebang として行末までスキップし、
    それ以外の位置では字句エラーです。`#` は構造的ヴァリアントの印なので、
    ここを緩めると `#Even` の読みと衝突します。 *)
 
-  (* 連続する改行・空白を1個の NL に潰す。トークンは作らない
-     (改行の行カウントは sedlex 3.x が自動追跡する。コメントは潰さないので、
-      後続のコメント処理がもう1個 NL を出しうるが、ASI 層が自然に破棄する) *)
-  let rec skip_newlines lexbuf =
-    match%sedlex lexbuf with
-    | '\n' -> skip_newlines lexbuf
-    | Plus (' ' | '\t' | '\r') -> skip_newlines lexbuf
-    | _ -> Sedlexing.rollback lexbuf
-
-  (* 入れ子ブロックコメント。改行を含んでいたかを返す(計画 §5.2) *)
+  (* 入れ子ブロックコメント。改行を含んでいたかを返す(計画 §5.2)。
+     skip_newlines より前に置くのは相互再帰にしないため(こちらは
+     skip_newlines を呼ばない) *)
   let read_block_comment lexbuf =
     let saw_nl = ref false in
     let rec go depth =
@@ -307,6 +301,23 @@ module Make (Data : Syntax.Data) = struct
         | _ -> raise (Lex_error ("unterminated block comment", cur_pos lexbuf))
     in
     go 1
+
+  (* 連続する改行・空白を1個の NL に潰す。トークンは作らない
+     (改行の行カウントは sedlex 3.x が自動追跡する)。
+     ここへ来た時点で NL を 1 個出すと決まっているので、後続のコメントが
+     2 個目の NL を作る理由はない — 行コメントもブロックコメントも跨いで
+     潰す。これが「生トークン列に NL は連続しない」不変条件(M18 / D58)で、
+     先読みキューの長さを高々 3(NL + t1 + t2)の定数に抑える。かつては
+     コメントを跨がず、コメント 64000 行で先読みが二次の 34 秒だった *)
+  let rec skip_newlines lexbuf =
+    match%sedlex lexbuf with
+    | '\n' -> skip_newlines lexbuf
+    | Plus (' ' | '\t' | '\r') -> skip_newlines lexbuf
+    | "//", Star (Compl '\n') -> skip_newlines lexbuf
+    | "/*" ->
+        ignore (read_block_comment lexbuf : bool);
+        skip_newlines lexbuf
+    | _ -> Sedlexing.rollback lexbuf
 
   let skip_rest_of_line lexbuf = match%sedlex lexbuf with Star (Compl '\n') -> () | _ -> ()
 
@@ -425,7 +436,15 @@ module Make (Data : Syntax.Data) = struct
         skip_newlines lexbuf;
         { tok = NL; sp; ep }
     | "//", Star (Compl '\n') -> read_raw_token lexbuf
-    | "/*" -> if read_block_comment lexbuf then here NL else read_raw_token lexbuf
+    | "/*" ->
+        (* 改行入りコメント = NL 1 個(§2.5)。位置は**潰す前に**確保する
+           (ゴールデンが NL の位置を固定している)。直後の改行・コメントを
+           潰すのは '\n' 分岐と同じ理由 — 生 NL を連続させない(D58) *)
+        if read_block_comment lexbuf then (
+          let sp, ep = Sedlexing.lexing_positions lexbuf in
+          skip_newlines lexbuf;
+          { tok = NL; sp; ep })
+        else read_raw_token lexbuf
     | "#!" ->
         (* shebang はオフセット0のときだけ(計画 §5.2) *)
         if Sedlexing.lexeme_start lexbuf = 0 then (
@@ -491,14 +510,16 @@ module Make (Data : Syntax.Data) = struct
    改行を跨ぐ**のは、`{` の分類でも ASI の「次に文を始められるか」の判定でも
    必要だからです。
 
-   末尾追加 `t.pending @ [...]` と `List.length` はキューの長さに対して二次
-   ですが、実害はありません。ただし「高々 2 トークンだから」という説明は
-   雑すぎるので、有意トークンと生トークンを言い分けておきます。高々 2 個で
-   済むのは `peek_sig` が数える**有意**トークンのほうで、`peek` が触る生
-   キューには間に挟まる `NL` がそのまま並びます。行コメントは `NL` を潰さない
-   ので、`{` の直後にコメント行を N 本置けば分類のためにキューは N+2 要素まで
-   伸びます。伸び方がソースの見た目に比例する程度に収まる、というのが実害が
-   無いことの本当の根拠です。
+   末尾追加 `t.pending @ [...]` はキューの長さに対して二次ですが、
+   **キューの長さが定数**なので実害になりません。定数で抑えているのは
+   §2.5 の不変条件「生トークン列に NL は連続しない」(M18 / D58)です —
+   `peek_sig` が覗く必要があるのは高々 NL 1 個 + 有意トークン 2 個の
+   3 要素で、間に何個コメント行があっても層 1 が潰します。
+   かつてはこの不変条件が無く、「伸び方がソースの見た目に比例する程度に
+   収まるから実害が無い」と説明していました。その根拠は誤りです — 長さが
+   線形に伸びれば仕事は二次になり、実測ではコメント 64000 行の入力で
+   34 秒かかりました(`{` の分類だけでなく、トップレベルの ASI の
+   `can_begin_statement` も同じ道を通ります)。
 
    ここでも章頭に置いた不変条件が効いています。`peek` は `pending` に足すだけで、
    `regions` にも `prev` にも触れません。覗かれたトークンは後で自分の番が
@@ -541,10 +562,13 @@ module Make (Data : Syntax.Data) = struct
     from_sedlex lexbuf
 
   let rec peek t i =
-    if List.length t.pending <= i then (
+    (* キュー長は不変条件 D58 で高々 3 に抑えられているが、万一破れた
+       ときに List.length で二次に戻らないよう、構造判定にしてある *)
+    let rec has l i = match (l, i) with _ :: _, 0 -> true | _ :: tl, i -> has tl (i - 1) | [], _ -> false in
+    if has t.pending i then List.nth t.pending i
+    else (
       t.pending <- t.pending @ [ read_raw_token t.lexbuf ];
       peek t i)
-    else List.nth t.pending i
 
   (* NL を飛ばして k 個目(0始まり)の有意トークンを覗く *)
   let peek_sig t k =
