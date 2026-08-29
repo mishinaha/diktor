@@ -194,3 +194,11 @@ newtype の型パラメータ制約も検証される(D6 の残り):
   $ diktor --type-check --no-prelude c16.kel
   ! 型エラー: 未知のクラス: Bogus
   [1]
+
+プレリュード所有のエイリアス名の再宣言でも、型パラメータ制約は検証される
+(add_alias は再宣言を黙って捨てるが、AST 側の検査は走る。260829-5):
+
+  $ printf 'type Unit[A: Bogus] = A\n' > c17.kel
+  $ diktor --type-check c17.kel
+  ! 型エラー: 未知のクラス: Bogus
+  [1]

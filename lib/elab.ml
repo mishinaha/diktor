@@ -2379,6 +2379,10 @@ let process_decls env ~emit decls =
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
       | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
+      (* DType もここで見る。プレリュード所有名の再宣言は add_alias が黙って
+         捨てる(乖離 4)ので、パス 2 の make_rigids には AST が届かない —
+         AST 側で検査しないと type Unit[A: Bogus] = A が素通りする(検証) *)
+      | T.DType t -> List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params
       | _ -> ())
     decls;
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
