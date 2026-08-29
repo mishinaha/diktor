@@ -985,10 +985,26 @@ let register_builtin_values globals =
      例外で脱出したとき、逐次では後続が評価されない(素の OCaml と同じ)。
      par_map の返り値は新しい配列なので Heap[h] を持たない Array[B] —
      Array が h を持たない既知の穴(計画 §11.2)に乗っているだけで、
-     新たな穴ではない *)
+     新たな穴ではない。**正直な留保**: この「型が純粋を守る」前提には
+     既知の破れが 2 つある(260829-5 台帳 V14 / V15)— 高階位置(newtype
+     フィールド・effect 操作型)の省略 @ が使用毎に別インスタンス化されて
+     エフェクトが洗浄される形と、ファイル prim が行なしで型付けされて
+     いる形。どちらも仕様側の裁定待ち(M20)で、それまで観測同値の保証は
+     この 2 つの穴を除いた範囲に留まる *)
   reg "par_map" (fun args ->
       match Builtin.arg_values args with
-      | [ VArray a; f ] -> VArray (Array.map (fun x -> apply f (VRecord [ (Type.l_item, x) ])) a)
+      | [ VArray a; f ] ->
+          (* 適用順は添字 0 から明示で固定。Array.map の適用順に任せない
+             (計画 §8.3 の規律。par の左→右と同じ — 逐次実装の意味論は
+             順序込みで固定する) *)
+          let n = Array.length a in
+          if n = 0 then VArray [||]
+          else (
+            let out = Array.make n unit in
+            for i = 0 to n - 1 do
+              out.(i) <- apply f (VRecord [ (Type.l_item, a.(i)) ])
+            done;
+            VArray out)
       | _ -> runtime_error "par_map の引数が不正です");
   reg "par" (fun args ->
       match Builtin.arg_values args with
@@ -1159,8 +1175,8 @@ let exec_decl versions env ((_, d) as node : T.decl) =
          — elab は組み込みを使うので、実行時だけ差し替わるとコヒーレンスが破れる(検証で発見) *)
       let con =
         match i.T.ins_args with
-        | [ (_, T.EIdent (LongId [ n ])) ] -> Decls.resolve_con (Type.intern n)
-        | [ (_, T.EApply ((_, T.EIdent (LongId [ n ])), _)) ] -> Decls.resolve_con (Type.intern n)
+        | [ (_, T.EIdent (LongId comps)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
+        | [ (_, T.EApply ((_, T.EIdent (LongId comps)), _)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
         | _ -> bug "インスタンス頭が解決できません"
       in
       if

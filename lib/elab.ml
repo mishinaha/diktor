@@ -173,7 +173,14 @@ let unbound_value name scoped =
   match scoped with
   | Some _ -> type_error ("未束縛の変数: " ^ name)
   | None -> (
-      match Decls.val_synonym_candidates (intern name) with
+      (* 候補に挙げるのは pub の名前だけ。非 pub を案内すると、その通りに
+         書いても可視性エラーになる — 従っても直らない助言になる(M16 検証) *)
+      let pub_only qs =
+        List.filter
+          (fun q -> match Hashtbl.find_opt Decls.value_visibility q with Some v -> v.Decls.vis_pub | None -> true)
+          qs
+      in
+      match pub_only (Decls.val_synonym_candidates (intern name)) with
       | [] -> type_error ("未束縛の変数: " ^ name)
       | qs ->
           type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
@@ -183,15 +190,41 @@ let unbound_value name scoped =
    ため(H6 / D44) *)
 let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
-(* Cls.m がクラスメソッドの修飾名かどうか(可視性検査の適用除外の判定) *)
-let value_vis_exempt name =
-  match String.rindex_opt name '.' with
-  | None -> false
-  | Some i -> (
-      let cls = String.sub name 0 i and m = String.sub name (i + 1) (String.length name - i - 1) in
-      match Decls.find_class (intern cls) with
-      | Some ci -> List.mem_assoc m ci.Decls.ci_methods
-      | None -> false)
+(* 注釈中の全ての矢印に @ が明示されているか(§11.36 の判定。パス 1c の
+   前方参照シグネチャと、pub の完全注釈検査(D44)が共用する) *)
+let rec fully_effected ((_, te) : T.type_exp) =
+  match te with
+  | T.EArrow (params, ret, eff) -> eff <> None && List.for_all fully_effected params && fully_effected ret
+  | T.EApply (f, args) -> fully_effected f && List.for_all fully_effected args
+  | T.EBraceRow (elems, ext) ->
+      List.for_all
+        (function T.BField (_, t) -> fully_effected t | T.BLabel (_, ts) -> List.for_all fully_effected ts)
+        elems
+      && (match ext with Some t -> fully_effected t | None -> true)
+  | T.EVariantCase (_, Some t) -> fully_effected t
+  | T.EUnion ts -> List.for_all fully_effected ts
+  | T.EVariantCase (_, None) | T.EIdent _ | T.EHole -> true
+
+(* pub の完全注釈検査(H6 / D44)。引数・返り値の注釈があるだけでなく、
+   注釈の**中の**矢印にも @ が要る — 中の矢印の省略 @ は推論任せの行に
+   なるので、公開 API のエフェクト行が実装で決まる(仕様 sample.kel:569 が
+   防ごうとした事象そのもの。M16 検証で、同じ pub 署名・同じ表示型のまま
+   本体の変更だけで呼び出し側が壊れる形を実測) *)
+let check_pub_annots ~params ~ret =
+  (match params with
+  | Some ps ->
+      List.iter
+        (fun ((_, p) : T.pat) ->
+          match p with
+          | T.PAnnot (_, te) ->
+              if not (fully_effected te) then
+                type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
+          | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
+        ps
+  | None -> ());
+  match ret with
+  | None -> type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"
+  | Some te -> if not (fully_effected te) then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
 
 (* ## 11.3 型式の精緻化 — 書かれた型を内部型へ
 
@@ -241,8 +274,13 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
                   | KStar -> TCon (oid, [])
                   | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
                 else
-                  (* スコープ外の module 内部型なら候補を添える(D39 / D43) *)
-                  match Decls.con_synonym_candidates oid with
+                  (* スコープ外の module 内部型なら候補を添える(D39 / D43)。
+                     案内するのは pub の型だけ — 非 pub は従っても直らない *)
+                  match
+                    List.filter
+                      (fun q -> match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
+                      (Decls.con_synonym_candidates oid)
+                  with
                   | _ :: _ as cands ->
                       type_error
                         ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)")
@@ -743,11 +781,12 @@ and elab_exp' env level eff node e =
       let name = show_long_id li in
       match SMap.find_opt name env.values with
       | Some sch ->
-          (* 修飾名で module の値に触るときの可視性検査(D41)。組み込み
-             クラスと同名の module(module Add の中の add 等)では、この
-             名前がクラスメソッドの修飾名でもあり得る — 先勝ち(§11.33)で
-             メソッドが勝った参照を module の pub で咎めない *)
-          if not (value_vis_exempt name) then Decls.check_value_visible (intern name);
+          (* 修飾名で module の値に触るときの可視性検査(D41)。module 名と
+             クラス名の衝突は平坦化が拒否する(§11.42)ので、可視性台帳に
+             載っている名前は必ず module の値 — 綴りによる免除は要らない
+             (かつて綴りで免除しており、同名クラスを 1 行宣言するだけで
+             任意の非 pub 値が外から呼べた — M16 検証) *)
+          Decls.check_value_visible (intern name);
           Unify.instantiate level sch
       | None -> (
           (* 環境に無かったときだけ、module スコープの値同義語を引く
@@ -828,7 +867,27 @@ and elab_exp' env level eff node e =
       let tr = new_var level in
       let pvar = new_var level in
       (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(§11.12) *)
-      Unify.unify tf (TArrow (pvar, tr, eff));
+      (try Unify.unify tf (TArrow (pvar, tr, eff))
+       with Type_error msg ->
+         (* pub の @ 省略 = 純粋(D44)。エフェクトつき関数の**呼び出し**が
+            Rigid 行と衝突する経路は perform より普通に踏むのに、一般文言
+            「行型ではありません: ς1」では原因に到達できない(M16 検証)。
+            perform 側(§11.15)と同じ翻訳をここにも置く。ただし翻訳するのは
+            行由来の失敗だけ — 引数の型不一致まで pub の話にしない *)
+         let pub_pure =
+           let _, tail = row_fields eff in
+           match repr tail with
+           | TVar r -> ( match !r with Rigid i -> Hashtbl.mem pub_pure_rows i.vid | _ -> false)
+           | _ -> false
+         in
+         let has sub s =
+           let n = String.length sub and m = String.length s in
+           let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
+           go 0
+         in
+         if pub_pure && (has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg) then
+           type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
+         else type_error msg);
       elab_check env level eff arg pvar;
       tr
 (* ## 11.13 演算子とレコードの 4 操作
@@ -1694,6 +1753,15 @@ and make_rigids level tparams =
    別の型になります。仕様の字義との食い違いは親リポジトリへの
    フィードバック事項です(計画 §15)。
 
+   既知の制限が 1 つあります(H6 のリスク (b) の実現)。pub の @ 省略の
+   本体が、**一般化されていないトップレベル束縛**(パターン束縛や非値の
+   束縛)を呼ぶと、その束縛の単相な行変数を Rigid に結ぼうとして落ちます —
+   本体が純粋でもです。診断は pub の規則を名指しして元の報告を添えるので、
+   直し方(束縛を関数として宣言し直すか、@ を明示する)には辿り着けます。
+   なお Rigid の行から `@ {}` の関数を呼ぶことも(通常の行と同じく)
+   できません — 行の部分型付けを持たない設計(§11.26 冒頭)の一貫した
+   帰結です。
+
    なぜ本体では Rigid なのか。開くだけなら未定変数でもよさそうですが、それだと
    本体が注釈に書いていないエフェクトを起こしたときに、尾部に勝手に足されて
    通ってしまいます。剛定数なら足せないので、注釈の約束が守られます。
@@ -1804,15 +1872,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   at_node node @@ fun () ->
   (* pub の完全注釈検査(H6 / D44)。注釈が無ければ「@ 省略 = 純粋」の
      約束も立てられない — 検査は冒頭、本体を見る前に *)
-  (if b.T.lb_pub then (
-     (match b.T.lb_params with
-     | Some ps ->
-         List.iter
-           (fun ((_, p) : T.pat) ->
-             match p with T.PAnnot _ -> () | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
-           ps
-     | None -> ());
-     if b.T.lb_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
+  (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
   let is_fun = b.T.lb_params <> None in
   (* 値制限(計画 §7.2): 一般化してよいのは関数定義か値のみ。§11.28 を参照 *)
   let gen = is_fun || is_value b.T.lb_body in
@@ -1920,22 +1980,28 @@ and elab_rec_bindings env level eff bs : env =
       bs
   in
   let env_rec = { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names } in
+  (* pub の @ 省略の Rigid 行は**群で 1 本**を共有する(H6 / D44)。束縛ごとに
+     別の Rigid を作ると、相互再帰の呼び出しが 2 本の Rigid を単一化しようと
+     して「スコープ付きの型が一致しません: R1 と ς1」で落ちる(M16 検証 —
+     pub を外せば通る意味論的に同一の宣言が落ちる退行だった)。群は一緒に
+     純粋なので同じ行でよい。解放も群の終わりに 1 度 *)
+  let shared_pub_row = ref None in
+  let pub_pure_row lvl =
+    match !shared_pub_row with
+    | Some (t, r) -> (t, [ ("", t, r) ])
+    | None ->
+        let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
+        let r = ref (Rigid i) in
+        Hashtbl.replace pub_pure_rows i.vid ();
+        shared_pub_row := Some (TVar r, r);
+        (TVar r, [ ("", TVar r, r) ])
+  in
   List.iter2
     (fun ((_, b) as bnode) (_, pre) ->
       at_node bnode @@ fun () ->
       (* pub の完全注釈検査と「@ 省略 = 純粋」は let(§11.28)と同じ規則
          (H6 / D44) *)
-      (if b.T.lb_pub then (
-         (match b.T.lb_params with
-         | Some ps ->
-             List.iter
-               (fun ((_, p) : T.pat) ->
-                 match p with
-                 | T.PAnnot _ -> ()
-                 | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
-               ps
-         | None -> ());
-         if b.T.lb_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
+      (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
       let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
       let extra_rigids = ref [] in
@@ -1949,10 +2015,9 @@ and elab_rec_bindings env level eff bs : env =
               match b.T.lb_eff with
               | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
               | None when b.T.lb_pub ->
-                  let i = { vid = new_oid (); vlevel = lvl; vkind = KRow; vcls = [] } in
-                  let r = ref (Rigid i) in
-                  Hashtbl.replace pub_pure_rows i.vid ();
-                  (TVar r, [ ("", TVar r, r) ])
+                  (* 共有 Rigid は群の終わりに解放するので、束縛ごとの
+                     解放リストには入れない *)
+                  (fst (pub_pure_row lvl), [])
               | None -> (new_row_var lvl, [])
             in
             extra_rigids := eff_rigids;
@@ -1969,6 +2034,7 @@ and elab_rec_bindings env level eff bs : env =
       Tree.set_ty bnode fn_ty;
       release_rigids (rigids @ !extra_rigids))
     bs names;
+  (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
   List.iter warn (Exhaust.drain ());
   List.iter (fun (_, t) -> Unify.generalize level t) names;
   { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names }
@@ -2312,13 +2378,19 @@ let instance_head (i : T.instance_decl') =
     | _ -> type_error "type instance の型引数は1個です(D11)"
   in
   let con, holes =
+    (* 修飾名 M.T も受ける(M16 検証 — 受けないと、外から module の pub 型に
+       インスタンスを書く正規の手段が 1 つも無い)。可視性検査も型注釈と
+       同じに通す — 通さないと、名前で触れることすら許されない非 pub 型に
+       外からインスタンスが付けられ、module 自身のコヒーレンス枠まで
+       横取りされる(同検証。型名を oid に落とす経路は全部同じ検査を通る) *)
     match snd head with
-    | T.EIdent (LongId [ n ]) -> (Decls.resolve_con (intern n), 0)
-    | T.EApply ((_, T.EIdent (LongId [ n ])), args) ->
+    | T.EIdent (LongId comps) -> (Decls.resolve_con (intern (String.concat "." comps)), 0)
+    | T.EApply ((_, T.EIdent (LongId comps)), args) ->
         List.iter (fun (a : T.type_exp) -> match snd a with T.EHole -> () | _ -> type_error "インスタンス頭の型引数は _ だけです(List[_] の形)") args;
-        (Decls.resolve_con (intern n), List.length args)
+        (Decls.resolve_con (intern (String.concat "." comps)), List.length args)
     | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
   in
+  Decls.check_con_visible con;
   (cls, con, holes)
 
 (* ## 11.35 インスタンスの登録 — 網羅と過剰の両方を見る
@@ -2412,19 +2484,6 @@ let register_instance (i : T.instance_decl') =
    実体 —「最初にその名前を持った側」— と逆になり、同名 let 2 本 +
    前方参照で型検査を通ったプログラムが黙って別の型の値を返しました
    (M15 検証で実測)。 *)
-
-let rec fully_effected ((_, te) : T.type_exp) =
-  match te with
-  | T.EArrow (params, ret, eff) -> eff <> None && List.for_all fully_effected params && fully_effected ret
-  | T.EApply (f, args) -> fully_effected f && List.for_all fully_effected args
-  | T.EBraceRow (elems, ext) ->
-      List.for_all
-        (function T.BField (_, t) -> fully_effected t | T.BLabel (_, ts) -> List.for_all fully_effected ts)
-        elems
-      && (match ext with Some t -> fully_effected t | None -> true)
-  | T.EVariantCase (_, Some t) -> fully_effected t
-  | T.EUnion ts -> List.for_all fully_effected ts
-  | T.EVariantCase (_, None) | T.EIdent _ | T.EHole -> true
 
 (* ## 11.37 署名の構築 — 失敗したら黙って諦める
 
@@ -2593,6 +2652,24 @@ let check_instance_bodies env (i : T.instance_decl') =
    プレリュードも同じ `process_decls` を通します。違いは `emit` を
    捨てることだけです。 *)
 
+(* コンパニオン型の大域同義語の登録(D43 / sample.kel:580)。平坦化では
+   なくパス 1a で行う — プレリュードの宣言表はユーザ平坦化の時点では
+   まだ空なので、既存名との照合がここでないと効かない(M16 検証:
+   module List { pub newtype List } がプレリュード自身の型検査を壊した) *)
+let register_companion tyname =
+  match !Decls.current_module with
+  | Some m when tyname = m ^ "." ^ m ->
+      if
+        Hashtbl.mem Decls.con_kinds (intern m)
+        || Hashtbl.mem Decls.aliases (intern m)
+        || Hashtbl.mem Decls.reserved_type_names (intern m)
+      then
+        type_error
+          ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存の型 " ^ m
+         ^ " と同名です(module 内の型とトップレベルの型は同名にできません)")
+      else Decls.add_con_synonym (intern m) (intern tyname)
+  | _ -> ()
+
 (* 宣言の出身 module を current_module に立てて処理する。4 パスの**全部**を
    包むこと(§10 特記の落とし穴): 1b の newtype フィールド型や 1c の
    signature_of_binding も module 内の型を非修飾で参照するので、包み忘れた
@@ -2611,6 +2688,7 @@ let process_decls env ~emit decls =
       with_decl_module node @@ fun () ->
       match d with
       | T.DType t ->
+          register_companion t.T.ta_name;
           Decls.add_alias
             {
               Decls.al_name = intern t.T.ta_name;
@@ -2625,6 +2703,7 @@ let process_decls env ~emit decls =
              常に先回りし、後に書かれたエイリアスが先に書かれた newtype を
              「既に宣言されています」と逆向きに咎める(M15 検証の後始末) *)
           Decls.claim_type_name "newtype" (intern n.T.nt_name);
+          register_companion n.T.nt_name;
           if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
             Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
@@ -2776,12 +2855,7 @@ let process_decls env ~emit decls =
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
           (* pub の完全注釈検査(H6 / D44)。let 側 §11.28 と同じ規則 *)
-          (if ex.T.ex_pub then (
-             List.iter
-               (fun ((_, p) : T.pat) ->
-                 match p with T.PAnnot _ -> () | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
-               ex.T.ex_params;
-             if ex.T.ex_ret = None then type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"));
+          (if ex.T.ex_pub then check_pub_annots ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
           (* プレリュード保護は実装名(非修飾)、二重宣言検査は修飾名で(H14 と
              その検証の帰結。§6.2) *)
           Decls.add_extern ~prim:ex.T.ex_prim ex.T.ex_name;
@@ -2891,7 +2965,7 @@ let type_check_decls ?(prelude = []) decls =
      写します。検査は使用点(§11.3 / §11.11 / §11.8)で、境界は module
      だけです (D41)。コンストラクタは所属 newtype の pub に従います (D42)。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
-     import で見え方が変わるものではありません (sample.kel:576)。
+     import で見え方が変わるものではありません (sample.kel:575)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
      元のまま**です (第1章)。実装は処理系側の表にあり、module はその表を
      切り分けません。第6章の登録簿は、プレリュード保護を `ex_prim` で、
@@ -2915,18 +2989,41 @@ let flatten_modules (decls : T.decl list) : T.decl list =
   (* トップレベル(module の外)の値名を先に集める。module 内の値名が
      これと同名になるのを禁止するため(D43 の値側。§6.4 の理由 —
      禁止しないと、宣言順と呼び出し時刻の組み合わせで elab と評価器の
-     フォールバックの発火が食い違い、黙って別の実体を選ぶ。M15 検証 V12) *)
+     フォールバックの発火が食い違い、黙って別の実体を選ぶ。M15 検証 V12)。
+     パターン束縛の束縛子も全部拾う — binding_name(PVar だけ)で集めると
+     let (a, b) = … の a がすり抜けて V12 がそのまま再現する(M16 検証) *)
   let toplevel_vals = Hashtbl.create 32 in
+  let rec pat_names ((_, p) : T.pat) =
+    match p with
+    | T.PVar x -> Hashtbl.replace toplevel_vals x ()
+    | T.PAnnot (q, _) -> pat_names q
+    | T.PRecord (fs, tail) ->
+        List.iter (fun (_, q) -> pat_names q) fs;
+        Option.iter pat_names tail
+    | T.PCtor (_, args) -> List.iter (fun a -> pat_names a.T.cap_pat) args
+    | T.PVariant (_, q) -> pat_names q
+    | T.PWildcard | T.PBool _ | T.PNumber _ | T.PText _ -> ()
+  in
+  (* トップレベルの型名と、クラスのメソッド名も集める。コンパニオン型の
+     大域同義語が既存の型名を黙って乗っ取る形(M16 検証 — module Foo を
+     1 行足すだけで newtype Foo の名目型が破れる)と、module 名がクラス名と
+     同じときに修飾名 M.f がクラスメソッドの修飾名と衝突して可視性検査を
+     すり抜ける形(同)を、どちらも平坦化の時点で拒否するため *)
+  let toplevel_types = Hashtbl.create 16 in
+  let class_methods : (string, string list) Hashtbl.t = Hashtbl.create 16 in
+  Hashtbl.iter
+    (fun cname (ci : Decls.class_info) -> Hashtbl.replace class_methods (Type.name_of cname) (List.map fst ci.Decls.ci_methods))
+    Decls.classes;
   List.iter
     (fun ((_, d) : T.decl) ->
       match d with
-      | T.DLet (_, b) -> ( match binding_name b with Some x -> Hashtbl.replace toplevel_vals x () | None -> ())
-      | T.DLetRec bs ->
-          List.iter
-            (fun ((_, b) : T.let_binding) ->
-              match binding_name b with Some x -> Hashtbl.replace toplevel_vals x () | None -> ())
-            bs
+      | T.DLet (_, b) -> pat_names b.T.lb_name
+      | T.DLetRec bs -> List.iter (fun ((_, b) : T.let_binding) -> pat_names b.T.lb_name) bs
       | T.DExtern ex -> Hashtbl.replace toplevel_vals ex.T.ex_name ()
+      | T.DNewtype n -> Hashtbl.replace toplevel_types n.T.nt_name ()
+      | T.DType t -> Hashtbl.replace toplevel_types t.T.ta_name ()
+      | T.DEffect e -> Hashtbl.replace toplevel_types e.T.ef_name ()
+      | T.DClass c -> Hashtbl.replace class_methods c.T.cls_name (List.map (fun (v : T.class_val) -> v.T.cv_name) c.T.cls_vals)
       | _ -> ())
     decls;
   List.concat_map
@@ -2942,6 +3039,14 @@ let flatten_modules (decls : T.decl list) : T.decl list =
                   type_error
                     ("module " ^ mname ^ " の " ^ x ^ " はトップレベルの " ^ x
                    ^ " と同名です(module 内の名前とトップレベル名は同名にできません)")
+                else if match Hashtbl.find_opt class_methods mname with Some ms -> List.mem x ms | None -> false then
+                  (* 修飾名 M.x が クラス M のメソッド x の修飾名と同綴りに
+                     なり、値環境で区別できない(M16 検証 — かつては綴りの
+                     一致だけで可視性検査を免除しており、同名クラスを 1 行
+                     宣言するだけで任意の非 pub 値が外から呼べた) *)
+                  type_error
+                    ("module " ^ mname ^ " の " ^ x ^ " は型クラス " ^ mname ^ " のメソッド " ^ x
+                   ^ " と修飾名が衝突します(module か メソッドを改名してください)")
                 else Decls.(Hashtbl.replace module_val_synonyms (mname, intern x) (intern (mname ^ "." ^ x)));
                 Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
               in
@@ -2949,9 +3054,19 @@ let flatten_modules (decls : T.decl list) : T.decl list =
                 let qual = mname ^ "." ^ name in
                 Decls.(Hashtbl.replace module_con_synonyms (mname, intern name) (intern qual));
                 Decls.add_con_hint (intern name) (intern qual);
-                (* 大域に残す同義語はコンパニオン(module 名と同名の型)だけ
-                   (D43 / sample.kel:580)。可視性は pub の写し(D41-D42) *)
-                if name = mname then Decls.add_con_synonym (intern name) (intern qual);
+                (* コンパニオン(module 名と同名の型)とトップレベル型名の
+                   衝突はここで拒否する — 黙って許すと module Foo を 1 行
+                   足すだけでトップレベルの型 Foo が乗っ取られ、名目型の
+                   抽象が破れる(M16 検証。D22 / D39 が否定した黙った
+                   後勝ちの型側再発)。プレリュード名との衝突検査と大域
+                   同義語の登録はパス 1a(§11.39)— プレリュードの宣言表は
+                   平坦化の時点ではまだ空だから。可視性は pub の写し
+                   (D41-D42) *)
+                if name = mname && (Hashtbl.mem toplevel_types name || Hashtbl.mem Decls.reserved_type_names (intern name))
+                then
+                  type_error
+                    ("module " ^ mname ^ " のコンパニオン型 " ^ name ^ " は既存の型 " ^ name
+                   ^ " と同名です(module 内の型とトップレベルの型は同名にできません)");
                 Hashtbl.replace Decls.con_visibility (intern qual) { Decls.vis_module = mname; vis_pub = pub };
                 qual
               in

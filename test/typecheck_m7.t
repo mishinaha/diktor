@@ -239,8 +239,8 @@ module 内の名前とトップレベル名の衝突は宣言時に拒否する(
 同義語の衝突は曖昧(C5d / D39。かつては黙って後勝ち):
 
   $ cat > modclash.kel <<'KEL'
-  > module A { newtype T = TA(Int32) }
-  > module B { newtype T = TB(Int32) }
+  > module A { pub newtype T = TA(Int32) }
+  > module B { pub newtype T = TB(Int32) }
   > let x: T = TA(1)
   > KEL
   $ diktor --type-check modclash.kel

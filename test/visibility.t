@@ -37,15 +37,25 @@ pub の let は外から呼べる:
   ! vis3.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
   [1]
 
-非修飾の内部型は外から見えない(同義語が module スコープになった。
-候補の案内つき):
+非修飾の内部型は外から見えない。非 pub の名前は候補にも挙げない
+(案内に従っても可視性エラーになるだけ — M16 検証):
 
   $ cat > vis4.kel <<'KEL'
   > module M { newtype Priv = P(Int32) }
   > let u(x: Priv): Int32 = 0
   > KEL
   $ diktor --type-check vis4.kel
-  ! vis4.kel:2:10: 型エラー: 未知の型: Priv(M.Priv と修飾してください)
+  ! vis4.kel:2:10: 型エラー: 未知の型: Priv
+  [1]
+
+pub なら候補として案内される:
+
+  $ cat > vis4b.kel <<'KEL'
+  > module M { pub newtype Pub = P(Int32) }
+  > let u(x: Pub): Int32 = 0
+  > KEL
+  $ diktor --type-check vis4b.kel
+  ! vis4b.kel:2:10: 型エラー: 未知の型: Pub(M.Pub と修飾してください)
   [1]
 
 非 pub newtype のコンストラクタは外から使えない(D42 — コンストラクタの
@@ -133,3 +143,76 @@ pub エイリアスは、その型の素性を作者の選択として外へ見�
   > KEL
   $ diktor --type-check vis10.kel
   f : (M.Priv) => Int32
+
+同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
+クラス M のメソッド f と値環境で区別できないため):
+
+  $ cat > visc.kel <<'KEL'
+  > module Vault {
+  >   newtype Priv = P(Int32)
+  >   pub let mk(n: Int32): Priv = P(n)
+  >   let peek(p: Priv): Int32 = p match { case P(v) => v }
+  > }
+  > type class Vault[A] { val peek: (A) => A }
+  > echoln(show(Vault.peek(Vault.mk(9))))
+  > KEL
+  $ diktor visc.kel
+  ! visc.kel:4:3: 型エラー: module Vault の peek は型クラス Vault のメソッド peek と修飾名が衝突します(module か メソッドを改名してください)
+  [1]
+
+instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証。かつては
+非 pub 型に外からインスタンスが付けられ、module 自身のコヒーレンス枠を
+横取りできた):
+
+  $ cat > visi.kel <<'KEL'
+  > type class C[A] { val m: (A) => Int32 }
+  > module M { newtype M = Mk(Int32) }
+  > type instance C[M] { let m(x) = 777 }
+  > KEL
+  $ diktor --type-check visi.kel
+  ! visi.kel:3:1: 型エラー: 型 M.M は module M の外からは参照できません(pub を付けてください)
+  [1]
+
+  $ cat > visq.kel <<'KEL'
+  > type class C[A] { val m: (A) => Int32 }
+  > module M {
+  >   pub newtype T = Mk(Int32)
+  >   pub let mk(n: Int32): T = Mk(n)
+  > }
+  > type instance C[M.T] { let m(x) = 42 }
+  > echoln(show(C.m(M.mk(1))))
+  > KEL
+  $ diktor visq.kel
+  42
+
+コンパニオン型は既存の型名を奪えない(M16 検証。module Foo を 1 行
+足すだけで newtype Foo の名目型が破れた):
+
+  $ cat > visk.kel <<'KEL'
+  > newtype Foo = Wrap(Int32)
+  > module Foo { pub type Foo = Int32 }
+  > let use(x: Foo): Foo = x
+  > KEL
+  $ diktor --type-check visk.kel
+  ! visk.kel:2:14: 型エラー: module Foo のコンパニオン型 Foo は既存の型 Foo と同名です(module 内の型とトップレベルの型は同名にできません)
+  [1]
+  $ printf 'module List { pub newtype List = L(Int32) }\necholn("x")\n' > visl.kel
+  $ diktor --type-check visl.kel
+  ! visl.kel:1:15: 型エラー: module List のコンパニオン型 List は既存の型 List と同名です(module 内の型とトップレベルの型は同名にできません)
+  [1]
+
+トップレベルのパターン束縛の束縛子も同名禁止の対象(M16 検証。
+binding_name は PVar しか見ないので、let (a, b) = … の a がすり抜けて
+型検査と実行が別の実体を選んだ):
+
+  $ cat > visp.kel <<'KEL'
+  > module M {
+  >   let a(): Int32 = 1
+  >   pub let go(): Int32 = a()
+  > }
+  > let (a, b) = (fn() => 99, "x")
+  > echoln(show(M.go()))
+  > KEL
+  $ diktor --type-check visp.kel
+  ! visp.kel:2:3: 型エラー: module M の a はトップレベルの a と同名です(module 内の名前とトップレベル名は同名にできません)
+  [1]

@@ -69,3 +69,47 @@ pub の値束縛と pub let rec(注釈が完全なら通る):
   > KEL
   $ diktor pub8.kel
   120
+
+注釈の中の矢印にも @ が要る(M16 検証。中の矢印の省略 @ は推論任せの
+行になり、同じ pub 署名・同じ表示型のまま本体の変更だけで呼び出し側が
+壊れた — 仕様が防ごうとした事象そのもの):
+
+  $ printf 'pub let apply2(f: () => Unit, x: Int32): Int32 = x\n' > pub11.kel
+  $ diktor --type-check pub11.kel
+  ! pub11.kel:1:9: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+行変数を明示すれば、コールバックを取る pub も書ける(こちらが正道。
+@ 省略 pub の Rigid 行からは @ {} の関数も呼べない — 行の部分型付けが
+無い言語の既存規則どおり):
+
+  $ printf 'pub let apply3[E](f: () => Unit @ E, x: Int32): Int32 @ E = { f(); x }\necholn(show(apply3(fn() => (), 41) + 1))\n' > pub12.kel
+  $ diktor pub12.kel
+  42
+
+pub let rec の相互再帰(@ 省略)は群で 1 本の Rigid 行を共有して通る
+(M16 検証。束縛ごとに別の Rigid だと相互呼び出しが単一化できず落ちた):
+
+  $ cat > pub13.kel <<'KEL'
+  > pub let rec ping(n: Int32): Int32 = n match { case 0 => 0 case m => pong(m - 1) }
+  > and pong(n: Int32): Int32 = n match { case 0 => 1 case m => ping(m - 1) }
+  > echoln(show(ping(5)))
+  > KEL
+  $ diktor pub13.kel
+  1
+
+エフェクトつき関数の呼び出しにも pub の規則を名指しで案内する(M16 検証。
+かつては一般文言「行型ではありません: ς1」だけだった)。非一般化の
+トップレベル束縛(パターン束縛など)を呼ぶ形も同じ経路で案内される —
+これは H6 の既知の制限で、束縛を関数として宣言し直すか @ を明示する:
+
+  $ printf 'pub let f(x: Int32): Int32 = { echoln("hi"); x }\n' > pub14.kel
+  $ diktor --type-check pub14.kel
+  ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行型ではありません: ς1)
+  [1]
+  $ cat > pub15.kel <<'KEL'
+  > let (helper, k) = (fn(x: Int32) => x, 0)
+  > pub let go(n: Int32): Int32 = helper(n)
+  > KEL
+  $ diktor --type-check pub15.kel
+  ! pub15.kel:2:31: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています)
+  [1]
