@@ -46,7 +46,8 @@ module SMap = Map.Make (String)
    | `VVariant` | 構造的ヴァリアント | **なし**(構造的) |
    | `VData` | `newtype` の値 | `d_type` |
    | `VClosure` / `VPrim` | ユーザ関数 / 組み込み関数 | なし |
-   | `VRef` / `VArray` | 可変セル / 配列 | `Ref` / `Array` |
+   | `VRef` | 可変セル | `Ref` |
+   | `VArray` / `VMutArray` | 不変配列 / 可変配列 | `Array` / `MutableArray` |
 
    Diktor の型クラスは実行時に値のタグで解決します(計画 D3。第14章の
    `tycon_of_value` と `dispatch`)。右端の列は、その値を見せられたディスパッチャが
