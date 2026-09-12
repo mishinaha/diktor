@@ -216,3 +216,22 @@ binding_name は PVar しか見ないので、let (a, b) = … の a がすり�
   $ diktor --type-check visp.kel
   ! visp.kel:2:3: 型エラー: module M の a はトップレベルの a と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
+
+newtype の型名とコンストラクタは可視性を共有する(§13。pub なら両方公開。
+型名だけ公開して表現を隠す手段はまだ無い):
+
+  $ cat > vispub.kel <<'KEL'
+  > module M {
+  >   pub newtype Pub = Q(Int32)
+  > }
+  > let x = M.Q(1)
+  > let y(v: M.Pub): Int32 = v match { case M.Q(n) => n }
+  > KEL
+  $ diktor --type-check vispub.kel
+  x : M.Pub
+  y : (M.Pub) => Int32
+
+  $ printf 'module M { newtype Priv = P(Int32) }\nlet f(v: M.Priv): Int32 = 1\n' > vispriv.kel
+  $ diktor --type-check vispriv.kel
+  ! vispriv.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
+  [1]

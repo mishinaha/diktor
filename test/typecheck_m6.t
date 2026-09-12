@@ -100,6 +100,30 @@ D22 のエラー経路(修飾要求)と修飾解決:
   $ diktor --type-check --no-prelude qual.kel
   ok : () => {} @ {A2 extends R1}
 
+候補が 1 個なら行を見ずに解決する(§9 の規則は 2 段 — 曖昧なときだけ行の
+最左を見る。ここで行を要求すると、注釈の無い let の perform が全部
+修飾を要求されることになる。D99):
+
+  $ cat > onecand.kel <<'EOF'
+  > type Unit = {}
+  > effect A1 = { op1: (String) => Unit }
+  > let f() = perform op1("x")
+  > EOF
+  $ diktor --type-check --no-prelude onecand.kel
+  f : () => {} @ {A1 extends R1}
+
+候補が 2 個以上で、行にその候補が 1 つも現れないときだけ修飾を要求する:
+
+  $ cat > twocand.kel <<'EOF'
+  > type Unit = {}
+  > effect A1 = { op1: (String) => Unit }
+  > effect A2 = { op1: (String) => Unit }
+  > let f() = perform op1("x")
+  > EOF
+  $ diktor --type-check --no-prelude twocand.kel
+  ! twocand.kel:4:11: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
+  [1]
+
 未処理エフェクト・網羅性・resume の誤用のエラー:
 
   $ cat > efferr.kel <<'EOF'
@@ -237,3 +261,46 @@ H4 / D23-a — @ {} は正確に空で、エフェクトのある文脈から呼
   pure_f : (Int32) => Int32
   ! noSub.kel:3:63: 型エラー: ラベル Logger がありません(行は閉じています)
   [1]
+
+行の並びは操作名の解決にだけ使い、型の等価性では順序を問わない(§9 / §3 の
+Scoped Labels と同じ)。開いた行でも閉じた行でも順序違いは単一化する:
+
+  $ cat > roworder.kel <<'EOF'
+  > type Unit = {}
+  > effect E1 = { op1: () => Unit }
+  > effect E2 = { op2: () => Unit }
+  > let a[E](k: () => Unit @ {E1, E2 extends E}): Unit @ {E1, E2 extends E} = k()
+  > let b[E](k: () => Unit @ {E2, E1 extends E}): Unit @ {E1, E2 extends E} = a(k)
+  > newtype Cb = Cb(() => Unit @ {E1, E2})
+  > let mk(k: () => Unit @ {E2, E1}): Cb = Cb(k)
+  > EOF
+  $ diktor --type-check --no-prelude roworder.kel
+  a : (() => {} @ {E1, E2 extends R1}) => {} @ {E1, E2 extends R1}
+  b : (() => {} @ {E2, E1 extends R1}) => {} @ {E1, E2 extends R1}
+  mk : (() => {} @ {E2, E1}) => Cb
+
+同じエフェクトを二重に積むと、非修飾でも修飾でも内側にしか届かない(§9。
+仕様の copy が src を読んでから dst を開くのはこのため):
+
+  $ cat > doublestack.kel <<'KEL'
+  > effect Tag = { tag: (String) => {} }
+  > let with_tag[A, E](name: String, body: () => A @ {Tag, Console extends E}): A @ {Console extends E} =
+  >   body() handle {
+  >     case tag(s) => resume(echo(name + ":" + s + "\n"))
+  >     case return(x) => x
+  >   }
+  > let go(): {} @ {Console} = {
+  >   with _ = with_tag("outer")
+  >   with _ = with_tag("inner")
+  >   perform tag("hi")
+  > }
+  > go()
+  > KEL
+  $ diktor doublestack.kel
+  inner:hi
+
+修飾しても同じ(仕様 §9):
+
+  $ sed 's/perform tag/perform Tag.tag/' doublestack.kel > doublestack2.kel
+  $ diktor doublestack2.kel
+  inner:hi
