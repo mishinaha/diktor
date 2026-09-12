@@ -315,6 +315,8 @@ Type のパラメータの制約は従来どおり言及時に効く(規則 3):
   > let f[F[_], E](x: F[E], g: () => Unit @ E): Int32 = 0
   > EOF
   $ diktor --type-check --no-prelude hkt.kel
+  ! hkt.kel:2:41: 型エラー: 行カインドではない型パラメータです: E
+  [1]
 
 行を先に確定させた形は F[E] の側で落ちる:
 
@@ -323,6 +325,8 @@ Type のパラメータの制約は従来どおり言及時に効く(規則 3):
   > let f[F[_], E](g: () => Unit @ E, x: F[E]): Int32 = 0
   > EOF
   $ diktor --type-check --no-prelude hkt2.kel
+  ! hkt2.kel:2:38: 型エラー: 型引数のカインドが一致しません: Type を期待しましたが ς1 は Row です
+  [1]
 
 Functor の正常系は変わらない:
 
@@ -331,3 +335,5 @@ Functor の正常系は変わらない:
   > let g(xs: List[Int32]): List[Int32] = f(xs)
   > EOF
   $ diktor --type-check hktok.kel
+  f : (F[A]) => F[A]
+  g : (List[Int32]) => List[Int32]
