@@ -10,7 +10,7 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 
 言語仕様は親リポジトリ `keleut` にあります(本リポジトリはその git submodule です):
 
-- `../reference/sample.kel` — 表層構文と言語設計(コメントが仕様)
+- `../doc/sample.kel` — 表層構文と言語設計(コメントが仕様)
 - `../reference/MiniLang.scala` — 型推論器のリファレンス実装
 
 # 教材として読む(文芸的プログラミング)
@@ -63,9 +63,10 @@ ocamlformat / `dune fmt` は列 0 ブロックを再インデントして規約�
 `dune promote` でゴールデンファイルを更新し、その更新は実装の変更とは
 別のコミットにしてください。
 
-`test/sample/sample.kel` は `../reference/sample.kel` の無改変コピーで、
-冒頭コメントに取り込み元のリビジョンを記録しています。同期するときは
-ファイルを再コピーし、そのリビジョン注記を更新してください。
+`test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです。取り込み元の
+リビジョン・blob SHA・md5 は `test/sample/README.md` に記録してあり、同じ
+ファイルに同期手順と、無改変であることを git の blob SHA で検証する 1 行が
+あります。sample.kel 本体には何も書き足しません。
 
 # 名前の由来
 
