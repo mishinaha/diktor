@@ -61,30 +61,6 @@ Int32 に既定化:
   fst_ : ({_item: A extends R1}) => A
   n : Int32
 
-cancel 節からの perform の再入(I10 / D66)。現状: 巻き戻し中の再入は
-処理され(from-cancel の note は外側の note ハンドラに届いて resume)、
-cancel 内で生じる Unwind は抑制され、巻き戻しは続行して外側の 99 が
-返る。仕様が (b) 自ハンドラ無効化 か (c) 実行時エラー を選んだら
-ここが変わる:
-
-  $ cat > cancelre.kel <<'KEL'
-  > effect Stop = { stop: () => {} }
-  > effect Log = { note: (String) => {} }
-  > let inner[E](): Int32 @ {Log, Stop extends E} =
-  >   { perform stop(); 1 } handle {
-  >     case note(s) => resume({})
-  >     case cancel => { perform note("from-cancel"); () }
-  >     case return(x) => x
-  >   }
-  > let mid[E](): Int32 @ {Stop extends E} = inner() handle {
-  >   case note(s) => resume({})
-  >   case return(x) => x
-  > }
-  > let go[E](): Int32 @ E = mid() handle {
-  >   case stop() => 99
-  >   case return(x) => x
-  > }
-  > echoln(show(go()))
-  > KEL
-  $ diktor cancelre.kel
-  99
+cancel 節からの perform の再入(I10 / D66)は仕様 §9 が裁定した(D100。cancel 節は
+自分のハンドラが外れた文脈で走り、perform は外側の同名ハンドラに届く)。
+観測点 cancelre.kel は test/eval.t の cancelouter / cancelnores へ移した。

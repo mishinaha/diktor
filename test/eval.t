@@ -114,6 +114,60 @@ cancel の LIFO 自動巻き戻し):
   close n1
   ok 7
 
+cancel 節は自分のハンドラが外れた文脈で走る(§9 / D100。cancel 節からの
+perform は自分の節ではなく外側の同名ハンドラに届く。第11章 §11.24 が
+cancel 節を外側の行で推論するのと同じ事実の実行側):
+
+  $ cat > cancelouter.kel <<'EOF2'
+  > effect Stop = { stop: () => {} }
+  > effect Log = { note: (String) => {} }
+  > let inner[E](): Int32 @ {Log, Stop, Console extends E} =
+  >   { perform stop(); 1 } handle {
+  >     case note(s) => { echo("INNER:" + s + "\n"); resume({}) }
+  >     case cancel => { perform note("from-cancel"); () }
+  >     case return(x) => x
+  >   }
+  > let mid[E](): Int32 @ {Stop, Console extends E} = inner() handle {
+  >   case note(s) => { echo("MID:" + s + "\n"); resume({}) }
+  >   case return(x) => x
+  > }
+  > let go[E](): Int32 @ {Console extends E} = mid() handle {
+  >   case stop() => 99
+  >   case return(x) => x
+  > }
+  > echoln(show(go()))
+  > EOF2
+  $ diktor cancelouter.kel
+  MID:from-cancel
+  99
+
+届いた先が resume せずに抜けても、その巻き戻しは抑制されてログに回るだけで
+外へは出ない(§9):
+
+  $ cat > cancelnores.kel <<'EOF2'
+  > effect Stop = { stop: () => {} }
+  > effect Log = { note: (String) => {} }
+  > let inner[E](): Int32 @ {Log, Stop, Console extends E} =
+  >   { perform stop(); 1 } handle {
+  >     case note(s) => { echo("INNER:" + s + "\n"); resume({}) }
+  >     case cancel => { perform note("from-cancel"); echo("AFTER\n") }
+  >     case return(x) => x
+  >   }
+  > let mid[E](): Int32 @ {Stop, Console extends E} = inner() handle {
+  >   case note(s) => { echo("MID:" + s + "\n"); 7 }
+  >   case return(x) => x
+  > }
+  > let go[E](): Int32 @ {Console extends E} = mid() handle {
+  >   case stop() => 99
+  >   case return(x) => x
+  > }
+  > echoln(show(go()))
+  > EOF2
+  $ diktor cancelnores.kel
+  MID:from-cancel
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  99
+
 深いハンドラと最内一致・resume の返り値 = handle 式全体の型:
 
   $ cat > deep.kel <<'EOF'
