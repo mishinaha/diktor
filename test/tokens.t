@@ -541,6 +541,40 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
      2  foo
      3  <EOF>
 
+`{` の読み分けの 3 文脈(仕様 §0 の追加行)。実装は文脈で先読みを止めるのでは
+なく、3 種を束ねた %inline lbrace で受ける(D12 / FIX-2b)。したがって分類の
+結果は文脈ではなく先読みで決まるが、どの分類でも同じ木になる:
+
+  $ cat > effbrace.kel <<'KEL'
+  > effect Print = { print: (String) => {} }
+  > effect Fs2 = {}
+  > type R1: EffectRow = {Print}
+  > type R2: EffectRow = {Print, Fs2}
+  > let p(m: String): {} @ {Print} = perform print(m)
+  > let z(): {} @ {} = ()
+  > KEL
+  $ diktor --dump-tokens effbrace.kel | grep '{'
+     1  {ty
+     1  {rec
+     2  {rec
+     3  {blk
+     4  {rec
+     5  {rec
+     5  {blk
+     6  {rec
+     6  {rec
+  $ diktor --type-check --no-prelude effbrace.kel
+  p : (String) => {} @ {Print extends R1}
+  z : () => {}
+
+エフェクト行にレコード型のフィールドを書くと、分類は {ty になるが拒否は
+意味の層が行う(「決めずに運んで、意味の層で決める」— §3.23):
+
+  $ printf 'let f(): {} @ {x: Int32} = ()\n' > effield.kel
+  $ diktor --type-check effield.kel
+  ! effield.kel:1:15: 型エラー: エフェクト行にフィールド x は書けません
+  [1]
+
 sample.kel 全文のトークン化(spike と同じ 2526 トークンであること):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
