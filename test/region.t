@@ -185,6 +185,23 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   ! eachclosed.kel:2:56: 型エラー: ラベル Heap がありません(行は閉じています)
   [1]
 
+newtype のフィールドを経由して死んだリージョンの可変配列を書く形も、入れ子の
+矢印の省略 @ が @ {} になった(M26 / D75)ので閉じた — 分離(M24)だけでは
+残っていた V14 の形(M24 の時点では 42 を出して通った):
+
+  $ cat > adv5.kel <<'KEL'
+  > newtype Box = Box(() => Int32)
+  > let escape(): Box = run h {
+  >   let a = MutableArray.new(1, 41)
+  >   Box(fn() => { MutableArray.set(a, 0, 42); MutableArray.get(a, 0) })
+  > }
+  > let call(b: Box): Int32 = b match { case Box(f) => f() }
+  > echoln(show(call(escape())))
+  > KEL
+  $ diktor --type-check adv5.kel
+  ! adv5.kel:4:3: 型エラー: ラベル Heap がありません(行は閉じています)(コンストラクタ Box のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
 不変配列に書く手段は無い:
 
   $ printf 'let bump(a: Array[Int32]): Unit = run h { Array.set(a, 0, 42) }\n' > noset.kel
