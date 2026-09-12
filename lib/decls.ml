@@ -224,7 +224,13 @@ let c_known_signature name = List.assoc_opt name c_known_signatures
 
    未知の構成子を `k_arrow nargs`(適用個数ぶんの `*` を取る形)で既定するのは
    MiniLang と同じです。宣言前の前方参照や、パス 1 の途中で引かれたときに、
-   カインド不一致という誤ったエラーを出さないための保守的な既定です。 *)
+   カインド不一致という誤ったエラーを出さないための保守的な既定です。
+
+   M23 (D80) からこの表は「引数の数だけ矢印を落とす」ためだけの表ではなく、
+   **パラメータのカインドを運ぶ表**になりました。newtype の頭には第11章の
+   パス 1a がパラメータごとのカインド変数を積み、1b の `register_newtype` が
+   そのセルを剥がして `dd_params` の `vkind` に据えます。セルは共有なので、
+   本体の使われ方で決まったカインドは頭にも現れます。 *)
 
 let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
 

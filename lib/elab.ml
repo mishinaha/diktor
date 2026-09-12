@@ -2232,9 +2232,25 @@ let initial_env () =
    (§11.8、§11.18)。組み込みメソッドのスキーマとまったく同じ形なので、
    使う側のコードが 1 本で済みます。
 
-   パラメータのカインドは `*` か、`F[_]` と明示されたものだけです。ここで
-   カインド変数を許さないのは、データ宣言のカインドが後から推論で決まると、
-   1a パスで登録した頭のカインドと食い違うからです。
+   パラメータのカインドは本体での使われ方から推論します(仕様 §6、M23 / D80)。
+   `newtype Callback[E] = Callback(() => Unit @ E)` の `E` は矢印の `@` に
+   現れるので行カインドに決まり、使われ方が無ければ `Type` に既定化されます。
+   かつてはここを `KStar` 決め打ちにしていて、その理由を「後から推論で決まると
+   1a で登録した頭のカインドと食い違うから」と書いていました。食い違うのは
+   頭と本体で**別のセル**を作っていたからで、同じセルを共有すれば食い違いません。
+   1a が頭にパラメータごとのカインド変数を積み、1b の `register_newtype` が
+   それを剥がして `dd_params` の `vkind` に据える — 本体の精緻化がそのセルを
+   `same_kind` で張れば頭にも反映されます。プレリュード所有名の再宣言では 1a が
+   頭を差し替えないので、剥がすのはプレリュードが決めたカインドになり、
+   ユーザ側はそれを引き継ぎます(別セルを作ると `data_match` の照合で
+   `KVar` と `KStar` が食い違う)。
+
+   既定化は宣言ごとではなく、**1b の後始末**で宣言群の全部が終わってから行います
+   (D81、§11.39)。`same_kind` は未解決のカインド変数どうしを片方に張るので、
+   先に処理した newtype を宣言ごとに既定化すると、まだ本体を読んでいない相手の
+   カインドまで `KStar` に固定してしまい、相互参照する newtype が宣言順に
+   依存します(`test/kinds.t` の mutual / mutual2)。`register_newtype` を呼ぶ者は
+   既定化の責任を負う、と覚えておいてください。
 
    `newtype T = ???` (`NtHole`) は表現を隠します。コンストラクタを持たない
    不透明なデータ型として登録され、構築も分解もできません。
@@ -2243,14 +2259,28 @@ let initial_env () =
    出会っても何もすることがありません。未知の型を書けばこの時点でエラーです。 *)
 
 let register_newtype env (n : T.newtype') =
+  (* 1a で頭に積んだカインドをそのまま剥がして使う(D80)。頭と本体で
+     別のセルを作ると、本体で決まったカインドが頭に反映されない。
+     プレリュード所有名の再宣言では 1a が頭を差し替えないので、ここで
+     剥がすのはプレリュードが決めたカインド — ユーザ側はそれを引き継ぐ
+     (別セルを作ると data_match の kind_equiv で KVar と KStar が食い違う) *)
+  let head_kinds =
+    let k = Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params) in
+    let rec peel k n =
+      if n = 0 then []
+      else match kind_repr k with KArrow (a, r) -> a :: peel r (n - 1) | _ -> List.init n (fun _ -> new_kind_var ())
+    in
+    peel k (List.length n.T.nt_params)
+  in
   let params =
-    List.map
-      (fun tp ->
-        (* newtype パラメータのカインドは * か、F[_] 明示のみ(v0) *)
-        let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else KStar in
+    List.map2
+      (fun tp hk ->
+        (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
+           F[_] と書いてあればその場で確定。既定化は 1b の後始末(D81) *)
+        let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else hk in
         let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
         { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
-      n.T.nt_params
+      n.T.nt_params head_kinds
   in
   let types =
     List.fold_left2
@@ -2896,10 +2926,14 @@ let check_instance_bodies env (i : T.instance_decl') =
    クラスのメソッドは、非修飾名 (`map`) と修飾名 (`Functor.map`) の
    **両方**で値環境に登録します (乖離 12)。どちらでも書けるという仕様を、
    環境に 2 つ入れるという最も安い方法で実現しています。
-   1b の後始末として、クラスメソッドの型パラメータ制約に未知のクラスが
-   無いかだけを見る小さな検証ループが 1 つ走ります。表には何も登録しません。
-   1b の中 (`register_class`) で検査すると、後ろで宣言されるクラスを制約に
-   書いた形が落ちてしまうので、クラス表が出揃うのを待つのです。
+   1b の後始末として、宣言列をもう一度なめる小さなループが 1 つ走ります。
+   仕事は 2 つ。クラスメソッドと newtype の型パラメータ制約に未知のクラスが
+   無いかを見ること(1b の中で検査すると、後ろで宣言されるクラスを制約に書いた
+   形が落ちてしまうので、クラス表が出揃うのを待つ)と、newtype のパラメータの
+   カインドを既定化すること(D81)。既定化がここに来るのは、宣言ごとに落とすと
+   相互参照する newtype の間で早すぎる時点に `KStar` が固定されるからです
+   (§11.31)。表に新しく登録するものはありません — 既定化は表のセルを
+   書き換えるだけです。
 
    **1c — インスタンスの頭と前方参照シグネチャ。** 頭のカインド検査に
    クラス表が要るので 1b の後。署名の登録はここが最後のチャンスです
@@ -2965,7 +2999,13 @@ let process_decls env ~emit decls =
           Decls.claim_type_name "newtype" (intern n.T.nt_name);
           register_companion n.T.nt_name;
           if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
-            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
+            (* 頭のカインドはパラメータごとにカインド変数を積む(D80)。1b の
+               register_newtype がこのセルを剥がして dd_params の vkind に据える
+               ので、本体で決まったカインドがそのまま頭に反映される *)
+            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name)
+              (List.fold_right
+                 (fun (tp : type_param) acc -> KArrow ((if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()), acc))
+                 n.T.nt_params KStar)
       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
       | _ -> ())
     decls;
@@ -3013,7 +3053,17 @@ let process_decls env ~emit decls =
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
-      | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
+      | T.DNewtype n ->
+          List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params;
+          (* 1b が全部終わってから既定化する(D81)。宣言ごとに落とすと、
+             相互参照する newtype の間でカインド変数が早すぎる時点で
+             KStar に固定される(same_kind は未解決どうしを片方に張る)。
+             頭と dd_params の両方を落とすのは念のため — セルを共有して
+             いるので通常はどちらか一方で足りる *)
+          default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
+          (match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
+          | Some dd -> List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params
+          | None -> ())
       (* DType もここで見る。プレリュード所有名の再宣言は add_alias が黙って
          捨てる(乖離 4)ので、パス 2 の make_rigids には AST が届かない —
          AST 側で検査しないと type Unit[A: Bogus] = A が素通りする(検証) *)
