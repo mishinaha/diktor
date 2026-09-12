@@ -432,6 +432,115 @@ ASI の基本(既存バグ 0.2-12 の回帰: let 2連続の間に区切りが入
   err.kel:1:22: 字句エラー: unterminated string literal
   [2]
 
+先頭の BOM は字句エラー(仕様 §0)。不可視文字は字面ではなく U+XXXX で
+出す(M21 / F-C6。生のまま出すとゴールデンに焼けない):
+
+  $ printf '\xef\xbb\xbflet x = 1\n' > bom.kel
+  $ diktor --dump-tokens bom.kel
+  bom.kel:1:1: 字句エラー: unexpected character: U+FEFF
+  [2]
+
+BOM は先頭以外でも読めない(仕様が定めているのは先頭だけだが、読めない
+ことに変わりはない — D102):
+
+  $ printf 'let x = 1\n\xef\xbb\xbflet y = 2\n' > bom2.kel
+  $ diktor --dump-tokens bom2.kel
+  bom2.kel:2:1: 字句エラー: unexpected character: U+FEFF
+  [2]
+
+CR(仕様 §0。文字列の外の CR は空白、CRLF が改行として働き、単独の CR は
+改行にならない。文字列の中の CR はそのまま値に入る):
+
+  $ printf 'let x = 1\r\nlet y = 2\r\n' > crlf.kel
+  $ diktor --dump-tokens crlf.kel
+     1  let
+     1  x
+     1  =
+     1  1
+     1  <NL>
+     2  let
+     2  y
+     2  =
+     2  2
+     3  <EOF>
+
+  $ printf 'let x = 1\rlet y = 2\n' > cronly.kel
+  $ diktor --type-check cronly.kel
+  cronly.kel:1:11: パースエラー(付近のトークンを確認してください)
+  [2]
+
+  $ printf 'echoln("a\rb")\n' > crstr.kel
+  $ diktor crstr.kel | od -c | head -1
+  0000000   a  \r   b  \n
+
+エスケープの集合(仕様 §0。\n \t \r \a \b \f \v \\ \" \' と \uXXXX / \UXXXXXXXX。
+生の改行も含めてよい):
+
+  $ cat > esc.kel <<'KEL'
+  > let s = "\a\b\f\v\r\t\n\'\"\\あ\U0001F600"
+  > KEL
+  $ diktor --dump-tokens esc.kel
+     1  let
+     1  s
+     1  =
+     1  "\007\b\012\011\r\t\n'\"\\\227\129\130\240\159\152\128"
+     2  <EOF>
+
+  $ printf 'let s = "a\nb"\necholn(s)\n' > rawnl.kel
+  $ diktor rawnl.kel
+  a
+  b
+
+サロゲート・範囲外のコードポイントと未知のエスケープは字句エラー(仕様 §0。
+Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に落とす):
+
+  $ cat > surr.kel <<'KEL'
+  > let s = "\uD800"
+  > KEL
+  $ diktor --dump-tokens surr.kel
+  surr.kel:1:15: 字句エラー: invalid unicode escape (out of range or surrogate)
+  [2]
+
+  $ cat > oor.kel <<'KEL'
+  > let s = "\U00110000"
+  > KEL
+  $ diktor --dump-tokens oor.kel
+  oor.kel:1:19: 字句エラー: invalid unicode escape (out of range or surrogate)
+  [2]
+
+  $ cat > badesc.kel <<'KEL'
+  > let s = "\q"
+  > KEL
+  $ diktor --dump-tokens badesc.kel
+  badesc.kel:1:11: 字句エラー: invalid escape sequence
+  [2]
+
+先頭小数点は許さず、最長一致で 1._0 / 1.foo は「数値 + 識別子」に読む
+(仕様 §2。t._0 の射影と読み分けるため):
+
+  $ printf 'let x = .5\n' > dot5.kel
+  $ diktor --type-check dot5.kel
+  dot5.kel:1:9: パースエラー(付近のトークンを確認してください)
+  [2]
+
+  $ cat > projnum.kel <<'KEL'
+  > let x = 1._0
+  > let y = 1.foo
+  > KEL
+  $ diktor --dump-tokens projnum.kel
+     1  let
+     1  x
+     1  =
+     1  1.
+     1  _0
+     1  <NL>
+     2  let
+     2  y
+     2  =
+     2  1.
+     2  foo
+     3  <EOF>
+
 sample.kel 全文のトークン化(spike と同じ 2526 トークンであること):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l

@@ -147,6 +147,7 @@ let show_number { n_text; n_suffix_text; _ } = n_text ^ n_suffix_text
    数値は行を持たない値なので失うプログラムはありません。先頭小数点
    (`.5`)は入れません — `t._0` の射影と読み分けが要る形は、仕様が
    `t.0` を避けたのと同じ理由で避けます (sample.kel:119-123)。
+   どちらも `test/tokens.t` の dot5 / projnum がゴールデンにしています。
 
    `int_suffix` を基数つきの側だけに使い、10 進側は正規表現の中に
    `('i' | 'u' | 'f'), Plus digit` を直接書いているのは、2.1 で述べた
@@ -251,6 +252,10 @@ module Make (Data : Syntax.Data) = struct
    改行は捨てられません。ASI 層が使うので `NL` として上に渡します。ただし
    **連続する改行は 1 個に潰します**。潰さないと空行の数だけ空の文区切りが
    生まれ、文法側が余分な区切りを読み飛ばす負担を負います。
+   CR は空白の一種として読み飛ばすので、CRLF は LF だけが改行として働き、
+   単独の CR は改行になりません(仕様 §0)。文字列リテラルの中の CR は
+   `read_text` がそのまま値に入れます。`test/tokens.t` の crlf / cronly /
+   crstr がこの 3 つを固定しています。
 
    ここで実際に踏んだ罠を 1 つ。
 
@@ -343,7 +348,10 @@ module Make (Data : Syntax.Data) = struct
 
    `read_text` は `Buffer.add_utf_8_uchar` で組み立てます。エスケープ集合
    (`\u` `\U` と `\a\b\f\n\r\t\v`、および引用符と逆斜線)は旧実装のものを
-   そのまま踏襲しました。生の改行を文字列に含められるのは意図的です。 *)
+   そのまま踏襲し、仕様 §0 が同じ集合を明文化しました。生の改行を文字列に
+   含められるのは意図的です。集合の全員、生の改行、サロゲート・範囲外・
+   未知のエスケープの拒否は `test/tokens.t` の esc / rawnl / surr / oor /
+   badesc がゴールデンにしています。 *)
 
   let read_unicode_escape lexbuf limit =
     let rec loop acc i =
