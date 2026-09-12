@@ -304,3 +304,30 @@ Type のパラメータの制約は従来どおり言及時に効く(規則 3):
   $ printf 'type P[A: Show] = (A, A)\nlet f(x: P[Int32]): Int32 = 0\n' > tyconstr.kel
   $ diktor --type-check tyconstr.kel
   f : ((Int32, Int32)) => Int32
+
+高階カインドの型変数への適用も定義域を照合する(D86)。F[_] の定義域は Type
+なので F[E] が E を Type に確定させ、次の @ E で落ちる。診断の位置が 2 番目の
+使用点になるのは、F[E] の時点では E のカインドが未定で照合が通るため(かつては
+何も起きず (F[R1], () => {}) => Int32 と型付いた):
+
+  $ cat > hkt.kel <<'EOF'
+  > type Unit = {}
+  > let f[F[_], E](x: F[E], g: () => Unit @ E): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude hkt.kel
+
+行を先に確定させた形は F[E] の側で落ちる:
+
+  $ cat > hkt2.kel <<'EOF'
+  > type Unit = {}
+  > let f[F[_], E](g: () => Unit @ E, x: F[E]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude hkt2.kel
+
+Functor の正常系は変わらない:
+
+  $ cat > hktok.kel <<'EOF'
+  > let f[F[_], A](x: F[A]): F[A] = x
+  > let g(xs: List[Int32]): List[Int32] = f(xs)
+  > EOF
+  $ diktor --type-check hktok.kel

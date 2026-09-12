@@ -319,8 +319,16 @@ let check_pub_annots ~params ~ret =
 
    `EApply` の頭が型パラメータのときだけは扱いが違い、`tapp` で適用を組み立て、
    カインドは使用時に `kind_of` と `drop_arrows` が決めます。これが高階カインド
-   (`F[_]`) の実装のすべてです。**型レベルλを入れない**ので、`f a ~ List Int` は
+   (`F[_]`) の実装のほぼすべてです。**型レベルλを入れない**ので、`f a ~ List Int` は
    `f ~ List, a ~ Int` に構造分解でき、単一化は一階のままです。
+   残りの 1 つが定義域の照合で、M28 (D86) で足しました。`TCon` の適用は
+   宣言表のカインドと照合しますが、`TApp` の適用は頭のカインド(`kind_of` が
+   張った `KArrow` の左)と照合します — `drop_arrows` は定義域を捨てるので、
+   ここでしか見られません。`let f[F[_], E](x: F[E], g: () => Unit @ E)` は
+   `F[E]` が `E` を Type に確定させ、次の `@ E` で落ちます。診断の位置が
+   2 番目の使用点になるのは、`F[E]` の時点では `E` のカインドがまだ未定で
+   照合が通ってしまうからです(`test/kinds.t` の hkt)。かつては `F[E]` に
+   行を渡しても何も起きず、`(F[R1], () => {}) => Int32` と型付いていました。
 
    `unsupported_numeric` にある名前をここで弾いているのは、`Int8` を
    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
@@ -386,8 +394,27 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) -> (
       match SMap.find_opt n env.types with
       | Some t ->
-          (* HKT 変数への適用。カインドは使用時に kind_of / drop_arrows が確定する *)
-          List.fold_left (fun acc a -> tapp acc (elab_type env level ~expanding a)) t (List.map (fun a -> check_no_hole a) args)
+          (* HKT 変数への適用。カインドは使用時に kind_of / drop_arrows が確定する。
+             定義域の照合はここでしか書けない — drop_arrows は定義域を捨てる(D86)。
+             acc は畳む前の頭、acc' は tapp の結果(頭が TCon なら畳まれる — §1.7)。
+             kind_of acc' を先に呼ぶのは、頭がまだ KVar のとき drop_arrows に
+             KArrow(新, 新)を張らせるためで、そのあと kind_of acc を見ると
+             定義域が取り出せる *)
+          List.fold_left
+            (fun acc a ->
+              let at = elab_type env level ~expanding a in
+              let acc' = tapp acc at in
+              ignore (Unify.kind_of acc');
+              (match kind_repr (Unify.kind_of acc) with
+              | KArrow (d, _) ->
+                  if not (same_kind d (Unify.kind_of at)) then
+                    type_error
+                      ("型引数のカインドが一致しません: " ^ show_kind d ^ " を期待しましたが " ^ Show.show at ^ " は "
+                     ^ show_kind (Unify.kind_of at) ^ " です")
+              | _ -> ());
+              acc')
+            t
+            (List.map (fun a -> check_no_hole a) args)
       | None -> (
           let oid = Decls.resolve_con (intern n) in
           Decls.check_con_visible oid;
