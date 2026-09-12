@@ -932,20 +932,21 @@ and elab_exp' env level eff node e =
    決まっていない新しい行変数で、ラベルが 1 つも見えません。解決が
    間に合わないのです。
 
-   決定的な例が sample.kel:415-419 の `copy` です。
+   決定的な例が sample.kel:540-545 の `copy` です。
 
    ```
-   let copy(src: String, dst: String): Unit @ Console = {
+   let copy(src: String, dst: String): Unit @ {Console, Fs} = {
      with _ = with_file(src)
+     let text = perform read()
      with _ = with_file(dst)
-     perform write(perform read())
+     perform write(text)
    }
    ```
 
    `with` は「呼び出しの末尾に継続を足す」構文糖 (第3章) なので、これは
    `with_file(src, fn(_) => ...)` に脱糖されます。`with_file` の宣言は
-   `body: () => A @ {File extends E}` なので、期待型を先に押し込めば、
-   ラムダの行は `{File extends E}` に確定した状態で本体に入れます。すると
+   `body: () => A @ {File, Fs extends E}` なので、期待型を先に押し込めば、
+   ラムダの行は `{File, Fs extends E}` に確定した状態で本体に入れます。すると
    `write` を解決するとき行に `File` が見えています。順番を入れ替えると、
    ここは「`write` は Console と File の両方にある」という曖昧さのエラーに
    なります。
@@ -2555,9 +2556,11 @@ let register_class env (c : T.class_decl') =
      という直しようのない案内が出る(直すと今度はこちらに当たる — M17 検証) *)
   (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
      type_error "derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)");
-  (* derive structural のカインド検査(M17 / D9 — sample.kel:597 の TODO
-     「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」への
-     回答: 弾ける)。構造的導出はレコード・ヴァリアントに配る規則なので
+  (* derive structural のカインド検査(M17 / D9)。かつて仕様は TODO
+     「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」を
+     置いていて、この検査がその回答だった。改訂後の仕様 sample.kel:354-356 は
+     TODO を本文に昇格させ「カインドで弾けるので宣言の時点でエラーにする」と
+     定めた。構造的導出はレコード・ヴァリアントに配る規則なので
      Type のクラスにしか意味が無い。上の全面拒否があるので、ここが単独で
      効くのは組み込みと同名のクラスの再宣言だけ *)
   (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
