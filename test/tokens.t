@@ -460,8 +460,8 @@ NBSP・ソフトハイフン・U+200B〜U+200F・U+2028〜U+202E・U+2060〜U+20
      2  <EOF>
 
 U+XXXX に落とす各区間の代表(C0 の垂直タブ・DEL・C1 の NEL・NBSP・
-ゼロ幅スペース・右から左への上書き・ワードジョイナ)。落とさない側の
-代表は test/errloc.t の ¤(U+00A4):
+ソフトハイフン・ゼロ幅スペース・右から左への上書き・ワードジョイナ)。
+落とさない側の代表は test/errloc.t の ¤(U+00A4):
 
   $ printf 'let x = 1 \x0b 2\n' > c0.kel
   $ diktor --dump-tokens c0.kel
@@ -478,6 +478,10 @@ U+XXXX に落とす各区間の代表(C0 の垂直タブ・DEL・C1 の NEL・NB
   $ printf 'let x = 1 \xc2\xa0 2\n' > nbsp.kel
   $ diktor --dump-tokens nbsp.kel
   nbsp.kel:1:11: 字句エラー: unexpected character: U+00A0
+  [2]
+  $ printf 'let x = 1 \xc2\xad 2\n' > shy.kel
+  $ diktor --dump-tokens shy.kel
+  shy.kel:1:11: 字句エラー: unexpected character: U+00AD
   [2]
   $ printf 'let x = 1 \xe2\x80\x8b 2\n' > zwsp.kel
   $ diktor --dump-tokens zwsp.kel
@@ -517,7 +521,7 @@ CR(仕様 §0。文字列の外の CR は空白、CRLF が改行として働き�
   $ diktor crstr.kel | od -c | head -1
   0000000   a  \r   b  \n
 
-エスケープの集合(仕様 §0。\n \t \r \a \b \f \v \\ \" \' と \uXXXX / \UXXXXXXXX。
+エスケープの集合(仕様 §2。\n \t \r \a \b \f \v \\ \" \' と \uXXXX / \UXXXXXXXX。
 生の改行も含めてよい):
 
   $ cat > esc.kel <<'KEL'
@@ -535,7 +539,7 @@ CR(仕様 §0。文字列の外の CR は空白、CRLF が改行として働き�
   a
   b
 
-サロゲート・範囲外のコードポイントと未知のエスケープは字句エラー(仕様 §0。
+サロゲート・範囲外のコードポイントと未知のエスケープは字句エラー(仕様 §2。
 Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に落とす):
 
   $ cat > surr.kel <<'KEL'

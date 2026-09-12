@@ -1559,9 +1559,10 @@ and elab_handle env level eff clauses body =
      ハンドラが書け、File.write のつもりの case write(s) が Console を
      消す事故も起きる。判定はランタイム行に名前があり**かつ**プレリュード
      所有であること — --no-prelude でユーザが自分の effect Console を
-     宣言した場合は禁止しない。Heap / Blocking は操作を持たないので、
-     節を書けば「操作 X はエフェクト Heap に属しません」で先に落ち、
-     ここへは到達しない *)
+     宣言した場合は禁止しない。修飾節ではこの判定が「操作 X はエフェクト
+     Y に属しません」より**先**に走る。Heap / Blocking で禁止が出ないのは
+     名簿に入れていないからで、入れると case Blocking.nope() の診断が
+     こちらにすり替わる(第7章 §7.3。Fs は M27 で名簿に入る) *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     if name_of e = "Console" then
@@ -2203,7 +2204,8 @@ let toplevel_eff () =
      のものだけ(M20 検証)。名前だけで張ると、--no-prelude やプレリュード
      差し替えの世界でユーザが自分の effect Console を宣言したとき、型は
      ユーザの署名・実行はランタイムの実装という食い違いが起きた(実測:
-     型検査を通って実行時に落ちる)。所有でなければ行は空 — perform write は
+     型検査を通って実行時に落ちる)。所有でなければその名前は行に載らない
+     — perform write は
      「ここでは実行できません」で静的に落ちる。
      Blocking がこのガードを通るのは、§6.12 の register_builtins が
      in_prelude を立てた下で add_effect するから(reset でも同じ経路)。

@@ -766,7 +766,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    `run_cancel` は `exnc` の中、つまり**巻き戻しの途中**で走ります。このとき
    有効なのは**外側のハンドラだけ**で、いま巻き戻しを起こしている当の
-   ハンドラは既に外れています。`Effect.Deep.match_with` の `exnc` はフィブルを
+   ハンドラは既に外れています。`Effect.Deep.match_with` の `exnc` は fiber を
    巻き戻したあと**親のスタックで**呼ばれるので、`run_cancel` の中で
    `Effect.perform` しても自分の `effc` には届きません。cancel 節から自分の
    操作を perform すると、外側の同名エフェクトのハンドラに届きます —
@@ -774,7 +774,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    実行側です(`test/eval.t` の cancelouter / cancelnores、D100)。
    届いた先が resume せずに抜けると `Unwind` が cancel 節を通過しようと
    しますが、それは cancel 節内の例外として抑制され、ログに回るだけで
-   外へは出ません(§9 の抑制規則)。
+   外へは出ません(仕様 sample.kel §9 の抑制規則)。
 
    かつてこの節は「当のハンドラも有効で、perform は同じハンドラに再入する
    (deep handler は discontinue のあとも再設置されるため)」と書いていました。
