@@ -102,6 +102,7 @@ let tycon_of_value = function
   | VData d -> Some d.d_type
   | VRef _ -> Some (Type.intern "Ref")
   | VArray _ -> Some (Type.intern "Array")
+  | VMutArray _ -> Some (Type.intern "MutableArray")
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
 (* cancel 節で握り潰した例外の行き先です(sample.kel:392 の「cancel 節は自身の行から
@@ -982,11 +983,6 @@ let register_builtin_values globals =
           r := v;
           unit
       | _ -> runtime_error "Ref.set の引数が不正です");
-  reg "Array.new" (fun args ->
-      match Builtin.arg_values args with
-      | [ VInt32 n; init ] ->
-          if Int32.to_int n < 0 then runtime_error "Array.new: 長さが負です" else VArray (Array.make (Int32.to_int n) init)
-      | _ -> runtime_error "Array.new の引数が不正です");
   reg "Array.length" (fun args ->
       match Builtin.arg1 args with VArray a -> VInt32 (Int32.of_int (Array.length a)) | _ -> runtime_error "Array ではありません");
   reg "Array.get" (fun args ->
@@ -996,21 +992,43 @@ let register_builtin_values globals =
           (* 長さは型に載っていないので、ここだけは実行時に守る *)
           if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です" else a.(i)
       | _ -> runtime_error "Array.get の引数が不正です");
-  reg "Array.set" (fun args ->
-      match Builtin.arg_values args with
-      | [ VArray a; VInt32 i; v ] ->
-          let i = Int32.to_int i in
-          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です"
-          else (
-            a.(i) <- v;
-            unit)
-      | _ -> runtime_error "Array.set の引数が不正です");
   reg "Array.each" (fun args ->
       match Builtin.arg_values args with
       | [ VArray a; f ] ->
           Array.iter (fun x -> ignore (apply f (VRecord [ (Type.l_item, x) ]))) a;
           unit
       | _ -> runtime_error "Array.each の引数が不正です");
+  reg "MutableArray.new" (fun args ->
+      match Builtin.arg_values args with
+      | [ VInt32 n; init ] ->
+          if Int32.to_int n < 0 then runtime_error "MutableArray.new: 長さが負です"
+          else VMutArray (Array.make (Int32.to_int n) init)
+      | _ -> runtime_error "MutableArray.new の引数が不正です");
+  reg "MutableArray.length" (fun args ->
+      match Builtin.arg1 args with
+      | VMutArray a -> VInt32 (Int32.of_int (Array.length a))
+      | _ -> runtime_error "MutableArray ではありません");
+  reg "MutableArray.get" (fun args ->
+      match Builtin.arg_values args with
+      | [ VMutArray a; VInt32 i ] ->
+          let i = Int32.to_int i in
+          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です" else a.(i)
+      | _ -> runtime_error "MutableArray.get の引数が不正です");
+  reg "MutableArray.set" (fun args ->
+      match Builtin.arg_values args with
+      | [ VMutArray a; VInt32 i; v ] ->
+          let i = Int32.to_int i in
+          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です"
+          else (
+            a.(i) <- v;
+            unit)
+      | _ -> runtime_error "MutableArray.set の引数が不正です");
+  (* freeze はコピー(D69)。仕様 §10 の「freeze 後に元の可変配列へ書いても
+     取り出した配列は変わらない」を、共有しない最も素直な形で満たす *)
+  reg "MutableArray.freeze" (fun args ->
+      match Builtin.arg1 args with
+      | VMutArray a -> VArray (Array.copy a)
+      | _ -> runtime_error "MutableArray ではありません");
   (* par / par_map(H2 / D45)。逐次実装が並列実行と**観測同値**である根拠は
      スケジューラの不在ではなく、コールバックの行が @ {} に閉じている
      こと — Heap も Console も Async も起こせないので、実行順序が観測

@@ -1092,12 +1092,14 @@ let intern = Type.intern
 let builtin_ops : (string * Type.ty) list ref = ref []
 
 let register_ref_array () =
-  let ref_oid = intern "Ref" and arr_oid = intern "Array" in
+  let ref_oid = intern "Ref" and arr_oid = intern "Array" and marr_oid = intern "MutableArray" in
   Hashtbl.replace con_kinds ref_oid (Type.k_arrow 2);
   Hashtbl.replace con_kinds arr_oid (Type.k_arrow 1);
+  Hashtbl.replace con_kinds marr_oid (Type.k_arrow 2);
   let ginfo () = { Type.vid = new_oid (); vlevel = 0; vkind = Type.KStar; vcls = [] } in
   add_data { dd_name = ref_oid; dd_params = [ ginfo (); ginfo () ]; dd_ctors = []; dd_opaque = true };
   add_data { dd_name = arr_oid; dd_params = [ ginfo () ]; dd_ctors = []; dd_opaque = true };
+  add_data { dd_name = marr_oid; dd_params = [ ginfo (); ginfo () ]; dd_ctors = []; dd_opaque = true };
   (* 操作なしの組み込みエフェクトラベル *)
   add_effect { ef_name = Type.eff_heap; ef_ops = [] };
   add_effect { ef_name = Type.eff_blocking; ef_ops = [] };
@@ -1111,28 +1113,26 @@ let register_ref_array () =
    def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
-  (* Array は h を持たない(計画 §11.2)。この穴 — 引数を破壊する関数が
-     純粋として型付く — は test/spec_gaps.t がゴールデンとして見張り、
-     仕様への対案(Array / MutArray 分離)は doc/log/260830-1-m20.md に
-     ある(M20 / I1 / D64) *)
-  (let h = generic () and a = generic () in
-   def "Array.new" (arrow [ Type.t_int32; a ] (Type.TCon (arr_oid, [ a ])) (heap_row h)));
+  (* Array は不変(仕様 §10)。読みは行を課さない — TRowEmpty ではなく Generic の
+     行変数にするのは、閉じると Console の下から読めなくなるため(D71) *)
   (let a = generic () in
    def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 (generic ~kind:Type.KRow ())));
-  (let h = generic () and a = generic () in
-   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (heap_row h)));
-  (let h = generic () and a = generic () in
-   def "Array.set" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
+  (let a = generic () in
+   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (generic ~kind:Type.KRow ())));
   (let a = generic () and e = generic ~kind:Type.KRow () in
-   (* Array.each に Heap を課す一貫性修正(I12)は M20 検証で**撤回**した。
-      each はコールバックの行と自分の行を共有する(エフェクト多相の最小形)
-      ため、Heap を課すと共有経由でコールバック側にも課され、明示的に
-      純粋な @ {} の関数が渡せなくなる(実測 — run の内側でも落ちた)。
-      行を分けて自分の行だけに課す形も、@ {} コールバックが結果行を
-      閉じて同じ失敗になる。全要素を読む par_map が Heap 不要のままで
-      ある以上、表の一貫性も得られない。読みの純粋性の扱いは
-      Array / MutArray 分離(D64、260830-1)で一括裁定する *)
-   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
+   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e));
+  (* MutableArray は h を型に持つ。全操作が Heap[h] を要求する — length も
+     仕様 §10 の署名一覧どおり(D72) *)
+  (let h = generic () and a = generic () in
+   def "MutableArray.new" (arrow [ Type.t_int32; a ] (Type.TCon (marr_oid, [ h; a ])) (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "MutableArray.length" (arrow [ Type.TCon (marr_oid, [ h; a ]) ] Type.t_int32 (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "MutableArray.get" (arrow [ Type.TCon (marr_oid, [ h; a ]); Type.t_int32 ] a (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "MutableArray.set" (arrow [ Type.TCon (marr_oid, [ h; a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
+  (let h = generic () and a = generic () in
+   def "MutableArray.freeze" (arrow [ Type.TCon (marr_oid, [ h; a ]) ] (Type.TCon (arr_oid, [ a ])) (heap_row h)))
 
 (* ## 6.11b par / par_map — 型は書けるが値が書けない組(H2 / D45)
 

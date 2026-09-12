@@ -86,6 +86,7 @@ type t =
   | VPrim of prim
   | VRef of t ref
   | VArray of t array
+  | VMutArray of t array
 
 (* ## 12.2 クロージャの環境が可変である理由 — `let rec` を後から縛る
 
@@ -431,3 +432,4 @@ let rec show v =
   | VPrim p -> "<prim " ^ p.p_name ^ ">"
   | VRef _ -> "<ref>"
   | VArray a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
+  | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"
