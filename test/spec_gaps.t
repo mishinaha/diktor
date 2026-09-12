@@ -31,18 +31,26 @@ Ord[Float64] と NaN(:767-771)は cram では観測できないので記録の�
   > let pure_ok(xs: Array[Int32]): Int32 @ {} = sum(xs)
   > KEL
   $ diktor --type-check sumgen.kel
+  sum : (Array[Int32]) => Int32
+  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
+  pure_ok : (Array[Int32]) => Int32
 
   $ cat > sumclosed.kel <<'KEL'
   > let sum2(xs: Array[Int32]): Int32 @ {} = 1
   > let effectful(xs: Array[Int32]): Int32 @ {Console} = { echoln("go"); sum2(xs) }
   > KEL
   $ diktor --type-check sumclosed.kel
+  sum2 : (Array[Int32]) => Int32
+  ! sumclosed.kel:2:70: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
 
 非有限値(NaN、無限大)のリテラル(§14:772、§2)。現状は無く、文字列化の字面
 nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
 
   $ printf 'let x: Float64 = nan\n' > nanlit.kel
   $ diktor --type-check nanlit.kel
+  ! nanlit.kel:1:18: 型エラー: 未束縛の変数: nan
+  [1]
 
 整数算術の桁あふれ(§14:773、§2)。現状は wrap-around で、実行時エラーにする
 案が仕様に残っている(変換の実行時エラーとの対比は test/numeric.t の cvbig):
@@ -56,11 +64,19 @@ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
   > echoln(show(9223372036854775807i64 + 1i64))
   > KEL
   $ diktor wrap.kel
+  -2147483648
+  2147483647
+  -2
+  -9223372036854775808
 
 不変配列の生成手段(§14:774、§10)。現状は MutableArray.freeze だけで、リテラルも
 Array.new も無い(freeze の側は test/region.t の freeze / nonew):
 
   $ printf 'let mk(): Array[Int32] = run h { Array.new(3, 0) }\n' > nonew.kel
   $ diktor --type-check nonew.kel
+  ! nonew.kel:1:34: 型エラー: 未束縛の変数: Array.new
+  [1]
   $ printf 'let xs: Array[Int32] = [1, 2, 3]\n' > arrlit.kel
   $ diktor --type-check arrlit.kel
+  arrlit.kel:1:24: パースエラー(付近のトークンを確認してください)
+  [2]
