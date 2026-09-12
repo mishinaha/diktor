@@ -156,3 +156,15 @@ Never は節ゼロの match で網羅(§7.5):
   $ diktor --type-check --no-prelude ctorbad3.kel
   ! ctorbad3.kel:2:35: 型エラー: 未知のコンストラクタ: Opaque
   [1]
+
+1 要素タプルは反例でも実行時値でも (x,) と出る(§4 の再糖衣化は型だけでなく
+エラーメッセージにも及ぶ。(x) はグループ化なので貼り戻せない。M21 / D101):
+
+  $ cat > tup1.kel <<'KEL'
+  > let f(t: (Boolean,)): Int32 = t match { case (true,) => 1 }
+  > echoln(show(f((false,))))
+  > KEL
+  $ diktor tup1.kel
+  ⚠ match が非網羅的です。例えば (false,) が漏れています
+  実行時エラー: match のどの節にも一致しません: (false,)
+  [3]

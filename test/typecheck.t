@@ -410,3 +410,25 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   $ diktor --type-check --no-prelude tapp.kel
   idf2 : (F[A]) => F[A]
   use3 : (F[A]) => F[A]
+
+タプルの再糖衣化は 3 形(§4。2 要素以上は (A, B)、1 要素は (A,)、空行は {}。
+開いた行は戻さない):
+
+  $ cat > resugar.kel <<'EOF'
+  > let one = (1,)
+  > let two = (1, "a")
+  > let empty = ()
+  > let opened[A, R](t: {_item: A extends R}): A = t._0
+  > EOF
+  $ diktor --type-check --no-prelude resugar.kel
+  one : (Int32,)
+  two : (Int32, String)
+  empty : {}
+  opened : ({_item: A extends R1}) => A
+
+エラーメッセージの表示にも同じ規則が及ぶ:
+
+  $ printf 'let bad: (Int32,) = "x"\n' > resugar2.kel
+  $ diktor --type-check --no-prelude resugar2.kel
+  ! resugar2.kel:1:5: 型エラー: 注釈された型を満たしません(型が一致しません: (Int32,) と String)
+  [1]
