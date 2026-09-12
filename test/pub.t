@@ -113,3 +113,13 @@ pub let rec の相互再帰(@ 省略)は群で 1 本の Rigid 行を共有して
   $ diktor --type-check pub15.kel
   ! pub15.kel:2:31: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています)
   [1]
+
+pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省略の意味は @ {} に
+決まっているが、公開 API では意図と書き忘れを読み分けられなければならない):
+
+  $ printf 'module P { pub newtype Parser[A] = Parser((String) => Option[A]) }\n' > pubnt.kel
+  $ diktor --type-check pubnt.kel
+  ! pubnt.kel:1:12: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+  $ printf 'module P { pub newtype Parser[A] = Parser((String) => Option[A] @ {}) }\n' > pubnt2.kel
+  $ diktor --type-check pubnt2.kel
