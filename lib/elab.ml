@@ -2576,6 +2576,21 @@ let instance_head (i : T.instance_decl') =
     | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
   in
   Decls.check_con_visible con;
+  (* 頭の _ の個数は構成子のアリティと一致していなければならない(D96)。
+     これを見ないと Functor[List[_, _, _]] が通る(改訂前の実測) *)
+  let rec kind_arity k = match kind_repr k with KArrow (_, r) -> 1 + kind_arity r | _ -> 0 in
+  let arity = kind_arity (Decls.con_kind con holes) in
+  if holes <> arity then
+    type_error
+      ("インスタンス頭 " ^ name_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
+     ^ string_of_int holes ^ " 個書かれています");
+  (* 前提の束縛子は頭の _ へ左から順に対応する(D93)。余った _ は未適用のまま
+     残り、カインドの矢印になる(Functor[List[_]] が束縛子 0 個で通る形) *)
+  let np = List.length i.T.ins_tparams in
+  if np > holes then
+    type_error
+      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、頭 " ^ name_of con ^ " の _ は "
+     ^ string_of_int holes ^ " 個です");
   (cls, con, holes)
 
 (* ## 11.35 インスタンスの登録 — 網羅と過剰の両方を見る
@@ -2602,9 +2617,30 @@ let register_instance (i : T.instance_decl') =
      type_error (i.T.ins_class ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   let ci = match Decls.find_class cls with Some ci -> ci | None -> type_error ("未知のクラス: " ^ i.T.ins_class) in
   if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ name_of con);
-  if not (same_kind ci.Decls.ci_param_kind (Decls.con_kind con holes)) then
+  (* 頭のカインドは「束縛子の個数だけ適用した後」のカインド(D93)。
+     同時に、束縛子のカインドが頭の構成子がその位置に要求するものと
+     一致することを見る([F[_]: C] を List[_] の穴に置けない — D97) *)
+  let rec head_kind k tps =
+    match tps with
+    | [] -> k
+    | tp :: rest -> (
+        match kind_repr k with
+        | KArrow (a, r) ->
+            let kb = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
+            if not (same_kind a kb) then
+              type_error
+                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが頭 " ^ name_of con ^ " の引数と一致しません");
+            head_kind r rest
+        | _ -> bug "instance: 束縛子が頭のアリティを超えています(D96 の検査が先に落とすはず)")
+  in
+  if not (same_kind ci.Decls.ci_param_kind (head_kind (Decls.con_kind con holes) i.T.ins_tparams)) then
     type_error
       ("インスタンス頭 " ^ name_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
+  (* 前提は (引数位置, クラス)。束縛子 i は頭の引数位置 i に対応するので恒等写像。
+     class_names_of を通すので未知クラス・予約述語の拒否が束縛子の位置でも効く *)
+  let premises =
+    List.concat (List.mapi (fun i tp -> List.map (fun c -> (i, c)) (class_names_of tp)) i.T.ins_tparams)
+  in
   let methods =
     List.concat_map
       (fun ((_, d) : T.decl) ->
@@ -2630,7 +2666,7 @@ let register_instance (i : T.instance_decl') =
       if not (List.mem_assoc (intern m) methods) then
         type_error ("インスタンスがメソッドを網羅していません: " ^ m ^ " が漏れています"))
     ci.Decls.ci_methods;
-  Decls.add_instance ~builtin:false ~methods ~cls ~con []
+  Decls.add_instance ~builtin:false ~methods ~cls ~con premises
 
 (* ## 11.36 前方参照は、全ての矢印に注釈があるときだけ
 
@@ -2770,7 +2806,12 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 let check_instance_bodies env (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
   let ci = match Decls.find_class cls with Some ci -> ci | None -> bug "instance: class 未登録" in
-  let head_ty = TCon (con, []) in
+  (* 前提つきインスタンスの頭型は部分適用形。束縛子を剛定数にして
+     vcls に前提を載せる(D93)。束縛子 0 個なら従来どおり TCon (con, [])。
+     束縛子の名前は本体の型スコープに入る(D94) *)
+  let head_rigids = make_rigids 1 i.T.ins_tparams in
+  let head_ty = TCon (con, List.map (fun (_, t, _) -> t) head_rigids) in
+  let env = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types head_rigids } in
   let expected_of mname =
     match List.assoc_opt mname ci.Decls.ci_methods with
     | Some scheme ->
@@ -2803,7 +2844,8 @@ let check_instance_bodies env (i : T.instance_decl') =
               at_node bnode (fun () -> subsume mname (SMap.find mname env2.values)))
             bs
       | _ -> type_error "インスタンス本体には let だけが書けます")
-    i.T.ins_body
+    i.T.ins_body;
+  release_rigids head_rigids
 
 (* ## 11.39 宣言列を 4 回なめる
 

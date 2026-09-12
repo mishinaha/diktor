@@ -350,10 +350,11 @@ let rec sexp_of_decl (_, d) =
       let derives = List.map (fun d -> L [ A "derive"; A d ]) c.cls_derives in
       L (base @ vals @ derives)
   | DInstance i ->
-      L
-        (A "instance" :: A i.ins_class
-        :: L (List.map sexp_of_ty i.ins_args)
-        :: List.map sexp_of_decl i.ins_body)
+      (* 束縛子があるときだけ (tparams ...) を先に出す。無いときは従来と
+         1 バイトも変わらない — 既定値は出さない、という章の方針 *)
+      let base = [ A "instance" ] in
+      let base = match i.ins_tparams with [] -> base | ts -> base @ [ L (A "tparams" :: List.map sexp_of_tparam ts) ] in
+      L (base @ (A i.ins_class :: L (List.map sexp_of_ty i.ins_args) :: List.map sexp_of_decl i.ins_body))
   | DLet b -> L [ A "dlet"; sexp_of_binding b ]
   | DLetRec bs -> L (A "dletrec" :: List.map sexp_of_binding bs)
   | DModule (pub, name, ds) ->

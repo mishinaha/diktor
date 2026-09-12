@@ -560,8 +560,8 @@ decl_body:
   | TYPE CLASS upper_id typarams class_body
       { let vals, derives = $5 in
         DClass { cls_pub = false; cls_name = $3; cls_params = $4; cls_vals = vals; cls_derives = derives } }
-  | TYPE INSTANCE upper_id LBRACKET ty_args RBRACKET instance_body
-      { DInstance { ins_class = $3; ins_args = $5; ins_body = $7 } }
+  | TYPE INSTANCE typarams_opt upper_id LBRACKET ty_args RBRACKET instance_body
+      { DInstance { ins_tparams = $3; ins_class = $4; ins_args = $6; ins_body = $8 } }
   | NEWTYPE upper_id typarams_opt newtype_rhs
       { let rhs =
           match $4 with

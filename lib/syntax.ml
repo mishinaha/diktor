@@ -1064,6 +1064,7 @@ module Make (Data : Data) = struct
   and decl = Data.t * decl'
 
   and instance_decl' = {
+    ins_tparams : type_param list; (* 前提つきインスタンスの束縛子。頭の _ に左から対応(D93) *)
     ins_class : string;
     ins_args : type_exp list; (* 通常1個。List[_] の EHole 可 *)
     ins_body : decl list; (* let のみであることは elab が検査 *)
