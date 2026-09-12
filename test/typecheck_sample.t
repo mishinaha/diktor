@@ -42,8 +42,8 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   _ : {}
   capture : (() => A @ {Print extends R1}) => {value: A, output: String}
   try_ : (() => A @ {Fail extends R1}) => #Ok(A) | #Err(String)
-  with_file : (String, () => A @ {File extends R1}) => A
-  copy : (String, String) => {} @ {Console extends R1}
+  with_file : (String, () => A @ {File, Fs extends R1}) => A @ {Fs extends R1}
+  copy : (String, String) => {} @ {Console, Fs extends R1}
   Parser.bind : (Parser.Parser[A], (A) => Parser.Parser[B]) => Parser.Parser[B]
   Parser.pure : (A) => Parser.Parser[A]
   Parser.token : (String) => Parser.Parser[String]
@@ -51,6 +51,7 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   handle_request : ({query: String}) => Resp @ {ReqId, Logger, Tracer, Db, Async extends R1}
   _ : {}
   sum : (Array[Int32]) => Int32
+  doubled : (Array[Int32]) => Array[Int32]
   par_map : (Array[A], (A) => B) => Array[B]
   par : (() => A, () => B) => (A, B)
   scope : (() => A @ {Nursery, Async extends R1}) => A @ {Async extends R1}

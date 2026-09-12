@@ -626,14 +626,14 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
 sample.kel 全文のトークン化(spike と同じ 2526 トークンであること):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
-  2526
+  2741
   $ diktor --dump-tokens sample/sample.kel | tail -6
-   582  .
-   582  parse
-   582  (
-   582  "456"
-   582  )
-   608  <EOF>
+   748  .
+   748  parse
+   748  (
+   748  "456"
+   748  )
+   777  <EOF>
 
 小数部の省略(1. / 2.e3)と、その後の ASI(D25。行末の 1. は NUMBER で
 文を終えられる — 以前は DOT で継続していた):
