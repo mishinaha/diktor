@@ -2165,30 +2165,40 @@ and elab_rec_bindings env level eff bs : env =
 (* ## 11.30 宣言の入口 — トップレベルで許されるエフェクト
 
    トップレベルの初期エフェクト行は、ランタイムが提供する**閉じた**行です。
-   いまは `{Console, Async}` の 2 つ (第7章に定義が 1 箇所だけあります)。
+   いまは `{Console, Async, Blocking}` の 3 つで、名簿は第7章の
+   `toplevel_effects` にあります (D88)。それぞれがそこにいる理由は違います。
+
+   - `Console` — 出力の最終目的地。ランタイムが実装を持ち、ユーザは
+     ハンドルできません (§11.23)。
+   - `Async` — sample.kel:529 の `crunch` が `@ Async` を持ったまま
+     トップレベルから呼ばれるからです。`yield_` は型検査を通り、実行時には
+     何もしない — この約束をランタイム側の提供エフェクトとして表現しています。
+   - `Blocking` — 操作を持たないので、残っていても誰も何も起こせません。
+     締め出す仕事は `pinned` に任せてよい、というのが仕様 §12 の判断です。
+     ハンドル禁止の名簿 (`runtime_effects`) には入りません — 操作が無いので
+     禁じる場面が無く、入れると診断が変わります (第7章 §7.3)。
 
    閉じているので、`perform print(...)` をトップレベルに書くと
    「エフェクト Print をここでは実行できません」になります。正しい挙動です。
    Print はユーザが宣言したエフェクトで、ハンドラを書かない限り誰も
    解釈しません。
 
-   `Async` が入っているのは、sample.kel:529 の `crunch` が
-   `@ Async` を持ったままトップレベルから呼ばれるからです。`yield_` は
-   型検査を通り、実行時には何もしない — この約束をランタイム側の提供
-   エフェクトとして表現しています。
-
    初期の値環境は第6章の組み込み表から作ります。 *)
 
 let toplevel_eff () =
-  (* ランタイム行に載せるのは**プレリュード所有**の Console / Async だけ
-     (M20 検証)。名前だけで張ると、--no-prelude やプレリュード差し替えの
-     世界でユーザが自分の effect Console を宣言したとき、型はユーザの
-     署名・実行はランタイムの実装という食い違いが起きた(実測: 型検査を
-     通って実行時に落ちる)。所有でなければ行は空 — perform write は
-     「ここでは実行できません」で静的に落ちる *)
+  (* ランタイム行に載せるのは名簿 toplevel_effects のうち**プレリュード所有**
+     のものだけ(M20 検証)。名前だけで張ると、--no-prelude やプレリュード
+     差し替えの世界でユーザが自分の effect Console を宣言したとき、型は
+     ユーザの署名・実行はランタイムの実装という食い違いが起きた(実測:
+     型検査を通って実行時に落ちる)。所有でなければ行は空 — perform write は
+     「ここでは実行できません」で静的に落ちる。
+     Blocking がこのガードを通るのは、§6.12 の register_builtins が
+     in_prelude を立てた下で add_effect するから(reset でも同じ経路)。
+     register_ref_array の呼び出しがその外へ動くと Blocking は黙って
+     トップレベル行から落ちる — test/blocking_top.t の btop が観測点 *)
   List.fold_right
     (fun n acc -> if Decls.prelude_owned "effect" (intern n) then TRowExtend (intern n, t_unit, acc) else acc)
-    Prims.runtime_effects TRowEmpty
+    Prims.toplevel_effects TRowEmpty
 
 let initial_env () =
   {

@@ -1157,9 +1157,10 @@ let register_parallel () =
   (* pinned : [A, E] (() => A @ {Blocking extends E}) => A @ E(H11)。
      Blocking は操作を持たない組み込みラベル(§6.11)なので、それを落とす
      のは純粋に型の上の行為 — run が実行時に恒等写像である(§14.4)のと
-     同じ構図がもう一度出る。これが無いと @ Blocking の付いた関数を
-     実際に呼べるプログラムが書けない(Blocking はトップレベルの
-     ランタイム行に無い — 実測) *)
+     同じ構図がもう一度出る。トップレベルからは直接呼べる(仕様 §9 /
+     §12、D88。かつてはトップレベル行に Blocking が無く pinned が必須
+     だった)。pinned は、より内側の — 行を注釈で閉じた — 文脈へ
+     持ち込むために要る *)
   (let a = generic () and e = generic ~kind:Type.KRow () in
    def "pinned" (arrow [ arrow [] a (Type.TRowExtend (Type.eff_blocking, Type.t_unit, e)) ] a e))
 

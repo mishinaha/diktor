@@ -99,7 +99,9 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
 
 pinned は Blocking を落とす(M16 / H11)。操作を持たないラベルを落とすのは
 型の上の行為だけで、実行は恒等(v0 はタスク 1 つ・Async no-op なので、
-仕様が Blocking に求める 2 契約を恒等が満たす):
+仕様が Blocking に求める 2 契約を恒等が満たす)。落とさずにトップレベル
+から呼ぶことも仕様 §12 の改訂(D88)で許された — 落とさずに閉じた行へ
+持ち込むと拒否される例は test/blocking_top.t の bpure / bann にある:
 
   $ cat > pin.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64 @ Blocking
@@ -107,14 +109,3 @@ pinned は Blocking を落とす(M16 / H11)。操作を持たないラベルを�
   > KEL
   $ diktor pin.kel
   4.0
-
-落とさずに呼ぶと従来どおり拒否:
-
-  $ cat > pinbad.kel <<'KEL'
-  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
-  > echoln(show(sqrt(16.0)))
-  > KEL
-  $ diktor --type-check pinbad.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
-  ! pinbad.kel:2:13: 型エラー: ラベル Blocking がありません(行は閉じています)
-  [1]
