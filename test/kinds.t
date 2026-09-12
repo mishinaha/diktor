@@ -114,7 +114,8 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   [1]
 
 相互再帰する newtype でも、宣言順のどちらでもカインドが伝わる(D81。
-宣言ごとに既定化すると先に処理した側が相手のカインドまで固定する):
+宣言ごとに既定化すると先に処理した側が相手のカインドまで固定する。
+これは行変数を渡す形。具体的な行を渡す形は下の fwdrow):
 
   $ cat > mutual.kel <<'EOF'
   > type Unit = {}
@@ -132,6 +133,30 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   > EOF
   $ diktor --type-check --no-prelude mutual2.kel
   f : (A3[R1]) => A3[R1]
+
+行カインドのパラメータへ具体的な行を前方参照つきで渡す形だけは宣言順に
+依存する(§11.31 の末尾。相手がまだ 1b を通っていないとカインドが KVar の
+ままなので、読み分けが {…} を型として読む。行変数を渡す形は依存しない):
+
+  $ cat > fwdrow.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype A4[X] = MkA4(B4[{Print extends X}])
+  > newtype B4[E] = MkB4(() => Unit @ E)
+  > let f[E](x: A4[E]): A4[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude fwdrow.kel
+  ! fwdrow.kel:3:25: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
+  [1]
+  $ cat > fwdrow2.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype B5[E] = MkB5(() => Unit @ E)
+  > newtype A5[X] = MkA5(B5[{Print extends X}])
+  > let f[E](x: A5[E]): A5[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude fwdrow2.kel
+  f : (A5[R1]) => A5[R1]
 
 module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾名で引く):
 
