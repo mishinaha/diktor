@@ -2940,34 +2940,40 @@ let register_instance (i : T.instance_decl') =
     ci.Decls.ci_methods;
   Decls.add_instance ~builtin:false ~methods ~cls ~con premises
 
-(* ## 11.36 前方参照は、全ての矢印に注釈があるときだけ
+(* ## 11.36 前方参照は、頭の矢印に注釈があるときだけ
 
    パス 1c で登録する「注釈が完全な let の署名」は、前方参照を通すための
    仕掛けです。sample.kel:399 の `user_names` が、後ろで定義される
    `println`(:440) を呼べるのはこれのおかげです。
 
    問題は「完全」の定義でした。計画は「引数と返り値に型注釈があること」と
-   書いていました。それでは穴が空きます。
+   書いていました。それでは穴が空きました — M26 より前の話です。
 
-   省略された `@` は**新しい行変数**を作ります (§11.4)。本体を推論するときは
+   かつて省略された `@` は**新しい行変数**を作りました。本体を推論するときは
    その行変数が呼び出し側の `eff` と結ばれて縛られますが、本体を見ずに
    署名だけを作ると、行変数は何にも縛られないまま一般化されます。すると
    その関数は「どんなエフェクトでも起こしてよい」ことになり、
    **宣言順によってエフェクト検査が抜けます** — 前方参照された呼び出しは
    通り、同じ呼び出しを定義の後ろに書くと落ちる。実証済みの穴です
-   (260829-2b の健全性 3)。
+   (260829-2b の健全性 3)。そこで条件を「注釈中の全ての矢印に `@` が明示
+   されていること」まで厳しくしていました。
 
-   そこで条件を厳しくします。
+   仕様 §9 の改訂 (M26 / D75) がこの反例を無効にしました。入れ子の省略 `@` は
+   `@ {}` に**確定**するので、本体を見なくても署名に決まっていないものが
+   ありません。残る自由度は束縛自身の行だけです。そこで条件を緩めます (D79)。
 
-   > 前方参照シグネチャに使ってよいのは、**注釈中の全ての矢印に `@` が
-   > 明示されている**ものだけ。
+   > 前方参照シグネチャに使ってよいのは、**注釈の頭の矢印に `@` が
+   > 明示されている**ものだけ。関数束縛は自身の `@`(または `pub`)、
+   > 値束縛は注釈の頭が矢印ならその `@`。
 
-   `fully_effected` はその再帰的な判定です。引数の型の中に埋まった矢印も、
-   返り値の型の中の矢印も、行の中のラベル引数も見ます。1 つでも省略が
-   あれば署名を作らず、その let は宣言順に依存したままになります。
-   通せるものを減らしてでも、通してはいけないものを通さないほうを選びました。
+   `head_effected` がその判定です。`let helper[E](f: () => Unit @ E, g: (Int32) => Int32): Int32 @ {Console extends E}`
+   は `g` の `@` が省略されていても署名になります(`test/typecheck_m6.t` の fwdsig。
+   M26 より前は「未束縛の変数: helper」で、省略 1 つで宣言順に依存する — §11.36 が
+   避けたかった形が逆向きに残っていました)。`fully_effected` は pub の完全注釈検査
+   (D44、§11.31)がまだ使います。
 
-   > 本体を見ずに型を信じるなら、その型に省略があってはならない。
+   > 本体を見ずに型を信じるなら、その型に決まっていないものがあってはならない。
+   > 省略は決まっている。
 
    もうひとつの規則が**先勝ち**です。署名は「環境にまだ無い名前」しか
    登録しません。同名の let が 2 本あれば 1 本目の署名だけが前方参照に
@@ -3003,15 +3009,18 @@ let signature_of_binding env (b : T.let_binding') : ty option =
     | None -> true
     | Some ps -> List.for_all (fun (_, p) -> match p with T.PAnnot _ -> true | _ -> false) ps
   in
-  let param_tes = match b.T.lb_params with None -> [] | Some ps -> List.filter_map (fun (_, p) -> match p with T.PAnnot (_, te) -> Some te | _ -> None) ps in
+  (* 注釈の**頭**の矢印にだけ @ を要求する(仕様 §9 改訂、M26 / D79)。
+     健全性 3 の穴は「省略 @ が独立な行変数になり無制約に一般化される」
+     ことだったが、入れ子の省略 @ は @ {} に確定した(D75)ので自由度が無い。
+     残る自由度は束縛自身の行だけ — 関数束縛は lb_eff(または pub。省略の
+     意味が「純粋」に確定する D44 ので署名を作ってよい)、値束縛は注釈の頭が
+     矢印ならその @ *)
+  let head_effected ((_, te) : T.type_exp) = match te with T.EArrow (_, _, eff) -> eff <> None | _ -> true in
   let full =
     params_annotated && b.T.lb_ret <> None
-    (* 関数束縛は自身の eff 行も明示されていること。pub は例外 — 省略の
-       意味が「純粋」に確定する(D44)ので、署名を作ってよい。健全性 3 の
-       懸念(独立な行変数の過剰一般化)は Rigid で消える *)
-    && (match b.T.lb_params with Some _ -> b.T.lb_eff <> None || b.T.lb_pub | None -> true)
-    && List.for_all fully_effected param_tes
-    && (match b.T.lb_ret with Some t -> fully_effected t | None -> false)
+    && (match b.T.lb_params with
+       | Some _ -> b.T.lb_eff <> None || b.T.lb_pub
+       | None -> ( match b.T.lb_ret with Some t -> head_effected t | None -> false))
   in
   if not full then None
   else

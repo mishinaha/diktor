@@ -305,3 +305,15 @@ Scoped Labels と同じ)。開いた行でも閉じた行でも順序違いは�
   $ sed 's/perform tag/perform Tag.tag/' doublestack.kel > doublestack2.kel
   $ diktor doublestack2.kel
   inner:hi
+
+前方参照シグネチャは「注釈の頭の矢印に @ があること」で足りる(§9 改訂 / D79。
+入れ子の省略 @ は @ {} に確定したので、宣言順に依存させる理由が消えた。
+M26 より前は g の @ 省略だけで「未束縛の変数: helper」だった):
+
+  $ cat > fwdsig.kel <<'KEL'
+  > let user(): Int32 @ Console = helper(fn() => (), fn(n) => n)
+  > let helper[E](f: () => Unit @ E, g: (Int32) => Int32): Int32 @ {Console extends E} = ???
+  > KEL
+  $ diktor --type-check fwdsig.kel
+  user : () => Int32 @ {Console extends R1}
+  helper : (() => {}, (Int32) => Int32) => Int32 @ {Console extends R1}
