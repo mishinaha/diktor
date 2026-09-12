@@ -429,11 +429,17 @@ module Make (Data : Syntax.Data) = struct
    仕様 §0 は先頭の BOM を字句エラーと定めていますが、生のまま出すと
    `unexpected character: ` の後ろに見えない 3 バイトが並ぶだけで、
    ゴールデンにも焼けません(エディタや差分ツールが黙って壊します)。
-   そこで `any` の分岐は、BOM・C0 制御文字・DEL・ゼロ幅系(U+200B〜U+200F)・
-   行区切りと双方向制御(U+2028〜U+202E)だけを `U+XXXX` の表記に落とし、
-   それ以外は従来どおり字面を出します(`test/tokens.t` の bom / bom2)。
-   途中に現れた BOM も同じ経路で同じ字句エラーになります — 仕様が定めて
-   いるのは先頭だけですが、読めないことに変わりはありません(D102)。
+   そこで `any` の分岐は、BOM・C0 制御文字・DEL と C1 制御文字・NBSP(U+00A0)・
+   ソフトハイフン(U+00AD)・ゼロ幅系(U+200B〜U+200F)・行区切りと双方向制御
+   (U+2028〜U+202E)・ワードジョイナと不可視演算子(U+2060〜U+2064)だけを
+   `U+XXXX` の表記に落とし、それ以外は従来どおり字面を出します
+   (`test/tokens.t` の bom 群が各区間の代表を固定しています)。全角空白
+   (U+3000)のように空白として見える文字は字面のままです — 集合を Unicode の
+   分類から機械的に引くのではなく、ゴールデンで困った文字を列挙する方針です。
+   `any` まで落ちた BOM は先頭でも途中でも同じ字句エラーになります — 仕様が
+   定めているのは先頭だけですが、読めないことに変わりはありません(D102)。
+   文字列リテラルとコメントの中は `any` に来ないので対象外で、文字列の中の
+   BOM は値の一部になり、コメントの中の BOM は読み飛ばされます。
 
    > 読めた不可視文字をそのまま出すレキサは、診断を読めなくする。
 
@@ -517,13 +523,20 @@ module Make (Data : Syntax.Data) = struct
     | any ->
         (* 不可視・制御文字は字面を出しても診断にならない。BOM (U+FEFF) が
            その筆頭で、生のまま出すとゴールデンにも焼けない (M21 / F-C6)。
-           \n \t \r は上の分岐が先に取るのでここには来ない *)
+           \n \t \r は上の分岐が先に取るのでここには来ない。集合は §2.7 の
+           本文と test/tokens.t の bom 群に列挙してあり、ここと 3 か所で
+           一致させる *)
         let cp = Uchar.to_int (Sedlexing.lexeme_char lexbuf 0) in
-        let shown =
-          if cp = 0xFEFF || cp < 0x20 || cp = 0x7F || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2028 && cp <= 0x202E)
-          then Printf.sprintf "U+%04X" cp
-          else lexeme lexbuf
+        let invisible =
+          cp = 0xFEFF
+          || cp < 0x20
+          || (cp >= 0x7F && cp <= 0xA0)
+          || cp = 0xAD
+          || (cp >= 0x200B && cp <= 0x200F)
+          || (cp >= 0x2028 && cp <= 0x202E)
+          || (cp >= 0x2060 && cp <= 0x2064)
         in
+        let shown = if invisible then Printf.sprintf "U+%04X" cp else lexeme lexbuf in
         raise (Lex_error ("unexpected character: " ^ shown, cur_pos lexbuf))
     | _ -> raise (Lex_error ("unexpected input", cur_pos lexbuf))
 

@@ -432,20 +432,64 @@ ASI の基本(既存バグ 0.2-12 の回帰: let 2連続の間に区切りが入
   err.kel:1:22: 字句エラー: unterminated string literal
   [2]
 
-先頭の BOM は字句エラー(仕様 §0)。不可視文字は字面ではなく U+XXXX で
-出す(M21 / F-C6。生のまま出すとゴールデンに焼けない):
+先頭の BOM は字句エラー(仕様 §0)。BOM・C0 制御文字・DEL と C1 制御文字・
+NBSP・ソフトハイフン・U+200B〜U+200F・U+2028〜U+202E・U+2060〜U+2064 は
+字面ではなく U+XXXX で出し、それ以外は字面のまま(M21 / F-C6。生のまま
+出すとゴールデンに焼けない。集合は第2章 §2.7 と同じ):
 
   $ printf '\xef\xbb\xbflet x = 1\n' > bom.kel
   $ diktor --dump-tokens bom.kel
   bom.kel:1:1: 字句エラー: unexpected character: U+FEFF
   [2]
 
-BOM は先頭以外でも読めない(仕様が定めているのは先頭だけだが、読めない
-ことに変わりはない — D102):
+文字列とコメントの外なら、BOM は先頭以外でも読めない(仕様が定めているのは
+先頭だけだが、読めないことに変わりはない — D102。文字列の中の BOM は値の
+一部になり、コメントの中の BOM は読み飛ばされる):
 
   $ printf 'let x = 1\n\xef\xbb\xbflet y = 2\n' > bom2.kel
   $ diktor --dump-tokens bom2.kel
   bom2.kel:2:1: 字句エラー: unexpected character: U+FEFF
+  [2]
+
+  $ printf 'let x = "a\xef\xbb\xbfb"\n' > bomstr.kel
+  $ diktor --dump-tokens bomstr.kel
+     1  let
+     1  x
+     1  =
+     1  "a\239\187\191b"
+     2  <EOF>
+
+U+XXXX に落とす各区間の代表(C0 の垂直タブ・DEL・C1 の NEL・NBSP・
+ゼロ幅スペース・右から左への上書き・ワードジョイナ)。落とさない側の
+代表は test/errloc.t の ¤(U+00A4):
+
+  $ printf 'let x = 1 \x0b 2\n' > c0.kel
+  $ diktor --dump-tokens c0.kel
+  c0.kel:1:11: 字句エラー: unexpected character: U+000B
+  [2]
+  $ printf 'let x = 1 \x7f 2\n' > del.kel
+  $ diktor --dump-tokens del.kel
+  del.kel:1:11: 字句エラー: unexpected character: U+007F
+  [2]
+  $ printf 'let x = 1 \xc2\x85 2\n' > nel.kel
+  $ diktor --dump-tokens nel.kel
+  nel.kel:1:11: 字句エラー: unexpected character: U+0085
+  [2]
+  $ printf 'let x = 1 \xc2\xa0 2\n' > nbsp.kel
+  $ diktor --dump-tokens nbsp.kel
+  nbsp.kel:1:11: 字句エラー: unexpected character: U+00A0
+  [2]
+  $ printf 'let x = 1 \xe2\x80\x8b 2\n' > zwsp.kel
+  $ diktor --dump-tokens zwsp.kel
+  zwsp.kel:1:11: 字句エラー: unexpected character: U+200B
+  [2]
+  $ printf 'let x = 1 \xe2\x80\xae 2\n' > rlo.kel
+  $ diktor --dump-tokens rlo.kel
+  rlo.kel:1:11: 字句エラー: unexpected character: U+202E
+  [2]
+  $ printf 'let x = 1 \xe2\x81\xa0 2\n' > wj.kel
+  $ diktor --dump-tokens wj.kel
+  wj.kel:1:11: 字句エラー: unexpected character: U+2060
   [2]
 
 CR(仕様 §0。文字列の外の CR は空白、CRLF が改行として働き、単独の CR は
