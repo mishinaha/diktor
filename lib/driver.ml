@@ -364,7 +364,7 @@ let eval_string ?(prelude = true) ~sink source =
    2 つを分けたまま渡すのは、型検査器がプレリュードだけを `in_prelude` の
    下で処理して「プレリュード所有」の印を付けるためです
    (第15章 (prelude.kel) の §15.2)。
-   この印があるおかげで、仕様 sample.kel が `Unit` や `Console` を
+   この印があるおかげで、仕様 sample.kel が `Unit` や `Console` や `Fs` を
    もう一度宣言しても二重宣言にならずに済みます。
 
    ### 行の種別は値で運ばれてくる

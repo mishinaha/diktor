@@ -1679,9 +1679,11 @@ and elab_handle env level eff clauses body =
    あっても、`read` と `write` の両方を書けば `File` に決まります。
    `write` 節だけを書いた handle は、かつては `Console` に決まりました —
    `Console` の全操作は `write` 1 つで、覆えている候補が `Console` だけに
-   なるからです。M20 (I4 / D63) からプレリュード所有の `Console` / `Async` は
+   なるからです。M20 (I4 / D63) からプレリュード所有の `Console` / `Async` / `Fs` は
    ハンドル禁止で候補からも外れるため、この形は「File の read が漏れて
-   います」に落ちます — File のつもりの取り違えがそのまま診断になります。
+   います」に落ちます — File のつもりの取り違えがそのまま診断になります
+   (`Fs` は操作を持たないので、候補から外れる話はそもそも当たりません —
+   修飾して名指ししたときだけ禁止の診断に届きます。M27 / D90)。
    `File` を意図していたなら `File.write` と修飾するか、`read` 節も
    書いてください。
    逆に「操作が漏れています」と言われるのは、**どの候補も自分の全操作を
@@ -1701,16 +1703,18 @@ and elab_handle env level eff clauses body =
   (* D22: 対象エフェクトは「全節が属し全操作が網羅される」候補が一意であること *)
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
-  (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。
-     Async は仕様の明文(sample.kel:641「スケジューラは書かせない」)、
-     Console は同じ扱いを提案中(D63)— 許すと出力が黙って消える恒等
-     ハンドラが書け、File.write のつもりの case write(s) が Console を
-     消す事故も起きる。判定はランタイム行に名前があり**かつ**プレリュード
-     所有であること — --no-prelude でユーザが自分の effect Console を
-     宣言した場合は禁止しない。修飾節ではこの判定が「操作 X はエフェクト
-     Y に属しません」より**先**に走る。Heap / Blocking で禁止が出ないのは
-     名簿に入れていないからで、入れると case Blocking.nope() の診断が
-     こちらにすり替わる(第7章 §7.3。Fs は M27 で名簿に入る) *)
+  (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。仕様
+     sample.kel:462 が Console / Async / Fs の 3 つを名指しで定めた(Async は
+     :641 にも「スケジューラは書かせない」。Console はかつて提案中で、
+     2026-09-12 の改訂で明文化)。許すと出力が黙って消える恒等ハンドラが書け、
+     File.write のつもりの case write(s) が Console を消す事故も起きる。
+     判定はランタイム行に名前があり**かつ**プレリュード所有であること —
+     --no-prelude でユーザが自分の effect Console / Fs を宣言した場合は禁止
+     しない。修飾節ではこの判定が「操作 X はエフェクト Y に属しません」より
+     **先**に走る。Heap / Blocking で禁止が出ないのは名簿に入れていないからで、
+     入れると case Blocking.nope() の診断がこちらにすり替わる(第7章 §7.3)。
+     Fs は操作を持たないので非修飾では候補に挙がらず、修飾したときだけ
+     ここに届く(D90) *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     match name_of e with
@@ -2380,7 +2384,7 @@ and elab_rec_bindings env level eff bs : env =
 (* ## 11.30 宣言の入口 — トップレベルで許されるエフェクト
 
    トップレベルの初期エフェクト行は、ランタイムが提供する**閉じた**行です。
-   いまは `{Console, Async, Blocking}` の 3 つで、名簿は第7章の
+   `{Console, Async, Fs, Blocking}` の 4 つで、名簿は第7章の
    `toplevel_effects` にあります (D88)。それぞれがそこにいる理由は違います。
 
    - `Console` — 出力の最終目的地。ランタイムが実装を持ち、ユーザは
@@ -2388,6 +2392,8 @@ and elab_rec_bindings env level eff bs : env =
    - `Async` — sample.kel:689 の `crunch` が `@ Async` を持ったまま
      トップレベルから呼ばれるからです。`yield_` は型検査を通り、実行時には
      何もしない — この約束をランタイム側の提供エフェクトとして表現しています。
+   - `Fs` — ファイルプリミティブ 4 本が `@ Fs` を課す(M27 / D87)ので、
+     トップレベルから `__open` を呼べるためにここにいます。操作は持ちません。
    - `Blocking` — 操作を持たないので、残っていても誰も何も起こせません。
      締め出す仕事は `pinned` に任せてよい、というのが仕様 §12 の判断です。
      ハンドル禁止の名簿 (`runtime_effects`) には入りません — 操作が無いので
