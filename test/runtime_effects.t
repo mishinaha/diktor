@@ -77,7 +77,9 @@ perform は禁止しない(sample.kel:580 がトップレベルの perform write
   $ diktor pw.kel
   direct
 
-ランタイム行に載るのはプレリュード所有の Console / Async だけ(M20 検証。
+ランタイム行に載るのは名簿 toplevel_effects(Console / Async / Fs / Blocking)のうち
+プレリュード所有のものだけ(M20 検証。Blocking だけは組み込み登録なので
+--no-prelude でも所有のまま — test/blocking_top.t の bnp。
 かつては名前だけで張られ、--no-prelude や差し替えプレリュードの世界で
 自前の effect Console を宣言すると、型はユーザの署名・実行はランタイムの
 実装という食い違いが起き、型検査を通ったプログラムが実行時に落ちた):

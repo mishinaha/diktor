@@ -1679,11 +1679,11 @@ and elab_handle env level eff clauses body =
    あっても、`read` と `write` の両方を書けば `File` に決まります。
    `write` 節だけを書いた handle は、かつては `Console` に決まりました —
    `Console` の全操作は `write` 1 つで、覆えている候補が `Console` だけに
-   なるからです。M20 (I4 / D63) からプレリュード所有の `Console` / `Async` / `Fs` は
+   なるからです。M20 (I4 / D63) からプレリュード所有の `Console` / `Async` は
    ハンドル禁止で候補からも外れるため、この形は「File の read が漏れて
-   います」に落ちます — File のつもりの取り違えがそのまま診断になります
-   (`Fs` は操作を持たないので、候補から外れる話はそもそも当たりません —
-   修飾して名指ししたときだけ禁止の診断に届きます。M27 / D90)。
+   います」に落ちます — File のつもりの取り違えがそのまま診断になります。
+   `Fs` は M27 で同じ名簿に入りました (D88) が、操作を持たないので候補には
+   そもそも現れず、修飾して名指ししたときだけ禁止の診断に届きます (D90)。
    `File` を意図していたなら `File.write` と修飾するか、`read` 節も
    書いてください。
    逆に「操作が漏れています」と言われるのは、**どの候補も自分の全操作を
@@ -1714,7 +1714,7 @@ and elab_handle env level eff clauses body =
      **先**に走る。Heap / Blocking で禁止が出ないのは名簿に入れていないからで、
      入れると case Blocking.nope() の診断がこちらにすり替わる(第7章 §7.3)。
      Fs は操作を持たないので非修飾では候補に挙がらず、修飾したときだけ
-     ここに届く(D90) *)
+     ここに届く(名簿に入れた理由は D88、文言は D90) *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     match name_of e with
@@ -2398,6 +2398,15 @@ and elab_rec_bindings env level eff bs : env =
      締め出す仕事は `pinned` に任せてよい、というのが仕様 §12 の判断です。
      ハンドル禁止の名簿 (`runtime_effects`) には入りません — 操作が無いので
      禁じる場面が無く、入れると診断が変わります (第7章 §7.3)。
+
+   4 つのうち `--no-prelude` でも行に残るのは `Blocking` だけです。他の 3 つは
+   プレリュードが宣言する名前で、所有のガード(下の `toplevel_eff`)は
+   ユーザが同名を宣言しても行に載せません — `Fs` は `Console` と同じ側です。
+   だから `--no-prelude` の世界では、自前の `effect Fs = {}` と自前の `@ Fs` の
+   `extern` を書いてもトップレベルから呼ぶ手段がありません(`test/fs_effect.t`
+   の npfs)。`--prelude` で `Fs` を宣言する差し替えなら所有になり、載ります
+   (同 withpre)。これは M27 の検証で確かめた非対称で、根は宣言の場所の違い
+   (`Blocking` は §6.12 の組み込み登録、`Fs` は第15章)にあります。
 
    閉じているので、`perform print(...)` をトップレベルに書くと
    「エフェクト Print をここでは実行できません」になります。正しい挙動です。

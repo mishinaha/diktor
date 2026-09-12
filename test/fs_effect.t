@@ -4,13 +4,18 @@ __read / __write / __close は @ Fs を載せるので、純粋な文脈から�
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-プリミティブの型に Fs が載る:
+プリミティブの型に Fs が載る。注釈した包み(o / r / w / c)は行が許容的なので
+証拠にならない — 注釈なしの別名(p_*)が prim 自身の型を見せる(検証の指摘):
 
   $ cat > sig.kel <<'KEL'
   > let o(p: String): Int32 @ Fs = __open(p)
   > let r(h: Int32): String @ Fs = __read(h)
   > let w(h: Int32, s: String): Unit @ Fs = __write(h, s)
   > let c(h: Int32): Unit @ Fs = __close(h)
+  > let p_open = __open
+  > let p_read = __read
+  > let p_write = __write
+  > let p_close = __close
   > KEL
   $ diktor --type-check sig.kel
   o : (String) => Int32 @ {Fs extends R1}
@@ -145,3 +150,22 @@ newtype のフィールドを経由して Fs を洗う形(V14)も、M26 で入�
   arr : () => Array[Int32]
   ! v14.kel:4:46: 型エラー: ラベル Fs がありません(行は閉じています)(コンストラクタ Cb のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
+
+--no-prelude では Fs はトップレベル行に載らない(Console / Async と同じく
+プレリュード所有ではないため。Blocking だけは組み込み登録なので載る —
+test/blocking_top.t の bnp)。自前の effect Fs = {} と自前の prim は宣言できるが、
+トップレベルから呼ぶ手段は無い(検証の指摘。§11.30)。--prelude で Fs を宣言する
+差し替えなら所有になり、載る:
+
+  $ cat > npfs.kel <<'KEL'
+  > type Unit = {}
+  > effect Fs = {}
+  > extern "prim" let __open(path: String): Int32 @ Fs
+  > extern "prim" let __close(h: Int32): Unit @ Fs
+  > let main(): Unit @ Fs = { let h = __open("a"); __close(h) }
+  > main()
+  > KEL
+  $ diktor --type-check --no-prelude npfs.kel
+  $ printf 'type Unit = {}\neffect Fs = {}\nextern "prim" let __open(path: String): Int32 @ Fs\nextern "prim" let __close(h: Int32): Unit @ Fs\n' > fspre.kel
+  $ printf 'let main(): Unit @ Fs = { let h = __open("a"); __close(h) }\nmain()\n' > withpre.kel
+  $ diktor --prelude fspre.kel --type-check withpre.kel
