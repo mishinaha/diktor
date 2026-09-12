@@ -25,7 +25,7 @@
 
   $ cat > vr.kel <<'EOF'
   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
-  >   let slot: Ref[h, (Int32) => Int32] = Ref.new(fn(x) => x)
+  >   let slot: Ref[h, (Int32) => Int32 @ {Heap[h]}] = Ref.new(fn(x) => x)
   >   let cell = Ref.new(41)
   >   let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
   >   Ref.get(slot)
