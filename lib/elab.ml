@@ -599,8 +599,8 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    精緻化して決めます(§11.39)。読み分けと照合の規則は `elab_con_args` と
    同じで、`type Cb[E] = Callback[E]` に `Cb[{Print}]` と書けるようになりました
    (`test/kinds.t` の alias)。かつては引数を全部型として読んでいたので、
-   行変数を渡す形だけが通り、具体的な行は「エフェクトラベルはこの位置では
-   使えません」で落ちていました。
+   行変数を渡す形だけが通り、具体的な行は「エフェクトラベルはこの位置
+   (レコード型)では使えません」で落ちていました。
 
    `check_no_hole` は、その規則の系です。引数位置に `_` が書けてしまうと
    「引数を捨てる型関数」を書いたのと同じことになるので、インスタンス頭
@@ -650,6 +650,26 @@ and unknown_effect n =
   if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
     "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
   else "未知のエフェクト: " ^ n
+
+(* エイリアスが開いた行に展開されたときの splice(M28 の検証で見つかった
+   Panic の修正)。row_append は左が閉じていることを要求するので、展開結果の
+   閉じた前置部分をなぞり、残りの要素(acc)を行変数の手前に差し込む —
+   {W[E], Console} は {Print, Console extends E} になる。acc も開いていたら
+   行変数が 2 つになるので型エラー。かつては acc が空でないと row_append の
+   bug に落ちていた *)
+and splice_row alias_name expanded acc =
+  let rec closed r = match repr r with TRowExtend (_, _, rest) -> closed rest | TRowEmpty -> true | _ -> false in
+  let rec go r =
+    match repr r with
+    | TRowExtend (n, a, rest) -> TRowExtend (n, a, go rest)
+    | TRowEmpty -> acc
+    | tail ->
+        if closed acc then row_append acc tail
+        else
+          type_error
+            ("エイリアス " ^ alias_name ^ " は開いた行に展開されるので、extends や別の開いた行と同じ行には置けません(行変数は 1 つまで)")
+  in
+  go expanded
 
 and expand_alias env level ~expanding info args =
   if List.mem info.Decls.al_name expanding then
@@ -733,7 +753,12 @@ and expand_alias env level ~expanding info args =
    そのままエフェクトのパラメータで、パラメータを持たないエフェクトは
    そこに `Unit` を置きます。行変数の中置合成 (`{E1, Print}` の `E1`) は
    受けません。行の合成は末尾の `extends` だけ、と決めておくと、
-   `row_append` の左辺が常に閉じているという不変条件が保てます。
+   `row_append` の左辺が常に閉じているという不変条件が保てます。例外は
+   開いた行に展開されるエイリアスの splice で、これは `splice_row` が展開結果の
+   閉じた前置部分に残りの要素を差し込む形で同じ不変条件を守ります
+   (`{W[E], Console}` は `{Print, Console extends E}`。M28 の検証で見つけた
+   Panic の修正 — `test/kinds.t` の splice2)。行変数が 2 つになる形
+   (`{W[E] extends E2}`)は型エラーです。
 
    `Heap[h]`(ラベルの引数)と `WithPrint[E]`(パラメータつき EffectRow
    エイリアスの適用)は構文上同形です。取り違えないのは、型名・エフェクト名・
@@ -791,7 +816,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
                  「未知のエフェクト: WithPrint」で落ちていた(M17 の記録) *)
               match Hashtbl.find_opt Decls.aliases (intern n) with
               | Some info when info.Decls.al_kind = Some "EffectRow" ->
-                  row_append (expand_alias env level ~expanding info args) acc (* 行 splice(計画 §7.6) *)
+                  splice_row n (expand_alias env level ~expanding info args) acc (* 行 splice(計画 §7.6) *)
               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
               | None ->
                   if args = [] && SMap.mem n env.types then
@@ -2571,7 +2596,9 @@ let initial_env () =
    `KVar` のまま読んでも行変数はそのまま返り、あとから `same_kind` で張られる
    からです。M23 で行を渡せるようになったことの代償で、`test/kinds.t` の fwdrow が
    両方の順序を固定しています。読み分けを 1 段遅らせて解く案は M28 の
-   エイリアスのカインド推論(D84)と同じ道具で書けるので、そこで再検討します。
+   エイリアスのカインド推論(D84)と同じ道具で書けますが、M28 では見送りました。
+   newtype の本体は構築子の登録という副作用を持つうえ、失敗した投機が
+   パラメータのカインドに張りを残す形を検証しきれていないためです(台帳 V18)。
 
    `newtype T = ???` (`NtHole`) は表現を隠します。コンストラクタを持たない
    不透明なデータ型として登録され、構築も分解もできません。

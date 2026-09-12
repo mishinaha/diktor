@@ -1,4 +1,5 @@
-M23 / ワークストリーム C(newtype の型パラメータのカインド推論)のゴールデン。
+M23 / ワークストリーム C(newtype の型パラメータのカインド推論)と M28(C5〜C7:
+型エイリアスのカインド、行 splice、HKT の定義域)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
 仕様 §6「型パラメータのカインドは本体での使われ方から推論し、使われ方が
@@ -203,8 +204,8 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
 
 型エイリアスのパラメータのカインドも本体から推論して表に残す(D84)。
 newtype を透過に包むエイリアスに、行変数でも具体的な行でも渡せる(かつては
-引数を全部型として読んだので、具体的な行は「エフェクトラベルはこの位置では
-使えません」で落ちた):
+引数を全部型として読んだので、具体的な行は「エフェクトラベルはこの位置
+(レコード型)では使えません」で落ちた):
 
   $ cat > alias.kel <<'EOF'
   > type Unit = {}
@@ -266,6 +267,25 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
   > EOF
   $ diktor --type-check --no-prelude splice.kel
   f : (Int32) => Int32 @ {Fs, Print extends R1}
+
+開いた行に展開されるエイリアスは末尾以外にも置ける。splice_row が展開結果の
+行変数の手前に残りの要素を差し込む(かつては row_append の左が開いた行になり
+[BUG] で落ちた — M28 の検証)。行変数が 2 つになる形は型エラー:
+
+  $ cat > splice2.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > effect Fs = {}
+  > type W[E]: EffectRow = {Print extends E}
+  > type Both[E]: EffectRow = {W[E], Fs}
+  > let f[E](x: Int32): Int32 @ {W[E], Fs} = x
+  > let g[E](x: Int32): Int32 @ Both[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude splice2.kel
+  $ printf 'type Unit = {}\neffect Print = { print: (String) => Unit }\ntype W[E]: EffectRow = {Print extends E}\nlet f[E, E2](x: Int32): Int32 @ {W[E] extends E2} = x\n' > splice3.kel
+  $ diktor --type-check --no-prelude splice3.kel
+  $ printf 'type Unit = {}\neffect Print = { print: (String) => Unit }\ntype W[E]: EffectRow = {Print extends E}\nlet f[E](x: Int32): Int32 @ {W[E], W[E]} = x\n' > splice4.kel
+  $ diktor --type-check --no-prelude splice4.kel
 
 エフェクト行の位置に型の名前を書いたときは「未知」ではなく「エフェクトでは
 ない」と言う(D85。Int32 は未知ではない):
