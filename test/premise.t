@@ -209,3 +209,45 @@ module 越しの前提つきインスタンス(頭は修飾名 M.L[_]):
   > EOF
   $ diktor --type-check --no-prelude pr16.kel
   b : Boolean
+
+束縛子 i は頭の引数位置 i に対応する(D93 の位置対応。穴 2 個 + 束縛子 2 個で、
+位置 0 の前提と位置 1 の前提が別々に届く):
+
+  $ cat > pr17.kel <<'EOF'
+  > newtype Pair[A, B] = MkPair(fst: A, snd: B)
+  > newtype Opaque = MkOpaque(Int32)
+  > type class Sh[A] { val sh: (A) => String }
+  > type instance Sh[Int32] { let sh(x) = "i" }
+  > type instance[A: Eq, B: Sh] Eq[Pair[_, _]] {
+  >   let eq(p, q) = (p, q) match { case (MkPair(a, b), MkPair(c, d)) => a == c && sh(b) == sh(d) }
+  > }
+  > let ok(p: Pair[Int32, Int32], q: Pair[Int32, Int32]): Boolean = p == q
+  > let ng1(p: Pair[Int32, Opaque], q: Pair[Int32, Opaque]): Boolean = p == q
+  > EOF
+  $ diktor --type-check --no-prelude pr17.kel
+  ok : (Pair[Int32, Int32], Pair[Int32, Int32]) => Boolean
+  ! pr17.kel:9:68: 型エラー: Opaque は Sh のインスタンスではありません
+  [1]
+  $ sed 's/Pair\[Int32, Opaque\]/Pair[Opaque, Int32]/g; s/ng1/ng2/' pr17.kel > pr18.kel
+  $ diktor --type-check --no-prelude pr18.kel
+  ok : (Pair[Int32, Int32], Pair[Int32, Int32]) => Boolean
+  ! pr18.kel:9:68: 型エラー: Opaque は Eq のインスタンスではありません
+  [1]
+
+束縛子が穴より少ない形(部分適用の頭に前提が載る唯一の組み合わせ — 頭は
+[_] Type のまま、位置 0 に前提):
+
+  $ cat > pr19.kel <<'EOF'
+  > newtype P2[A, B] = MkP2(fst: A, snd: B)
+  > newtype Opaque = MkOpaque(Int32)
+  > type class Functor[F[_]] { val map[A, B, E]: (F[A], (A) => B @ E) => F[B] @ E }
+  > type instance[A: Eq] Functor[P2[_, _]] {
+  >   let map(p, f) = p match { case MkP2(a, b) => MkP2(a, f(b)) }
+  > }
+  > let use1(p: P2[Int32, Int32]): P2[Int32, Int32] = map(p, fn(x) => x)
+  > let use2(p: P2[Opaque, Int32]): P2[Opaque, Int32] = map(p, fn(x) => x)
+  > EOF
+  $ diktor --type-check --no-prelude pr19.kel
+  use1 : (P2[Int32, Int32]) => P2[Int32, Int32]
+  ! pr19.kel:8:57: 型エラー: Opaque は Eq のインスタンスではありません
+  [1]
