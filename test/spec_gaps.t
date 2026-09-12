@@ -5,50 +5,11 @@ diktor の意図した挙動ではなく、仕様側の裁定待ちの現状を�
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-Array が h を持たないため、引数を破壊する関数が純粋として型付く
-(I1 / D64。仕様への対案は Array / MutArray 分離 — sample.kel を
-書き換えずに済む唯一の案):
-
-  $ cat > arrayhole.kel <<'KEL'
-  > let bump(a: Array[Int32]): Unit = run h { Array.set(a, 0, 42) }
-  > let leak(): Array[Int32] = run h { Array.new(3, 0) }
-  > let peek(a: Array[Int32]): Int32 = run h { Array.get(a, 0) }
-  > KEL
-  $ diktor --type-check arrayhole.kel
-  bump : (Array[Int32]) => {}
-  leak : () => Array[Int32]
-  peek : (Array[Int32]) => Int32
-
-Array.each は Heap を要求**しない**(I12 の一貫性修正は M20 検証で撤回 —
-each はコールバックと行を共有するため、Heap を課すと @ {} の純粋
-コールバックが渡せなくなる。読みの純粋性は Array / MutArray 分離
-(D64)で一括裁定する):
-
-  $ cat > eachheap.kel <<'KEL'
-  > let total(xs: Array[Int32]): Int32 = run h {
-  >   let acc = Ref.new(0)
-  >   Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
-  >   Ref.get(acc)
-  > }
-  > KEL
-  $ diktor --type-check eachheap.kel
-  total : (Array[Int32]) => Int32
-  $ printf 'let use(xs: Array[Int32]): {} = run h { Array.each(xs, fn(x) => ()) }\n' > eachpure.kel
-  $ diktor --type-check eachpure.kel
-  use : (Array[Int32]) => {}
-
-なお注釈で @ {} と**閉じた**コールバックを run の中の each に渡す形は、
-each とは無関係に落ちる(run が体の行に Heap[h] を要求し、閉じた行は
-それを受けられない — 非サブエフェクティングの既存規則):
-
-  $ cat > eachclosed.kel <<'KEL'
-  > let g(x: Int32): {} @ {} = {}
-  > let use(xs: Array[Int32]): {} = run h { Array.each(xs, g) }
-  > KEL
-  $ diktor --type-check eachclosed.kel
-  g : (Int32) => {}
-  ! eachclosed.kel:2:56: 型エラー: ラベル Heap がありません(行は閉じています)
-  [1]
+Array の穴(I1 / I12 / D64)は 2026-09-12 の仕様改訂(§10 の不変 Array[A] /
+可変 MutableArray[h, A] の分離)で閉じた。ここにあった arrayhole / eachheap /
+eachpure / eachclosed の 4 ブロックは test/region.t へ移し、「仕様の穴」では
+なく「意図した挙動」のゴールデンになっている(M24。設計は
+doc/log/260912-1-plan.md §3)。
 
 暫定裁定の観測点(I5 / D65): タプルラベルは _item、整数リテラルは
 Int32 に既定化:

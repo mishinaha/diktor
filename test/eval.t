@@ -1,6 +1,6 @@
 M8(評価器)のゴールデン。変更時は dune promote で更新し、必ず目視レビューすること。
 
-基本の評価(リテラル既定化・レコード・タプル・newtype・run/Array・構造的等価):
+基本の評価(リテラル既定化・レコード・タプル・newtype・run/MutableArray/freeze・構造的等価):
 
   $ cat > basics.kel <<'EOF'
   > echoln("hello, keleut")
@@ -20,13 +20,13 @@ M8(評価器)のゴールデン。変更時は dune promote で更新し、必�
   >   case MyCons(h, t) => h + sum_l(t)
   > }
   > echoln(show(sum_l(MyCons(1, MyCons(2, MyCons(3, MyNil))))))
-  > let arr = run h {
-  >   let a = Array.new(3, 0)
-  >   Array.set(a, 0, 10)
-  >   Array.set(a, 2, 30)
-  >   Array.get(a, 0) + Array.get(a, 2)
+  > let frozen = run h {
+  >   let a = MutableArray.new(3, 0)
+  >   MutableArray.set(a, 0, 10)
+  >   MutableArray.set(a, 2, 30)
+  >   MutableArray.freeze(a)
   > }
-  > echoln(show(arr))
+  > echoln(show(Array.get(frozen, 0) + Array.get(frozen, 2)))
   > echoln(show((1, "a") == (1, "a")))
   > echoln(show({p = 1, q = 2} == {q = 2, p = 1}))
   > echoln(show(1.5 + 2.5))

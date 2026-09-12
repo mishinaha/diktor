@@ -5,11 +5,11 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
 
   $ cat > par.kel <<'KEL'
   > let mk(): Array[Int32] = run h {
-  >   let a = Array.new(3, 0)
-  >   Array.set(a, 0, 1)
-  >   Array.set(a, 1, 2)
-  >   Array.set(a, 2, 3)
-  >   a
+  >   let a = MutableArray.new(3, 0)
+  >   MutableArray.set(a, 0, 1)
+  >   MutableArray.set(a, 1, 2)
+  >   MutableArray.set(a, 2, 3)
+  >   MutableArray.freeze(a)
   > }
   > let total(a: Array[Int32]): Int32 = run h {
   >   let acc = Ref.new(0)
@@ -31,7 +31,7 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
 既知の破れは 260829-5 台帳 V14 / V15 — 高階位置の省略 @ とファイル prim):
 
   $ cat > parbad.kel <<'KEL'
-  > let mk(): Array[Int32] = run h { Array.new(1, 0) }
+  > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, 0)) }
   > let _ = par_map(mk(), fn(x) => { echo("no"); x })
   > KEL
   $ diktor --type-check parbad.kel
