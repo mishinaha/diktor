@@ -158,7 +158,7 @@ let mk (sp, ep) x = (Data.allocate { Location.start = sp; Location.finish = ep }
    剥がす側の機構は第8章 (unify.ml) の `rewrite_row` にあります。
 
    `t.0` と書くと構文エラーになります。`_0` は LOWER_IDENTIFIER なので選択規則に
-   そのまま乗りますが、`0` は NUMBER なので乗らないからです。sample.kel:120 の意図どおりで、
+   そのまま乗りますが、`0` は NUMBER なので乗らないからです。sample.kel:152 の意図どおりで、
    これは実装の都合ではなく仕様です。`is_index_label` が見ているのは
    「先頭が `_` で、残りが 10 進の桁だけ」という綴りの形だけです。 *)
 let is_upper s = s <> "" && s.[0] >= 'A' && s.[0] <= 'Z'
@@ -324,8 +324,8 @@ let rec block_of_items sloc items =
    - `pat` が `_` なら **0引数**の継続 `fn() => 残り`
    - それ以外なら **1引数**の継続 `fn(pat) => 残り`
 
-   `with _ = with_file(src)` (sample.kel:416-417) が要求する `body: () => A` と、
-   `with x = Parser.bind(...)` (:430) が要求する `(A) => ...` の両方を、同じ糖衣で
+   `with _ = with_file(src)` (sample.kel:541, :543) が要求する `body: () => A` と、
+   `with x = Parser.bind(...)` (:556) が要求する `(A) => ...` の両方を、同じ糖衣で
    満たすための分岐です。`_` を「値を捨てる1引数」にしてしまうと前者が型付きません。
 
    右辺が呼び出しでなければエラーにします。行を差し込む先が無いからで、これは
@@ -644,8 +644,8 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    なので、その後にカンマは書けません(`{x, ...r,}` と `{x: T extends R,}`
    は構文エラー — 検証で確定した境界)。実装は `X | X COMMA | X COMMA list`
    の3択で、`(a)` と `(a,)` を意味アクションで区別でき、conflict も
-   出ません。sample.kel:397 の effect 本体や
-   :512-515 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
+   出ません。sample.kel:514 の effect 本体や
+   :672-675 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
    出てきます (§3.22)。かつて `ty_args` / `typaram_list` / `lowline_list` の 3 本だけ
    2択のままで末尾カンマが構文エラーでした — 計画 §6.1 の「全リスト」の字義に
    M18 で届いた形です。区切りが `|` の `ctors` と `+` の `cls_list` はカンマ区切り
@@ -747,10 +747,10 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
    比較は**非結合**です。`a < b < c` は文法の段階で落ちます。
 
    単項マイナスは `HYPHEN NUMBER` の形でだけ受け、その場で負リテラルに畳みます。
-   AST に単項マイナス演算子は存在しません (計画 §5.5、sample.kel:72。第2章 (lexer.ml) の
+   AST に単項マイナス演算子は存在しません (計画 §5.5、sample.kel:82。第2章 (lexer.ml) の
    §2.1 が同じ裁定を字句側から書いています)。符号を字句側で扱うと
    `1-2` が「1 と -2 の並置」に化けるので、その分担を第2章から引き取っています。
-   二項の `-` (sample.kel:260 の `is_even(0 - n)` がその用例) と併存して
+   二項の `-` (sample.kel:297 の `is_even(0 - n)` がその用例) と併存して
    conflict しないことは実測済みです。 *)
 
 exp:
@@ -1017,7 +1017,7 @@ pp_items:
    からです。そこで `brace_ty` 1本に統合し、要素は `l: T` (レコード型のフィールド) か
    `Name[args]` (エフェクトラベル、または splice される行エイリアス) の2択とし、
    **どちらの意味なのかは第11章が要素の形から判定します**。おかげで `@ {}`、
-   `@ {Print extends E}`、`{ReqId, Logger, Tracer}` (sample.kel:446)、`effect` 宣言の本体が、
+   `@ {Print extends E}`、`{ReqId, Logger, Tracer}` (sample.kel:572)、`effect` 宣言の本体が、
    全部同じ規則に乗ります。仕様 §0 は「`@` の直後・EffectRow エイリアスの
    右辺・effect 宣言の本体では先読みせずエフェクト行と読む」と書いていますが、
    実装は先読みを止めず、どの分類で来ても同じ木に落とします(第2章 §2.9)。

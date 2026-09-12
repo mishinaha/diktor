@@ -24,8 +24,8 @@
 
    ## 宣言処理のパス構成
 
-   トップレベルは 1 回では片付きません。前方参照 (sample.kel:334 の
-   `user_names` が後方の `println`(:347) を呼ぶ) と、宣言どうしの相互再帰を
+   トップレベルは 1 回では片付きません。前方参照 (sample.kel:399 の
+   `user_names` が後方の `println`(:440) を呼ぶ) と、宣言どうしの相互再帰を
    通すために、宣言列を 4 回なめます。
 
    | パス | 登録するもの | なぜ独立のパスか |
@@ -225,7 +225,7 @@ let rec fully_effected ((_, te) : T.type_exp) =
 
 (* pub の完全注釈検査(H6 / D44)。引数・返り値の注釈があるだけでなく、
    注釈の**中の**矢印にも @ が要る — 中の矢印の省略 @ は推論任せの行に
-   なるので、公開 API のエフェクト行が実装で決まる(仕様 sample.kel:569 が
+   なるので、公開 API のエフェクト行が実装で決まる(仕様 sample.kel:733 が
    防ごうとした事象そのもの。M16 検証で、同じ pub 署名・同じ表示型のまま
    本体の変更だけで呼び出し側が壊れる形を実測) *)
 let check_pub_annots ~params ~ret =
@@ -388,7 +388,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
 
    途中に開いた行が来ると、連結後にどのラベルがどの尾部に属するのかが
    決まりません。閉じた要素どうしの連結なら結果も閉じ、`report`
-   (sample.kel:157-162) が `case _` なしで網羅と判定されます。ヴァリアント和が
+   (sample.kel:193-198) が `case _` なしで網羅と判定されます。ヴァリアント和が
    網羅性検査 (第10章) と噛み合うのは、この「閉じたまま連結できる」性質
    ちょうどそのものです。
 
@@ -609,7 +609,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
       (* @ Heap[h] = @ {Heap[h]} の略記。文法(eff_name)は受けるのに枝が
          無く、ブレース無しの引数付きラベルだけ「未知の型: Heap」に落ちて
-         いた(M18 検証)。sample.kel:344 の略記則に引数の例外は無い *)
+         いた(M18 検証)。sample.kel:410 の略記則に引数の例外は無い *)
       TRowExtend
         ( intern n,
           (match args with
@@ -1166,7 +1166,7 @@ and elab_exp' env level eff node e =
    同じハンドラの下で走り切り、最終結果が返ってくることを型が言っています。
 
    引数の省略は操作の返り値型が Unit のときだけ許します
-   (sample.kel:356)。`Unit` と単一化するだけなので、規則は 1 行です。
+   (sample.kel:470)。`Unit` と単一化するだけなので、規則は 1 行です。
 
    なぜ resume を値環境に入れず env のフィールドにしたのか。値として
    束縛できてしまうと、節を抜けたあとに呼べる継続が作れてしまい、
@@ -1181,7 +1181,7 @@ and elab_exp' env level eff node e =
           (match arg with
           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
           | None ->
-              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:356) *)
+              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:470) *)
               Unify.unify t_unit op_ret);
           tres)
 (* ## 11.17 run — 「レベルを上げる、剛定数を作る、出口で漏れを見る」
@@ -1356,7 +1356,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 (* ## 11.20 操作名の解決 — 行の最左が勝つ
 
    Keleut は操作名の重複を許します。許さざるを得ません。仕様である
-   sample.kel 自身が `Console.write`(:342) と `File.write`(:397) を両方
+   sample.kel 自身が `Console.write`(:407) と `File.write`(:514) を両方
    宣言しているからです。したがって「操作名は大域一意」という素朴な裁定は
    最初から使えません (D22)。
 
@@ -1466,7 +1466,7 @@ and resolve_perform eff li =
    内側の resume を外側の resume と取り違えます。
 
    静的検査が効いていると何が嬉しいのか。節を抜ける時点で継続の生死が
-   確定するので、cancel による自動巻き戻しが成立します (sample.kel:353-356)。
+   確定するので、cancel による自動巻き戻しが成立します (sample.kel:467-470)。
    継続がどこかのクロージャに生き残っている可能性があると、巻き戻しの
    タイミングが決められません。 *)
 
@@ -1596,7 +1596,7 @@ and elab_handle env level eff clauses body =
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。
-     Async は仕様の明文(sample.kel:481「スケジューラは書かせない」)、
+     Async は仕様の明文(sample.kel:641「スケジューラは書かせない」)、
      Console は同じ扱いを提案中(D63)— 許すと出力が黙って消える恒等
      ハンドラが書け、File.write のつもりの case write(s) が Console を
      消す事故も起きる。判定はランタイム行に名前があり**かつ**プレリュード
@@ -1608,8 +1608,8 @@ and elab_handle env level eff clauses body =
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     if name_of e = "Console" then
-      "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
-    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:481。スケジューラは書けません)"
+      "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)"
   in
   let target =
     match List.sort_uniq compare quals with
@@ -1883,7 +1883,7 @@ and make_rigids level tparams =
 
    計画が想定していなかった裁定です (乖離 1)。`@ Print` と書いたら
    ラベル 1 つの**閉じた**行になる、というのが仕様の字義です。ところが
-   それでは sample.kel:357 が型付きません。
+   それでは sample.kel:471 が型付きません。
 
    ```
    println(msg) handle {
@@ -2226,7 +2226,7 @@ and elab_rec_bindings env level eff bs : env =
 
    - `Console` — 出力の最終目的地。ランタイムが実装を持ち、ユーザは
      ハンドルできません (§11.23)。
-   - `Async` — sample.kel:529 の `crunch` が `@ Async` を持ったまま
+   - `Async` — sample.kel:689 の `crunch` が `@ Async` を持ったまま
      トップレベルから呼ばれるからです。`yield_` は型検査を通り、実行時には
      何もしない — この約束をランタイム側の提供エフェクトとして表現しています。
    - `Blocking` — 操作を持たないので、残っていても誰も何も起こせません。
@@ -2433,7 +2433,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 (* ## 11.33 type class の登録 — と、パラメータは頭に現れよという条件
 
    クラスのパラメータは 1 つだけです (D11)。多引数クラスは仕様が明示的に
-   排除しており (sample.kel:275)、それを受けて型スキーマ用のデータ型も
+   排除しており (sample.kel:318)、それを受けて型スキーマ用のデータ型も
    制約ストアも持たずに済んでいます。Generic マークだけで多相が表せるのは
    この裁定のおかげです。
 
@@ -2486,7 +2486,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
    代償として `pure : (A) => F[A]` の類は宣言できません。返り値の位置に
    しかパラメータが現れないからです。仕様が Monad / Applicative を
-   プレリュードに置かないと明言しているので (sample.kel:329-333)、
+   プレリュードに置かないと明言しているので (sample.kel:394-398)、
    v0 ではこの制約と衝突しません。
 
    組み込みと同名のクラスをユーザが宣言したときは、**組み込みに無いメソッドを
@@ -2533,7 +2533,7 @@ let register_class env (c : T.class_decl') =
   let param =
     match c.T.cls_params with
     | [ p ] -> p
-    | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)"
+    | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:318)"
   in
   let param_kind = if param.tp_arity > 0 then k_arrow param.tp_arity else KStar in
   (if param.tp_classes <> [] then
@@ -2544,7 +2544,7 @@ let register_class env (c : T.class_decl') =
   List.iter
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
-  (* derive structural はユーザの新クラスには書けない(sample.kel:297
+  (* derive structural はユーザの新クラスには書けない(sample.kel:340
      「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
      自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
      構造的導出を認めるのに、実行時の構造的フォールバック(§14.7)は
@@ -2662,7 +2662,7 @@ let register_class env (c : T.class_decl') =
    キーは従来どおり (クラス, 型構成子の頭) の 2 つ組で、**前提はキーに
    入りません**。探索は表引き 1 回のままです。重なり合うインスタンスは
    存在しないので、コヒーレンスは「同じキーを 2 度登録したらエラー」の
-   1 行で保証できます (sample.kel:276)。組み込みキーだけは
+   1 行で保証できます (sample.kel:319)。組み込みキーだけは
    1 度目のユーザ宣言が「受理するが採用しない」(乖離 4、§6.9)なので、
    エラーになるのは 2 度目からです — この数え方が第6章の
    `builtin_redecls` 表にあります。
@@ -2727,7 +2727,7 @@ let instance_head (i : T.instance_decl') =
 
    インスタンス本体に書けるのは let と let rec だけです。`Functor[List[_]]` の
    `map` は自分自身を再帰呼び出しするので、let rec が要ります
-   (sample.kel:321-324)。 *)
+   (sample.kel:386-389)。 *)
 
 let register_instance (i : T.instance_decl') =
   let cls, con, holes = instance_head i in
@@ -2792,8 +2792,8 @@ let register_instance (i : T.instance_decl') =
 (* ## 11.36 前方参照は、全ての矢印に注釈があるときだけ
 
    パス 1c で登録する「注釈が完全な let の署名」は、前方参照を通すための
-   仕掛けです。sample.kel:334 の `user_names` が、後ろで定義される
-   `println`(:347) を呼べるのはこれのおかげです。
+   仕掛けです。sample.kel:399 の `user_names` が、後ろで定義される
+   `println`(:440) を呼べるのはこれのおかげです。
 
    問題は「完全」の定義でした。計画は「引数と返り値に型注釈があること」と
    書いていました。それでは穴が空きます。
@@ -2936,7 +2936,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 
    本体は普通の `elab_binding` / `elab_rec_bindings` で推論します。だから
    注釈付きのメソッドも let rec のメソッドも同じ経路で通ります
-   (sample.kel:321-324)。 *)
+   (sample.kel:386-389)。 *)
 
 let check_instance_bodies env (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
@@ -3018,7 +3018,7 @@ let check_instance_bodies env (i : T.instance_decl') =
    プレリュードも同じ `process_decls` を通します。違いは `emit` を
    捨てることだけです。 *)
 
-(* コンパニオン型の大域同義語の登録(D43 / sample.kel:580)。平坦化では
+(* コンパニオン型の大域同義語の登録(D43 / sample.kel:746)。平坦化では
    なくパス 1a で行う — プレリュードの宣言表はユーザ平坦化の時点では
    まだ空なので、既存名との照合がここでないと効かない(M16 検証:
    module List { pub newtype List } がプレリュード自身の型検査を壊した) *)
@@ -3270,7 +3270,7 @@ let process_decls env ~emit decls =
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
           (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
-             @ Blocking を付けるかはバインディング作者の判断(sample.kel:551) *)
+             @ Blocking を付けるかはバインディング作者の判断(sample.kel:711) *)
           (if ex.T.ex_abi = "C" then
              match Decls.c_known_signature ex.T.ex_prim with
              | None -> ()
@@ -3372,7 +3372,7 @@ let type_check_decls ?(prelude = []) decls =
 
    - `newtype` / `type` は `M.名前` に改名して登録し、module スコープの
      同義語 `(M, 非修飾名) → M.名前` を張ります (D43)。大域に張るのは
-     **コンパニオン**(module 名と同名の型。sample.kel:580)だけです。
+     **コンパニオン**(module 名と同名の型。sample.kel:746)だけです。
      かつて同義語は大域 1 枚で、`module M { newtype List[A] = … }` と
      書くだけでプレリュード自身の型検査が壊れました(M15 検証)。
    - `let` も `M.名前` に改名し、module スコープの値同義語を張ります
@@ -3386,7 +3386,7 @@ let type_check_decls ?(prelude = []) decls =
      写します。検査は使用点(§11.3 / §11.11 / §11.8)で、境界は module
      だけです (D41)。コンストラクタは所属 newtype の pub に従います (D42)。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
-     import で見え方が変わるものではありません (sample.kel:575)。
+     import で見え方が変わるものではありません (sample.kel:741)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
      元のまま**です (第1章)。実装は処理系側の表にあり、module はその表を
      切り分けません。第6章の登録簿は、プレリュード保護を `ex_prim` で、

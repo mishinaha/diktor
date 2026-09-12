@@ -1,6 +1,6 @@
 # sample.kel の無改変コピー
 
-- コピー元: 親リポジトリ `keleut` の `doc/sample.kel`(2026-09-12 に `reference/sample.kel` から移動し、
+- コピー元: 親リポジトリ `keleut` の `doc/sample.kel`(2026-09-12 に旧 `reference/` から `doc/` へ移動し、
   追跡対象になった。移動コミットは親の 2fd2d2e)
 - コピー元リビジョン: bab469c(親の `spec: cancel 節の再入と perform の解決規則を実装の事実に合わせて訂正(§9)`。
   計画 260912-1 が固定した c557887 の 2 つ後で、行数 776 は同じ。差分は §9 の 2 段落の文面だけ)

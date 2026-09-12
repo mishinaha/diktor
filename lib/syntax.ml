@@ -48,7 +48,7 @@
    | エフェクトの実行 | OCaml 5 の `Effect.Deep` (D2、第14章) |
 
    多引数クラスは入れません (D11)。Keleut の仕様が明示的に排除しており
-   (sample.kel:275)、そのおかげで**型スキーマ用のデータ型を 1 つも
+   (sample.kel:318)、そのおかげで**型スキーマ用のデータ型を 1 つも
    持たずに済みます**。量化は `Generic` マークだけで表現できます。
 
    ## パイプライン
@@ -198,7 +198,7 @@ module Type = struct
    `[A]` も `[R]` も `[E]` も、束縛子の見た目は同じです。`R` が行だと
    分かるのは `extends` の右に現れたときで、`E` が行だと分かるのは
    `@` の右に現れたときです。つまり**カインドは使用位置からしか
-   決まりません**。唯一の例外が `F[_]`(sample.kel:317)で、これだけは
+   決まりません**。唯一の例外が `F[_]`(sample.kel:382)で、これだけは
    字句でカインドが確定します。この扱いは `let` の束縛子だけのものでは
    なく、M23 (D80) からは newtype の型パラメータも同じ扱いに入りました
    — 仕様 §6 が「本体での使われ方から推論し、使われ方が無ければ Type」と
@@ -316,7 +316,7 @@ module Type = struct
    `{_item: A, _item: B}` になります。
 
    これで得られるものが 3 つあります。arity の検査が閉じた行の
-   単一化から自動的に出ること (sample.kel:125-126)。ラベル付き引数
+   単一化から自動的に出ること (sample.kel:161-162)。ラベル付き引数
    `Cons(tail = t)` が同じ経路に乗ること。そしてタプルが行の糖衣に
    なり (D4)、`fst[A, R](t: {_item: A extends R})` のような
    「タプルの前置多相」がレコードの行多相と**同じ機構**で通ること。
@@ -361,8 +361,8 @@ module Type = struct
    `vkind = KRow` の**構造マッチ**で判定していました。ところが arity 0 の
    型パラメータには `new_kind_var ()` が与えられるので、行位置で
    使われた変数のカインドは `KVar` が `KRow` へリンクした形をしています。
-   構造マッチはこれを取りこぼし、sample.kel:130 の `fst`(:136-138 の
-   コメントが説明している `{x = 1, _item = ...}` を渡す形)と :145-150 の
+   構造マッチはこれを取りこぼし、sample.kel:166 の `fst`(:172-174 の
+   コメントが説明している `{x = 1, _item = ...}` を渡す形)と :181-186 の
    `describe`(`describe(#Other)` の形。この再現例は仕様本文ではなく
    回帰テスト test/verify_fixes.t にあります)が型検査に落ちていました。判定を
    `same_kind` に置き換えて直りました。**カインドを直接パターンで
@@ -586,7 +586,7 @@ module Type = struct
    型エラーで拒否します (D13)。
 
    `t_unit` に名目型はありません。**Unit は空レコード**です
-   (sample.kel:41,112)。`()` と `{}` は同じ型で、単一化はレコードの
+   (sample.kel:51,144)。`()` と `{}` は同じ型で、単一化はレコードの
    経路にそのまま乗ります。`Unit` という名前はプレリュードの型
    エイリアスとしてのみ存在します (第15章)。
 
@@ -608,7 +608,7 @@ module Type = struct
    組み立てるのは、実装が OCaml 側の値と分かちがたく、プレリュードに
    置くと二重管理になるからです。`Blocking` は同じ組み込み表に相乗りするラベルで、
    `extern` がブロックしうることを表明するために名指しします
-   (sample.kel:549,560)。
+   (sample.kel:709,722)。
 
    ### 実際に踏んだ罠
 
@@ -637,7 +637,7 @@ module Type = struct
 
   let t_never = TCon (intern "Never", [])
 
-  (* Unit は名目型ではなく空レコード(sample.kel:41,112)。
+  (* Unit は名目型ではなく空レコード(sample.kel:51,144)。
      プレリュードの型エイリアスとしてのみ名前を持つ *)
   let t_unit = TRecord TRowEmpty
 
@@ -679,7 +679,7 @@ end
    同値関係は実行時の照合に合わせます — 整数は 64 ビット全域、浮動小数は
    IEEE の等価(±0.0 は同じパターン)です (D24)。
 
-   `bin_op` は仕様の演算子表 (sample.kel:279-283) の縮小版です。
+   `bin_op` は仕様の演算子表 (sample.kel:322-326) の縮小版です。
    演算子を `Apply` に脱糖しないのが裁定です (D9)。理由は 2 つ。
    `&&` と `||` は短絡するので関数呼び出しに落とせないこと、`!=` は
    `Eq.eq` の否定であって `Ne` というメソッドが存在しないこと。
@@ -891,7 +891,7 @@ module Make (Data : Data) = struct
    `_item` 行です。
 
    **`RecordExtend` の評価順は value → rest です**。フィールドの
-   並びと逆なので目で追うと間違えます。仕様 (sample.kel:203) が
+   並びと逆なので目で追うと間違えます。仕様 (sample.kel:240) が
    `{l = e extends r}` を「`e` が先、`r` が最後」と定めているためで、
    タプルの脱糖が先頭を最も外側に置く (第3章) ので、この向きだと
    `(a, b, c)` が a → b → c の順に評価されます。第14章も同じ順です。
@@ -947,7 +947,7 @@ module Make (Data : Data) = struct
     | Match of exp * clause list (* 単一スクルティニ(D18) *)
     | RecordEmpty
     | RecordExtend of exp * string * exp
-        (* (rest, label, value)。評価は value → rest の順(sample.kel:203、計画 §8.3) *)
+        (* (rest, label, value)。評価は value → rest の順(sample.kel:240、計画 §8.3) *)
     | RecordUpdate of exp * string * exp (* {r with l = e}。物理フィールド順保持のため専用ノード *)
     | RecordRestriction of exp * string (* r \ l *)
     | RecordSelection of exp * string
@@ -1014,7 +1014,7 @@ module Make (Data : Data) = struct
    - `DModule` の平坦化は第11章が行います(改名 + 非修飾名から
      修飾名への同義語表)。module 内 `let` の相互参照と module の
      入れ子は v0 では未対応です。
-   - `DExp` はトップレベルの式文です (sample.kel:454)。
+   - `DExp` はトップレベルの式文です (sample.kel:580)。
    - `ins_args` は通常 1 個で、`List[_]` のように `EHole` を含めます。
      本体が `let` だけであることは第11章が検査します。
    - `ins_tparams` は前提つきインスタンスの束縛子で、頭の `_` へ左から順に
@@ -1080,7 +1080,7 @@ module Make (Data : Data) = struct
     | DLetRec of let_binding list
     | DModule of bool * string * decl list (* pub * 名前 * 本体 *)
     | DExtern of extern_decl'
-    | DExp of exp (* トップレベル式文(sample.kel:454) *)
+    | DExp of exp (* トップレベル式文(sample.kel:580) *)
 
   and decl = Data.t * decl'
 

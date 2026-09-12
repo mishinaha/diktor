@@ -106,7 +106,7 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > type class C[A, B] { val f: (A) => B }
   > EOF
   $ diktor --type-check --no-prelude c5.kel
-  ! c5.kel:1:1: 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)
+  ! c5.kel:1:1: 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:318)
   [1]
 
   $ cat > c6.kel <<'EOF'

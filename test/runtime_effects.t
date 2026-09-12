@@ -1,5 +1,5 @@
 ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。Async は仕様の
-明文(sample.kel:481)、Console は同じ扱いを提案中。かつては出力を黙って
+明文(sample.kel:641)、Console は同じ扱いを提案中。かつては出力を黙って
 消す恒等ハンドラが書けた。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
@@ -12,7 +12,7 @@
   >   }
   > KEL
   $ diktor --type-check quiet.kel
-  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
 修飾しても同じ:
@@ -25,7 +25,7 @@
   >   }
   > KEL
   $ diktor --type-check quietq.kel
-  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
   $ cat > sched.kel <<'KEL'
@@ -37,7 +37,7 @@
   >   }
   > KEL
   $ diktor --type-check sched.kel
-  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:481。スケジューラは書けません)
+  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)
   [1]
 
 --no-prelude で自前の effect Console を宣言した場合は禁止しない
@@ -69,7 +69,7 @@ Console はハンドル候補からも外れるので、File のつもりの cas
   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
   [1]
 
-perform は禁止しない(sample.kel:454 がトップレベルの perform write を
+perform は禁止しない(sample.kel:580 がトップレベルの perform write を
 書いており、プレリュードの echo / echoln も同じ):
 
   $ printf 'perform write("direct\\n")\n' > pw.kel

@@ -196,11 +196,11 @@ let add_extern ~prim name =
    偽った宣言が型検査を通りました。呼ぶと「Float64 ではありません」という、
    ユーザには原因の見えない実行時エラーです
    (プレリュード保護は宣言済みの名前にしか効かず、
-   sin はプレリュードが宣言できません — sample.kel:548 が自前で宣言するので、
+   sin はプレリュードが宣言できません — sample.kel:708 が自前で宣言するので、
    先に置くと再宣言拒否で仕様が落ちます)。
 
    契約で照合するのは**引数型と返り値型だけ**で、行は見ません。`@ Blocking`
-   を付けるかどうかはバインディングの作者の判断だと仕様 (sample.kel:551) が
+   を付けるかどうかはバインディングの作者の判断だと仕様 (sample.kel:711) が
    明言しているからです。
 
    署名はここ (第6章)、実装は第13章、と 2 表に分かれます。elab (第11章)
@@ -271,7 +271,7 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
      平坦化の時点で拒否します。禁止すれば「環境に無かったときだけ
      module スコープの同義語を引く」フォールバックが両解決器で一致します。
 
-   コンパニオン型規則(sample.kel:580「モジュール名と同名の型は
+   コンパニオン型規則(sample.kel:746「モジュール名と同名の型は
    モジュール名自体で参照できる」)だけは大域の `con_synonyms` に残ります。
    `module BigInt` の `newtype BigInt` は `BigInt.BigInt` へ改名され、
    大域同義語 `BigInt` → `BigInt.BigInt` が張られる — 外から見えてよい
@@ -769,7 +769,7 @@ let add_data info =
    ### なぜ「操作名は大域一意」にできなかったか
 
    素朴な裁定は「操作名は大域一意」でしたが、**sample.kel 自身がそれを
-   破っています**。`Console.write` (:342) と `File.write` (:397) の両方が
+   破っています**。`Console.write` (:407) と `File.write` (:514) の両方が
    宣言されている。仕様が破っている規則は規則ではありません。
 
    そこで D22 は重複宣言を許し、`op_index` に「非修飾 op 名 → 宣言順の
@@ -855,10 +855,10 @@ let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
    - `ci_param` — クラスパラメータの Generic 変数の情報。全メソッドが
      **同じ変数**を共有します。これがインスタンス検査の代入点で、
      頭型を 1 回代入すればクラス内の全メソッドの型が同時に具体化されます。
-   - `ci_derive_structural` — `derive structural` (sample.kel:302)。
+   - `ci_derive_structural` — `derive structural` (sample.kel:345)。
      真なら、閉じた行の `TRecord` / `TVariant` に対して制約をフィールドへ
      再帰させます。v0 では `Eq` だけが真です。**閉じた行にしか適用しない**
-     のは仕様どおりで (sample.kel:305-309)、行変数を含む型を比較できるように
+     のは仕様どおりで (sample.kel:348-352)、行変数を含む型を比較できるように
      するには点ごとの行制約 `[R: Eq]` が要り、カインドと制約解決に手が
      入るからです。
    - `ci_builtin` — この表のエントリが組み込みかどうか。§6.1 で述べた
@@ -944,7 +944,7 @@ let add_class_decl info =
    いないのは変わらず、`List` の `Eq` はユーザ(仕様 §8 の sample)が
    宣言します。
 
-   コヒーレンスの規則は sample.kel:276 が言うとおり、
+   コヒーレンスの規則は sample.kel:319 が言うとおり、
    **重複キーを拒否する。それだけ**です。インスタンスは常に大域可視で、
    隠すことも選び直すこともできません。
 
@@ -990,7 +990,7 @@ let builtin_redecls : (oid * oid, unit) Hashtbl.t = Hashtbl.create 16
 let reserved_predicates : (oid, unit) Hashtbl.t = Hashtbl.create 4
 let reserved_predicate c = Hashtbl.mem reserved_predicates c
 
-(* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:276)。
+(* コヒーレンス: 重複キーを拒否。それだけ(sample.kel:319)。
    組み込みと同じキーのユーザ宣言は照合の上で受理する(本体は検査される) *)
 let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
   (* 予約述語はインスタンス側の入口でも拒否する(§6.12)。免除は「組み込み
@@ -1185,7 +1185,7 @@ let register_ref_array () =
    apply が第14章にあるので、実装は第13章にも置けません)。
 
    型の要点は 2 つです。**コールバックの行は閉じた空行**(TRowEmpty)。
-   仕様 (sample.kel:477) の決定性保証 —「並列性は純粋な計算に限る」— は、
+   仕様 (sample.kel:637) の決定性保証 —「並列性は純粋な計算に限る」— は、
    純粋であることの証明をここで要求し続けることに乗っています。そして
    **外側の行は Generic の行変数**。TRowEmpty にするとトップレベルから
    呼べない関数になります(実測済みの罠)。 *)
@@ -1224,7 +1224,7 @@ let register_parallel () =
 
    `def_class` はクラスパラメータの Generic 変数 `pinfo` を 1 つ作り、
    それを全メソッドで共有します(§6.8 の代入点)。クラスの分け方は
-   sample.kel:285 の言うとおりで、`Num` にまとめないのは
+   sample.kel:328 の言うとおりで、`Num` にまとめないのは
    **`String` のように `+` だけを持つ型がある**からです。だから `Add` の
    インスタンスにだけ String が入り、`Sub` / `Mul` / `Div` には入りません。
    `Ord` に Boolean が入っていないのは、真偽値に大小を決めていないからです。
@@ -1274,7 +1274,7 @@ let register_builtins () =
   List.iter (fun n -> Hashtbl.replace reserved_type_names (intern n) ())
     [ "Boolean"; "Int32"; "Int64"; "Float64"; "String" ];
   let numerics = [ "Int32"; "Int64"; "Float64" ] in
-  (* クラスとメソッド(sample.kel:286-320 のプレリュード相当を decls 直登録。M4)。
+  (* クラスとメソッド(sample.kel:329-352 のプレリュード相当を decls 直登録。M4)。
      クラスパラメータ変数はクラス内で共有する(インスタンス検査の代入点、M7) *)
   let def_class name ~derive ~methods ~instances:insts =
     let cls = intern name in

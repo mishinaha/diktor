@@ -68,7 +68,7 @@ copy の perform write は行の最左の File に解決される(この例で�
   echo_test : () => {} @ {Console extends R1}
   captured : {value: {}, output: String}
 
-EffectRow エイリアスの splice(sample.kel:446):
+EffectRow エイリアスの splice(sample.kel:572):
 
   $ cat > effrow.kel <<'EOF'
   > type Unit = {}
