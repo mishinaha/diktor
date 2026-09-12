@@ -7,7 +7,7 @@
 // 前章から受け取るもの: 動く処理系一式。
 // 次章 (第16章、driver.ml) へ渡すもの: すべてのユーザプログラムの前に
 // 読み込まれる宣言の列 — `Unit` / `Option` / `List`、3 つの `effect`、
-// 42 本の `extern` 署名、そして `echo` / `echoln` / `println` / `with_stdout`。
+// 52 本の `extern` 署名、そして `echo` / `echoln` / `println` / `with_stdout`。
 //
 // このファイルは文芸的プログラミングとして書かれています。行全体が `//` で
 // 始まる行だけが記事の本文で、それ以外がコードです (お手本の MiniLang.scala と

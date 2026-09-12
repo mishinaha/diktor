@@ -4,7 +4,8 @@ M6(エフェクト行 / perform / handle / run / Rigid)のゴールデン。
 sample.kel §9 の核心(println / capture / try_ / with_file / copy)。
 with_file の handle は write が Console と File の両方に宣言されていても
 「全節が属し全操作が網羅される」File に解決される(D22)。
-copy の perform write は行の最左(最内ハンドラ)の File に解決される:
+copy の perform write は行の最左の File に解決される(この例では最内
+ハンドラと一致する。注釈した行では書かれた順 — 下の leftmost.kel):
 
   $ cat > eff9.kel <<'EOF'
   > type Unit = {}
