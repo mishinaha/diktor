@@ -2325,6 +2325,18 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    (`Decls.reserved_predicate`) が持ち、ここはそれを引くだけです。
    インスタンス宣言側の入口にも同じ表の検査があります (§6.12)。
 
+   ### スーパークラスは持たない
+
+   クラスパラメータへの制約 `type class Ord[A: Eq]` は拒否します。かつては
+   「v1 で入れる」含みの文言で据え置いていましたが、仕様 §8 が 2026-09-12 の
+   改訂で**入れない**と確定しました (D98)。理由は仕様の言い回しどおり、
+   制約の含意を持たないほうが、署名に書いた制約だけで解決が決まって
+   単純だからです。`Ord` は `Eq` を含意しないので、両方が要る場面では
+   `[A: Eq + Ord]` と並べて書きます — 診断もそう案内します
+   (`test/classes.t` の super / ordeq / ordeq2)。含意が無いことは、
+   `[A: Ord]` だけで `==` を使うと「Eq のインスタンスではありません」と
+   落ちることで観測できます。
+
    ### クラスパラメータが引数の頭に現れること
 
    v0 の硬い制約です。
@@ -2398,7 +2410,9 @@ let register_class env (c : T.class_decl') =
     | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:275)"
   in
   let param_kind = if param.tp_arity > 0 then k_arrow param.tp_arity else KStar in
-  (if param.tp_classes <> [] then type_error "クラスパラメータに制約は書けません(スーパークラスは v1)");
+  (if param.tp_classes <> [] then
+     type_error
+       "クラスパラメータに制約は書けません(スーパークラスは入れない裁定です。両方が要るときは [A: Eq + Ord] のように並べて書いてください)");
   let pinfo = { vid = new_oid (); vlevel = 0; vkind = param_kind; vcls = [ cls ] } in
   let pvar = TVar (ref (Generic pinfo)) in
   List.iter

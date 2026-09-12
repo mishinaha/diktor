@@ -160,3 +160,23 @@ Generic を扱えず、満たしていても落ちた):
   $ diktor --type-check --no-prelude alg2.kel
   ! alg2.kel:2:24: 型エラー: 型パラメータ A は Show のインスタンスではありません。[A: Show] のように制約を書いてください
   [1]
+
+スーパークラスは入れない裁定(§8 / D98)。クラスパラメータの制約は宣言時に
+拒否し、Ord は Eq を含意しないので両方要るときは [A: Eq + Ord] と並べて書く:
+
+  $ cat > super.kel <<'KEL'
+  > type class MyEq[A] { val myeq: (A, A) => Boolean }
+  > type class MyOrd[A: MyEq] { val mylt: (A, A) => Boolean }
+  > KEL
+  $ diktor --type-check --no-prelude super.kel
+  ! super.kel:2:1: 型エラー: クラスパラメータに制約は書けません(スーパークラスは入れない裁定です。両方が要るときは [A: Eq + Ord] のように並べて書いてください)
+  [1]
+
+  $ printf 'let f[A: Ord](x: A, y: A): Boolean = x == y\n' > ordeq.kel
+  $ diktor --type-check ordeq.kel
+  ! ordeq.kel:1:38: 型エラー: 型パラメータ ς1 は Eq のインスタンスではありません。[A: Eq] のように制約を書いてください
+  [1]
+
+  $ printf 'let f[A: Eq + Ord](x: A, y: A): Boolean = x == y && x < y\n' > ordeq2.kel
+  $ diktor --type-check ordeq2.kel
+  f : [A: Eq + Ord] (A, A) => Boolean
