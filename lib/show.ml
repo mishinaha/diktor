@@ -360,7 +360,7 @@ let show_all ts =
    `(() => {}) => {}` — `test/annot_rows.t` の nested1)。最外でも `let` の省略
    (行変数に一般化)と書かれた `@ {}`(閉じる)は同じ表示で、`sum` と `sum2` が
    同じ `(Array[Int32]) => Int32` に見えて片方しか `Console` の下から呼べない、
-   という形がそれです(M28 の `spec_gaps.t` が観測点を持ちます)。
+   という形がそれです(`test/spec_gaps.t` の sumgen / sumclosed が観測点です)。
    同じ種類の代償がもう 1 つ (M23 / D82) — 行カインドのパラメータに渡した
    空行 `Callback[{}]` と、型としての Unit `{}` は、どちらも `{}` と表示されます。
 
