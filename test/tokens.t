@@ -623,7 +623,8 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
   ! effield.kel:1:15: 型エラー: エフェクト行にフィールド x は書けません
   [1]
 
-sample.kel 全文のトークン化(spike と同じ 2526 トークンであること):
+sample.kel 全文のトークン化(2741 トークン。スパイク 260829-1 が数えた 2526 は
+改訂前 — 親 2fd2d2e — の写しに対するもので、2026-09-12 の改訂で 776 行になった):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
   2741

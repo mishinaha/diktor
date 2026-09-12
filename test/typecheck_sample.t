@@ -1,4 +1,5 @@
-sample.kel 全体回帰(計画 §9.2 / M9-M10 完了条件)。
+sample.kel 全体回帰(計画 §9.2 / M9-M10 完了条件。写しは 2026-09-12 の仕様改訂後、
+親 bab469c — 260912-1 の M25 で同期)。
 stubs.kel を前置した無改変 sample.kel の全文が --type-check を通り(警告ゼロ)、
 トップレベル式文(handle と capture)が期待どおり評価される。
 変更時は dune promote で更新し、必ず目視レビューすること。
@@ -69,7 +70,7 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   BigInt.normalize : (BigInt.BigInt) => BigInt.BigInt
   big_sum : () => BigInt.BigInt
 
-実行(トップレベル式文: sample.kel:357 の handle と :454 の capture):
+実行(トップレベル式文: sample.kel:471 の handle と :580 の capture):
 
   $ diktor sample/stubs.kel sample/sample.kel
   test
