@@ -937,9 +937,9 @@ and elab_exp' env level eff node e =
    ```
    let copy(src: String, dst: String): Unit @ {Console, Fs} = {
      with _ = with_file(src)
-     let text = perform read()
+     let text = perform read()                   // File は src のものが最左
      with _ = with_file(dst)
-     perform write(text)
+     perform write(text)                         // File は dst のものが最左
    }
    ```
 
