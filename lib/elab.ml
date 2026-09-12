@@ -208,6 +208,19 @@ let rec irrefutable_pat ((_, p) : T.pat) =
    ため(H6 / D44) *)
 let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
+(* 「@ を省略した let の、本体が純粋だと**判明した**行」を公開のときに
+   行変数へ開き直す(D76。仕様 §9 の表「let は推論する。純粋な本体なら
+   行変数として一般化され、どこからでも呼べる」)。行が空に固まるのは、
+   本体が @ {} の関数(入れ子の省略 @ を含む)を呼んだときだけ — 何も
+   呼ばなければ行変数のまま残るので、この後処理が要るのはその場合に限る。
+   純粋な関数にどんな行を名乗らせても、起こすエフェクトが増えるわけでは
+   ないので健全(open_explicit_eff がラベル付きの行にやることの、空行版)。
+   注釈で @ {} と**書いた**ときは開かない — 呼び出し側にも純粋を要求する
+   意図をそのまま残す(仕様 §9「@ {} だけは両方向に効く」)。
+   矢印そのものを組み直すので、Tree.set_ty より**前**に呼ぶこと *)
+let reopen_pure_row level ty =
+  match repr ty with TArrow (a, r, e) when repr e = TRowEmpty -> TArrow (a, r, new_row_var level) | _ -> ty
+
 (* 注釈中の全ての矢印に @ が明示されているか(§11.36 の判定。パス 1c の
    前方参照シグネチャと、pub の完全注釈検査(D44)が共用する) *)
 let rec fully_effected ((_, te) : T.type_exp) =
@@ -289,7 +302,7 @@ let check_pub_annots ~params ~ret =
    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
    時間を返せるからです。 *)
 
-let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
+let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
   (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
      注釈のどこで落ちても注釈全体の先頭がアンカーになってしまう *)
   at_node t @@ fun () ->
@@ -372,10 +385,27 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
    なります。引数は閉じた `_item` 行のレコードなので、`(A) => R` と
    `(A, B) => R` は行の長さが違うというだけで別の型になります。
 
-   `@` を省いた矢印は**新しい行変数**を作ります (sample.kel:315-316)。
-   これは「エフェクトは何でもよい」の意味で、`@ {}` と書いたときの
-   「純粋」とは全く違います。この差はあとで前方参照の穴になります
-   (§11.36)。
+   `@` を省いた矢印の読み方は、矢印の**位置**で決まります(仕様 §9、
+   sample.kel:413-438、M26 / D75)。
+
+   | 矢印の位置 | 書いたラベル付き行 | `@ {}` | `@` 省略 |
+   |---|---|---|---|
+   | 束縛の**最外**(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開は行変数で開く(§11.26) | 閉じたまま(両方向) | `let` = 推論、`pub let` = 純粋(D44)、メソッド = 実装純粋・公開行多相、`extern` = 行変数 |
+   | **入れ子**(引数の型・返り値の中・newtype のフィールド・effect の操作型の引数・エイリアスの展開先) | 書いたとおり閉じたまま(開かない) | 閉じたまま | **`@ {}`(純粋)** |
+
+   最外の矢印は `elab_binding` が `TArrow` を手で組み立てるので、ここには
+   来ません。ここに来る矢印は原則すべて入れ子で、例外は `elab_type_outer` から
+   入る 2 か所(クラスメソッドの型と、引数リストを持たない値束縛の注釈の頭)
+   だけです。だから `EArrow` の省略 `@` は `outer` が真のときだけ新しい行変数に
+   なり、それ以外は閉じた空行 `TRowEmpty` になります。
+
+   かつては位置を見ず、省略はいつも新しい行変数でした。newtype のフィールドに
+   `() => Int32` と書けば「何でも起こせる閉包」の意味になり、エフェクトつきの
+   閉包を純粋として取り出せました(台帳 V14。`test/annot_rows.t` の launder)。
+   計画 260829-4 の I8 は逆に「入れ子のラベル付き行も開こう」と提案していましたが、
+   仕様は「入れ子は書いたとおり、省略は `@ {}`」と裁定しました。行を通したいなら
+   `newtype Callback[E] = Callback(() => Unit @ E)` のように行変数を型パラメータに
+   取ります(M23 がその手段を先に入れています)。
 
    `extends` の右は 2 通り受けます。行そのものと、レコード型です。後者は
    行を取り出して splice します。`{x: Int32 extends Point}` が書けるのは
@@ -396,8 +426,18 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
    穴を許すと部分適用と同じ問題に踏み込むので、ここで拒否します。 *)
 
   | T.EArrow (params, ret, eff_opt) ->
-      let param_tys = List.map (elab_type env level ~expanding) params in
-      let eff = match eff_opt with None -> new_row_var level | Some e -> elab_eff env level ~expanding e in
+      let param_tys = List.map (fun p -> elab_type env level ~expanding p) params in
+      (* 仕様 §9(改訂): 省略された @ の読み方は矢印の**位置**で決まる(D75)。
+         入れ子の矢印(最外以外の全て — 引数の型・返り値の中・newtype の
+         フィールド・effect の操作型・型エイリアスが展開する矢印)の省略は
+         @ {}(純粋)。最外(outer = true。クラスメソッドの型と、引数リストを
+         持たない値束縛の注釈の頭)だけが従来どおり新しい行変数になる。
+         再帰はすべて outer を省く = false で降りる *)
+      let eff =
+        match eff_opt with
+        | Some e -> elab_eff env level ~expanding e
+        | None -> if outer then new_row_var level else TRowEmpty
+      in
       TArrow (TRecord (closed_item_row param_tys), elab_type env level ~expanding ret, eff)
   | T.EBraceRow (elems, ext) ->
       let tail =
@@ -480,6 +520,15 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
    第 3 の規則が M17 (D51) で加わりました。
 
    > **規則 3: パラメータ制約は言及時に課す。**
+
+   第 4 の規則は M26 (D75) です。
+
+   > **規則 4: エイリアスが展開する矢印は常に入れ子として読む。**
+
+   `type Thunk = () => Unit` の省略 `@` は、`Thunk` を最外に書いても `@ {}` です
+   (仕様 §9 が「型エイリアスが展開する矢印」を入れ子側に挙げています)。
+   `expand_alias` の本体精緻化は `outer` を渡さないので、これは自動的に
+   そうなります(`test/annot_rows.t` の alias)。
 
    `type P[A: Show] = (A, A)` の `Show` は `P[X]` と**書いた時点**で `X` に
    要求されます。エイリアスは透過で構築点を持たないので、制約を効かせ
@@ -651,6 +700,13 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
   | _ -> elab_type env level ~expanding t
+
+(* 束縛の**最外**の矢印が注釈としてそのまま書かれている位置(型クラスの
+   メソッドの型と、引数リストを持たない値束縛の注釈)専用の入口。ここだけ
+   省略 @ が従来どおり新しい行変数になる(仕様 §9 の表の「let は推論」
+   「型クラスのメソッドは実装純粋 + 公開行多相」は一般化と包摂が担う)。
+   ~outer:true を渡すのはこの 1 か所だけ *)
+let elab_type_outer env level t = at_node t (fun () -> elab_type env level ~expanding:[] ~outer:true t)
 
 let elab_type env level t = at_node t (fun () -> elab_type env level ~expanding:[] t)
 
@@ -1896,23 +1952,27 @@ and make_rigids level tparams =
    この handle の下で `println` を呼ぶと、行は `{Print}` ではなく
    `{Print, Console}` である必要があります。閉じたままではハンドラを通せません。
 
-   そこで、**ラベルの付いた閉じた行の注釈だけ**を開きます。
+   そこで、**最外の**ラベルの付いた閉じた行の注釈だけを開きます。
+   位置で決まる、というのが要点です(仕様 §9、sample.kel:413-438)。
 
-   | 注釈 | 本体の検査で | 公開スキーマで |
+   | 位置と注釈 | 本体の検査で | 公開スキーマで |
    |---|---|---|
-   | `@ Print` / `@ {A, B}` | 尾部に **Rigid** を足して開く | 尾部を **Generic** にして開く |
-   | `@ {}` | 閉じたまま | 閉じたまま (純粋) |
-   | `@` 省略 | 新しい行変数 (もともと開いている) | 一般化される |
-   | `@` 省略 (**pub**) | **Rigid の行**(perform を拒む = 純粋) | **Generic** にして開く (D44) |
+   | 最外 `@ Print` / `@ {A, B}` | 尾部に **Rigid** を足して開く(本体の上限) | 尾部を **Generic** にして開く |
+   | 最外 `@ {}` | 閉じたまま | 閉じたまま (純粋。両方向に効く) |
+   | 最外 `@` 省略(`let`) | 新しい行変数 (もともと開いている) | 一般化される。本体が空に固まっていれば開き直す (D76) |
+   | 最外 `@` 省略 (**pub**) | **Rigid の行**(perform を拒む = 純粋) | **Generic** にして開く (D44) |
+   | 入れ子の `@ Print` / `@ {A, B}` | 書いたとおり閉じたまま | 開かない |
+   | 入れ子の `@` 省略 | `@ {}` と同じ(純粋) | 閉じたまま (D75) |
 
-   最後の行が M16 (H6) の追加です。仕様 (sample.kel:568) の字義は
-   「省略 = `@ {}`」ですが、閉じた空行にすると sample.kel 自身が
-   落ちます(`Db.query` が `handle_request` から呼べない — 実測)。
-   そこで乖離 1 のこの表を規則に昇格し (D23-a / D44)、空の行にも
-   同じ非対称 — 本体には剛く、公開には寛く — を適用します。この読みの
-   下では `pub let f(): Unit`(省略)と `pub let f(): Unit @ {}`(明示)が
-   別の型になります。仕様の字義との食い違いは親リポジトリへの
-   フィードバック事項です(計画 §15)。
+   4 行目は M16 (H6) の追加です。当時の仕様の字義は「省略 = `@ {}`」で、
+   閉じた空行にすると sample.kel 自身が落ちました(`Db.query` が
+   `handle_request` から呼べない — 実測)。そこで乖離 1 のこの表を規則に
+   昇格し (D23-a / D44)、空の行にも同じ非対称 — 本体には剛く、公開には
+   寛く — を適用しました。この読みの下では `pub let f(): Unit`(省略)と
+   `pub let f(): Unit @ {}`(明示)が別の型になります。**2026-09-12 の改訂で
+   仕様がこの読みを採用しました**(sample.kel:729-732「推論に任せず、本体は
+   純粋でなければならず、公開される型は行多相と読む」)。提案が通った形です。
+   後ろの 2 行(入れ子)は M26 の追加で、§11.4 の表と同じ規則です。
 
    既知の制限が 1 つあります(H6 のリスク (b) の実現)。pub の @ 省略の
    本体が、**一般化されていないトップレベル束縛**(パターン束縛や非値の
@@ -1932,10 +1992,23 @@ and make_rigids level tparams =
    > 尾部を開くと通しやすくなる。剛くしておくと嘘をつけなくなる。両方要る。
 
    `@ {}` を閉じたままにしてあるので、「純粋を強制したい」という意図は
-   引き続き書けます (sample.kel:316)。なお仕様の字義と実装上の要請が
-   食い違っている点は自覚しており、`@ Print` の意味論 (正確に Print だけか、
-   Print を含むか) の明文化を親リポジトリへのフィードバック事項として
-   記録してあります。 *)
+   引き続き書けます (sample.kel:433-438)。`@ Print` の意味論(最外なら
+   「Print を含む上限」、入れ子なら「正確に Print だけ」)も仕様が同じ箇所で
+   明文化しました。
+
+   空の行も開く、ただし書かれた `@ {}` は開かない — これが D76 です。
+   `@` を省略した `let` の行は最初は行変数ですが、本体が `@ {}` の関数
+   (入れ子の省略 `@` を含む)を呼ぶと単一化で空に固まります。D75 の下では
+   これが普通に起き、`count_if` の類が「エフェクトのある文脈から呼べない
+   関数」になってしまいます。そこで `reopen_pure_row` が、公開の直前に
+   空に固まった最外の行を新しい行変数に組み直します。ガードは 3 つで、
+   どれも実測で必要性を確かめました — 値制限(一般化しない束縛の行を開くと
+   `run` の剛定数が漏れる経路に乗る)、明示の `@`(`let k: (Int32) => Int32 @ {}` を
+   開くと「両方向に効く」約束が破れる — ガードを入れ忘れた版で `k(1)` が
+   `@ Console` の文脈から通った)、`pub`(D44 の Rigid 経路と二重に開くと
+   `pub_pure_rows` の診断が効かない)。健全性の根拠は、行が空に固まったと
+   いうことが本体の起こすエフェクトが無いことの証明だからです
+   (`test/annot_rows.t` の val1 / val2 / rec2)。 *)
 
 and open_explicit_eff lvl eff =
   let fields, tail = row_fields eff in
@@ -1990,15 +2063,24 @@ and release_rigids rigids =
    let slot: Ref[h, T] = Ref.new(...)
    ```
 
-   注釈の中で省略された `@` は独立な新しい行変数を作ります。注釈付きを
-   一般化条件に入れると、この束縛が一般化され、`run` が作った剛定数 `h` が
-   Generic に化けます。結果として、リージョンの中の可変参照を外へ持ち出せます。
-   実証済みの反例です (260829-2b の健全性 2)。
+   注釈付きを一般化条件に入れると、この束縛が一般化され、`run` が作った
+   剛定数 `h` が Generic に化けます。結果として、リージョンの中の可変参照を
+   外へ持ち出せます。実証済みの反例です (260829-2b の健全性 2。
+   `test/verify_fixes.t` の vr)。
 
    > 注釈は「多相にしてよい」の証明ではない。値であることの証明だけが証明。
 
    同じ理由で、非値の束縛に型パラメータを書くことも拒否します。それは
    多相化の要求であり、値制限に真っ向から反します。
+
+   > 本体が純粋であることは「行多相にしてよい」の証明である。
+
+   対になる格言です(M26 / D76、§11.26)。前者は型の多相、後者は行の多相で、
+   値制限が掛かるのは前者だけ — 行を開き直すのも一般化する束縛に限る
+   のは、そのためです。なお上の `Ref[h, T]` の例で「注釈の中で省略された
+   `@` は独立な新しい行変数を作る」と書いていたのは M26 より前の読みで、
+   いまは入れ子の省略 `@` は `@ {}` です。反例が反例であることは変わりません
+   — 注釈があるだけで一般化すると `h` が Generic に化ける点は同じです。
 
    ### 一般化しないときはレベルを上げない
 
@@ -2075,13 +2157,23 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
-        let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+        let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
         (* 値束縛は外側の eff で評価される *)
         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
         (try Unify.unify vty body_ty
          with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
         vty
   in
+  (* @ 省略の let の行が本体で空に固まったら、公開のときに開き直す
+     (D76 / §11.28)。明示の @ と pub(Rigid 経路)は対象外。値束縛は注釈の
+     **頭**の矢印に @ が書かれていないときだけ — let k: (Int32) => Int32 @ {}
+     の @ {} を開くと「両方向に効く」という約束が破れる(実測) *)
+  let outer_eff_written =
+    match b.T.lb_params with
+    | Some _ -> b.T.lb_eff <> None
+    | None -> ( match b.T.lb_ret with Some (_, T.EArrow (_, _, eff)) -> eff <> None | _ -> false)
+  in
+  let fn_ty = if gen && (not outer_eff_written) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
   Tree.set_ty node fn_ty;
   let rigids = rigids @ !extra_rigids in
   (* 網羅性の遅延キューは generalize の直前に drain する(計画 §7.2) *)
@@ -2199,7 +2291,7 @@ and elab_rec_bindings env level eff bs : env =
             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
-            let vty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+            let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
             vty
       in
@@ -2208,6 +2300,20 @@ and elab_rec_bindings env level eff bs : env =
       release_rigids (rigids @ !extra_rigids))
     bs names;
   (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
+  (* @ 省略の let rec も、本体が純粋だと判明したら公開の行を開き直す
+     (D76。§11.28 と同じ規則。群のうち @ を書いた束縛と pub は対象外)。
+     本体の再帰呼び出しが見ていた pre は古い矢印のまま — 本体は既に {} で
+     検査し終えており、単相再帰の具体化が {} だっただけなので食い違わない *)
+  let names =
+    List.map2
+      (fun (((_, b) as bnode) : T.let_binding) (x, t) ->
+        if b.T.lb_eff = None && (not b.T.lb_pub) && b.T.lb_params <> None then (
+          let t' = reopen_pure_row lvl t in
+          if t' != t then Tree.set_ty bnode t';
+          (x, t'))
+        else (x, t))
+      bs names
+  in
   List.iter
     (fun (params, param_tys) ->
       List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys)
@@ -2392,6 +2498,12 @@ let register_newtype env (n : T.newtype') =
    組み込み側が使っています。ユーザ宣言のエフェクトにこれを開放すると、
    操作の型が真に多相になり、ハンドラの節が多相な継続を受け取ることになって
    ランク 2 に踏み込みます。ランク 1 で取れる最大限がこの形です。
+
+   操作型の引数に現れる矢印は入れ子として読みます(仕様 §9、M26 / D75)。
+   `spawn: (() => Unit @ Async) => Unit` の `@ Async` が暗黙に多相化しないのは
+   仕様の規則であって実装の都合ではありません(`test/annot_rows.t` の opsig /
+   opsig2)。操作型の**頭**の矢印の省略 `@` も `TRowEmpty` になりますが、
+   `perform` も `handle` も操作スキーマの行を捨てるので観測されません。
 
    同一エフェクト内での操作名の重複は拒否します。**別の**エフェクトとの
    重複は許します — それが D22 の前提です (§11.20)。 *)
@@ -2580,7 +2692,7 @@ let register_class env (c : T.class_decl') =
             v.T.cv_tparams
         in
         let types = List.fold_left (fun m (n, t) -> SMap.add n t m) (SMap.add param.tp_name pvar env.types) mt_params in
-        let ty = elab_type { env with types } 1 v.T.cv_ty in
+        let ty = elab_type_outer { env with types } 1 v.T.cv_ty in
         Unify.generalize 0 ty;
         List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
         (* v0 制約: クラスパラメータが少なくとも1つの引数の「頭」に現れること(計画 §7.4)。
@@ -2891,7 +3003,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
             release_rigids eff_rigids;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
-        | None -> ( match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false)
+        | None -> ( match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> assert false)
       in
       Unify.generalize 0 ty;
       release_rigids rigids;
