@@ -999,6 +999,9 @@ module Make (Data : Data) = struct
    - `DExp` はトップレベルの式文です (sample.kel:454)。
    - `ins_args` は通常 1 個で、`List[_]` のように `EHole` を含めます。
      本体が `let` だけであることは第11章が検査します。
+   - `ins_tparams` は前提つきインスタンスの束縛子で、頭の `_` へ左から順に
+     対応します (仕様 §8、D93)。**型は増えていません** — `type_param` を
+     `let` / `class` / `newtype` と共有しています。
 
    syntax.ml はここまでです。残りは脇役 2 つ — §1.18 (aux.ml) が
    通し番号と例外の語彙、§1.19 (location.ml) が位置。

@@ -663,6 +663,14 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    行変数なのか型なのかは使われ方で決まる — ので、第1章のカインド変数に委ねます。
    `ty_ident` が大文字も小文字も受けるのは、リージョン変数 `h` が小文字で書かれるからです。
 
+   同じ `typarams_opt` が `instance` の直後にも置けます — 前提つきインスタンス
+   `type instance[A: Eq] Eq[List[_]]` (仕様 §8、M22 / D93) です。`typaram` は既に
+   名前・アリティ・クラス制約の3点セットなので、非終端を 1 つ足すだけで済み、新しい
+   構文要素は増えていません。`TYPE INSTANCE` の直後で `[` (shift して `typarams`) と
+   大文字識別子 (空の `typarams_opt` へ reduce) は 1 トークン先読みで分かれるので、
+   `--strict` の conflict 0 は保たれます (実測。旧規則を併記して故意に曖昧にすると
+   ビルドが落ちることも対照で確認しました — §3.13 の規律の実例です)。
+
    `newtype_rhs` の4形は §3.10 のとおり `nt_rhs_raw` で運びます。
    `params` の `param` は `pat annot_opt` で、注釈があれば `PAnnot` で包むだけ。
    その注釈が skolem 化されるかどうかは第11章の判断です。 *)
