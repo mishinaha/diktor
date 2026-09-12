@@ -1,0 +1,458 @@
+--- a/lib/decls.ml	2026-08-30 03:17:53.080168374 +0900
++++ b/lib/decls.ml	2026-09-12 11:10:07.864916021 +0900
+@@ -578,6 +578,7 @@
+ type alias_info = {
+   al_name : oid;
+   al_params : type_param list;
++  al_kinds : Type.kind list; (* パラメータのカインド。1a で作り本体から推論する(D-C5) *)
+   al_kind : string option; (* : Type / : EffectRow *)
+   al_body : T.type_exp;
+   (* 本体は**宣言スコープ**で展開する(D43)。module 内のエイリアスが
+--- a/lib/elab.ml	2026-08-30 03:17:40.268834633 +0900
++++ b/lib/elab.ml	2026-09-12 11:13:01.498541952 +0900
+@@ -326,13 +326,28 @@
+             let k = Decls.con_kind oid (List.length args) in
+             let rec arity k = match kind_repr k with KArrow (_, r) -> 1 + arity r | _ -> 0 in
+             if arity k <> List.length args then type_error ("型構成子 " ^ String.concat "." comps ^ " の引数の個数が不正です")
+-            else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
++            else TCon (oid, elab_con_args env level ~expanding (String.concat "." comps) k args))
+           else type_error ("未知の型: " ^ String.concat "." comps))
+   | T.EApply ((_, T.EIdent (LongId [ n ])), args) -> (
+       match SMap.find_opt n env.types with
+       | Some t ->
+-          (* HKT 変数への適用。カインドは使用時に kind_of / drop_arrows が確定する *)
+-          List.fold_left (fun acc a -> tapp acc (elab_type env level ~expanding a)) t (List.map (fun a -> check_no_hole a) args)
++          (* HKT 変数への適用。カインドは使用時に kind_of / drop_arrows が確定する。
++             定義域の照合はここでしか書けない — drop_arrows は定義域を捨てる(D-C7) *)
++          List.fold_left
++            (fun acc a ->
++              let at = elab_type env level ~expanding a in
++              let acc' = tapp acc at in
++              ignore (Unify.kind_of acc') (* 頭のカインドを KArrow に確定させる *);
++              (match kind_repr (Unify.kind_of acc) with
++              | KArrow (d, _) ->
++                  if not (same_kind d (Unify.kind_of at)) then
++                    type_error
++                      ("型引数のカインドが一致しません: " ^ show_kind d ^ " を期待しましたが " ^ Show.show at ^ " は "
++                     ^ show_kind (Unify.kind_of at) ^ " です")
++              | _ -> ());
++              acc')
++            t
++            (List.map (fun a -> check_no_hole a) args)
+       | None -> (
+           let oid = Decls.resolve_con (intern n) in
+           Decls.check_con_visible oid;
+@@ -345,7 +360,7 @@
+                 let expected = arity k in
+                 if expected <> List.length args then
+                   type_error (Printf.sprintf "型構成子 %s の引数は %d 個必要です(%d 個与えられました)" n expected (List.length args))
+-                else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
++                else TCon (oid, elab_con_args env level ~expanding n k args))
+               else type_error ("未知の型: " ^ n)))
+   | T.EApply _ -> type_error "型適用の頭は型名でなければなりません"
+ (* ## 11.4 矢印・レコード行・ヴァリアント和
+@@ -482,6 +497,29 @@
+    Keleut では行変数とエフェクト名が構文上同形なので、エイリアスの側に
+    カインドの注記が要ります (§11.6)。 *)
+ 
++(* 型引数を宣言されたパラメータのカインドに合わせて読む(D-C3)。
++   Row のパラメータなら elab_eff、そうでなければ elab_type。
++   読み終えたらカインドを照合する — 不一致はここで落とす方が、
++   subst_params 越しに使用点で bind が落とすより早く読みやすい *)
++and elab_con_args env level ~expanding cname k args =
++  let rec go k i = function
++    | [] -> []
++    | a :: rest ->
++        let pk, kr = match kind_repr k with KArrow (a', r) -> (a', r) | _ -> (new_kind_var (), KStar) in
++        let a = check_no_hole a in
++        let t =
++          match kind_repr pk with
++          | KRow -> elab_eff env level ~expanding a
++          | _ -> elab_type env level ~expanding a
++        in
++        if not (same_kind pk (Unify.kind_of t)) then
++          type_error
++            (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
++               (show_kind pk) (Show.show t) (show_kind (Unify.kind_of t)));
++        t :: go kr (i + 1) rest
++  in
++  go k 0 args
++
+ and check_no_hole ((_, te) as t : T.type_exp) =
+   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
+ 
+@@ -494,7 +532,22 @@
+          (List.length info.Decls.al_params) (List.length args))
+   else
+     (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま) *)
+-    let arg_tys = List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args in
++    let arg_tys =
++      List.map2
++        (fun a pk ->
++          let a = check_no_hole a in
++          let t =
++            match kind_repr pk with
++            | KRow -> elab_eff env level ~expanding a
++            | _ -> elab_type env level ~expanding a
++          in
++          if not (same_kind pk (Unify.kind_of t)) then
++            type_error
++              ("型エイリアス " ^ name_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
++             ^ " を期待しましたが " ^ Show.show t ^ " は " ^ show_kind (Unify.kind_of t) ^ " です");
++          t)
++        args info.Decls.al_kinds
++    in
+     (* パラメータ制約は展開時 = **型を書いた時点**で課す(M17 / D51)。
+        エイリアスは透過で、展開後の型に制約の痕跡が残らない — だから
+        その場で見るしかない。newtype より**早い**時点になる(newtype の
+@@ -550,6 +603,13 @@
+    相互再帰の 3 関数を定義し終えたら、`~expanding` を空リストで閉じた
+    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
+ 
++(* 「未知のエフェクト」の言い分け(D-C6)。名前が型として登録されていれば
++   綴りの誤りではなく位置の誤りなので、そう言う *)
++and unknown_effect n =
++  if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
++    "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
++  else "未知のエフェクト: " ^ n
++
+ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
+   at_node t @@ fun () ->
+   match te with
+@@ -563,7 +623,7 @@
+   | T.EIdent (LongId [ n ]) ->
+       (* @ Print = @ {Print} の略記(計画 §7.6) *)
+       if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
+-      else type_error ("未知のエフェクト: " ^ n)
++      else type_error (unknown_effect n)
+   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
+       (* @ Heap[h] = @ {Heap[h]} の略記。文法(eff_name)は受けるのに枝が
+          無く、ブレース無しの引数付きラベルだけ「未知の型: Heap」に落ちて
+@@ -585,26 +645,26 @@
+       List.fold_right
+         (fun elem acc ->
+           match elem with
+-          | T.BLabel (LongId [ n ], []) -> (
++          | T.BLabel (LongId [ n ], args) -> (
++              (* エイリアスを先に見る。エフェクト名と型名は同じ名前空間
++                 (claim_type_name)なので、引数つきでも取り違えない(D-C6) *)
+               match Hashtbl.find_opt Decls.aliases (intern n) with
+               | Some info when info.Decls.al_kind = Some "EffectRow" ->
+-                  row_append (expand_alias env level ~expanding info []) acc (* 行 splice(計画 §7.6) *)
++                  row_append (expand_alias env level ~expanding info args) acc (* 行 splice(計画 §7.6) *)
+               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
+               | None ->
+-                  if SMap.mem n env.types then
++                  if args = [] && SMap.mem n env.types then
+                     (* {E1, Print} のような行変数の合成は未対応(末尾 extends のみ) *)
+                     type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
+-                  else if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, acc)
+-                  else type_error ("未知のエフェクト: " ^ n))
+-          | T.BLabel (LongId [ n ], args) ->
+-              if not (Hashtbl.mem Decls.effects (intern n)) then type_error ("未知のエフェクト: " ^ n)
+-              else
+-                TRowExtend
+-                  ( intern n,
+-                    (match args with
+-                    | [ a ] -> elab_type env level ~expanding a
+-                    | _ -> type_error "エフェクトラベルの引数は1個までです"),
+-                    acc )
++                  else if Hashtbl.mem Decls.effects (intern n) then
++                    TRowExtend
++                      ( intern n,
++                        (match args with
++                        | [] -> t_unit
++                        | [ a ] -> elab_type env level ~expanding a
++                        | _ -> type_error "エフェクトラベルの引数は1個までです"),
++                        acc )
++                  else type_error (unknown_effect n))
+           | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
+           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
+         elems tail
+@@ -1814,14 +1874,18 @@
+       c)
+     tp.tp_classes
+ 
+-and make_rigids level tparams =
+-  List.map
+-    (fun tp ->
+-      let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
++and make_rigids ?kinds level tparams =
++  let kinds =
++    match kinds with
++    | Some ks when List.length ks = List.length tparams -> ks
++    | _ -> List.map (fun (tp : type_param) -> if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()) tparams
++  in
++  List.map2
++    (fun tp kind ->
+       let classes = class_names_of tp in
+       let r = new_rigid_ref ~kind ~classes level in
+       (tp.tp_name, TVar r, r))
+-    tparams
++    tparams kinds
+ 
+ (* ## 11.26 明示的エフェクト注釈の開放
+ 
+@@ -2218,14 +2282,26 @@
+    出会っても何もすることがありません。未知の型を書けばこの時点でエラーです。 *)
+ 
+ let register_newtype env (n : T.newtype') =
++  (* 1a で頭に積んだカインドをそのまま剥がして使う(D-C1)。頭と本体で
++     別のセルを作ると、本体で決まったカインドが頭に反映されない *)
++  let head_kinds =
++    let k = Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params) in
++    let rec peel k n = if n = 0 then [] else
++      match kind_repr k with
++      | KArrow (a, r) -> a :: peel r (n - 1)
++      | _ -> List.init n (fun _ -> new_kind_var ())
++    in
++    peel k (List.length n.T.nt_params)
++  in
+   let params =
+-    List.map
+-      (fun tp ->
+-        (* newtype パラメータのカインドは * か、F[_] 明示のみ(v0) *)
+-        let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else KStar in
++    List.map2
++      (fun tp hk ->
++        (* newtype パラメータのカインドは本体での使われ方から推論する(D-C1)。
++           F[_] と書いてあればその場で確定 *)
++        let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else hk in
+         let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+         { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
+-      n.T.nt_params
++      n.T.nt_params head_kinds
+   in
+   let types =
+     List.fold_left2
+@@ -2246,6 +2322,14 @@
+                 List.map
+                   (fun (f : T.field_decl) ->
+                     let ty = elab_type env' 1 f.T.fd_ty in
++                    (* フィールドの型はカインド Type(D-C4)。ここで見ないと、
++                       行カインドのパラメータや EffectRow エイリアスがそのまま
++                       値の型になり、構築点まで落ちない *)
++                    at_node f.T.fd_ty (fun () ->
++                        if not (same_kind (Unify.kind_of ty) KStar) then
++                          type_error
++                            ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型のカインドが Type ではありません: "
++                           ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty)));
+                     (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
+                     Unify.generalize 0 ty;
+                     { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })
+@@ -2838,6 +2922,8 @@
+             {
+               Decls.al_name = intern t.T.ta_name;
+               al_params = t.T.ta_params;
++              al_kinds =
++                List.map (fun (tp : type_param) -> if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()) t.T.ta_params;
+               al_kind = t.T.ta_kind;
+               al_body = t.T.ta_body;
+               al_module = !Decls.current_module;
+@@ -2850,7 +2936,11 @@
+           Decls.claim_type_name "newtype" (intern n.T.nt_name);
+           register_companion n.T.nt_name;
+           if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
+-            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name) (k_arrow (List.length n.T.nt_params))
++            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name)
++              (List.fold_right
++                 (fun (tp : type_param) acc ->
++                   KArrow ((if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()), acc))
++                 n.T.nt_params KStar)
+       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
+       | _ -> ())
+     decls;
+@@ -2898,11 +2988,35 @@
+       match d with
+       | T.DClass c ->
+           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
+-      | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
++      | T.DNewtype n ->
++          List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params;
++          (* 1b が全部終わってから既定化する(D-C2)。宣言ごとに落とすと、
++             相互参照する newtype の間でカインド変数が早すぎる時点で
++             KStar に固定される *)
++          default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
++          (match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
++          | Some dd -> List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params
++          | None -> ())
+       (* DType もここで見る。プレリュード所有名の再宣言は add_alias が黙って
+          捨てる(乖離 4)ので、パス 2 の make_rigids には AST が届かない —
+          AST 側で検査しないと type Unit[A: Bogus] = A が素通りする(検証) *)
+-      | T.DType t -> List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params
++      | T.DType t ->
++          List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params;
++          (* エイリアス本体のカインド推論(D-C5)。ここで一度**投機的に**
++             本体を精緻化し、パラメータのカインドだけを決めて捨てる。
++             パス 2 の実在検査より前にやらないと、エイリアスを先に使う
++             宣言があったときにカインドが宣言順で変わる。診断は出さない
++             — 本物の検査はパス 2 が同じ本体でやり直す(D55 の (a)) *)
++          let info = Hashtbl.find Decls.aliases (intern t.T.ta_name) in
++          (try
++             let rigids = make_rigids ~kinds:info.Decls.al_kinds 1 info.Decls.al_params in
++             let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
++             ignore
++               (match info.Decls.al_kind with
++               | Some "EffectRow" -> elab_eff env_ty 1 info.Decls.al_body
++               | _ -> elab_type env_ty 1 info.Decls.al_body)
++           with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ());
++          List.iter default_kind info.Decls.al_kinds
+       | _ -> ())
+     decls;
+   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
+@@ -2980,7 +3094,7 @@
+           (* 実在検査(未知の型・再帰・部分適用)をここで走らせる。結果は捨てる *)
+           let info = Hashtbl.find Decls.aliases (intern t.T.ta_name) in
+           let lvl = 1 in
+-          let rigids = make_rigids lvl info.Decls.al_params in
++          let rigids = make_rigids ~kinds:info.Decls.al_kinds lvl info.Decls.al_params in
+           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
+           ignore
+             (match info.Decls.al_kind with
+--- a/test/typecheck_m21c.t	1970-01-01 09:00:00.000000000 +0900
++++ b/test/typecheck_m21c.t	2026-09-12 11:16:02.978097357 +0900
+@@ -0,0 +1,144 @@
++M21 / ワークストリーム C(newtype・型エイリアスの型パラメータのカインド推論)の
++ゴールデン。変更時は dune promote で更新し、必ず目視レビューすること。
++
++sample.kel §6「型パラメータのカインドは本体での使われ方から推論し、
++使われ方が無ければ Type」と §9 の `newtype Callback[E] = Callback(() => Unit @ E)`。
++
++行カインドのパラメータを持つ newtype が宣言でき、行変数でも具体的な行でも
++型引数に書ける(D-C1 / D-C3):
++
++  $ cat > cb.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype Callback[E] = Callback(() => Unit @ E)
++  > let mk[E](f: () => Unit @ E): Callback[E] = Callback(f)
++  > let run_cb[E](c: Callback[E]): Unit @ E = c match { case Callback(f) => f() }
++  > let println(message: String): Unit @ Print = perform print(message)
++  > let pure_cb(): Callback[{}] = Callback(fn() => {})
++  > let print_cb(): Callback[{Print}] = Callback(fn() => println("x"))
++  > EOF
++  $ diktor --type-check --no-prelude cb.kel
++  mk : (() => {}) => Callback[R1]
++  run_cb : (Callback[R1]) => {}
++  println : (String) => {} @ {Print extends R1}
++  pure_cb : () => Callback[{}]
++  print_cb : () => Callback[{Print}]
++
++使われ方の無いパラメータは Type に既定化される(D7 の一般化。D-C2):
++
++  $ cat > phantom.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype Phantom[E] = Phantom(Int32)
++  > let ok(): Phantom[Int32] = Phantom(0)
++  > EOF
++  $ diktor --type-check --no-prelude phantom.kel
++  ok : () => Phantom[Int32]
++
++Type のパラメータに行を渡すと宣言の時点で落ちる(かつては構築点まで
++「カインドが一致しません」が出なかった。D-C3):
++
++  $ cat > kinderr.kel <<'EOF'
++  > type Unit = {}
++  > newtype Box[A] = Box(A)
++  > let f[E](g: () => Unit @ E): Box[E] = ???
++  > EOF
++  $ diktor --type-check --no-prelude kinderr.kel
++  ! kinderr.kel:3:30: 型エラー: 型構成子 Box の第1引数のカインドが一致しません: Type を期待しましたが ς1 は Row です
++  [1]
++
++行カインドのパラメータに型を渡した場合(D-C6 の言い分け):
++
++  $ cat > kinderr2.kel <<'EOF'
++  > type Unit = {}
++  > newtype Callback[E] = Callback(() => Unit @ E)
++  > let f(c: Callback[Int32]): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude kinderr2.kel
++  ! kinderr2.kel:3:19: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
++  [1]
++
++コンストラクタのフィールドの型は必ずカインド Type(D-C4)。
++同じパラメータを行と型の両方で使う宣言はここで落ちる:
++
++  $ cat > fieldkind.kel <<'EOF'
++  > type Unit = {}
++  > newtype Bad[E] = Bad(() => Unit @ E, E)
++  > EOF
++  $ diktor --type-check --no-prelude fieldkind.kel
++  ! fieldkind.kel:2:38: 型エラー: コンストラクタ Bad のフィールドの型のカインドが Type ではありません: R1 :: Row
++  [1]
++
++相互再帰する newtype でも、宣言順のどちらでもカインドが伝わる(D-C2):
++
++  $ cat > mutual.kel <<'EOF'
++  > type Unit = {}
++  > newtype A2[E] = MkA(B2[E])
++  > newtype B2[E] = MkB(() => Unit @ E)
++  > let f[E](x: A2[E]): A2[E] = x
++  > EOF
++  $ diktor --type-check --no-prelude mutual.kel
++  f : (A2[R1]) => A2[R1]
++  $ cat > mutual2.kel <<'EOF'
++  > type Unit = {}
++  > newtype B3[E] = MkB3(() => Unit @ E)
++  > newtype A3[E] = MkA3(B3[E])
++  > let f[E](x: A3[E]): A3[E] = x
++  > EOF
++  $ diktor --type-check --no-prelude mutual2.kel
++  f : (A3[R1]) => A3[R1]
++
++行カインドのパラメータを持つ型は Functor のインスタンスにできない
++(頭のカインドが [_] Type ではなくなるため。D-C1 の副産物):
++
++  $ cat > nofunctor.kel <<'EOF'
++  > type Unit = {}
++  > newtype Callback[E] = Callback(() => Unit @ E)
++  > type class Functor[F[_]] {
++  >   val map[A, B, E]: (F[A], (A) => B @ E) => F[B] @ E
++  > }
++  > type instance Functor[Callback[_]] {
++  >   let rec map(c, f) = c
++  > }
++  > EOF
++  $ diktor --type-check --no-prelude nofunctor.kel
++  ! nofunctor.kel:6:1: 型エラー: インスタンス頭 Callback のカインドがクラス Functor のパラメータと一致しません
++  [1]
++
++型エイリアスのパラメータも同じ規則で推論し、表に残す(D-C5)。
++行変数でも具体的な行でも渡せる:
++
++  $ cat > alias.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype Callback[E] = Callback(() => Unit @ E)
++  > type Cb[E] = Callback[E]
++  > let f[E](c: Cb[E]): Cb[E] = c
++  > let g(c: Cb[{Print}]): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude alias.kel
++  f : (Callback[R1]) => Callback[R1]
++  g : (Callback[{Print}]) => Int32
++
++パラメータつき EffectRow エイリアスを行 splice の位置に置ける
++(M17 が「記録のみ」で残した制限。D-C6):
++
++  $ cat > splice.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > effect Fs = {}
++  > type WithPrint[E]: EffectRow = {Print extends E}
++  > let f[E](x: Int32): Int32 @ {Fs, WithPrint[E]} = x
++  > EOF
++  $ diktor --type-check --no-prelude splice.kel
++  f : (Int32) => Int32 @ {Fs, Print extends R1}
++
++HKT 変数への適用も定義域のカインドを照合する(D-C7):
++
++  $ cat > hkt.kel <<'EOF'
++  > type Unit = {}
++  > let f[F[_], E](x: F[E], g: () => Unit @ E): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude hkt.kel
++  ! hkt.kel:2:41: 型エラー: 行カインドではない型パラメータです: E
++  [1]

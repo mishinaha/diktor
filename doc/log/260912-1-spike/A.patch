@@ -1,0 +1,441 @@
+--- a/lib/decls.ml	2026-09-12 11:13:46.521099209 +0900
++++ b/lib/decls.ml	2026-09-12 11:03:15.402279503 +0900
+@@ -1081,47 +1081,45 @@
+ let builtin_ops : (string * Type.ty) list ref = ref []
+ 
+ let register_ref_array () =
+-  let ref_oid = intern "Ref" and arr_oid = intern "Array" in
++  let ref_oid = intern "Ref" and arr_oid = intern "Array" and marr_oid = intern "MutableArray" in
+   Hashtbl.replace con_kinds ref_oid (Type.k_arrow 2);
+   Hashtbl.replace con_kinds arr_oid (Type.k_arrow 1);
++  Hashtbl.replace con_kinds marr_oid (Type.k_arrow 2);
+   let ginfo () = { Type.vid = new_oid (); vlevel = 0; vkind = Type.KStar; vcls = [] } in
+   add_data { dd_name = ref_oid; dd_params = [ ginfo (); ginfo () ]; dd_ctors = []; dd_opaque = true };
+   add_data { dd_name = arr_oid; dd_params = [ ginfo () ]; dd_ctors = []; dd_opaque = true };
++  add_data { dd_name = marr_oid; dd_params = [ ginfo (); ginfo () ]; dd_ctors = []; dd_opaque = true };
+   (* 操作なしの組み込みエフェクトラベル *)
+   add_effect { ef_name = Type.eff_heap; ef_ops = [] };
+   add_effect { ef_name = Type.eff_blocking; ef_ops = [] };
+   let arrow args ret eff = Type.TArrow (Type.TRecord (closed_args_row args), ret, eff) in
+   let heap_row h = Type.TRowExtend (Type.eff_heap, h, generic ~kind:Type.KRow ()) in
+   let def name ty = builtin_ops := !builtin_ops @ [ (name, ty) ] in
+-  (* Ref.new : [h, A] (A) => Ref[h, A] @ {Heap[h] extends ρ} *)
++  (* Ref.new : [h, A] (A) => Ref[h, A] @ {Heap[h] extends rho} *)
+   (let h = generic () and a = generic () in
+    def "Ref.new" (arrow [ a ] (Type.TCon (ref_oid, [ h; a ])) (heap_row h)));
+   (let h = generic () and a = generic () in
+    def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
+   (let h = generic () and a = generic () in
+    def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
+-  (* Array は h を持たない(計画 §11.2)。この穴 — 引数を破壊する関数が
+-     純粋として型付く — は test/spec_gaps.t がゴールデンとして見張り、
+-     仕様への対案(Array / MutArray 分離)は doc/log/260830-1-m20.md に
+-     ある(M20 / I1 / D64) *)
+-  (let h = generic () and a = generic () in
+-   def "Array.new" (arrow [ Type.t_int32; a ] (Type.TCon (arr_oid, [ a ])) (heap_row h)));
++  (* Array は不変(sample.kel §10)。読みは行を課さない *)
+   (let a = generic () in
+    def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 (generic ~kind:Type.KRow ())));
++  (let a = generic () in
++   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (generic ~kind:Type.KRow ())));
++  (let a = generic () and e = generic ~kind:Type.KRow () in
++   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e));
++  (* MutableArray は h を型に持つ *)
+   (let h = generic () and a = generic () in
+-   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (heap_row h)));
++   def "MutableArray.new" (arrow [ Type.t_int32; a ] (Type.TCon (marr_oid, [ h; a ])) (heap_row h)));
+   (let h = generic () and a = generic () in
+-   def "Array.set" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
+-  (let a = generic () and e = generic ~kind:Type.KRow () in
+-   (* Array.each に Heap を課す一貫性修正(I12)は M20 検証で**撤回**した。
+-      each はコールバックの行と自分の行を共有する(エフェクト多相の最小形)
+-      ため、Heap を課すと共有経由でコールバック側にも課され、明示的に
+-      純粋な @ {} の関数が渡せなくなる(実測 — run の内側でも落ちた)。
+-      行を分けて自分の行だけに課す形も、@ {} コールバックが結果行を
+-      閉じて同じ失敗になる。全要素を読む par_map が Heap 不要のままで
+-      ある以上、表の一貫性も得られない。読みの純粋性の扱いは
+-      Array / MutArray 分離(D64、260830-1)で一括裁定する *)
+-   def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e))
++   def "MutableArray.length" (arrow [ Type.TCon (marr_oid, [ h; a ]) ] Type.t_int32 (heap_row h)));
++  (let h = generic () and a = generic () in
++   def "MutableArray.get" (arrow [ Type.TCon (marr_oid, [ h; a ]); Type.t_int32 ] a (heap_row h)));
++  (let h = generic () and a = generic () in
++   def "MutableArray.set" (arrow [ Type.TCon (marr_oid, [ h; a ]); Type.t_int32; a ] Type.t_unit (heap_row h)));
++  (let h = generic () and a = generic () in
++   def "MutableArray.freeze" (arrow [ Type.TCon (marr_oid, [ h; a ]) ] (Type.TCon (arr_oid, [ a ])) (heap_row h)))
+ 
+ (* ## 6.11b par / par_map — 型は書けるが値が書けない組(H2 / D45)
+ 
+--- a/lib/value.ml	2026-09-12 11:13:46.521463098 +0900
++++ b/lib/value.ml	2026-09-12 11:08:09.531420375 +0900
+@@ -86,6 +86,7 @@
+   | VPrim of prim
+   | VRef of t ref
+   | VArray of t array
++  | VMutArray of t array
+ 
+ (* ## 12.2 クロージャの環境が可変である理由 — `let rec` を後から縛る
+ 
+@@ -422,3 +423,4 @@
+   | VPrim p -> "<prim " ^ p.p_name ^ ">"
+   | VRef _ -> "<ref>"
+   | VArray a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
++  | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"
+--- a/lib/interp.ml	2026-09-12 11:13:46.521896504 +0900
++++ b/lib/interp.ml	2026-09-12 11:03:36.377732161 +0900
+@@ -102,6 +102,7 @@
+   | VData d -> Some d.d_type
+   | VRef _ -> Some (Type.intern "Ref")
+   | VArray _ -> Some (Type.intern "Array")
++  | VMutArray _ -> Some (Type.intern "MutableArray")
+   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
+ 
+ (* cancel 節で握り潰した例外の行き先です(sample.kel:392 の「cancel 節は自身の行から
+@@ -949,11 +950,6 @@
+           r := v;
+           unit
+       | _ -> runtime_error "Ref.set の引数が不正です");
+-  reg "Array.new" (fun args ->
+-      match Builtin.arg_values args with
+-      | [ VInt32 n; init ] ->
+-          if Int32.to_int n < 0 then runtime_error "Array.new: 長さが負です" else VArray (Array.make (Int32.to_int n) init)
+-      | _ -> runtime_error "Array.new の引数が不正です");
+   reg "Array.length" (fun args ->
+       match Builtin.arg1 args with VArray a -> VInt32 (Int32.of_int (Array.length a)) | _ -> runtime_error "Array ではありません");
+   reg "Array.get" (fun args ->
+@@ -963,21 +959,43 @@
+           (* 長さは型に載っていないので、ここだけは実行時に守る *)
+           if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です" else a.(i)
+       | _ -> runtime_error "Array.get の引数が不正です");
+-  reg "Array.set" (fun args ->
+-      match Builtin.arg_values args with
+-      | [ VArray a; VInt32 i; v ] ->
+-          let i = Int32.to_int i in
+-          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です"
+-          else (
+-            a.(i) <- v;
+-            unit)
+-      | _ -> runtime_error "Array.set の引数が不正です");
+   reg "Array.each" (fun args ->
+       match Builtin.arg_values args with
+       | [ VArray a; f ] ->
+           Array.iter (fun x -> ignore (apply f (VRecord [ (Type.l_item, x) ]))) a;
+           unit
+       | _ -> runtime_error "Array.each の引数が不正です");
++  reg "MutableArray.new" (fun args ->
++      match Builtin.arg_values args with
++      | [ VInt32 n; init ] ->
++          if Int32.to_int n < 0 then runtime_error "MutableArray.new: 長さが負です"
++          else VMutArray (Array.make (Int32.to_int n) init)
++      | _ -> runtime_error "MutableArray.new の引数が不正です");
++  reg "MutableArray.length" (fun args ->
++      match Builtin.arg1 args with
++      | VMutArray a -> VInt32 (Int32.of_int (Array.length a))
++      | _ -> runtime_error "MutableArray ではありません");
++  reg "MutableArray.get" (fun args ->
++      match Builtin.arg_values args with
++      | [ VMutArray a; VInt32 i ] ->
++          let i = Int32.to_int i in
++          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です" else a.(i)
++      | _ -> runtime_error "MutableArray.get の引数が不正です");
++  reg "MutableArray.set" (fun args ->
++      match Builtin.arg_values args with
++      | [ VMutArray a; VInt32 i; v ] ->
++          let i = Int32.to_int i in
++          if i < 0 || i >= Array.length a then runtime_error "配列の範囲外です"
++          else (
++            a.(i) <- v;
++            unit)
++      | _ -> runtime_error "MutableArray.set の引数が不正です");
++  (* freeze はコピー。仕様 sample.kel §10 の「freeze 後に元の可変配列へ
++     書いても取り出した配列は変わらない」を、共有しない最も素直な形で満たす *)
++  reg "MutableArray.freeze" (fun args ->
++      match Builtin.arg1 args with
++      | VMutArray a -> VArray (Array.copy a)
++      | _ -> runtime_error "MutableArray ではありません");
+   (* par / par_map(H2 / D45)。逐次実装が並列実行と**観測同値**である根拠は
+      スケジューラの不在ではなく、コールバックの行が @ {} に閉じている
+      こと — Heap も Console も Async も起こせないので、実行順序が観測
+--- a/test/eval.t	2026-09-12 11:13:46.523116340 +0900
++++ b/test/eval.t	2026-09-12 11:08:26.664319347 +0900
+@@ -1,6 +1,6 @@
+ M8(評価器)のゴールデン。変更時は dune promote で更新し、必ず目視レビューすること。
+ 
+-基本の評価(リテラル既定化・レコード・タプル・newtype・run/Array・構造的等価):
++基本の評価(リテラル既定化・レコード・タプル・newtype・run/MutableArray/freeze・構造的等価):
+ 
+   $ cat > basics.kel <<'EOF'
+   > echoln("hello, keleut")
+@@ -20,13 +20,13 @@
+   >   case MyCons(h, t) => h + sum_l(t)
+   > }
+   > echoln(show(sum_l(MyCons(1, MyCons(2, MyCons(3, MyNil))))))
+-  > let arr = run h {
+-  >   let a = Array.new(3, 0)
+-  >   Array.set(a, 0, 10)
+-  >   Array.set(a, 2, 30)
+-  >   Array.get(a, 0) + Array.get(a, 2)
++  > let frozen = run h {
++  >   let a = MutableArray.new(3, 0)
++  >   MutableArray.set(a, 0, 10)
++  >   MutableArray.set(a, 2, 30)
++  >   MutableArray.freeze(a)
+   > }
+-  > echoln(show(arr))
++  > echoln(show(Array.get(frozen, 0) + Array.get(frozen, 2)))
+   > echoln(show((1, "a") == (1, "a")))
+   > echoln(show({p = 1, q = 2} == {q = 2, p = 1}))
+   > echoln(show(1.5 + 2.5))
+--- a/test/parallel.t	2026-09-12 11:13:46.523420150 +0900
++++ b/test/parallel.t	2026-09-12 11:08:26.664372377 +0900
+@@ -5,11 +5,11 @@
+ 
+   $ cat > par.kel <<'KEL'
+   > let mk(): Array[Int32] = run h {
+-  >   let a = Array.new(3, 0)
+-  >   Array.set(a, 0, 1)
+-  >   Array.set(a, 1, 2)
+-  >   Array.set(a, 2, 3)
+-  >   a
++  >   let a = MutableArray.new(3, 0)
++  >   MutableArray.set(a, 0, 1)
++  >   MutableArray.set(a, 1, 2)
++  >   MutableArray.set(a, 2, 3)
++  >   MutableArray.freeze(a)
+   > }
+   > let total(a: Array[Int32]): Int32 = run h {
+   >   let acc = Ref.new(0)
+@@ -31,7 +31,7 @@
+ 既知の破れは 260829-5 台帳 V14 / V15 — 高階位置の省略 @ とファイル prim):
+ 
+   $ cat > parbad.kel <<'KEL'
+-  > let mk(): Array[Int32] = run h { Array.new(1, 0) }
++  > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, 0)) }
+   > let _ = par_map(mk(), fn(x) => { echo("no"); x })
+   > KEL
+   $ diktor --type-check parbad.kel
+--- a/test/spec_gaps.t	2026-09-12 11:13:46.523729526 +0900
++++ b/test/spec_gaps.t	2026-09-12 11:08:39.607293251 +0900
+@@ -5,50 +5,11 @@
+ 
+   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
+ 
+-Array が h を持たないため、引数を破壊する関数が純粋として型付く
+-(I1 / D64。仕様への対案は Array / MutArray 分離 — sample.kel を
+-書き換えずに済む唯一の案):
+-
+-  $ cat > arrayhole.kel <<'KEL'
+-  > let bump(a: Array[Int32]): Unit = run h { Array.set(a, 0, 42) }
+-  > let leak(): Array[Int32] = run h { Array.new(3, 0) }
+-  > let peek(a: Array[Int32]): Int32 = run h { Array.get(a, 0) }
+-  > KEL
+-  $ diktor --type-check arrayhole.kel
+-  bump : (Array[Int32]) => {}
+-  leak : () => Array[Int32]
+-  peek : (Array[Int32]) => Int32
+-
+-Array.each は Heap を要求**しない**(I12 の一貫性修正は M20 検証で撤回 —
+-each はコールバックと行を共有するため、Heap を課すと @ {} の純粋
+-コールバックが渡せなくなる。読みの純粋性は Array / MutArray 分離
+-(D64)で一括裁定する):
+-
+-  $ cat > eachheap.kel <<'KEL'
+-  > let total(xs: Array[Int32]): Int32 = run h {
+-  >   let acc = Ref.new(0)
+-  >   Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
+-  >   Ref.get(acc)
+-  > }
+-  > KEL
+-  $ diktor --type-check eachheap.kel
+-  total : (Array[Int32]) => Int32
+-  $ printf 'let use(xs: Array[Int32]): {} = run h { Array.each(xs, fn(x) => ()) }\n' > eachpure.kel
+-  $ diktor --type-check eachpure.kel
+-  use : (Array[Int32]) => {}
+-
+-なお注釈で @ {} と**閉じた**コールバックを run の中の each に渡す形は、
+-each とは無関係に落ちる(run が体の行に Heap[h] を要求し、閉じた行は
+-それを受けられない — 非サブエフェクティングの既存規則):
+-
+-  $ cat > eachclosed.kel <<'KEL'
+-  > let g(x: Int32): {} @ {} = {}
+-  > let use(xs: Array[Int32]): {} = run h { Array.each(xs, g) }
+-  > KEL
+-  $ diktor --type-check eachclosed.kel
+-  g : (Int32) => {}
+-  ! eachclosed.kel:2:56: 型エラー: ラベル Heap がありません(行は閉じています)
+-  [1]
++Array の穴(I1 / I12 / D64)は 2026-09-12 の仕様改訂(sample.kel §10 の
++不変 Array[A] / 可変 MutableArray[h, A] の分離)で閉じた。ここにあった
++arrayhole / eachheap / eachpure / eachclosed の 4 ブロックは
++test/region.t へ移し、「仕様の穴」ではなく「意図した挙動」のゴールデンに
++なっている。M21 の作業記録は doc/log/260912-1-plan.md §A。
+ 
+ 暫定裁定の観測点(I5 / D65): タプルラベルは _item、整数リテラルは
+ Int32 に既定化:
+--- a/test/region.t	2026-09-12 11:13:46.523729526 +0900
++++ b/test/region.t	2026-09-12 11:11:32.643506266 +0900
+@@ -0,0 +1,164 @@
++リージョンと配列(sample.kel §10)。不変 Array[A] と可変 MutableArray[h, A]
++の分離が、脱出検査・par の決定性・pub の純粋性をどう守るかのゴールデン。
++
++  $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
++
++不変配列の読みは純粋 — run も Heap も要らない:
++
++  $ cat > read.kel <<'KEL'
++  > let peek(a: Array[Int32]): Int32 = Array.get(a, 0)
++  > let len(a: Array[Int32]): Int32 = Array.length(a)
++  > let g(x: Int32): {} @ {} = {}
++  > let walk(a: Array[Int32]): {} @ {} = Array.each(a, g)
++  > KEL
++  $ diktor --type-check read.kel
++  peek : (Array[Int32]) => Int32
++  len : (Array[Int32]) => Int32
++  g : (Int32) => {}
++  walk : (Array[Int32]) => {}
++
++可変配列は h を型に持つので、引数を破壊する関数は純粋として型付かない
++(sample.kel §10「bump が書けない」):
++
++  $ cat > bump.kel <<'KEL'
++  > let bump[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 42) }
++  > KEL
++  $ diktor --type-check bump.kel
++  ! bump.kel:1:74: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
++  [1]
++
++書くと宣言したなら通る。行に Heap[h] が出る:
++
++  $ cat > honest.kel <<'KEL'
++  > let bump[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} =
++  >   MutableArray.set(a, 0, 42)
++  > KEL
++  $ diktor --type-check honest.kel
++  bump : (MutableArray[A, Int32]) => {} @ {Heap[A] extends R1}
++
++MutableArray.length も Heap[h] を要求する(長さは変わらないが、可変配列に
++触れること自体が行に載る — sample.kel §10 の署名一覧のとおり):
++
++  $ cat > mlen.kel <<'KEL'
++  > let demo(): Int32 = run h {
++  >   let a = MutableArray.new(4, 0)
++  >   MutableArray.length(a)
++  > }
++  > echoln(show(demo()))
++  > KEL
++  $ diktor mlen.kel
++  4
++
++可変配列は run の外に出せない:
++
++  $ cat > leak.kel <<'KEL'
++  > let leak(): Array[Int32] = run h { MutableArray.new(3, 0) }
++  > KEL
++  $ diktor --type-check leak.kel
++  ! leak.kel:1:28: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
++  [1]
++
++freeze で不変配列にすれば出せる(sample.kel §10 の doubled):
++
++  $ cat > doubled.kel <<'KEL'
++  > let doubled(xs: Array[Int32]): Array[Int32] = run h {
++  >   let out = MutableArray.new(Array.length(xs), 0)
++  >   let i = Ref.new(0)
++  >   Array.each(xs, fn(x) => {
++  >     MutableArray.set(out, Ref.get(i), x * 2)
++  >     Ref.set(i, Ref.get(i) + 1)
++  >   })
++  >   MutableArray.freeze(out)
++  > }
++  > let sum(xs: Array[Int32]): Int32 = run h {
++  >   let acc = Ref.new(0)
++  >   Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
++  >   Ref.get(acc)
++  > }
++  > let mk(): Array[Int32] = run h {
++  >   let a = MutableArray.new(3, 0)
++  >   MutableArray.set(a, 0, 1)
++  >   MutableArray.set(a, 1, 2)
++  >   MutableArray.set(a, 2, 3)
++  >   MutableArray.freeze(a)
++  > }
++  > echoln(show(sum(doubled(mk()))))
++  > KEL
++  $ diktor --type-check doubled.kel
++  doubled : (Array[Int32]) => Array[Int32]
++  sum : (Array[Int32]) => Int32
++  mk : () => Array[Int32]
++  _ : {}
++  $ diktor doubled.kel
++  12
++
++freeze の観測可能な契約: freeze 後に元の可変配列へ書いても、取り出した
++配列は変わらない(実装はコピー):
++
++  $ cat > freeze.kel <<'KEL'
++  > let demo(): Int32 = run h {
++  >   let a = MutableArray.new(2, 1)
++  >   let frozen = MutableArray.freeze(a)
++  >   MutableArray.set(a, 0, 99)
++  >   Array.get(frozen, 0) + MutableArray.get(a, 0)
++  > }
++  > echoln(show(demo()))
++  > KEL
++  $ diktor freeze.kel
++  100
++
++添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
++
++  $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 1)) }\necholn(show(Array.get(mk(), 5)))\n' > oob1.kel
++  $ diktor oob1.kel
++  実行時エラー: 配列の範囲外です
++  [3]
++  $ printf 'let f(): Int32 = run h { MutableArray.get(MutableArray.new(2, 1), 5) }\necholn(show(f()))\n' > oob2.kel
++  $ diktor oob2.kel
++  実行時エラー: 配列の範囲外です
++  [3]
++  $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(-1, 1)) }\necholn(show(Array.length(mk())))\n' > negl.kel
++  $ diktor negl.kel
++  実行時エラー: MutableArray.new: 長さが負です
++  [3]
++
++par_map の @ {} コールバックは可変配列に触れない(§11 の決定性。分離前は
++run で包めば書けた — M20 の動機 (a)):
++
++  $ cat > pardet.kel <<'KEL'
++  > let bad[h](a: MutableArray[h, Int32], xs: Array[Int32]): Array[Int32] =
++  >   par_map(xs, fn(x) => run h2 { MutableArray.set(a, 0, x); x })
++  > KEL
++  $ diktor --type-check pardet.kel
++  ! pardet.kel:2:50: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
++  [1]
++
++不変配列は par_map のコールバックから読める:
++
++  $ cat > parread.kel <<'KEL'
++  > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 5)) }
++  > let f(xs: Array[Int32]): Array[Int32] = par_map(xs, fn(x) => x + Array.get(xs, 0))
++  > echoln(show(Array.get(f(mk()), 1)))
++  > KEL
++  $ diktor parread.kel
++  10
++
++pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 の動機 (b)):
++
++  $ cat > pubpure.kel <<'KEL'
++  > pub let wipe[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 7) }
++  > KEL
++  $ diktor --type-check pubpure.kel
++  ! pubpure.kel:1:78: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
++  [1]
++
++不変配列に書く手段は無い:
++
++  $ printf 'let bump(a: Array[Int32]): Unit = run h { Array.set(a, 0, 42) }\n' > noset.kel
++  $ diktor --type-check noset.kel
++  ! noset.kel:1:43: 型エラー: 未束縛の変数: Array.set
++  [1]
++  $ printf 'let mk(): Array[Int32] = run h { Array.new(3, 0) }\n' > nonew.kel
++  $ diktor --type-check nonew.kel
++  ! nonew.kel:1:34: 型エラー: 未束縛の変数: Array.new
++  [1]

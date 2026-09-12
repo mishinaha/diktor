@@ -1,0 +1,296 @@
+--- a/lib/dump.ml	2026-08-30 02:04:47.663756729 +0900
++++ b/lib/dump.ml	2026-09-12 11:03:38.247926397 +0900
+@@ -350,10 +350,9 @@
+       let derives = List.map (fun d -> L [ A "derive"; A d ]) c.cls_derives in
+       L (base @ vals @ derives)
+   | DInstance i ->
+-      L
+-        (A "instance" :: A i.ins_class
+-        :: L (List.map sexp_of_ty i.ins_args)
+-        :: List.map sexp_of_decl i.ins_body)
++      let base = [ A "instance" ] in
++      let base = match i.ins_tparams with [] -> base | ts -> base @ [ L (A "tparams" :: List.map sexp_of_tparam ts) ] in
++      L (base @ (A i.ins_class :: L (List.map sexp_of_ty i.ins_args) :: List.map sexp_of_decl i.ins_body))
+   | DLet b -> L [ A "dlet"; sexp_of_binding b ]
+   | DLetRec bs -> L (A "dletrec" :: List.map sexp_of_binding bs)
+   | DModule (pub, name, ds) ->
+--- a/lib/elab.ml	2026-08-30 03:17:40.268834633 +0900
++++ b/lib/elab.ml	2026-09-12 11:14:57.405940410 +0900
+@@ -2537,6 +2537,21 @@
+     | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
+   in
+   Decls.check_con_visible con;
++  (* 頭の _ の個数は構成子のアリティと一致していなければならない(D-E4)。
++     これを見ないと Functor[List[_, _, _]] が通る(改訂前の実測) *)
++  let rec kind_arity k = match kind_repr k with KArrow (_, r) -> 1 + kind_arity r | _ -> 0 in
++  let arity = kind_arity (Decls.con_kind con holes) in
++  if holes <> arity then
++    type_error
++      ("インスタンス頭 " ^ name_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
++     ^ string_of_int holes ^ " 個書かれています");
++  (* 前提の束縛子は頭の _ へ左から順に対応する(D-E1)。余った _ は未適用のまま
++     残り、カインドの矢印になる(Functor[List[_]] が束縛子 0 個で通る形) *)
++  let np = List.length i.T.ins_tparams in
++  if np > holes then
++    type_error
++      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、頭 " ^ name_of con ^ " の _ は "
++     ^ string_of_int holes ^ " 個です");
+   (cls, con, holes)
+ 
+ (* ## 11.35 インスタンスの登録 — 網羅と過剰の両方を見る
+@@ -2563,9 +2578,28 @@
+      type_error (i.T.ins_class ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
+   let ci = match Decls.find_class cls with Some ci -> ci | None -> type_error ("未知のクラス: " ^ i.T.ins_class) in
+   if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ name_of con);
+-  if not (same_kind ci.Decls.ci_param_kind (Decls.con_kind con holes)) then
++  (* 頭のカインドは「束縛子の個数だけ適用した後」のカインド。
++     同時に、束縛子のカインドが頭の構成子がその位置に要求するものと
++     一致することを見る([F[_]: C] を List[_] の穴に置けない) *)
++  let rec head_kind k tps =
++    match tps with
++    | [] -> k
++    | tp :: rest -> (
++        match kind_repr k with
++        | KArrow (a, r) ->
++            let kb = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
++            if not (same_kind a kb) then
++              type_error
++                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが頭 " ^ name_of con ^ " の引数と一致しません");
++            head_kind r rest
++        | _ -> bug "instance: 束縛子が頭のアリティを超えています(D-E4 の検査が先に落とすはず)")
++  in
++  if not (same_kind ci.Decls.ci_param_kind (head_kind (Decls.con_kind con holes) i.T.ins_tparams)) then
+     type_error
+       ("インスタンス頭 " ^ name_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
++  let premises =
++    List.concat (List.mapi (fun i tp -> List.map (fun c -> (i, c)) (class_names_of tp)) i.T.ins_tparams)
++  in
+   let methods =
+     List.concat_map
+       (fun ((_, d) : T.decl) ->
+@@ -2591,7 +2625,7 @@
+       if not (List.mem_assoc (intern m) methods) then
+         type_error ("インスタンスがメソッドを網羅していません: " ^ m ^ " が漏れています"))
+     ci.Decls.ci_methods;
+-  Decls.add_instance ~builtin:false ~methods ~cls ~con []
++  Decls.add_instance ~builtin:false ~methods ~cls ~con premises
+ 
+ (* ## 11.36 前方参照は、全ての矢印に注釈があるときだけ
+ 
+@@ -2731,7 +2765,11 @@
+ let check_instance_bodies env (i : T.instance_decl') =
+   let cls, con, _holes = instance_head i in
+   let ci = match Decls.find_class cls with Some ci -> ci | None -> bug "instance: class 未登録" in
+-  let head_ty = TCon (con, []) in
++  (* 前提つきインスタンスの頭型は部分適用形。束縛子を剛定数にして
++     vcls に前提を載せる(D-E1)。束縛子 0 個なら従来どおり TCon (con, []) *)
++  let head_rigids = make_rigids 1 i.T.ins_tparams in
++  let head_ty = TCon (con, List.map (fun (_, t, _) -> t) head_rigids) in
++  let env = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types head_rigids } in
+   let expected_of mname =
+     match List.assoc_opt mname ci.Decls.ci_methods with
+     | Some scheme ->
+@@ -2764,7 +2802,8 @@
+               at_node bnode (fun () -> subsume mname (SMap.find mname env2.values)))
+             bs
+       | _ -> type_error "インスタンス本体には let だけが書けます")
+-    i.T.ins_body
++    i.T.ins_body;
++  release_rigids head_rigids
+ 
+ (* ## 11.39 宣言列を 4 回なめる
+ 
+--- a/lib/parser.mly	2026-08-30 02:11:39.366594254 +0900
++++ b/lib/parser.mly	2026-09-12 11:12:26.931970183 +0900
+@@ -560,8 +560,8 @@
+   | TYPE CLASS upper_id typarams class_body
+       { let vals, derives = $5 in
+         DClass { cls_pub = false; cls_name = $3; cls_params = $4; cls_vals = vals; cls_derives = derives } }
+-  | TYPE INSTANCE upper_id LBRACKET ty_args RBRACKET instance_body
+-      { DInstance { ins_class = $3; ins_args = $5; ins_body = $7 } }
++  | TYPE INSTANCE typarams_opt upper_id LBRACKET ty_args RBRACKET instance_body
++      { DInstance { ins_tparams = $3; ins_class = $4; ins_args = $6; ins_body = $8 } }
+   | NEWTYPE upper_id typarams_opt newtype_rhs
+       { let rhs =
+           match $4 with
+--- a/lib/syntax.ml	2026-08-30 02:11:39.365603735 +0900
++++ b/lib/syntax.ml	2026-09-12 11:00:17.585707504 +0900
+@@ -1063,6 +1063,7 @@
+   and decl = Data.t * decl'
+ 
+   and instance_decl' = {
++    ins_tparams : type_param list; (* 前提つきインスタンスの束縛子。頭の _ に左から対応 *)
+     ins_class : string;
+     ins_args : type_exp list; (* 通常1個。List[_] の EHole 可 *)
+     ins_body : decl list; (* let のみであることは elab が検査 *)
+--- a/test/premise.t	1970-01-01 09:00:00.000000000 +0900
++++ b/test/premise.t	2026-09-12 11:14:58.288511341 +0900
+@@ -0,0 +1,168 @@
++前提つきインスタンス(D-E1)。sample.kel §8 の Eq[List[_]] がそのまま通ること:
++
++  $ cat > pr.kel <<'EOF'
++  > newtype List[A] = Cons(head: A, tail: List[A]) | Nil
++  > type instance[A: Eq] Eq[List[_]] {
++  >   let rec eq(xs, ys) = (xs, ys) match {
++  >     case (Nil, Nil)                 => true
++  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
++  >     case _                          => false
++  >   }
++  > }
++  > let same[A: Eq](xs: List[A], ys: List[A]): Boolean = xs == ys
++  > let b = Cons(1i32, Cons(2i32, Nil)) == Cons(1i32, Nil)
++  > EOF
++  $ diktor --type-check --no-prelude pr.kel
++  same : [A: Eq] (List[A], List[A]) => Boolean
++  b : Boolean
++
++前提が引数へ伝播する(unify.ml §8.4 の TCon 枝がここで初めて実際に走る):
++
++  $ cat > pr2.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > newtype Opaque = MkOpaque(Int32)
++  > type instance[A: Eq] Eq[List[_]] {
++  >   let rec eq(xs, ys) = (xs, ys) match {
++  >     case (Nil, Nil)                 => true
++  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
++  >     case _                          => false
++  >   }
++  > }
++  > let ng = Cons(MkOpaque(1i32), Nil) == Cons(MkOpaque(1i32), Nil)
++  > EOF
++  $ diktor --type-check --no-prelude pr2.kel
++  ! pr2.kel:10:10: 型エラー: Opaque は Eq のインスタンスではありません
++  [1]
++
++前提が構造的導出の先へも届く(レコードのフィールドが List[Opaque]):
++
++  $ cat > pr3.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > newtype Opaque = MkOpaque(Int32)
++  > type instance[A: Eq] Eq[List[_]] {
++  >   let rec eq(xs, ys) = (xs, ys) match {
++  >     case (Nil, Nil)                 => true
++  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
++  >     case _                          => false
++  >   }
++  > }
++  > let ok(p: {xs: List[Int32]}, q: {xs: List[Int32]}): Boolean = p == q
++  > let ng(p: {xs: List[Opaque]}, q: {xs: List[Opaque]}): Boolean = p == q
++  > EOF
++  $ diktor --type-check --no-prelude pr3.kel
++  ok : ({xs: List[Int32]}, {xs: List[Int32]}) => Boolean
++  ! pr3.kel:11:65: 型エラー: Opaque は Eq のインスタンスではありません
++  [1]
++
++束縛子を書かないと頭のカインドが合わない(Eq は Type のクラス):
++
++  $ cat > pr4.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance Eq[List[_]] { let rec eq(xs, ys) = true }
++  > EOF
++  $ diktor --type-check --no-prelude pr4.kel
++  ! pr4.kel:2:1: 型エラー: インスタンス頭 List のカインドがクラス Eq のパラメータと一致しません
++  [1]
++
++頭の `_` の個数は構成子のアリティと一致すること(D-E4。改訂前は未検査だった):
++
++  $ cat > pr5a.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type class Functor[F[_]] { val map[A, B, E]: (F[A], (A) => B @ E) => F[B] @ E }
++  > type instance Functor[List[_, _, _]] {
++  >   let rec map[A, B, E](xs: List[A], f: (A) => B @ E): List[B] @ E = Nil
++  > }
++  > EOF
++  $ diktor --type-check --no-prelude pr5a.kel
++  ! pr5a.kel:3:1: 型エラー: インスタンス頭 List は型引数を 1 個取りますが、_ が 3 個書かれています
++  [1]
++
++束縛子は穴より多くできない。束縛子のカインドは頭の引数と一致すること:
++
++  $ cat > pr5.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance[A: Eq, B: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }
++  > EOF
++  $ diktor --type-check --no-prelude pr5.kel
++  ! pr5.kel:2:1: 型エラー: インスタンスの型パラメータが 2 個ありますが、頭 List の _ は 1 個です
++  [1]
++  $ cat > pr6.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance[F[_]: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }
++  > EOF
++  $ diktor --type-check --no-prelude pr6.kel
++  ! pr6.kel:2:1: 型エラー: インスタンスの型パラメータ F のカインドが頭 List の引数と一致しません
++  [1]
++
++制約を書かない束縛子では本体の `==` が通らない(前提は選択にだけ使うので、
++本体が要求する制約は束縛子に書いてある必要がある):
++
++  $ cat > pr7.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance[A] Eq[List[_]] {
++  >   let rec eq(xs, ys) = (xs, ys) match {
++  >     case (Nil, Nil)                 => true
++  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
++  >     case _                          => false
++  >   }
++  > }
++  > EOF
++  $ diktor --type-check --no-prelude pr7.kel
++  ! pr7.kel:3:11: 型エラー: インスタンスメソッド eq がクラス宣言の型を満たしません(型パラメータ ς1 は Eq のインスタンスではありません。[A: Eq] のように制約を書いてください)
++  [1]
++
++未知のクラス・予約述語は束縛子の位置でも拒む:
++
++  $ cat > pr8.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance[A: Bogus] Eq[List[_]] { let rec eq(xs, ys) = true }
++  > EOF
++  $ diktor --type-check --no-prelude pr8.kel
++  ! pr8.kel:2:1: 型エラー: 未知のクラス: Bogus
++  [1]
++  $ cat > pr9.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > type instance[A: Integral] Eq[List[_]] { let rec eq(xs, ys) = true }
++  > EOF
++  $ diktor --type-check --no-prelude pr9.kel
++  ! pr9.kel:2:1: 型エラー: Integral は予約されたリテラル述語です(制約には書けません、D8)
++  [1]
++
++実行時のディスパッチは値の頭だけを見る(前提は運ばない)。入れ子も通る:
++
++  $ cat > pr10.kel <<'EOF'
++  > newtype List[A] = Cons(head: A, tail: List[A]) | Nil
++  > type instance[A: Eq] Eq[List[_]] {
++  >   let rec eq(xs, ys) = (xs, ys) match {
++  >     case (Nil, Nil)                 => true
++  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
++  >     case _                          => false
++  >   }
++  > }
++  > echoln(show(Cons(1i32, Cons(2i32, Nil)) == Cons(1i32, Cons(2i32, Nil))))
++  > echoln(show(Cons(1i32, Nil) == Cons(2i32, Nil)))
++  > echoln(show(Cons(Cons("a", Nil), Nil) == Cons(Cons("a", Nil), Nil)))
++  > echoln(show(Cons(Cons("a", Nil), Nil) == Cons(Cons("b", Nil), Nil)))
++  > echoln(show(Nil == Cons(1i32, Nil)))
++  > EOF
++  $ diktor pr10.kel
++  true
++  false
++  true
++  false
++  false
++
++AST ダンプ(束縛子があるときだけ tparams が出る):
++
++  $ cat > pr11.kel <<'EOF'
++  > newtype List[A] = Cons(A, tail: List[A]) | Nil
++  > newtype Opaque = MkOpaque(Int32)
++  > type instance[A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }
++  > type instance Eq[Opaque] { let eq(a, b) = true }
++  > EOF
++  $ diktor --dump-ast pr11.kel
++  (newtype List (A) (Cons A (tail: (tapp List A))) (Nil))
++  (newtype Opaque (MkOpaque Int32))
++  (instance (tparams (: A Eq)) Eq ((tapp List _))
++   (dletrec (binding eq (params xs ys) = true)))
++  (instance Eq (Opaque) (dlet (binding eq (params a b) = true)))

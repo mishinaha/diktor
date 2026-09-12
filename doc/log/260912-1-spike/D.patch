@@ -1,0 +1,273 @@
+--- a/lib/elab.ml	2026-08-30 03:17:40.268834633 +0900
++++ b/lib/elab.ml	2026-09-12 11:04:08.580208356 +0900
+@@ -1553,9 +1553,12 @@
+      ここへは到達しない *)
+   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
+   let runtime_msg e =
+-    if name_of e = "Console" then
+-      "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:342, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+-    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:481。スケジューラは書けません)"
++    match name_of e with
++    | "Console" ->
++        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :462)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
++    | "Fs" ->
++        "エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:408, :462)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:524 の with_file が見本)"
++    | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)"
+   in
+   let target =
+     match List.sort_uniq compare quals with
+@@ -2188,7 +2191,7 @@
+      「ここでは実行できません」で静的に落ちる *)
+   List.fold_right
+     (fun n acc -> if Decls.prelude_owned "effect" (intern n) then TRowExtend (intern n, t_unit, acc) else acc)
+-    Prims.runtime_effects TRowEmpty
++    (Prims.runtime_effects @ Prims.toplevel_only_effects) TRowEmpty
+ 
+ let initial_env () =
+   {
+--- a/lib/prelude.kel	2026-08-30 03:17:14.382514542 +0900
++++ b/lib/prelude.kel	2026-09-12 11:01:54.592263078 +0900
+@@ -169,6 +169,7 @@
+ effect Console = { write: (String) => Unit }
+ effect Print   = { print: (String) => Unit }
+ effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
++effect Fs      = {}
+ 
+ // ## 15.5 extern — 型はこちら、実装はあちら
+ //
+@@ -267,10 +268,10 @@
+ extern "prim" let __f64_to_i32(x: Float64): Int32
+ extern "prim" let __f64_to_i64(x: Float64): Int64
+ extern "prim" let __panic[A](message: String): A
+-extern "prim" let __open(path: String): Int32
+-extern "prim" let __read(h: Int32): String
+-extern "prim" let __write(h: Int32, s: String): Unit
+-extern "prim" let __close(h: Int32): Unit
++extern "prim" let __open(path: String): Int32 @ Fs
++extern "prim" let __read(h: Int32): String @ Fs
++extern "prim" let __write(h: Int32, s: String): Unit @ Fs
++extern "prim" let __close(h: Int32): Unit @ Fs
+ 
+ // 比較の残り 9 本と `__show_int32`。当初この一覧に宣言が無く、登録簿の
+ // 死角になっていた名前です (§15.5 の不変条件はこの 10 本の追加で立った)
+--- a/lib/prims.ml	2026-08-30 02:03:58.078219625 +0900
++++ b/lib/prims.ml	2026-09-12 11:02:47.917070042 +0900
+@@ -164,4 +164,6 @@
+    両側が動くという意味であって、**両側を直さなくてよいという意味ではない**
+    ことに注意してください。ここは境界であって、境界の向こうは第13章です。 *)
+ 
+-let runtime_effects = [ "Console"; "Async" ]
++let runtime_effects = [ "Console"; "Async"; "Fs" ]
++
++let toplevel_only_effects = [ "Blocking" ]
+--- a/test/blocking_top.t	1970-01-01 09:00:00.000000000 +0900
++++ b/test/blocking_top.t	2026-09-12 11:10:12.046118254 +0900
+@@ -0,0 +1,58 @@
++Blocking はトップレベルに残せる(仕様 sample.kel:579, :718-719)。
++かつてはトップレベル行が {Console, Async} だけで、@ Blocking の付いた
++関数を pinned 無しでは呼べなかった。
++
++  $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
++
++  $ cat > btop.kel <<'KEL'
++  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
++  > echoln(show(sqrt(16.0)))
++  > KEL
++  $ diktor btop.kel
++  4.0
++
++pinned で落とすこともできる(仕様 sample.kel:722)。落とさずに純粋な行へ
++持ち込むのは従来どおり拒否:
++
++  $ cat > bpure.kel <<'KEL'
++  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
++  > let pure_sqrt(x: Float64): Float64 @ {} = pinned(fn() => sqrt(x))
++  > let bad(x: Float64): Float64 @ {} = sqrt(x)
++  > KEL
++  $ diktor --type-check bpure.kel
++  sqrt : (Float64) => Float64 @ {Blocking extends R1}
++  pure_sqrt : (Float64) => Float64
++  ! bpure.kel:3:37: 型エラー: ラベル Blocking がありません(行は閉じています)
++  [1]
++
++注釈した行に Blocking が無ければ、剛い行に足せないという従来の診断:
++
++  $ cat > bann.kel <<'KEL'
++  > extern "C" let sqrt(x: Float64): Float64 @ Blocking
++  > let g(x: Float64): Float64 @ Console = { echo("x"); sqrt(x) }
++  > KEL
++  $ diktor --type-check bann.kel
++  sqrt : (Float64) => Float64 @ {Blocking extends R1}
++  ! bann.kel:2:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Blocking を足せません(注釈側に Blocking を(必要なら引数つきで)書き足してください)
++  [1]
++
++Blocking は操作を持たないので handle の対象にできない(禁止の名指しでは
++なく「属しません」で落ちる — ランタイム提供の 3 つとは別扱い):
++
++  $ cat > bh.kel <<'KEL'
++  > let f[A, E](b: () => A @ {Blocking extends E}): A @ E =
++  >   b() handle {
++  >     case Blocking.nope() => resume({})
++  >     case return(x) => x
++  >   }
++  > KEL
++  $ diktor --type-check bh.kel
++  ! bh.kel:2:3: 型エラー: 操作 nope はエフェクト Blocking に属しません
++  [1]
++
++操作を足した再宣言は照合で落ちる(Heap と同じ組み込みラベル):
++
++  $ printf 'effect Blocking = { block: (String) => Int32 }\n' > bbad.kel
++  $ diktor --type-check bbad.kel
++  ! bbad.kel:1:1: 型エラー: effect Blocking の宣言がプレリュードの宣言と一致しません(操作が違います: プレリュードは操作を持ちません)
++  [1]
+--- a/test/fs_effect.t	1970-01-01 09:00:00.000000000 +0900
++++ b/test/fs_effect.t	2026-09-12 11:09:48.542119689 +0900
+@@ -0,0 +1,147 @@
++ファイル I/O の行 Fs(仕様 sample.kel:408, :518-524)。__open / __read /
++__write / __close は @ Fs を載せるので、純粋な文脈からは呼べない。
++かつては行なしで型付き、@ {} のコールバックからファイルを触れた
++(260829-5 台帳 V15)。
++
++  $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
++
++プリミティブの型に Fs が載る:
++
++  $ cat > sig.kel <<'KEL'
++  > let o(p: String): Int32 @ Fs = __open(p)
++  > let r(h: Int32): String @ Fs = __read(h)
++  > let w(h: Int32, s: String): Unit @ Fs = __write(h, s)
++  > let c(h: Int32): Unit @ Fs = __close(h)
++  > KEL
++  $ diktor --type-check sig.kel
++  o : (String) => Int32 @ {Fs extends R1}
++  r : (Int32) => String @ {Fs extends R1}
++  w : (Int32, String) => {} @ {Fs extends R1}
++  c : (Int32) => {} @ {Fs extends R1}
++
++純粋な文脈からは呼べない:
++
++  $ printf 'let pure_open(p: String): Int32 @ {} = __open(p)\n' > pure.kel
++  $ diktor --type-check pure.kel
++  ! pure.kel:1:40: 型エラー: ラベル Fs がありません(行は閉じています)
++  [1]
++
++pub の省略 @(純粋)も同じ:
++
++  $ printf 'pub let f(): Int32 = __open("x")\n' > pub.kel
++  $ diktor --type-check pub.kel
++  ! pub.kel:1:22: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Fs を足せません(注釈側に Fs を(必要なら引数つきで)書き足してください))
++  [1]
++
++V15 の穴が閉じた — par / par_map の @ {} コールバックから触れない:
++
++  $ cat > par_fs.kel <<'KEL'
++  > let arr(): Array[Int32] = run h { Array.new(1, 0) }
++  > let _ = par_map(arr(), fn(x) => __open("secret"))
++  > KEL
++  $ diktor --type-check par_fs.kel
++  arr : () => Array[Int32]
++  ! par_fs.kel:2:33: 型エラー: ラベル Fs がありません(行は閉じています)
++  [1]
++  $ printf 'let p = par(fn() => __open("a"), fn() => 1)\n' > par2.kel
++  $ diktor --type-check par2.kel
++  ! par2.kel:1:21: 型エラー: ラベル Fs がありません(行は閉じています)
++  [1]
++
++トップレベルには Fs が載っているので、そこからは呼べる
++(仕様 sample.kel:579):
++
++  $ cat > top.kel <<'KEL'
++  > let h = __open("a.txt")
++  > let _ = __write(h, "hello")
++  > let _ = __close(h)
++  > let g = __open("a.txt")
++  > echoln(__read(g))
++  > KEL
++  $ diktor top.kel
++  hello
++
++Fs はランタイムが提供するのでユーザはハンドルできない
++(操作を持たないので非修飾では候補にも挙がらない。修飾で名指ししたとき
++だけこの診断に届く):
++
++  $ cat > fsh.kel <<'KEL'
++  > let f[A, E](b: () => A @ {Fs extends E}): A @ E =
++  >   b() handle {
++  >     case Fs.nope() => resume({})
++  >     case return(x) => x
++  >   }
++  > KEL
++  $ diktor --type-check fsh.kel
++  ! fsh.kel:2:3: 型エラー: エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:408, :462)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:524 の with_file が見本)
++  [1]
++
++仕様 sample.kel が自分で effect Fs = {} を宣言する形は、D35 の構造照合で
++受理される(操作なしどうしで一致):
++
++  $ cat > fsdecl.kel <<'KEL'
++  > effect Fs = {}
++  > effect File = {
++  >   read:  () => String,
++  >   write: (String) => Unit,
++  > }
++  > let with_file[A, E](path: String, body: () => A @ {File, Fs extends E}): A @ {Fs extends E} = {
++  >   let h = __open(path)
++  >   body() handle {
++  >     case read()    => resume(__read(h))
++  >     case write(s)  => resume(__write(h, s))
++  >     case return(x) => { __close(h); x }
++  >     case cancel    => __close(h)
++  >   }
++  > }
++  > let copy(src: String, dst: String): Unit @ {Console, Fs} = {
++  >   with _ = with_file(src)
++  >   let text = perform read()
++  >   with _ = with_file(dst)
++  >   perform write(text)
++  > }
++  > let seed(): Unit @ Fs = {
++  >   let h = __open("src.txt")
++  >   __write(h, "hello")
++  >   __close(h)
++  > }
++  > seed()
++  > copy("src.txt", "dst.txt")
++  > let back = { let h = __open("dst.txt"); let s = __read(h); __close(h); s }
++  > echoln("dst=[" + back + "]")
++  > KEL
++  $ diktor fsdecl.kel
++  dst=[hello]
++
++操作を足した再宣言は照合で落ちる:
++
++  $ printf 'effect Fs = { op1: () => Int32 }\n' > fsbad.kel
++  $ diktor --type-check fsbad.kel
++  ! fsbad.kel:1:1: 型エラー: effect Fs の宣言がプレリュードの宣言と一致しません(操作が違います: プレリュードは操作を持ちません)
++  [1]
++
++プレリュードの extern は再宣言できない(@ Fs を剥がす経路を塞ぐ):
++
++  $ printf 'extern "prim" let __open(p: String): Int32\n' > reo.kel
++  $ diktor --type-check reo.kel
++  ! reo.kel:1:1: 型エラー: プレリュードの extern __open は再宣言できません
++  [1]
++  $ printf 'module M { extern "prim" let __open(p: String): Int32 }\n' > reo2.kel
++  $ diktor --type-check reo2.kel
++  ! reo2.kel:1:12: 型エラー: プレリュードの extern __open は再宣言できません
++  [1]
++
++残る穴は V14(高階位置の省略 @ のエフェクト洗浄)だけ。newtype の
++フィールドを経由すると Fs も洗われる — この形は M21 の範囲外で、
++V14 の裁定で閉じる:
++
++  $ cat > v14.kel <<'KEL'
++  > newtype Cb = Cb(() => Int32)
++  > let run_cb(c: Cb): Int32 = c match { case Cb(f) => f() }
++  > let arr(): Array[Int32] = run h { Array.new(1, 0) }
++  > let touched = par_map(arr(), fn(x) => run_cb(Cb(fn() => { let h = __open("secret"); __write(h, "leaked"); __close(h); 1 })))
++  > let back = { let h = __open("secret"); let s = __read(h); __close(h); s }
++  > echoln("read back: [" + back + "]")
++  > KEL
++  $ diktor v14.kel
++  read back: [leaked]
