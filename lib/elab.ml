@@ -208,6 +208,17 @@ let rec irrefutable_pat ((_, p) : T.pat) =
    ため(H6 / D44) *)
 let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
+(* 行の単一化に由来する失敗かどうか(エラー文言の言い換えの門番。D78)。
+   引数の型不一致まで §9 の行の話にしないための判定。pub の言い換え
+   (§11.12)と入れ子の省略 @ の言い換え(§11.12 / §11.18)が共用する *)
+let row_failure msg =
+  let has sub s =
+    let n = String.length sub and m = String.length s in
+    let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
+    go 0
+  in
+  has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
+
 (* 「@ を省略した let の、本体が純粋だと**判明した**行」を公開のときに
    行変数へ開き直す(D76。仕様 §9 の表「let は推論する。純粋な本体なら
    行変数として一般化され、どこからでも呼べる」)。行が空に固まるのは、
@@ -1011,10 +1022,23 @@ and elab_exp' env level eff node e =
    D22 の解決規則が「引数の行が先に固まっていること」を暗黙の前提に
    していたと分かった箇所です。
 
-   > 双方向化は多相のためだけの道具ではない。解決の順序を決める道具でもある。 *)
+   > 双方向化は多相のためだけの道具ではない。解決の順序を決める道具でもある。
+
+   単一化が行の不一致で落ちたときの文言は 3 段に言い換えます (D78)。
+   `pub` の `@` 省略の Rigid 行と衝突した形は pub の規則を名指しし(M16)、
+   呼び出し先の行が空 = 純粋な関数を空でない行の下から呼ぶ形と、この位置の
+   行が空 = 高階の引数の行が `@ {}` である形は、仕様 §9 の「入れ子の矢印の
+   `@` 省略は `@ {}`」を案内します(M26)。言い換えるのは行由来の失敗だけで、
+   その門番が `row_failure` です — 引数の型不一致まで行の話にしてはいけません。
+   `callee_pure` を単一化の**前**に取るのは、単一化が失敗しても呼び出し先の
+   行が書き換わっていることがあるからです。 *)
 
   | T.Apply (f, arg) ->
       let tf = elab_exp env level eff f in
+      (* 単一化の**前**に呼び出し先の行を覚えておく(あとでは書き換わる)。
+         空行の関数を空でない行から呼ぶ失敗は仕様 §9 の規則そのものなので、
+         一般文言のかわりに規則を案内する(D78) *)
+      let callee_pure = match repr tf with TArrow (_, _, e) -> repr e = TRowEmpty | _ -> false in
       let tr = new_var level in
       let pvar = new_var level in
       (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(§11.12) *)
@@ -1031,17 +1055,16 @@ and elab_exp' env level eff node e =
            | TVar r -> ( match !r with Rigid i -> Hashtbl.mem pub_pure_rows i.vid | _ -> false)
            | _ -> false
          in
-         let has sub s =
-           let n = String.length sub and m = String.length s in
-           let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
-           go 0
-         in
-         if
-           pub_pure
-           && (has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg
-              || has "は注釈で固定された行変数" msg)
-         then
+         if pub_pure && row_failure msg then
            type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
+         else if row_failure msg && callee_pure then
+           type_error
+             (msg
+            ^ "(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)")
+         else if row_failure msg && repr eff = TRowEmpty then
+           type_error
+             (msg
+            ^ "(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
          else type_error msg);
       elab_check env level eff arg pvar;
       tr
@@ -1295,7 +1318,13 @@ and elab_exp' env level eff node e =
    引数を推論するときだけ `eff` が要ります。引数ゼロのコンストラクタは
    `elab_exp` の `Ident` 経路からも来るので、`eff` を省略可能引数に
    しています。引数があるのに `eff` が無いのは呼び出し側の誤りなので
-   `bug` で落とします。型検査器の内部矛盾はユーザのエラーではありません。 *)
+   `bug` で落とします。型検査器の内部矛盾はユーザのエラーではありません。
+
+   コンストラクタの引数の単一化が行の不一致で落ちたときは、newtype の
+   フィールドの矢印の規則(書いたとおりに読み、省略は `@ {}` — 仕様 §9)を
+   添えます (M26 / D78)。エフェクトつきの閉包を newtype に入れて純粋として
+   取り出す形(台帳 V14)はまさにここで落ちるので、この言い換えがいちばん
+   効きます。門番は §11.12 と同じ `row_failure` です。 *)
 
 and elab_construct env level node cname ?eff args =
   let ctor = intern cname in
@@ -1350,7 +1379,14 @@ and elab_construct env level node cname ?eff args =
               | Some eff -> elab_exp env level eff e
               | None -> bug "elab_construct: 引数つきなのに eff がない"
             in
-            Unify.unify ety (Unify.subst_params level subst f.Decls.fi_ty))
+            let fty = Unify.subst_params level subst f.Decls.fi_ty in
+            (* V14 の形(エフェクトつきの閉包を newtype に入れる)はここで落ちる
+               ので、行由来の失敗だけ §9 の規則で言い換える(D78) *)
+            try Unify.unify ety fty
+            with Type_error msg when row_failure msg ->
+              type_error
+                (msg ^ "(コンストラクタ " ^ cname
+               ^ " のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)"))
           args;
         TCon (dname, List.map snd subst)
 
