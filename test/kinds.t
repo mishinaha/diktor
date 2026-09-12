@@ -250,6 +250,8 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
 
   $ printf 'type Unit = {}\nnewtype Callback[E] = Callback(() => Unit @ E)\ntype Cb[E] = Callback[E]\nlet f(c: Cb[Int32]): Int32 = 0\n' > aliaskind.kel
   $ diktor --type-check --no-prelude aliaskind.kel
+  ! aliaskind.kel:4:13: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  [1]
 
 パラメータつき EffectRow エイリアスは行 splice の位置にも置ける(D85。M17 の
 「記録のみ」の 1 件。かつては引数つきの要素がエフェクト表しか見ず「未知の
@@ -274,11 +276,15 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
   > let f(c: Callback[Int32]): Int32 = 0
   > EOF
   $ diktor --type-check --no-prelude kinderr2.kel
+  ! kinderr2.kel:3:19: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  [1]
 
 本当に未知の名前は従来どおり:
 
   $ printf 'newtype Callback[E] = Callback(() => Unit @ E)\nlet f(c: Callback[{Nope}]): Int32 = 0\n' > nope.kel
   $ diktor --type-check nope.kel
+  ! nope.kel:2:19: 型エラー: 未知のエフェクト: Nope
+  [1]
 
 行カインドになったパラメータに型クラスの制約は書けない(M28。260829-5 の M17
 「記録のみ」の 2 件目。かつてエイリアスでは全使用点で落ち、newtype では構築点が
@@ -286,10 +292,15 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
 
   $ printf 'type R[E: Show]: EffectRow = {Console extends E}\n' > rowconstr.kel
   $ diktor --type-check rowconstr.kel
+  ! rowconstr.kel:1:1: 型エラー: 型パラメータ E は行カインドなので、型クラス Show の制約は書けません(型クラスは Type のクラス)
+  [1]
   $ printf 'newtype N[E: Show] = N(() => Unit @ E)\n' > rowconstr2.kel
   $ diktor --type-check rowconstr2.kel
+  ! rowconstr2.kel:1:1: 型エラー: 型パラメータ E は行カインドなので、型クラス Show の制約は書けません(型クラスは Type のクラス)
+  [1]
 
 Type のパラメータの制約は従来どおり言及時に効く(規則 3):
 
   $ printf 'type P[A: Show] = (A, A)\nlet f(x: P[Int32]): Int32 = 0\n' > tyconstr.kel
   $ diktor --type-check tyconstr.kel
+  f : ((Int32, Int32)) => Int32
