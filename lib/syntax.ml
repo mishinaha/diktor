@@ -599,12 +599,14 @@ module Type = struct
    `effect Silent = {}` のように空の本体を許します。にもかかわらず
    第6章がこの 2 つを表へ直接登録するのは、別の理由からです。
 
-   `Heap` は `run` が導入し `Ref.new` / `Ref.get` / `Ref.set` が要求する
-   ラベルですが、`Heap[h]` のように**エフェクトへパラメータを与える**
-   構文が v0 にありません(§1.17 の `ef_params` は場所だけ空いていて、
-   非空なら第11章が拒否します)。`Ref` / `Array` の操作の型もその `h`
-   抜きには書けないので、第6章 (decls.ml) の §6.11 がまとめて
-   組み立てます。`Blocking` は同じ組み込み表に相乗りするラベルで、
+   `Heap` は `run` が導入し `Ref` と `MutableArray` の操作が要求する
+   ラベルです。エフェクト**宣言**にパラメータを与える構文は v0 に
+   ありません(§1.17 の `ef_params` は場所だけ空いていて、非空なら
+   第11章が拒否します)が、型式の側では `@ {Heap[h]}` と書けるので、
+   `Ref` / `MutableArray` の操作の型を `extern` の署名として書くこと自体は
+   できます(第6章 §6.11)。それでも第6章 (decls.ml) の §6.11 がまとめて
+   組み立てるのは、実装が OCaml 側の値と分かちがたく、プレリュードに
+   置くと二重管理になるからです。`Blocking` は同じ組み込み表に相乗りするラベルで、
    `extern` がブロックしうることを表明するために名指しします
    (sample.kel:549,560)。
 
@@ -644,8 +646,9 @@ module Type = struct
 
   let cls_fractional = intern "Fractional"
 
-  (* 操作なしの組み込みエフェクトラベル。Heap[h] のパラメータ構文が v0 に無いので
-     decls.ml が Ref/Array ごと直接登録する(§1.10) *)
+  (* 操作なしの組み込みエフェクトラベル。エフェクト宣言にパラメータを
+     与える構文が v0 に無いので、decls.ml が Ref/Array/MutableArray ごと
+     直接登録する(§1.10) *)
   let eff_heap = intern "Heap"
 
   let eff_blocking = intern "Blocking"
