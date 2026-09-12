@@ -200,3 +200,96 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   $ diktor --type-check --no-prelude nofunctor.kel
   ! nofunctor.kel:6:1: 型エラー: インスタンス頭 Callback のカインドがクラス Functor のパラメータと一致しません
   [1]
+
+型エイリアスのパラメータのカインドも本体から推論して表に残す(D84)。
+newtype を透過に包むエイリアスに、行変数でも具体的な行でも渡せる(かつては
+引数を全部型として読んだので、具体的な行は「エフェクトラベルはこの位置では
+使えません」で落ちた):
+
+  $ cat > alias.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > type Cb[E] = Callback[E]
+  > let f[E](c: Cb[E]): Cb[E] = c
+  > let g(c: Cb[{Print}]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude alias.kel
+  f : (Callback[R1]) => Callback[R1]
+  g : (Callback[{Print}]) => Int32
+
+宣言順に依存しない(推論は 1b の後始末の投機的な精緻化で、使用点より前に済む。
+使用がエイリアスより前でも、エイリアスが newtype より前でも同じ):
+
+  $ cat > aliasorder.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > let g(c: Cb[{Print}]): Int32 = 0
+  > type Cb[E] = Callback[E]
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > EOF
+  $ diktor --type-check aliasorder.kel
+  g : (Callback[{Print}]) => Int32
+
+エイリアス経由で newtype のパラメータのカインドが決まる形。既定化を投機より
+後に置いたので、X が先に Type に固定されない(D81 / D84):
+
+  $ cat > aliasfwd.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype A6[X] = MkA6(Cb2[X])
+  > type Cb2[E] = Callback2[E]
+  > newtype Callback2[E] = Callback2(() => Unit @ E)
+  > let f[E](x: A6[E]): A6[E] = x
+  > let g(x: A6[{Print}]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude aliasfwd.kel
+  f : (A6[R1]) => A6[R1]
+  g : (A6[{Print}]) => Int32
+
+行カインドのパラメータに型を渡すと、エイリアスの側の診断で落ちる:
+
+  $ printf 'type Unit = {}\nnewtype Callback[E] = Callback(() => Unit @ E)\ntype Cb[E] = Callback[E]\nlet f(c: Cb[Int32]): Int32 = 0\n' > aliaskind.kel
+  $ diktor --type-check --no-prelude aliaskind.kel
+
+パラメータつき EffectRow エイリアスは行 splice の位置にも置ける(D85。M17 の
+「記録のみ」の 1 件。かつては引数つきの要素がエフェクト表しか見ず「未知の
+エフェクト: WithPrint」で落ちた):
+
+  $ cat > splice.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > effect Fs = {}
+  > type WithPrint[E]: EffectRow = {Print extends E}
+  > let f[E](x: Int32): Int32 @ {Fs, WithPrint[E]} = x
+  > EOF
+  $ diktor --type-check --no-prelude splice.kel
+  f : (Int32) => Int32 @ {Fs, Print extends R1}
+
+エフェクト行の位置に型の名前を書いたときは「未知」ではなく「エフェクトでは
+ない」と言う(D85。Int32 は未知ではない):
+
+  $ cat > kinderr2.kel <<'EOF'
+  > type Unit = {}
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > let f(c: Callback[Int32]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude kinderr2.kel
+
+本当に未知の名前は従来どおり:
+
+  $ printf 'newtype Callback[E] = Callback(() => Unit @ E)\nlet f(c: Callback[{Nope}]): Int32 = 0\n' > nope.kel
+  $ diktor --type-check nope.kel
+
+行カインドになったパラメータに型クラスの制約は書けない(M28。260829-5 の M17
+「記録のみ」の 2 件目。かつてエイリアスでは全使用点で落ち、newtype では構築点が
+行を見ないので黙って素通りした):
+
+  $ printf 'type R[E: Show]: EffectRow = {Console extends E}\n' > rowconstr.kel
+  $ diktor --type-check rowconstr.kel
+  $ printf 'newtype N[E: Show] = N(() => Unit @ E)\n' > rowconstr2.kel
+  $ diktor --type-check rowconstr2.kel
+
+Type のパラメータの制約は従来どおり言及時に効く(規則 3):
+
+  $ printf 'type P[A: Show] = (A, A)\nlet f(x: P[Int32]): Int32 = 0\n' > tyconstr.kel
+  $ diktor --type-check tyconstr.kel

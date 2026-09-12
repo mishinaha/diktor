@@ -387,6 +387,13 @@ let check_ctor_visible ctor owner =
    採れること、そして `al_kind`(`: Type` か `: EffectRow` か)によって
    同じ型式が型としてもエフェクト行としても展開されうることです。
 
+   透過でも、パラメータの**カインド**だけは表に残します(`al_kinds`、
+   M28 / D84)。引数を読むのは使用点で、そこでは「行として読むか型として
+   読むか」をパラメータのカインドで決めるしかありません — 本体を見てから
+   引数を読み直すことはできないからです。カインドは第11章の 1b の後始末が
+   本体を一度投機的に精緻化して推論し、未確定なら `Type` に既定化します。
+   newtype の `dd_params` が持つ `vkind` と同じ役目の、エイリアス版です。
+
    エイリアスには 2 つの禁止事項が付いています — **再帰しない**ことと、
    **部分適用できない**こと(計画 §2.1)。後者は MiniLang §0 の
    「規則 2: 部分適用できる型シノニムを入れない」と同じもので、
@@ -584,6 +591,7 @@ let rec type_exp_equiv (ren : (string * string) list) ((_, a) : T.type_exp) ((_,
 type alias_info = {
   al_name : oid;
   al_params : type_param list;
+  al_kinds : Type.kind list; (* パラメータのカインド。1a で作り、1b の後始末で本体から推論する(D84) *)
   al_kind : string option; (* : Type / : EffectRow *)
   al_body : T.type_exp;
   (* 本体は**宣言スコープ**で展開する(D43)。module 内のエイリアスが

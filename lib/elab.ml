@@ -560,6 +560,21 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    対照的に、より早い時点になります)。かつては tp_classes が黙って無視され、
    同じ構文を書いても何も起きませんでした。
 
+   第 5 の規則は M28 (D84) で、規則 3 と対になります。
+
+   > **規則 5: 引数はパラメータのカインドに合わせて読む。**
+
+   エイリアスに構築点が無いことの帰結がもう 1 つあります。newtype なら
+   `Callback[{Print}]` の `{Print}` を行として読むための情報は宣言表の
+   `dd_params` にありますが、透過なエイリアスは展開後に痕跡を残さないので、
+   パラメータのカインドだけは表(`al_kinds`、第6章 §6.5)に残しておかないと
+   使用点で読み分けられません。カインドは 1b の後始末が本体を一度投機的に
+   精緻化して決めます(§11.39)。読み分けと照合の規則は `elab_con_args` と
+   同じで、`type Cb[E] = Callback[E]` に `Cb[{Print}]` と書けるようになりました
+   (`test/kinds.t` の alias)。かつては引数を全部型として読んでいたので、
+   行変数を渡す形だけが通り、具体的な行は「エフェクトラベルはこの位置では
+   使えません」で落ちていました。
+
    `check_no_hole` は、その規則の系です。引数位置に `_` が書けてしまうと
    「引数を捨てる型関数」を書いたのと同じことになるので、インスタンス頭
    以外では穴を拒否します。
@@ -600,6 +615,15 @@ and elab_con_args env level ~expanding cname k args =
 and check_no_hole ((_, te) as t : T.type_exp) =
   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
 
+(* 「未知のエフェクト」の言い分け(D85)。名前が型として登録されていれば
+   綴りの誤りではなく位置の誤りなので、そう言う。resolve_con は module の
+   同義語を辿るので、スコープ外の内部型名にもこちらの文言が出うるが、
+   受理・拒否は変わらない *)
+and unknown_effect n =
+  if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
+    "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
+  else "未知のエフェクト: " ^ n
+
 and expand_alias env level ~expanding info args =
   if List.mem info.Decls.al_name expanding then
     type_error ("型エイリアス " ^ name_of info.Decls.al_name ^ " が再帰しています(エイリアスは非再帰)")
@@ -608,8 +632,28 @@ and expand_alias env level ~expanding info args =
       (Printf.sprintf "型エイリアス %s の引数は %d 個必要です(%d 個与えられました。部分適用は禁止)" (name_of info.Decls.al_name)
          (List.length info.Decls.al_params) (List.length args))
   else
-    (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま) *)
-    let arg_tys = List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args in
+    (* 引数は**使用スコープ**で精緻化する(呼び出し側の module のまま)。
+       読み分けは表のカインド(al_kinds、D84)で決める — 規則は elab_con_args と
+       同じ(判定は kind_repr の構造マッチ、照合は same_kind)。al_kinds は
+       構築点で al_params と同じ長さに作られるので、食い違いは処理系の欠陥 *)
+    if List.length info.Decls.al_kinds <> List.length info.Decls.al_params then
+      bug ("expand_alias: " ^ name_of info.Decls.al_name ^ " の al_kinds の長さが al_params と違います");
+    let arg_tys =
+      List.map2
+        (fun a pk ->
+          let a = check_no_hole a in
+          let t =
+            match kind_repr pk with
+            | KRow -> elab_eff env level ~expanding a
+            | _ -> elab_type env level ~expanding a
+          in
+          if not (same_kind pk (Unify.kind_of t)) then
+            type_error
+              ("型エイリアス " ^ name_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
+             ^ " を期待しましたが " ^ Show.show t ^ " は " ^ show_kind (Unify.kind_of t) ^ " です");
+          t)
+        args info.Decls.al_kinds
+    in
     (* パラメータ制約は展開時 = **型を書いた時点**で課す(M17 / D51)。
        エイリアスは透過で、展開後の型に制約の痕跡が残らない — だから
        その場で見るしかない。newtype より**早い**時点になる(newtype の
@@ -643,7 +687,9 @@ and expand_alias env level ~expanding info args =
    同じ形をしています。区別できるのは型検査器だけで、その判定がこの関数です。
 
    1. `env.types` にあり、カインドが行なら — 行変数。
-   2. `EffectRow` と注記されたエイリアスなら — 展開して splice。
+   2. `EffectRow` と注記されたエイリアスなら — 展開して splice。引数が
+      あってもなくても、エイリアスは effect 宣言表より先に見ます
+      (M28 / D85)。
    3. effect 宣言表にあれば — `@ Print` は `@ {Print}` の略記なので、
       ラベル 1 つの閉じた行にする。
 
@@ -662,6 +708,16 @@ and expand_alias env level ~expanding info args =
    受けません。行の合成は末尾の `extends` だけ、と決めておくと、
    `row_append` の左辺が常に閉じているという不変条件が保てます。
 
+   `Heap[h]`(ラベルの引数)と `WithPrint[E]`(パラメータつき EffectRow
+   エイリアスの適用)は構文上同形です。取り違えないのは、型名・エフェクト名・
+   エイリアス名が `claim_type_name` の 1 つの名前空間に載っているからで、
+   名前を引けばどちらかは決まります。かつては引数つきの要素がエフェクト表
+   しか見ず、`{Fs, WithPrint[E]}` が「未知のエフェクト: WithPrint」で落ちて
+   いました(M17 の記録。M28 / D85 で閉じました — `test/kinds.t` の splice)。
+   同じ改稿で「未知のエフェクト」を言い分けるようにしました。名前が型として
+   登録されているなら綴りの誤りではなく位置の誤りなので、`Callback[Int32]` は
+   「型 Int32 はエフェクトではありません」と言います(`unknown_effect`)。
+
    相互再帰の 3 関数を定義し終えたら、`~expanding` を空リストで閉じた
    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
 
@@ -678,7 +734,7 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
   | T.EIdent (LongId [ n ]) ->
       (* @ Print = @ {Print} の略記(計画 §7.6) *)
       if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
-      else type_error ("未知のエフェクト: " ^ n)
+      else type_error (unknown_effect n)
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
       (* @ Heap[h] = @ {Heap[h]} の略記。文法(eff_name)は受けるのに枝が
          無く、ブレース無しの引数付きラベルだけ「未知の型: Heap」に落ちて
@@ -700,26 +756,31 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
       List.fold_right
         (fun elem acc ->
           match elem with
-          | T.BLabel (LongId [ n ], []) -> (
+          | T.BLabel (LongId [ n ], args) -> (
+              (* エイリアスを先に見る。引数の有無で経路を分けない — エフェクト名と
+                 型名は同じ名前空間(claim_type_name)なので、Heap[h](ラベルの引数)と
+                 WithPrint[E](エイリアスの適用)を取り違えない(D85)。かつては
+                 引数つきの枝がエフェクト表しか見ず、{Fs, WithPrint[E]} が
+                 「未知のエフェクト: WithPrint」で落ちていた(M17 の記録) *)
               match Hashtbl.find_opt Decls.aliases (intern n) with
               | Some info when info.Decls.al_kind = Some "EffectRow" ->
-                  row_append (expand_alias env level ~expanding info []) acc (* 行 splice(計画 §7.6) *)
+                  row_append (expand_alias env level ~expanding info args) acc (* 行 splice(計画 §7.6) *)
               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
               | None ->
-                  if SMap.mem n env.types then
-                    (* {E1, Print} のような行変数の合成は未対応(末尾 extends のみ) *)
+                  if args = [] && SMap.mem n env.types then
+                    (* {E1, Print} のような行変数の合成は未対応(末尾 extends のみ)。
+                       引数つきのときに env.types を見ないのも従来どおり — 型パラメータ
+                       への適用は行の要素になれない *)
                     type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
-                  else if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, acc)
-                  else type_error ("未知のエフェクト: " ^ n))
-          | T.BLabel (LongId [ n ], args) ->
-              if not (Hashtbl.mem Decls.effects (intern n)) then type_error ("未知のエフェクト: " ^ n)
-              else
-                TRowExtend
-                  ( intern n,
-                    (match args with
-                    | [ a ] -> elab_type env level ~expanding a
-                    | _ -> type_error "エフェクトラベルの引数は1個までです"),
-                    acc )
+                  else if Hashtbl.mem Decls.effects (intern n) then
+                    TRowExtend
+                      ( intern n,
+                        (match args with
+                        | [] -> t_unit
+                        | [ a ] -> elab_type env level ~expanding a
+                        | _ -> type_error "エフェクトラベルの引数は1個までです"),
+                        acc )
+                  else type_error (unknown_effect n))
           | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
@@ -1983,14 +2044,20 @@ and class_names_of tp =
       c)
     tp.tp_classes
 
-and make_rigids level tparams =
-  List.map
-    (fun tp ->
-      let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
+and make_rigids ?kinds level tparams =
+  (* kinds は型エイリアスの表のセル(al_kinds、D84)。長さが合わないときは
+     黙って作り直す — 構築点で必ず一致するので、ここは保険 *)
+  let kinds =
+    match kinds with
+    | Some ks when List.length ks = List.length tparams -> ks
+    | _ -> List.map (fun (tp : type_param) -> if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()) tparams
+  in
+  List.map2
+    (fun tp kind ->
       let classes = class_names_of tp in
       let r = new_rigid_ref ~kind ~classes level in
       (tp.tp_name, TVar r, r))
-    tparams
+    tparams kinds
 
 (* ## 11.26 明示的エフェクト注釈の開放
 
@@ -3241,14 +3308,26 @@ let check_instance_bodies env (i : T.instance_decl') =
    クラスのメソッドは、非修飾名 (`map`) と修飾名 (`Functor.map`) の
    **両方**で値環境に登録します (乖離 12)。どちらでも書けるという仕様を、
    環境に 2 つ入れるという最も安い方法で実現しています。
-   1b の後始末として、宣言列をもう一度なめる小さなループが 1 つ走ります。
-   仕事は 2 つ。クラスメソッド・newtype・型エイリアスの型パラメータ制約に
+   1b の後始末として、宣言列をもう一度なめる小さなループが 2 つ走ります。
+   仕事は 3 つ。クラスメソッド・newtype・型エイリアスの型パラメータ制約に
    未知のクラスが無いかを見ること(1b の中で検査すると、後ろで宣言されるクラスを制約に書いた
-   形が落ちてしまうので、クラス表が出揃うのを待つ)と、newtype のパラメータの
-   カインドを既定化すること(D81)。既定化がここに来るのは、宣言ごとに落とすと
-   相互参照する newtype の間で早すぎる時点に `KStar` が固定されるからです
-   (§11.31)。表に新しく登録するものはありません — 既定化は表のセルを
-   書き換えるだけです。
+   形が落ちてしまうので、クラス表が出揃うのを待つ)、型エイリアスの本体を
+   一度**投機的に**精緻化してパラメータのカインドを推論すること(M28 / D84)、
+   そして newtype とエイリアスのパラメータのカインドを既定化すること(D81)。
+   投機と呼ぶのは、診断を捨てるからです — 本物の検査(未知の型・再帰・
+   部分適用)はパス 2 が同じ本体でやり直すので、ここで落としてしまうと
+   §11.43 の「最初の 1 つ」がどのエラーになるかが変わります。捕まえる例外は
+   D55 の分類 (a) の 4 つだけで、`Panic` は捕まえません。
+   既定化が 2 つ目のループに来るのは、宣言ごとに落とすと
+   相互参照する newtype の間で早すぎる時点に `KStar` が固定されるからで
+   (§11.31)、投機より後に置くのは、newtype のパラメータのカインドがエイリアス
+   経由で決まる形(`newtype A[X] = MkA(Cb[X])` と `type Cb[E] = Callback[E]`)で
+   投機が届く前に `X` を固定しないためです。表に新しく登録するものは
+   ありません — 既定化は表のセルを書き換えるだけです。既定化の直後に、
+   行カインドになったパラメータに型クラスの制約が書かれていないかも見ます
+   (`check_row_constraints`、M28)。型クラスは Type のクラスなので行には
+   要求できず、かつてエイリアスでは全使用点で落ち、newtype では構築点が
+   行を見ないので黙って素通りしていました(260829-5 の M17「記録のみ」の 2 件目)。
 
    **1c — インスタンスの頭と前方参照シグネチャ。** 頭のカインド検査に
    クラス表が要るので 1b の後。署名の登録はここが最後のチャンスです
@@ -3288,6 +3367,24 @@ let with_decl_module node f =
   Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
   Fun.protect ~finally:(fun () -> Decls.current_module := saved) f
 
+(* 行カインドのパラメータに型クラスの制約は書けない(M28。260829-5 の M17
+   「記録のみ」の 2 件目)。型クラスは Type のクラスなので、行に要求しても
+   満たす手段が無い — かつてエイリアスでは全使用点で「クラス Show は Type の
+   クラスですが…」と落ち、newtype では構築点が行を見ないので黙って素通り
+   していた。カインドが決まった後(1b の後始末の 2 周目)に宣言の位置で見る *)
+let check_row_constraints (tparams : type_param list) (kinds : kind list) =
+  if List.length tparams = List.length kinds then
+    List.iter2
+      (fun (tp : type_param) k ->
+        match kind_repr k with
+        | KRow when tp.tp_classes <> [] ->
+            type_error
+              ("型パラメータ " ^ tp.tp_name ^ " は行カインドなので、型クラス "
+              ^ String.concat ", " (List.map show_long_id tp.tp_classes)
+              ^ " の制約は書けません(型クラスは Type のクラス)")
+        | _ -> ())
+      tparams kinds
+
 let process_decls env ~emit decls =
   let eff0 = toplevel_eff () in
   (* パス1a: 型エイリアスの登録と newtype の頭(カインド) *)
@@ -3302,6 +3399,12 @@ let process_decls env ~emit decls =
             {
               Decls.al_name = intern t.T.ta_name;
               al_params = t.T.ta_params;
+              (* パラメータのカインドのセル(D84)。F[_] と書いてあればその場で
+                 確定、それ以外は 1b の後始末が本体から推論する *)
+              al_kinds =
+                List.map
+                  (fun (tp : type_param) -> if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ())
+                  t.T.ta_params;
               al_kind = t.T.ta_kind;
               al_body = t.T.ta_body;
               al_module = !Decls.current_module;
@@ -3368,21 +3471,59 @@ let process_decls env ~emit decls =
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
-      | T.DNewtype n ->
-          List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params;
-          (* 1b が全部終わってから既定化する(D81)。宣言ごとに落とすと、
-             相互参照する newtype の間でカインド変数が早すぎる時点で
-             KStar に固定される(same_kind は未解決どうしを片方に張る)。
-             頭と dd_params の両方を落とすのは念のため — セルを共有して
-             いるので通常はどちらか一方で足りる *)
-          default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
-          (match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
-          | Some dd -> List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params
-          | None -> ())
+      | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
       (* DType もここで見る。プレリュード所有名の再宣言は add_alias が黙って
          捨てる(乖離 4)ので、パス 2 の make_rigids には AST が届かない —
          AST 側で検査しないと type Unit[A: Bogus] = A が素通りする(検証) *)
-      | T.DType t -> List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params
+      | T.DType t -> (
+          List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params;
+          (* エイリアス本体のカインド推論(D84)。ここで一度**投機的に**本体を
+             精緻化し、パラメータのカインドだけを決めて結果は捨てる。パス 2 の
+             実在検査より前にやらないと、エイリアスを先に使う宣言があったときに
+             カインドが宣言順で変わる。診断は出さない — 本物の検査はパス 2 が
+             同じ本体でやり直す(D55 の (a)。捕まえるのは握り潰す節の 4 つだけで、
+             Panic は絶対に捕まえない)。本体が途中で落ちる宣言では、落ちた先の
+             使われ方が推論に届かず Type に既定化されるが、そのプログラムは
+             どのみちパス 2 で同じ箇所が落ちる。プレリュード所有名の再宣言は
+             表にプレリュードの本体が残っているので、読むのもそちら *)
+          match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
+          | None -> ()
+          | Some info -> (
+              try
+                let rigids = make_rigids ~kinds:info.Decls.al_kinds 1 info.Decls.al_params in
+                let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
+                ignore
+                  (match info.Decls.al_kind with
+                  | Some "EffectRow" -> elab_eff env_ty 1 info.Decls.al_body
+                  | _ -> elab_type env_ty 1 info.Decls.al_body)
+              with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ()))
+      | _ -> ())
+    decls;
+  (* 1b の後始末の 2 周目: カインドの既定化。1b が全部終わってから落とす
+     (D81)。宣言ごとに落とすと、相互参照する newtype の間でカインド変数が
+     早すぎる時点で KStar に固定される(same_kind は未解決どうしを片方に張る)。
+     エイリアスの投機(1 周目)より後に置くのは、newtype のパラメータのカインドが
+     エイリアス経由で決まる形(newtype A[X] = MkA(Cb[X]) と type Cb[E] = Callback[E])
+     で、投機が届く前に X を固定しないため。頭と dd_params の両方を落とすのは
+     念のため — セルを共有しているので通常はどちらか一方で足りる *)
+  List.iter
+    (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
+      with_decl_module node @@ fun () ->
+      match d with
+      | T.DNewtype n -> (
+          default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
+          match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
+          | Some dd ->
+              List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params;
+              check_row_constraints n.T.nt_params (List.map (fun (i : var_info) -> i.vkind) dd.Decls.dd_params)
+          | None -> ())
+      | T.DType t -> (
+          match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
+          | Some info ->
+              List.iter default_kind info.Decls.al_kinds;
+              check_row_constraints t.T.ta_params info.Decls.al_kinds
+          | None -> ())
       | _ -> ())
     decls;
   (* パス1c: インスタンス頭の登録と、注釈が完全な let の署名登録 *)
@@ -3460,7 +3601,7 @@ let process_decls env ~emit decls =
           (* 実在検査(未知の型・再帰・部分適用)をここで走らせる。結果は捨てる *)
           let info = Hashtbl.find Decls.aliases (intern t.T.ta_name) in
           let lvl = 1 in
-          let rigids = make_rigids lvl info.Decls.al_params in
+          let rigids = make_rigids ~kinds:info.Decls.al_kinds lvl info.Decls.al_params in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
           ignore
             (match info.Decls.al_kind with
