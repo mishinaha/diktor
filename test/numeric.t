@@ -305,3 +305,55 @@ Int64 の 16 進リテラルは値で区別される(A10。63 ビットの int_o
   $ diktor --type-check wit.kel
   h : (Float64) => Int32
   ⚠ match が非網羅的です。例えば 2.0 が漏れています
+
+残る変換 3 本(__i32_to_i64 / __i32_to_f64 / __i64_to_f64)。値を作れない
+ことがない向きなので実行時エラーは無い。i64 → f64 は仮数に入らない値を丸める:
+
+  $ cat > conv3.kel <<'KEL'
+  > echoln(show(__i32_to_i64(2147483647)))
+  > echoln(show(__i32_to_f64(2147483647)))
+  > echoln(show(__i64_to_f64(9007199254740993i64)))
+  > KEL
+  $ diktor conv3.kel
+  2147483647
+  2147483647.0
+  9007199254740992.0
+
+整数算術の桁あふれは wrap-around(§2。暫定。変換の実行時エラーと扱いが
+違うのは、算術は必ず表現できる値を返すため):
+
+  $ cat > wrap.kel <<'KEL'
+  > let maxi = 2147483647
+  > let mini = 0 - maxi - 1
+  > echoln(show(maxi + 1))
+  > echoln(show(mini - 1))
+  > echoln(show(maxi * 2))
+  > echoln(show(9223372036854775807i64 + 1i64))
+  > KEL
+  $ diktor wrap.kel
+  -2147483648
+  2147483647
+  -2
+  -9223372036854775808
+
+String は UTF-8 のバイト列(§2。長さも部分文字列もバイト単位。Char 型は無い):
+
+  $ cat > utf8.kel <<'KEL'
+  > echoln(show(__string_length("あ")))
+  > echoln(__string_sub("あい", 0, 3))
+  > KEL
+  $ diktor utf8.kel
+  3
+  あ
+
+  $ printf 'let c: Char = 1\n' > nochar.kel
+  $ diktor --type-check nochar.kel
+  ! nochar.kel:1:8: 型エラー: 未知の型: Char
+  [1]
+
+非有限値のリテラルは無い(文字列化の字面 nan / inf は読み戻せない。§14 の TODO):
+
+  $ printf 'let x: Float64 = nan\n' > nanlit.kel
+  $ diktor --type-check nanlit.kel
+  ! nanlit.kel:1:18: 型エラー: 未束縛の変数: nan
+  [1]
