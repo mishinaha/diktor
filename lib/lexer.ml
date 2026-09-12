@@ -416,6 +416,19 @@ module Make (Data : Syntax.Data) = struct
 
    > 読めない入力を EOF と嘘をつくレキサは、その先のすべてのエラーメッセージを壊す。
 
+   この教訓には対があります。`any` に落ちた文字を**そのまま**メッセージに
+   出すと、不可視の文字では診断が読めなくなります。実例が BOM(U+FEFF)で、
+   仕様 §0 は先頭の BOM を字句エラーと定めていますが、生のまま出すと
+   `unexpected character: ` の後ろに見えない 3 バイトが並ぶだけで、
+   ゴールデンにも焼けません(エディタや差分ツールが黙って壊します)。
+   そこで `any` の分岐は、BOM・C0 制御文字・DEL・ゼロ幅系(U+200B〜U+200F)・
+   行区切りと双方向制御(U+2028〜U+202E)だけを `U+XXXX` の表記に落とし、
+   それ以外は従来どおり字面を出します(`test/tokens.t` の bom / bom2)。
+   途中に現れた BOM も同じ経路で同じ字句エラーになります — 仕様が定めて
+   いるのは先頭だけですが、読めないことに変わりはありません(D102)。
+
+   > 読めた不可視文字をそのまま出すレキサは、診断を読めなくする。
+
    `{` だけは確定させずに `LBRACE_BLOCK` を置きます。これは
    「ブロックである」という判断ではなく**未分類の印**で、次の層が必ず
    上書きします。専用の未分類トークンを作らなかったのは、`token` 型は
@@ -493,7 +506,17 @@ module Make (Data : Syntax.Data) = struct
     | '|' -> here VERTICAL
     | '\\' -> here BACKSLASH
     | eof -> here EOF
-    | any -> raise (Lex_error ("unexpected character: " ^ lexeme lexbuf, cur_pos lexbuf))
+    | any ->
+        (* 不可視・制御文字は字面を出しても診断にならない。BOM (U+FEFF) が
+           その筆頭で、生のまま出すとゴールデンにも焼けない (M21 / F-C6)。
+           \n \t \r は上の分岐が先に取るのでここには来ない *)
+        let cp = Uchar.to_int (Sedlexing.lexeme_char lexbuf 0) in
+        let shown =
+          if cp = 0xFEFF || cp < 0x20 || cp = 0x7F || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2028 && cp <= 0x202E)
+          then Printf.sprintf "U+%04X" cp
+          else lexeme lexbuf
+        in
+        raise (Lex_error ("unexpected character: " ^ shown, cur_pos lexbuf))
     | _ -> raise (Lex_error ("unexpected input", cur_pos lexbuf))
 
 (* ## 2.8 レキサの状態と先読みキュー
