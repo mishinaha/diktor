@@ -22,6 +22,10 @@ __read / __write / __close は @ Fs を載せるので、純粋な文脈から�
   r : (Int32) => String @ {Fs extends R1}
   w : (Int32, String) => {} @ {Fs extends R1}
   c : (Int32) => {} @ {Fs extends R1}
+  p_open : (String) => Int32 @ {Fs extends R1}
+  p_read : (Int32) => String @ {Fs extends R1}
+  p_write : (Int32, String) => {} @ {Fs extends R1}
+  p_close : (Int32) => {} @ {Fs extends R1}
 
 純粋な文脈からは呼べない:
 
@@ -166,6 +170,13 @@ test/blocking_top.t の bnp)。自前の effect Fs = {} と自前の prim は宣
   > main()
   > KEL
   $ diktor --type-check --no-prelude npfs.kel
+  __open : (String) => Int32 @ {Fs extends R1}
+  __close : (Int32) => {} @ {Fs extends R1}
+  main : () => {} @ {Fs extends R1}
+  ! npfs.kel:6:1: 型エラー: ラベル Fs がありません(行は閉じています)
+  [1]
   $ printf 'type Unit = {}\neffect Fs = {}\nextern "prim" let __open(path: String): Int32 @ Fs\nextern "prim" let __close(h: Int32): Unit @ Fs\n' > fspre.kel
   $ printf 'let main(): Unit @ Fs = { let h = __open("a"); __close(h) }\nmain()\n' > withpre.kel
   $ diktor --prelude fspre.kel --type-check withpre.kel
+  main : () => {} @ {Fs extends R1}
+  _ : {}
