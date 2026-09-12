@@ -368,6 +368,13 @@ let unit = VRecord []
    桁数が延々と伸びるためで、大きい側は指数表記の最短往復 + `.0` の
    補完で受けます。
 
+   指数表記の指数部は `+` と先頭の `0` を落とします(`1e+16` ではなく `1e16`、
+   `1e-05` ではなく `1e-5`。M28 / D108)。`%g` が出す `e+16` は C の慣習で、
+   仕様 §2 の「読み戻せば同じ値になる字面のうち最短のもの」に照らせば
+   `+` と `0` は余分です。ただし「最短」をそのまま整数値に当てて
+   `100000.0` を `1e5` にはしません — `%.1f` の枝を優先するのは上に書いた
+   「型を見せる」ためで、仕様の `.0` 補完の規定と目的が同じだからです。
+
    非有限値は往復の原則の**外**です。Keleut には inf / nan のリテラルが
    無いので、読み戻せる字面はそもそも存在しません。黙って原則を破るのでは
    なく、`inf` / `-inf` / `nan` と表示すると決めます (D27)。NaN の符号を
@@ -407,6 +414,21 @@ let float_repr f =
         if float_of_string s = f then s else go (p + 1)
     in
     let s = go 1 in
+    (* 指数部の + と先頭の 0 を落とす(仕様 §2 の「最短」、D108)。
+       1e+16 は 1e16 に、1e-05 は 1e-5 に。読み戻しは壊れない *)
+    let s =
+      match String.index_opt s 'e' with
+      | None -> s
+      | Some i ->
+          let mant = String.sub s 0 i and ex = String.sub s (i + 1) (String.length s - i - 1) in
+          let sign, digits =
+            if String.length ex > 0 && (ex.[0] = '+' || ex.[0] = '-') then
+              ((if ex.[0] = '-' then "-" else ""), String.sub ex 1 (String.length ex - 1))
+            else ("", ex)
+          in
+          let rec strip d = if String.length d > 1 && d.[0] = '0' then strip (String.sub d 1 (String.length d - 1)) else d in
+          mant ^ "e" ^ sign ^ strip digits
+    in
     if String.exists (fun c -> c = '.' || c = 'e' || c = 'E') s then s else s ^ ".0"
 
   (* ---- 印字(実行時エラーの表示用) ---- *)

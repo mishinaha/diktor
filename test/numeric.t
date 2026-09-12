@@ -94,8 +94,8 @@ Ord[Float64] は IEEE 754(NaN が絡む 4 比較はすべて偽。A1 / D23):
 
   $ cat > roundtrip.kel <<'KEL'
   > let a: Float64 = 12345678901234568.0
-  > let b: Float64 = 1e+16
-  > let c: Float64 = 1e-05
+  > let b: Float64 = 1e16
+  > let c: Float64 = 1e-5
   > echoln(show(a))
   > echoln(show(b))
   > echoln(show(c))
