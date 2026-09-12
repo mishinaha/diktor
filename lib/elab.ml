@@ -248,15 +248,31 @@ let check_pub_annots ~params ~ret =
 
    `elab_type` は表層の型式を第1章の内部型に変換します。名前解決・エイリアス
    展開・カインド検査がここで同時に済みます。専用のカインド検査パスは
-   ありません。「引数の個数が宣言のカインドと合うか」を見るだけで、
-   それがカインド検査の全部です (MiniLang §5.2 と同じ割り切り)。
+   ありません。かつては「引数の個数が宣言のカインドと合うか」を見るだけで、
+   中身は `elab_type` に丸投げしていました (MiniLang §5.2 と同じ割り切り)。
+   M23 (D82) からは型構成子の適用で、**宣言されたパラメータのカインドに
+   合わせて引数を読み分け、読んだ結果のカインドを照合します**
+   (`elab_con_args`)。行カインドのパラメータの位置ではエフェクト行として
+   読むので、`Callback[{}]` の `{}` は空行、`Callback[{Print}]` は 1 ラベルの
+   閉じた行、`Callback[{Print extends E}]` は開いた行です。それ以外の位置では
+   型として読み、`{}` は Unit です。`Box[E]` に行変数を渡す形は、使用点で
+   `bind` が内部名を並べて落とすのではなく、宣言のその場で
+   「Type を期待しましたが ς1 は Row です」と落ちます(`test/kinds.t` の kinderr)。
+
+   読み分けの判定は `kind_repr` の構造マッチで、照合は `same_kind` です。
+   §1.6 の「カインドは構造で比べず `same_kind` で比べる」という格言に
+   あえて逆らう唯一の場所で、理由は `same_kind` が `KVar` を張ることに
+   あります — 判定に使うと、未確定のパラメータが全部 `Row` に固定されます。
+   照合の側が張るのはむしろ望ましく、パス 1b の中(相互再帰する newtype が
+   互いを参照する形)ではこれがカインドの伝播路として働きます。
 
    名前の引き方には優先順位があります。
 
    1. `env.types` にある名前 — 型パラメータとリージョン変数。ここが最優先で、
       内側の `[A]` は外側の型構成子 `A` を隠します。
    2. 型エイリアス — あれば**その場で展開**します (§11.5)。
-   3. 宣言表の型構成子 — カインドを引き、引数の個数を照合します。
+   3. 宣言表の型構成子 — カインドを引き、引数の個数を照合し、パラメータの
+      カインドで引数を読み分けて照合します。
 
    `Decls.resolve_con` を必ず通すのは module 平坦化 (§11.42) の同義語表を
    引くためです。`module Parser` の中で `Parser` と書いても、外から
@@ -326,7 +342,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
             let k = Decls.con_kind oid (List.length args) in
             let rec arity k = match kind_repr k with KArrow (_, r) -> 1 + arity r | _ -> 0 in
             if arity k <> List.length args then type_error ("型構成子 " ^ String.concat "." comps ^ " の引数の個数が不正です")
-            else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
+            else TCon (oid, elab_con_args env level ~expanding (String.concat "." comps) k args))
           else type_error ("未知の型: " ^ String.concat "." comps))
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) -> (
       match SMap.find_opt n env.types with
@@ -345,7 +361,7 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
                 let expected = arity k in
                 if expected <> List.length args then
                   type_error (Printf.sprintf "型構成子 %s の引数は %d 個必要です(%d 個与えられました)" n expected (List.length args))
-                else TCon (oid, List.map (fun a -> elab_type env level ~expanding (check_no_hole a)) args))
+                else TCon (oid, elab_con_args env level ~expanding n k args))
               else type_error ("未知の型: " ^ n)))
   | T.EApply _ -> type_error "型適用の頭は型名でなければなりません"
 (* ## 11.4 矢印・レコード行・ヴァリアント和
@@ -481,6 +497,29 @@ let rec elab_type env level ~expanding (((_, te) as t) : T.type_exp) : ty =
    `al_kind` が `EffectRow` のときだけ本体をエフェクト行として精緻化します。
    Keleut では行変数とエフェクト名が構文上同形なので、エイリアスの側に
    カインドの注記が要ります (§11.6)。 *)
+
+(* 型引数を宣言されたパラメータのカインドに合わせて読む(D82)。
+   Row のパラメータなら elab_eff、そうでなければ elab_type。
+   読み終えたらカインドを照合する — 不一致はここで落とす方が、
+   subst_params 越しに使用点で bind が落とすより早く読みやすい。
+   読み分けの判定は kind_repr の構造マッチで行い、same_kind は使わない
+   — same_kind は KVar を張るので、判定に使うと未確定のパラメータを
+   全部 Row に固定してしまう(§1.6 の格言にあえて逆らう唯一の場所)。
+   照合の側は same_kind でよく、パス 1b ではこれがカインドの伝播路になる *)
+and elab_con_args env level ~expanding cname k args =
+  let rec go k i = function
+    | [] -> []
+    | a :: rest ->
+        let pk, kr = match kind_repr k with KArrow (a', r) -> (a', r) | _ -> (new_kind_var (), KStar) in
+        let a = check_no_hole a in
+        let t = match kind_repr pk with KRow -> elab_eff env level ~expanding a | _ -> elab_type env level ~expanding a in
+        if not (same_kind pk (Unify.kind_of t)) then
+          type_error
+            (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
+               (show_kind pk) (Show.show t) (show_kind (Unify.kind_of t)));
+        t :: go kr (i + 1) rest
+  in
+  go k 0 args
 
 and check_no_hole ((_, te) as t : T.type_exp) =
   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
