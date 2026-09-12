@@ -11,16 +11,9 @@ eachpure / eachclosed の 4 ブロックは test/region.t へ移し、「仕様�
 なく「意図した挙動」のゴールデンになっている(M24。設計は
 doc/log/260912-1-plan.md §3)。
 
-暫定裁定の観測点(I5 / D65): タプルラベルは _item、整数リテラルは
-Int32 に既定化:
-
-  $ cat > tupledefault.kel <<'KEL'
-  > let fst_[A, R](t: {_item: A extends R}): A = t._0
-  > let n = 1 + 1
-  > KEL
-  $ diktor --type-check tupledefault.kel
-  fst_ : ({_item: A extends R1}) => A
-  n : Int32
+タプルラベルと整数リテラルの既定化(I5 / D65)は仕様 §4 / §2 が確定した(§4:156
+「ラベル名は `_item` で確定する」、§2:76 は改訂前と同じ)。ここにあった tupledefault は
+削った — 観測点は test/typecheck.t の resugar と test/typecheck_sample.t が持つ。
 
 cancel 節からの perform の再入(I10 / D66)は仕様 §9 が裁定した(D100。cancel 節は
 自分のハンドラが外れた文脈で走り、perform は外側の同名ハンドラに届く)。
