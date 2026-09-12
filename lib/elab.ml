@@ -1713,9 +1713,12 @@ and elab_handle env level eff clauses body =
      こちらにすり替わる(第7章 §7.3。Fs は M27 で名簿に入る) *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
-    if name_of e = "Console" then
-      "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :453)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
-    else "エフェクト " ^ name_of e ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)"
+    match name_of e with
+    | "Console" ->
+        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :462)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+    | "Fs" ->
+        "エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:408, :462)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:524 の with_file が見本)"
+    | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)"
   in
   let target =
     match List.sort_uniq compare quals with

@@ -165,10 +165,11 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 //
 // > 実行時に何もしないエフェクトでも、型に載っていれば検査は働く。
 
-// ランタイムが提供する低レベルなエフェクト(仕様 sample.kel:407, 486)
+// ランタイムが提供する低レベルなエフェクト(仕様 sample.kel:407, 408, 646)
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
 effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
+effect Fs      = {}
 
 // ## 15.5 extern — 型はこちら、実装はあちら
 //
@@ -267,10 +268,10 @@ extern "prim" let __i64_to_f64(x: Int64): Float64
 extern "prim" let __f64_to_i32(x: Float64): Int32
 extern "prim" let __f64_to_i64(x: Float64): Int64
 extern "prim" let __panic[A](message: String): A
-extern "prim" let __open(path: String): Int32
-extern "prim" let __read(h: Int32): String
-extern "prim" let __write(h: Int32, s: String): Unit
-extern "prim" let __close(h: Int32): Unit
+extern "prim" let __open(path: String): Int32 @ Fs
+extern "prim" let __read(h: Int32): String @ Fs
+extern "prim" let __write(h: Int32, s: String): Unit @ Fs
+extern "prim" let __close(h: Int32): Unit @ Fs
 
 // 比較の残り 9 本と `__show_int32`。当初この一覧に宣言が無く、登録簿の
 // 死角になっていた名前です (§15.5 の不変条件はこの 10 本の追加で立った)

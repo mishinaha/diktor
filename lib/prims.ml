@@ -189,6 +189,6 @@ let show_bin_op = function
    `toplevel_effects` を `runtime_effects` からの連結で定義しているのは、
    この包含を構造で保つためです。 *)
 
-let runtime_effects = [ "Console"; "Async" ]
+let runtime_effects = [ "Console"; "Async"; "Fs" ]
 
 let toplevel_effects = runtime_effects @ [ "Blocking" ]
