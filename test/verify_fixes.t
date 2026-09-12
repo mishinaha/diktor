@@ -471,6 +471,24 @@ resume の引数はラベルを取らない(F7。ペイロードは操作の返�
   333.0
   truetruetruetruetrue
 
+インスタンス宣言より前の位置で使うと、黙って構造的等価に落ちずに実行時
+エラー(M22 検証。型検査はパス 1c で表を揃えるので宣言順を問わないが、
+実行はまだ実体を持たない。かつては Box(1) == Box(1) が宣言の前では true、
+後では false になった):
+
+  $ cat > instorder.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > let b1 = Box(1) == Box(1)
+  > type instance Eq[Box] { let eq(a, b) = false }
+  > echoln(show(b1))
+  > KEL
+  $ diktor --type-check instorder.kel
+  b1 : Boolean
+  _ : {}
+  $ diktor instorder.kel
+  実行時エラー: Eq[Box] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)
+  [3]
+
 解決キャッシュはインスタンス宣言で無効化される(H12。宣言前の呼び出しが
 覚えた「見つからない」が残ると、後の宣言が二度と見えない):
 
