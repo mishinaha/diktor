@@ -203,7 +203,10 @@ let show_all ts =
    `(A)` と表示され、行多相であることが読み取れなくなります。
 
    1 要素のときだけ `(A,)` と末尾コンマを打つのは、`(A)` が
-   ただの括弧と区別できないからです。表層構文の側の規約に合わせています。 *)
+   ただの括弧と区別できないからです。表層構文の側の規約に合わせています。
+   同じ規則を第12章 §12.7(実行時の値)と第10章 §10.12(網羅性の反例)も
+   持っています(D101)。3 形(2 要素以上・1 要素・空)は `test/typecheck.t` の
+   resugar / resugar2 がゴールデンにしています(M21 / F-B9)。 *)
 
   let is_tuple_row fields tail =
     (match repr tail with TRowEmpty -> true | _ -> false) && List.for_all (fun (l, _) -> l = l_item) fields

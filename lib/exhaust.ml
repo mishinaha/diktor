@@ -766,6 +766,10 @@ let rec useful rows q tys =
      `(a, b)` と括弧で並べます。そうでなければ波括弧のレコード記法です。
      `(false, false)` という反例が出るのはこの経路で、
      `{_item = false, _item = false}` と出たら教材として失格です。
+     1 要素のときは `(a,)` と末尾カンマを打ちます(仕様 §4、D101)。
+     `(false)` はパターンとしてはグループ化なので、貼り戻しても
+     1 要素タプルのパターンにならず、同じ失格になるからです。
+     第9章 §9.3(型)と第12章 §12.7(値)も同じ規則です。
 
    フィールドが空で閉じているレコードは `()` — こちらは `Unit` の
    値そのものなので、タプル規則より先に判定しています。
@@ -786,7 +790,7 @@ let rec show_ipat = function
   | IRecord ([], true) -> "()"
   | IRecord (fs, closed) ->
       if closed && fs <> [] && List.for_all (fun (l, _) -> l = l_item) fs then
-        "(" ^ String.concat ", " (List.map (fun (_, p) -> show_ipat p) fs) ^ ")"
+        "(" ^ String.concat ", " (List.map (fun (_, p) -> show_ipat p) fs) ^ (match fs with [ _ ] -> ",)" | _ -> ")")
       else "{" ^ String.concat ", " (List.map (fun (l, p) -> name_of l ^ " = " ^ show_ipat p) fs) ^ "}"
 
 (* ## 10.13 検査キュー — なぜ `match` の瞬間に検査しないのか
