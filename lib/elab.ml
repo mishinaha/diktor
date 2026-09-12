@@ -3035,6 +3035,18 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 
    > 与えるほうは柔らかく、要求するほうは硬く。逆にすると検査が意味を失う。
 
+   行だけは第 3 の扱いを受けます (M26 / D77)。表に 1 行足すなら
+   「最外の行 | 実装が空なら単一化しない | 純粋ならどの行でも名乗れる」です。
+   引数と返り値を先に単一化し、**そのあとで**実装の最外の行を見ます —
+   メソッドの引数に `@` を省略した矢印があると、引数の単一化で実装の行が
+   `{}` に固まる(D75)ので、順序が意味を持ちます。固まった行は「本体が
+   何も起こさない」ことの証明で、空行は行の最小元なので、そこからの一般化は
+   嘘になりません。仕様 §9 の「型クラスのメソッドは実装が純粋で、公開される
+   型は行多相」を包摂の側で実現する形で、これが無いと `val fmap2[X, Y]:
+   (F[X], (X) => Y) => F[Y]` のように引数の矢印の `@` を省略したメソッドが
+   「宣言できるのに実装できない」ものになります(`test/classes.t` の clsrow)。
+   実装が純粋でなければ従来どおり落ちます(clsimpure)。
+
    前提つきインスタンス (M22 / D93) では頭型が**部分適用形**になります。
    `type instance[A: Eq] Eq[List[_]]` の頭型は `List[A]` で、`A` は
    `make_rigids` が作る剛定数です。剛定数の `vcls` に前提 `Eq` が載って
@@ -3073,7 +3085,22 @@ let check_instance_bodies env (i : T.instance_decl') =
   let subsume mname inferred =
     let lvl = 1 in
     let skol = Unify.skolemize lvl (expected_of mname) in
-    try Unify.unify (Unify.instantiate lvl inferred) skol
+    let inf = Unify.instantiate lvl inferred in
+    try
+      (* 最外の行だけ最後に見る(仕様 §9 の「型クラスのメソッド = 実装は純粋、
+         公開は行多相」— D77)。引数と返り値を先に合わせたあと、実装の行が
+         空 = 純粋なら、宣言の行(剛定数)と単一化せずに受理する — 純粋な
+         実装はどの行の下からでも呼べるので、公開の行多相を名乗ってよい。
+         pub の @ 省略(D44)が Rigid → Generic でやっている非対称を、
+         推論された空行に対して行う形。メソッドの引数に @ を省略した
+         矢印があると実装の行は必ず {} に固まる(D75)ので、この抜け道が
+         無いと宣言できるのに実装できないメソッドが生まれる(実測) *)
+      match (repr inf, repr skol) with
+      | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
+          Unify.unify ia sa;
+          Unify.unify ir sr;
+          if repr ie = TRowEmpty then () else Unify.unify ie se
+      | _ -> Unify.unify inf skol
     with Type_error msg ->
       type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")
   in

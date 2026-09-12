@@ -180,3 +180,44 @@ Generic を扱えず、満たしていても落ちた):
   $ printf 'let f[A: Eq + Ord](x: A, y: A): Boolean = x == y && x < y\n' > ordeq2.kel
   $ diktor --type-check ordeq2.kel
   f : [A: Eq + Ord] (A, A) => Boolean
+
+型クラスのメソッドの最外の @ 省略は「実装は純粋・公開は行多相」(§9 / D77)。
+引数の矢印の @ を省略したメソッドも、純粋な実装なら書ける(入れ子の省略 @ は
+@ {} なので実装の行は {} に固まる — 包摂が最外の行を最後に見て受理する):
+
+  $ cat > clsrow.kel <<'KEL'
+  > type Unit = {}
+  > newtype Box[A] = Box(A)
+  > type class Mapper2[F[_]] {
+  >   val fmap2[X, Y]: (F[X], (X) => Y) => F[Y]
+  > }
+  > type instance Mapper2[Box[_]] {
+  >   let fmap2(b, f) = b match { case Box(x) => Box(f(x)) }
+  > }
+  > KEL
+  $ diktor --type-check --no-prelude clsrow.kel
+
+エフェクト多相にしたいメソッドは行変数を明示する(§8 の Functor):
+
+  $ cat > clsrow2.kel <<'KEL'
+  > type Unit = {}
+  > newtype Box[A] = Box(A)
+  > type class Mapper[F[_]] {
+  >   val fmap[X, Y, E]: (F[X], (X) => Y @ E) => F[Y] @ E
+  > }
+  > type instance Mapper[Box[_]] {
+  >   let fmap(b, f) = b match { case Box(x) => Box(f(x)) }
+  > }
+  > KEL
+  $ diktor --type-check --no-prelude clsrow2.kel
+
+実装が純粋でなければ落ちる(§9 の「実装が純粋でなければならず」):
+
+  $ cat > clsimpure.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Sizer[T] { val size: (T) => Int32 }
+  > type instance Sizer[Box] { let size(b) = b match { case Box(x) => { echo("eff!"); x } } }
+  > KEL
+  $ diktor --type-check clsimpure.kel
+  ! clsimpure.kel:3:32: 型エラー: インスタンスメソッド size がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  [1]
