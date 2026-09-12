@@ -221,3 +221,34 @@ Generic を扱えず、満たしていても落ちた):
   $ diktor --type-check clsimpure.kel
   ! clsimpure.kel:3:32: 型エラー: インスタンスメソッド size がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
   [1]
+
+型クラスのメソッドの最外のラベル付き行も、let / extern と同じく公開では行変数で
+開かれる(仕様 §9 の表は束縛の最外にメソッドを含める。M26 の検証まで開いておらず、
+@ Console と書いたメソッドは注釈つきの文脈からもトップレベルからも呼べなかった):
+
+  $ cat > clsrow3.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Pr[T] { val pr: (T) => Unit @ Console }
+  > type instance Pr[Box] { let pr(b) = b match { case Box(x) => echo("n") } }
+  > let use(b: Box): Unit @ {Console, Print} = pr(b)
+  > let use2(b: Box): Unit @ Console = pr(b)
+  > use2(Box(1))
+  > KEL
+  $ diktor --type-check clsrow3.kel
+  use : (Box) => {} @ {Console, Print extends R1}
+  use2 : (Box) => {} @ {Console extends R1}
+  _ : {}
+  $ diktor clsrow3.kel
+  n
+
+本体が上限で、純粋な文脈からは呼べない(D44 と同じ非対称):
+
+  $ cat > clsrow4.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Pr[T] { val pr: (T) => Unit @ Console }
+  > type instance Pr[Box] { let pr(b) = b match { case Box(x) => () } }
+  > let use3(b: Box): Unit @ {} = pr(b)
+  > KEL
+  $ diktor --type-check clsrow4.kel
+  ! clsrow4.kel:4:31: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]

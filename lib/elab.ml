@@ -208,7 +208,7 @@ let rec irrefutable_pat ((_, p) : T.pat) =
    ため(H6 / D44) *)
 let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
-(* 行の単一化に由来する失敗かどうか(エラー文言の言い換えの門番。D78)。
+(* 行の単一化に由来する失敗かどうか(エラー文言の言い換えの門番。M26 の B6)。
    引数の型不一致まで §9 の行の話にしないための判定。pub の言い換え
    (§11.12)と入れ子の省略 @ の言い換え(§11.12 / §11.18)が共用する *)
 let row_failure msg =
@@ -231,6 +231,16 @@ let row_failure msg =
    矢印そのものを組み直すので、Tree.set_ty より**前**に呼ぶこと *)
 let reopen_pure_row level ty =
   match repr ty with TArrow (a, r, e) when repr e = TRowEmpty -> TArrow (a, r, new_row_var level) | _ -> ty
+
+(* 最外の @ が書かれているか(D76 のガード)。関数束縛は lb_eff、値束縛は
+   注釈の頭が矢印リテラルならその @。頭が矢印リテラルでない注釈(型エイリアス
+   等)は展開先の矢印が入れ子として読まれる(D75 — 省略は @ {}、@ {} は両方向)
+   ので「書かれている」側に倒し、開き直さない。1c の署名(§11.37)も同じ閉じた
+   行を作るので、宣言順に依存しない(M26 の検証で見つかった食い違い) *)
+let outer_eff_written (b : T.let_binding') =
+  match b.T.lb_params with
+  | Some _ -> b.T.lb_eff <> None
+  | None -> ( match b.T.lb_ret with Some (_, T.EArrow (_, _, eff)) -> eff <> None | Some _ -> true | None -> false)
 
 (* 注釈中の全ての矢印に @ が明示されているか(§11.36 の判定。パス 1c の
    前方参照シグネチャと、pub の完全注釈検査(D44)が共用する) *)
@@ -404,7 +414,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    | 矢印の位置 | 書いたラベル付き行 | `@ {}` | `@` 省略 |
    |---|---|---|---|
-   | 束縛の**最外**(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開は行変数で開く(§11.26) | 閉じたまま(両方向) | `let` = 推論、`pub let` = 純粋(D44)、メソッド = 実装純粋・公開行多相、`extern` = 行変数 |
+   | 束縛の**最外**(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開は行変数で開く(§11.26。クラスメソッドは M26 の検証まで開いておらず、§11.33 で直した) | 閉じたまま(両方向) | `let` = 推論、`pub let` = 純粋(D44)、メソッド = 実装純粋・公開行多相、`extern` = 行変数 |
    | **入れ子**(引数の型・返り値の中・newtype のフィールド・effect の操作型の引数・エイリアスの展開先) | 書いたとおり閉じたまま(開かない) | 閉じたまま | **`@ {}`(純粋)** |
 
    最外の矢印は `elab_binding` が `TArrow` を手で組み立てるので、ここには
@@ -1027,7 +1037,7 @@ and elab_exp' env level eff node e =
 
    > 双方向化は多相のためだけの道具ではない。解決の順序を決める道具でもある。
 
-   単一化が行の不一致で落ちたときの文言は 3 段に言い換えます (D78)。
+   単一化が行の不一致で落ちたときの文言は 3 段に言い換えます (M26 の B6)。
    `pub` の `@` 省略の Rigid 行と衝突した形は pub の規則を名指しし(M16)、
    呼び出し先の行が空 = 純粋な関数を空でない行の下から呼ぶ形と、この位置の
    行が空 = 高階の引数の行が `@ {}` である形は、仕様 §9 の「入れ子の矢印の
@@ -1040,7 +1050,7 @@ and elab_exp' env level eff node e =
       let tf = elab_exp env level eff f in
       (* 単一化の**前**に呼び出し先の行を覚えておく(あとでは書き換わる)。
          空行の関数を空でない行から呼ぶ失敗は仕様 §9 の規則そのものなので、
-         一般文言のかわりに規則を案内する(D78) *)
+         一般文言のかわりに規則を案内する(M26 の B6) *)
       let callee_pure = match repr tf with TArrow (_, _, e) -> repr e = TRowEmpty | _ -> false in
       let tr = new_var level in
       let pvar = new_var level in
@@ -1325,7 +1335,7 @@ and elab_exp' env level eff node e =
 
    コンストラクタの引数の単一化が行の不一致で落ちたときは、newtype の
    フィールドの矢印の規則(書いたとおりに読み、省略は `@ {}` — 仕様 §9)を
-   添えます (M26 / D78)。エフェクトつきの閉包を newtype に入れて純粋として
+   添えます (M26 の B6)。エフェクトつきの閉包を newtype に入れて純粋として
    取り出す形(台帳 V14)はまさにここで落ちるので、この言い換えがいちばん
    効きます。門番は §11.12 と同じ `row_failure` です。 *)
 
@@ -1384,7 +1394,7 @@ and elab_construct env level node cname ?eff args =
             in
             let fty = Unify.subst_params level subst f.Decls.fi_ty in
             (* V14 の形(エフェクトつきの閉包を newtype に入れる)はここで落ちる
-               ので、行由来の失敗だけ §9 の規則で言い換える(D78) *)
+               ので、行由来の失敗だけ §9 の規則で言い換える(M26 の B6) *)
             try Unify.unify ety fty
             with Type_error msg when row_failure msg ->
               type_error
@@ -2044,10 +2054,14 @@ and make_rigids level tparams =
    どれも実測で必要性を確かめました — 値制限(一般化しない束縛の行を開くと
    `run` の剛定数が漏れる経路に乗る)、明示の `@`(`let k: (Int32) => Int32 @ {}` を
    開くと「両方向に効く」約束が破れる — ガードを入れ忘れた版で `k(1)` が
-   `@ Console` の文脈から通った)、`pub`(D44 の Rigid 経路と二重に開くと
-   `pub_pure_rows` の診断が効かない)。健全性の根拠は、行が空に固まったと
-   いうことが本体の起こすエフェクトが無いことの証明だからです
-   (`test/annot_rows.t` の val1 / val2 / rec2)。 *)
+   `@ Console` の文脈から通った)、`pub`(D44 の Rigid 経路が別にあるので、
+   開き直しの対象から外す。Rigid の行は空に固まらないのでこのガードが
+   発火する形は現状無く、保険である)。頭が型エイリアスの値束縛も開きません —
+   展開先の矢印は入れ子(D75)なので、省略は `@ {}`、書かれた `@ {}` は両方向で、
+   1c の署名(§11.37)と同じ閉じた行を公開します(M26 の検証で、パス 2 だけが
+   開いて宣言順に依存する食い違いが見つかった)。健全性の根拠は、行が空に
+   固まったということが本体の起こすエフェクトが無いことの証明だからです
+   (`test/annot_rows.t` の val1 / val2 / rec2 / alval)。 *)
 
 and open_explicit_eff lvl eff =
   let fields, tail = row_fields eff in
@@ -2205,14 +2219,10 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   in
   (* @ 省略の let の行が本体で空に固まったら、公開のときに開き直す
      (D76 / §11.28)。明示の @ と pub(Rigid 経路)は対象外。値束縛は注釈の
-     **頭**の矢印に @ が書かれていないときだけ — let k: (Int32) => Int32 @ {}
-     の @ {} を開くと「両方向に効く」という約束が破れる(実測) *)
-  let outer_eff_written =
-    match b.T.lb_params with
-    | Some _ -> b.T.lb_eff <> None
-    | None -> ( match b.T.lb_ret with Some (_, T.EArrow (_, _, eff)) -> eff <> None | _ -> false)
-  in
-  let fn_ty = if gen && (not outer_eff_written) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
+     **頭**の矢印リテラルに @ が書かれていないときだけ — let k: (Int32) => Int32 @ {}
+     の @ {} を開くと「両方向に効く」という約束が破れる(実測)。頭がエイリアス
+     なら展開先は入れ子なので開かない(outer_eff_written) *)
+  let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
   Tree.set_ty node fn_ty;
   let rigids = rigids @ !extra_rigids in
   (* 網羅性の遅延キューは generalize の直前に drain する(計画 §7.2) *)
@@ -2346,7 +2356,7 @@ and elab_rec_bindings env level eff bs : env =
   let names =
     List.map2
       (fun (((_, b) as bnode) : T.let_binding) (x, t) ->
-        if b.T.lb_eff = None && (not b.T.lb_pub) && b.T.lb_params <> None then (
+        if (not (outer_eff_written b)) && not b.T.lb_pub then (
           let t' = reopen_pure_row lvl t in
           if t' != t then Tree.set_ty bnode t';
           (x, t'))
@@ -2517,7 +2527,7 @@ let register_newtype env (n : T.newtype') =
                     (* pub の完全注釈検査(D44 / 仕様 §13)はフィールドの矢印にも及ぶ。
                        省略の意味は @ {} に決まっているが、公開 API では
                        「純粋を意図したのか書き忘れたのか」を読み手が
-                       区別できなければならない(sample.kel:729-732。D-B5) *)
+                       区別できなければならない(sample.kel:729-732。D78) *)
                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
                        type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
                     let ty = elab_type env' 1 f.T.fd_ty in
@@ -2745,7 +2755,19 @@ let register_class env (c : T.class_decl') =
         in
         let types = List.fold_left (fun m (n, t) -> SMap.add n t m) (SMap.add param.tp_name pvar env.types) mt_params in
         let ty = elab_type_outer { env with types } 1 v.T.cv_ty in
+        (* 最外のラベル付き行は開く(D44 と同じ Rigid → Generic。仕様 §9 の表は
+           型クラスのメソッドも最外に含める — sample.kel:415-421)。M26 の検証
+           まで let / extern にしか掛かっておらず、val f: (T) => Int32 @ Console
+           のメソッドがどの文脈からも呼べなかった(計画 B0 の表の見落とし) *)
+        let ty, eff_rigids =
+          match repr ty with
+          | TArrow (a, r, e) ->
+              let e', rig = open_explicit_eff 1 e in
+              (TArrow (a, r, e'), rig)
+          | _ -> (ty, [])
+        in
         Unify.generalize 0 ty;
+        release_rigids eff_rigids;
         List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
         (* v0 制約: クラスパラメータが少なくとも1つの引数の「頭」に現れること(計画 §7.4)。
            実行時ディスパッチ(tycon_of_value)は値の頭のコンストラクタしか見えないので、
@@ -2976,7 +2998,7 @@ let register_instance (i : T.instance_decl') =
 
    仕様 §9 の改訂 (M26 / D75) がこの反例を無効にしました。入れ子の省略 `@` は
    `@ {}` に**確定**するので、本体を見なくても署名に決まっていないものが
-   ありません。残る自由度は束縛自身の行だけです。そこで条件を緩めます (D79)。
+   ありません。残る自由度は束縛自身の行だけです。そこで条件を緩めます (M26 の B7)。
 
    > 前方参照シグネチャに使ってよいのは、**注釈の頭の矢印に `@` が
    > 明示されている**ものだけ。関数束縛は自身の `@`(または `pub`)、
@@ -3025,7 +3047,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
     | None -> true
     | Some ps -> List.for_all (fun (_, p) -> match p with T.PAnnot _ -> true | _ -> false) ps
   in
-  (* 注釈の**頭**の矢印にだけ @ を要求する(仕様 §9 改訂、M26 / D79)。
+  (* 注釈の**頭**の矢印にだけ @ を要求する(仕様 §9 改訂、M26 の B7)。
      健全性 3 の穴は「省略 @ が独立な行変数になり無制約に一般化される」
      ことだったが、入れ子の省略 @ は @ {} に確定した(D75)ので自由度が無い。
      残る自由度は束縛自身の行だけ — 関数束縛は lb_eff(または pub。省略の
