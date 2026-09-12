@@ -27,9 +27,10 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
   3
   ok
 
-コールバックの純粋性は型で守られる(仕様 sample.kel §11 の決定性の根拠)。
-V14(高階位置の省略 @ によるエフェクト洗浄)は §9 の改訂で閉じた(M26。
-回帰は test/annot_rows.t の launder)。残る破れはファイル prim の行(V15)だけ:
+コールバックの純粋性は型で守られる(仕様 sample.kel:637 の決定性の根拠)。
+根拠は 3 つの別々の設計変更 — 配列の分離(M24。可変配列は h を型に持つ)、
+入れ子の省略 @ = @ {}(M26。V14 の洗浄が閉じた — test/annot_rows.t の launder)、
+ファイル prim の @ Fs(M27。V15 が閉じた — test/fs_effect.t):
 
   $ cat > parbad.kel <<'KEL'
   > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, 0)) }

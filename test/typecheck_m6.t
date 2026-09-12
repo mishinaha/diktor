@@ -1,7 +1,8 @@
 M6(エフェクト行 / perform / handle / run / Rigid)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
-sample.kel §9 の核心(println / capture / try_ / with_file / copy)。
+sample.kel §9 の核心(println / capture / try_ / with_file / copy。改訂後の
+§9 — Fs は自前で宣言し、prim も自前で @ Fs を付ける)。
 with_file の handle は write が Console と File の両方に宣言されていても
 「全節が属し全操作が網羅される」File に解決される(D22)。
 copy の perform write は行の最左の File に解決される(この例では最内
@@ -30,11 +31,12 @@ copy の perform write は行の最左の File に解決される(この例で�
   >   read:  () => String,
   >   write: (String) => Unit,
   > }
-  > extern "prim" let __open(path: String): Int32
-  > extern "prim" let __read(h: Int32): String
-  > extern "prim" let __write(h: Int32, s: String): Unit
-  > extern "prim" let __close(h: Int32): Unit
-  > let with_file[A, E](path: String, body: () => A @ {File extends E}): A @ E = {
+  > effect Fs = {}
+  > extern "prim" let __open(path: String): Int32 @ Fs
+  > extern "prim" let __read(h: Int32): String @ Fs
+  > extern "prim" let __write(h: Int32, s: String): Unit @ Fs
+  > extern "prim" let __close(h: Int32): Unit @ Fs
+  > let with_file[A, E](path: String, body: () => A @ {File, Fs extends E}): A @ {Fs extends E} = {
   >   let h = __open(path)
   >   body() handle {
   >     case read()    => resume(__read(h))
@@ -43,10 +45,11 @@ copy の perform write は行の最左の File に解決される(この例で�
   >     case cancel    => __close(h)
   >   }
   > }
-  > let copy(src: String, dst: String): Unit @ Console = {
+  > let copy(src: String, dst: String): Unit @ {Console, Fs} = {
   >   with _ = with_file(src)
+  >   let text = perform read()
   >   with _ = with_file(dst)
-  >   perform write(perform read())
+  >   perform write(text)
   > }
   > let echo_test[E](): Unit @ {Console extends E} =
   >   println("test") handle {
@@ -59,12 +62,12 @@ copy の perform write は行の最左の File に解決される(この例で�
   println : (String) => {} @ {Print extends R1}
   capture : (() => A @ {Print extends R1}) => {value: A, output: String}
   try_ : (() => A @ {Fail extends R1}) => #Ok(A) | #Err(String)
-  __open : (String) => Int32
-  __read : (Int32) => String
-  __write : (Int32, String) => {}
-  __close : (Int32) => {}
-  with_file : (String, () => A @ {File extends R1}) => A
-  copy : (String, String) => {} @ {Console extends R1}
+  __open : (String) => Int32 @ {Fs extends R1}
+  __read : (Int32) => String @ {Fs extends R1}
+  __write : (Int32, String) => {} @ {Fs extends R1}
+  __close : (Int32) => {} @ {Fs extends R1}
+  with_file : (String, () => A @ {File, Fs extends R1}) => A @ {Fs extends R1}
+  copy : (String, String) => {} @ {Console, Fs extends R1}
   echo_test : () => {} @ {Console extends R1}
   captured : {value: {}, output: String}
 

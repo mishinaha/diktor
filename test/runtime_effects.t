@@ -1,6 +1,7 @@
-ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。Async は仕様の
-明文(sample.kel:641)、Console は同じ扱いを提案中。かつては出力を黙って
-消す恒等ハンドラが書けた。
+ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:462 が
+Console / Async / Fs の 3 つを名指しで定めた(Async は :641 にも明文。Console は
+かつて提案中だった — 2026-09-12 の改訂で明文化)。かつては出力を黙って消す
+恒等ハンドラが書けた。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -106,4 +107,20 @@ perform は禁止しない(sample.kel:580 がトップレベルの perform write
   > KEL
   $ diktor --type-check --no-prelude npok.kel
   quiet : (() => A @ {Console extends R1}) => A
+  n : Int32
+
+--no-prelude で自前の Fs(操作つき)を自前でハンドルする形は従来どおり通る
+(Console と対称。M27):
+
+  $ cat > ownfs.kel <<'KEL'
+  > effect Fs = { touch: (String) => Int32 }
+  > let with_fs[A, E](body: () => A @ {Fs extends E}): A @ E =
+  >   body() handle {
+  >     case touch(p) => resume(0)
+  >     case return(x) => x
+  >   }
+  > let n = with_fs(fn() => perform touch("x"))
+  > KEL
+  $ diktor --type-check --no-prelude ownfs.kel
+  with_fs : (() => A @ {Fs extends R1}) => A
   n : Int32
