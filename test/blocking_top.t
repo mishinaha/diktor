@@ -21,7 +21,7 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   $ diktor --type-check bpure.kel
   sqrt : (Float64) => Float64 @ {Blocking extends R1}
   pure_sqrt : (Float64) => Float64
-  ! bpure.kel:3:37: 型エラー: ラベル Blocking がありません(行は閉じています)
+  ! bpure.kel:3:37: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
 注釈した行に Blocking が無ければ、剛い行に足せないという従来の診断:

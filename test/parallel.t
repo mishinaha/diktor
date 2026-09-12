@@ -36,7 +36,7 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
   > KEL
   $ diktor --type-check parbad.kel
   mk : () => Array[Int32]
-  ! parbad.kel:2:34: 型エラー: ラベル Console がありません(行は閉じています)
+  ! parbad.kel:2:34: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
 sample.kel 自身の let par_map = ??? / let par = ??? は組み込みを覆うので
