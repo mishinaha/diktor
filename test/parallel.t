@@ -27,8 +27,9 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
   3
   ok
 
-コールバックの純粋性は型で守られる(仕様 sample.kel §11 の決定性の根拠。
-既知の破れは 260829-5 台帳 V14 / V15 — 高階位置の省略 @ とファイル prim):
+コールバックの純粋性は型で守られる(仕様 sample.kel §11 の決定性の根拠)。
+V14(高階位置の省略 @ によるエフェクト洗浄)は §9 の改訂で閉じた(M26。
+回帰は test/annot_rows.t の launder)。残る破れはファイル prim の行(V15)だけ:
 
   $ cat > parbad.kel <<'KEL'
   > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, 0)) }
