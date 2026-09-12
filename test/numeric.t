@@ -15,7 +15,7 @@ Int32.of_float / Int64.of_float 素通しで、黙って INT_MIN を返してい
 
   $ printf 'echoln(show(__f64_to_i32(1.0e20)))\n' > cvbig.kel
   $ diktor cvbig.kel
-  実行時エラー: __f64_to_i32: 変換結果が範囲外です: 1e+20
+  実行時エラー: __f64_to_i32: 変換結果が範囲外です: 1e20
   [3]
 
   $ printf 'echoln(show(__f64_to_i32(1.0 / 0.0)))\n' > cvinf.kel
@@ -84,26 +84,26 @@ Ord[Float64] は IEEE 754(NaN が絡む 4 比較はすべて偽。A1 / D23):
   > echoln(show(0.0 - 1.0e16))
   > KEL
   $ diktor big.kel
-  1e+16
+  1e16
   12345678901234568.0
-  1e+300
-  1e-05
-  -1e+16
+  1e300
+  1e-5
+  -1e16
 
 出した字面をそのまま貼り戻せる:
 
   $ cat > roundtrip.kel <<'KEL'
   > let a: Float64 = 12345678901234568.0
-  > let b: Float64 = 1e16
-  > let c: Float64 = 1e-5
+  > let b: Float64 = 1e+16
+  > let c: Float64 = 1e-05
   > echoln(show(a))
   > echoln(show(b))
   > echoln(show(c))
   > KEL
   $ diktor roundtrip.kel
   12345678901234568.0
-  1e+16
-  1e-05
+  1e16
+  1e-5
 
 非有限値の表示(Keleut のリテラルにはならないので、そう表示すると
 決める。NaN の符号は環境で割れるので落とす。A8 / D27):
