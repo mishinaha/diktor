@@ -2295,7 +2295,15 @@ let initial_env () =
    不透明なデータ型として登録され、構築も分解もできません。
 
    フィールド型の精緻化をこの登録時に済ませているので、パス 2 で newtype に
-   出会っても何もすることがありません。未知の型を書けばこの時点でエラーです。 *)
+   出会っても何もすることがありません。未知の型を書けばこの時点でエラーです。
+   フィールドの型のカインドが `Type` であることもここで見ます (D83)。
+   見ないと、行カインドのパラメータや EffectRow エイリアスがそのまま値の型に
+   なり、構築点まで落ちません — `newtype Bad[E] = Bad(() => Unit @ E, E)` は
+   第 1 フィールドで `E` が行に決まり、第 2 フィールドで落ちます。
+   判定に `same_kind` を使うのは意図的で、裸のパラメータ 1 個のフィールド
+   (`newtype Id[A] = Id(A)`)では `A` のカインドがまだ未解決なので、
+   「値の位置に現れた ⇒ `Type`」という推論として働きます
+   (`test/kinds.t` の fieldkind)。 *)
 
 let register_newtype env (n : T.newtype') =
   (* 1a で頭に積んだカインドをそのまま剥がして使う(D80)。頭と本体で
@@ -2340,6 +2348,16 @@ let register_newtype env (n : T.newtype') =
                 List.map
                   (fun (f : T.field_decl) ->
                     let ty = elab_type env' 1 f.T.fd_ty in
+                    (* フィールドの型はカインド Type(D83)。ここで見ないと、
+                       行カインドのパラメータや EffectRow エイリアスがそのまま
+                       値の型になり、構築点まで落ちない。same_kind なので裸の
+                       パラメータ 1 個のフィールドでは「値の位置に現れた ⇒ Type」
+                       という推論として働く *)
+                    at_node f.T.fd_ty (fun () ->
+                        if not (same_kind (Unify.kind_of ty) KStar) then
+                          type_error
+                            ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型のカインドが Type ではありません: "
+                           ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty)));
                     (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
                     Unify.generalize 0 ty;
                     { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })

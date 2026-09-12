@@ -681,7 +681,7 @@ let add_alias info =
 
    > 表に載っていないことは、空いていることを意味しない。 *)
 
-type field_info = { fi_label : oid option; fi_ty : Type.ty (* パラメータは Generic マーク *) }
+type field_info = { fi_label : oid option; fi_ty : Type.ty (* パラメータは Generic マーク。カインドは必ず Type(D83) *) }
 
 type ctor_info = { ct_name : oid; ct_fields : field_info list }
 
