@@ -282,10 +282,16 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
   > let g[E](x: Int32): Int32 @ Both[E] = x
   > EOF
   $ diktor --type-check --no-prelude splice2.kel
+  f : (Int32) => Int32 @ {Print, Fs extends R1}
+  g : (Int32) => Int32 @ {Print, Fs extends R1}
   $ printf 'type Unit = {}\neffect Print = { print: (String) => Unit }\ntype W[E]: EffectRow = {Print extends E}\nlet f[E, E2](x: Int32): Int32 @ {W[E] extends E2} = x\n' > splice3.kel
   $ diktor --type-check --no-prelude splice3.kel
+  ! splice3.kel:4:33: 型エラー: エイリアス W は開いた行に展開されるので、extends や別の開いた行と同じ行には置けません(行変数は 1 つまで)
+  [1]
   $ printf 'type Unit = {}\neffect Print = { print: (String) => Unit }\ntype W[E]: EffectRow = {Print extends E}\nlet f[E](x: Int32): Int32 @ {W[E], W[E]} = x\n' > splice4.kel
   $ diktor --type-check --no-prelude splice4.kel
+  ! splice4.kel:4:29: 型エラー: エイリアス W は開いた行に展開されるので、extends や別の開いた行と同じ行には置けません(行変数は 1 つまで)
+  [1]
 
 エフェクト行の位置に型の名前を書いたときは「未知」ではなく「エフェクトでは
 ない」と言う(D85。Int32 は未知ではない):
