@@ -135,9 +135,9 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   $ diktor --type-check --no-prelude mutual2.kel
   f : (A3[R1]) => A3[R1]
 
-行カインドのパラメータへ具体的な行を前方参照つきで渡す形だけは宣言順に
-依存する(§11.31 の末尾。相手がまだ 1b を通っていないとカインドが KVar の
-ままなので、読み分けが {…} を型として読む。行変数を渡す形は依存しない):
+行カインドのパラメータへ具体的な行を前方参照つきで渡す形も宣言順に依存しない
+(D132。1b の前に newtype の本体を投機的に読んでカインドだけ決めるので、
+読み分けが {…} を行として読める。かつては B4 を先に置かないと落ちた):
 
   $ cat > fwdrow.kel <<'EOF'
   > type Unit = {}
@@ -158,6 +158,29 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   > EOF
   $ diktor --type-check --no-prelude fwdrow2.kel
   f : (A5[R1]) => A5[R1]
+
+連鎖と module の中でも同じ(投機は宣言順に 1 周するだけだが、深さ 2 は届く):
+
+  $ cat > fwdrow3.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype A7[X] = MkA7(B7[{Print extends X}])
+  > newtype B7[Y] = MkB7(C7[Y])
+  > newtype C7[E] = MkC7(() => Unit @ E)
+  > let f[E](x: A7[E]): A7[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude fwdrow3.kel
+  f : (A7[R1]) => A7[R1]
+  $ cat > fwdrowmod.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > module M {
+  >   pub newtype A6[X] = MkA6(B6[{Print extends X}])
+  >   pub newtype B6[E] = MkB6(() => Unit @ E)
+  > }
+  > let f[E](x: M.A6[E]): M.A6[E] = x
+  > EOF
+  $ diktor --type-check fwdrowmod.kel
+  f : (M.A6[R1]) => M.A6[R1]
 
 module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾名で引く):
 

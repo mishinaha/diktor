@@ -2738,12 +2738,13 @@ let initial_env () =
    入っていました(台帳 V17 と V20 はこれで閉じました。`test/kinds.t` の
    rowval / rowval2 / rowval3 / hktval)。 *)
 
-let register_newtype env (n : T.newtype') =
-  (* 1a で頭に積んだカインドをそのまま剥がして使う(D80)。頭と本体で
-     別のセルを作ると、本体で決まったカインドが頭に反映されない。
-     プレリュード所有名の再宣言では 1a が頭を差し替えないので、ここで
-     剥がすのはプレリュードが決めたカインド — ユーザ側はそれを引き継ぐ
-     (別セルを作ると data_match の kind_equiv で KVar と KStar が食い違う) *)
+(* 1a が頭に積んだカインドのセルをそのまま剥がして、パラメータの型環境を
+   作る(D80)。頭と本体で別のセルを作ると、本体で決まったカインドが頭に
+   反映されない。プレリュード所有名の再宣言では 1a が頭を差し替えないので、
+   ここで剥がすのはプレリュードが決めたカインド — ユーザ側はそれを引き継ぐ
+   (別セルを作ると data_match の kind_equiv で KVar と KStar が食い違う)。
+   register_newtype と 1a の後の投機(D132)が同じセルを共有するための共通部 *)
+let newtype_param_env env (n : T.newtype') =
   let head_kinds =
     let k = Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params) in
     let rec peel k n =
@@ -2754,9 +2755,7 @@ let register_newtype env (n : T.newtype') =
   in
   let params =
     List.map2
-      (fun tp hk ->
-        (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
-           F[_] と書いてあればその場で確定。既定化は 1b の後始末(D81) *)
+      (fun (tp : type_param) hk ->
         let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else hk in
         let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
         { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
@@ -2767,7 +2766,33 @@ let register_newtype env (n : T.newtype') =
       (fun m (tp : type_param) i -> SMap.add tp.tp_name (TVar (ref (Generic i))) m)
       env.types n.T.nt_params params
   in
-  let env' = { env with types } in
+  (params, { env with types })
+
+(* newtype の本体を 1b より前に一度**投機的に**読み、パラメータのカインドだけを
+   決める(D132)。型エイリアスの投機(D84、§11.39)と同じ道具で、違いは
+   構築子を登録しないことだけ — 登録も pub の注釈検査も generalize もせず、
+   elab_type の副作用であるカインドの張りだけを残す。診断は捨てる(D55 の
+   分類 (a) の 4 つだけを捕まえ、Panic は捕まえない)。
+   これが要るのは、行カインドのパラメータへ**具体的な行**を前方参照つきで
+   渡す形(`newtype A[X] = MkA(B[{Print extends X}])` が `B` より前)で、
+   1b が B のパラメータのカインドをまだ知らないと §11.3 の読み分けが
+   `{…}` を型として読むからです(台帳 V18、`test/kinds.t` の fwdrow) *)
+let speculate_newtype env (n : T.newtype') =
+  match n.T.nt_rhs with
+  | T.NtHole -> ()
+  | T.NtCtors ctors -> (
+      try
+        let _, env' = newtype_param_env env n in
+        List.iter
+          (fun (c : T.ctor_decl) ->
+            List.iter (fun (f : T.field_decl) -> ignore (elab_type env' 1 f.T.fd_ty)) c.T.cd_fields)
+          ctors
+      with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ())
+
+let register_newtype env (n : T.newtype') =
+  (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
+     F[_] と書いてあればその場で確定。既定化は 1b の後始末(D81) *)
+  let params, env' = newtype_param_env env n in
   match n.T.nt_rhs with
   | T.NtHole ->
       Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = []; dd_opaque = true }
@@ -3594,6 +3619,14 @@ let process_decls env ~emit decls =
                  n.T.nt_params KStar)
       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
       | _ -> ())
+    decls;
+  (* パス1a の後始末: newtype の本体の投機(D132)。宣言順に依存せずに
+     パラメータのカインドを決めるために、登録の前に本体を一度読んで捨てる *)
+  List.iter
+    (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
+      with_decl_module node @@ fun () ->
+      match d with T.DNewtype n -> speculate_newtype env n | _ -> ())
     decls;
   (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
   let env =
