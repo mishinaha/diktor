@@ -387,6 +387,10 @@ let kind_error what ~expected ty =
 
 let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
 
+(* newtype の本体の投機(D132、§11.31)の最中だけ真。型引数の読み分け
+   (elab_con_args)がこれを見て、型としても行としても読める字面を飛ばす *)
+let speculating = ref false
+
 let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
   (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
      注釈のどこで落ちても注釈全体の先頭がアンカーになってしまう *)
@@ -728,10 +732,21 @@ and elab_con_args env level ~expanding cname k args =
     | a :: rest ->
         let pk, kr = match kind_repr k with KArrow (a', r) -> (a', r) | _ -> (new_kind_var (), KStar) in
         let a = check_no_hole a in
-        let t =
-          match kind_repr pk with KRow -> elab_eff ~check_row:false env level ~expanding a | _ -> elab_type env level ~expanding a
+        (* 投機の間は、カインドが未確定のパラメータへ渡した要素なしの波括弧
+           ({} と {extends R})を読まずに飛ばす(M29 の検証)。この 2 形だけが
+           型としても行としても読めるので、型として読んで照合すると相手の
+           パラメータを Type に張ってしまい、1b が宣言順に読めば Row と
+           決まったはずの宣言を落とす。飛ばしても失うものは無い —
+           1b がもう一度、相手のカインドが決まった状態で読む *)
+        let ambiguous =
+          !speculating && match (kind_repr pk, snd a) with KVar _, T.EBraceRow ([], _) -> true | _ -> false
         in
-        if not (same_kind pk (Unify.kind_of t)) then
+        let t =
+          if ambiguous then t_unit
+          else
+            match kind_repr pk with KRow -> elab_eff ~check_row:false env level ~expanding a | _ -> elab_type env level ~expanding a
+        in
+        if (not ambiguous) && not (same_kind pk (Unify.kind_of t)) then
           type_error
             (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
                (show_kind pk) (Show.show t) (show_kind (Unify.kind_of t)));
@@ -2898,14 +2913,20 @@ let newtype_param_env env (n : T.newtype') =
 let speculate_newtype env (n : T.newtype') =
   match n.T.nt_rhs with
   | T.NtHole -> ()
-  | T.NtCtors ctors -> (
-      try
-        let _, env' = newtype_param_env env n in
-        List.iter
-          (fun (c : T.ctor_decl) ->
-            List.iter (fun (f : T.field_decl) -> ignore (elab_type env' 1 f.T.fd_ty)) c.T.cd_fields)
-          ctors
-      with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ())
+  | T.NtCtors ctors ->
+      let _, env' = newtype_param_env env n in
+      (* 例外はフィールドごとに握り潰す。effect の操作の登録は 1b なので、
+         投機の時点ではユーザ宣言のエフェクトラベルがすべて未知で、
+         () => Unit @ {Log} のような普通のフィールドが落ちる。本体全体を
+         1 つの try で包むと、そこで後続のフィールドの張りまで失う *)
+      let speculate (f : T.field_decl) =
+        try ignore (elab_type env' 1 f.T.fd_ty)
+        with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ()
+      in
+      speculating := true;
+      Fun.protect
+        ~finally:(fun () -> speculating := false)
+        (fun () -> List.iter (fun (c : T.ctor_decl) -> List.iter speculate c.T.cd_fields) ctors)
 
 let register_newtype env (n : T.newtype') =
   (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
