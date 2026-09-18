@@ -3009,7 +3009,8 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    この裁定のおかげです。
 
    個数だけでなく**カインド**も決まっています。`tp_arity` が 0 なら `KStar`、
-   `F[_]` なら `[_] Type` で、newtype の束縛子と違ってクラスのパラメータだけは
+   `F[_]` なら `[_] Type`(一般に `tp_arity` 個の `Type` を取って `Type` を
+   返す形)で、newtype の束縛子と違ってクラスのパラメータだけは
    `KVar` を経由しません (§1.12)。EffectRow のパラメータが取れないのはこの
    固定の帰結で、理由は §11.34 のキーにあります — インスタンスの選択は
    型構成子のタグ 1 つで決まるので、ラベルの集合でしかない行は選択の鍵に
