@@ -165,9 +165,10 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   $ diktor --type-check --no-prelude mutual2.kel
   f : (A3[R1]) => A3[R1]
 
-行カインドのパラメータへ具体的な行を前方参照つきで渡す形も宣言順に依存しない
-(D132。1b の前に newtype の本体を投機的に読んでカインドだけ決めるので、
-読み分けが {…} を行として読める。かつては B4 を先に置かないと落ちた):
+行カインドのパラメータへ具体的な行を前方参照つきで渡す形も、相手の本体の投機が
+そのパラメータのカインドに届く限り宣言順に依存しない(D132。1b の前に newtype の
+本体を投機的に読んでカインドだけ決めるので、読み分けが {…} を行として読める。
+かつては B4 を先に置かないと落ちた。届かない形は下の speclab):
 
   $ cat > fwdrow.kel <<'EOF'
   > type Unit = {}
@@ -210,6 +211,134 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   > EOF
   $ diktor --type-check fwdrowmod.kel
   f : (M.A6[R1]) => M.A6[R1]
+
+module の中の深さ 2 の連鎖も通る。投機のループを with_decl_module で包んでいるか
+を見張るのはこの形で、上の fwdrowmod は B6 の投機だけで通るため包みを外しても
+緑のまま(M29 の検証で実測。C9[Y] が module の内部型を非修飾で参照する):
+
+  $ cat > fwdrowmod2.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > module M {
+  >   pub newtype A9[X] = MkA9(B9[{Print extends X}])
+  >   pub newtype B9[Y] = MkB9(C9[Y])
+  >   pub newtype C9[E] = MkC9(() => Unit @ E)
+  > }
+  > let f[E](x: M.A9[E]): M.A9[E] = x
+  > EOF
+  $ diktor --type-check fwdrowmod2.kel
+  f : (M.A9[R1]) => M.A9[R1]
+
+投機は effect の操作の登録(1b)より前に走るので、同じ宣言群のエフェクトラベルは
+投機の時点ではすべて未知で、() => Unit @ {Log} のようなフィールドは投機の中で
+落ちる。例外をフィールドごとに握り潰すので、手前のフィールドが落ちても後続の
+フィールドがパラメータのカインドを決める(M29 の検証。コンストラクタが 2 つに
+分かれていても同じ):
+
+  $ cat > specfield.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype B10[E] = MkB10(() => Unit @ {Log}, () => Unit @ E)
+  > newtype A10 = MkA10(B10[{}])
+  > let f(x: A10): A10 = x
+  > EOF
+  $ diktor --type-check --no-prelude specfield.kel
+  f : (A10) => A10
+  $ cat > specfield2.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype B11[E] = MkB11a(() => Unit @ {Log}) | MkB11b(() => Unit @ E)
+  > newtype A11 = MkA11(B11[{}])
+  > let f(x: A11): A11 = x
+  > EOF
+  $ diktor --type-check --no-prelude specfield2.kel
+  f : (A11) => A11
+
+1 つのフィールドの中で投機が先にラベルへ当たる形では、そのフィールドは丸ごと
+落ちる(タプルやレコードの要素は右から読むので、右端の {Log} で落ちて左の E に
+届かない)。それでも通るのは、投機の間だけ、カインドが未確定のパラメータへ渡した
+要素なしの波括弧 — {} と {extends X} — を読まずに飛ばすからで、1b が相手の
+カインドの決まった状態でもう一度読む:
+
+  $ cat > specinner.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype B12[E] = MkB12((() => Unit @ E, () => Unit @ {Log}))
+  > newtype A12 = MkA12(B12[{}])
+  > let f(x: A12): A12 = x
+  > EOF
+  $ diktor --type-check --no-prelude specinner.kel
+  f : (A12) => A12
+  $ cat > specinner2.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype B13[E] = MkB13((() => Unit @ E, () => Unit @ {Log}))
+  > newtype A13[X] = MkA13(B13[{extends X}])
+  > let f[E](x: A13[E]): A13[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude specinner2.kel
+  f : (A13[R1]) => A13[R1]
+
+前方参照でも同じで、相手の手前のフィールドが投機で落ちても、後続のフィールドから
+連鎖でカインドが決まれば通る(B14 の第 1 フィールドは投機で落ちるが、第 2 の
+C14[Y] が Y を C14 のパラメータのセルに張り、C14 の投機がそれを行にする):
+
+  $ cat > specfwd.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A14[X] = MkA14(B14[{Log extends X}])
+  > newtype B14[Y] = MkB14(() => Unit @ {Log}, C14[Y])
+  > newtype C14[E] = MkC14(() => Unit @ E)
+  > let f[E](x: A14[E]): A14[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude specfwd.kel
+  f : (A14[R1]) => A14[R1]
+
+前方参照の型引数が {}(空の波括弧)の形も、飛ばす読みで通る(台帳 V22 の主たる
+形)。残るのは、相手の投機がそのパラメータのカインドを決められず、かつ型引数が
+要素なしの波括弧のときだけ — このとき {} は空レコードとして読めてしまい、
+照合が相手のパラメータを Type に張る(台帳 V22 の残り):
+
+  $ cat > specunit.kel <<'EOF'
+  > type Unit = {}
+  > newtype A15[X] = MkA15(B15[{}], () => Unit @ X)
+  > newtype B15[E] = MkB15(() => Unit @ E)
+  > let f[E](x: A15[E]): A15[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude specunit.kel
+  f : (A15[R1]) => A15[R1]
+  $ cat > specunit2.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A16 = MkA16(B16[{}])
+  > newtype B16[E] = MkB16((() => Unit @ E, () => Unit @ {Log}))
+  > EOF
+  $ diktor --type-check --no-prelude specunit2.kel
+  ! specunit2.kel:4:38: 型エラー: 行カインドではない型パラメータです: E
+  [1]
+
+投機がパラメータに届かない形では、型引数にラベルを書いても宣言順に依存する。
+同じ 2 つの宣言を入れ替えれば通るので、効いているのは型引数の字面ではなく、
+投機が相手のパラメータのカインドを決められたかどうかである:
+
+  $ cat > speclab.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A17[X] = MkA17(B17[{Log extends X}])
+  > newtype B17[E] = MkB17((() => Unit @ E, () => Unit @ {Log}))
+  > let f[E](x: A17[E]): A17[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude speclab.kel
+  ! speclab.kel:3:28: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
+  [1]
+  $ cat > speclab2.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype B18[E] = MkB18((() => Unit @ E, () => Unit @ {Log}))
+  > newtype A18[X] = MkA18(B18[{Log extends X}])
+  > let f[E](x: A18[E]): A18[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude speclab2.kel
+  f : (A18[R1]) => A18[R1]
 
 module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾名で引く):
 
