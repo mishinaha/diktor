@@ -147,8 +147,7 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   > let f[E](x: A4[E]): A4[E] = x
   > EOF
   $ diktor --type-check --no-prelude fwdrow.kel
-  ! fwdrow.kel:3:25: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
-  [1]
+  f : (A4[R1]) => A4[R1]
   $ cat > fwdrow2.kel <<'EOF'
   > type Unit = {}
   > effect Print = { print: (String) => Unit }
