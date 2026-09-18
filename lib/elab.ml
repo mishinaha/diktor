@@ -359,7 +359,8 @@ let check_pub_annots ~params ~ret =
    コンストラクタ名を添えた文面もこの補助関数を呼ぶので、newtype の
    フィールドの最外だけは「コンストラクタ X のフィールドの型」のまま
    残ります (§11.31)。`test/kinds.t` の valkind / annotkind / rowval /
-   hktval が 8 種類の名詞句と落ちる位置を固定しています。 *)
+   hktval と、D83 から動いていない fieldkind / fieldalias を合わせて、
+   8 種類の名詞句と落ちる位置が固定してあります。 *)
 
 (* 値の型の位置のカインド照合(D131)。what は「… の型」で終わる名詞句で、
    文面は D83 が newtype のフィールドに与えていたものをそのまま一般化した。
