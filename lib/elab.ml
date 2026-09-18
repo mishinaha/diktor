@@ -708,14 +708,20 @@ and elab_value_type env level ~expanding what t =
    — same_kind は KVar を張るので、判定に使うと未確定のパラメータを
    全部 Row に固定してしまう(§1.6 の格言にあえて逆らう。同じ理由の
    兄弟が §6.6 の kind_equiv)。
-   照合の側は same_kind でよく、パス 1b ではこれがカインドの伝播路になる *)
+   照合の側は same_kind でよく、パス 1b ではこれがカインドの伝播路になる。
+   elab_eff を ~check_row:false で呼ぶのは、行にならなかったことを
+   このすぐ下の照合が構成子名と引数の位置つきで言うから(D127)。
+   抑制しないと、より一般的な「エフェクト位置の型のカインドが Row では
+   ありません」が先に出て、どの引数かが位置からしか読めなくなる *)
 and elab_con_args env level ~expanding cname k args =
   let rec go k i = function
     | [] -> []
     | a :: rest ->
         let pk, kr = match kind_repr k with KArrow (a', r) -> (a', r) | _ -> (new_kind_var (), KStar) in
         let a = check_no_hole a in
-        let t = match kind_repr pk with KRow -> elab_eff env level ~expanding a | _ -> elab_type env level ~expanding a in
+        let t =
+          match kind_repr pk with KRow -> elab_eff ~check_row:false env level ~expanding a | _ -> elab_type env level ~expanding a
+        in
         if not (same_kind pk (Unify.kind_of t)) then
           type_error
             (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
@@ -776,7 +782,7 @@ and expand_alias env level ~expanding info args =
           let a = check_no_hole a in
           let t =
             match kind_repr pk with
-            | KRow -> elab_eff env level ~expanding a
+            | KRow -> elab_eff ~check_row:false env level ~expanding a
             | _ -> elab_type env level ~expanding a
           in
           if not (same_kind pk (Unify.kind_of t)) then
@@ -858,7 +864,7 @@ and expand_alias env level ~expanding info args =
    相互再帰の 3 関数を定義し終えたら、`~expanding` を空リストで閉じた
    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
 
-and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
+and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp) : ty =
   at_node t @@ fun () ->
   match te with
   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
@@ -921,7 +927,16 @@ and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
           | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
-  | _ -> elab_type env level ~expanding t
+  | _ ->
+      (* 最後の枝(D127)。文法(eff)がここへ通すのは module 修飾の名前と、
+         エフェクト名でない頭への適用だけ。EffectRow エイリアスの適用
+         (W[E] / M.W)はここを通って正しく行になるので、落とすのではなく
+         読んだ結果のカインドを照合する。判定は kind_repr の構造マッチで、
+         same_kind は使わない — この枝に行変数は来ないので、same_kind で
+         見ると検査ではなく既定化になる(§11.6) *)
+      let ty = elab_type env level ~expanding t in
+      if check_row && kind_repr (Unify.kind_of ty) <> KRow then kind_error "エフェクト位置の型" ~expected:"Row" ty;
+      ty
 
 (* 束縛の**最外**の矢印が注釈としてそのまま書かれている位置(型クラスの
    メソッドの型と、引数リストを持たない値束縛の注釈)専用の入口。ここだけ
