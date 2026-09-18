@@ -363,3 +363,121 @@ Functor の正常系は変わらない:
   $ diktor --type-check hktok.kel
   f : (F[A]) => F[A]
   g : (List[Int32]) => List[Int32]
+
+値の型の位置(矢印の引数と返り値、レコードのフィールド、タプルの要素、
+ヴァリアントの積載)は、読んだ型のカインドが Type でなければならない
+(D131。台帳 V20)。EffectRow エイリアスを書くとその位置で落ちる:
+
+  $ cat > valkind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(x: (P, Int32)): Int32 = 0
+  > EOF
+  $ diktor --type-check valkind.kel
+  ! valkind.kel:3:11: 型エラー: タプルの要素の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > valkind2.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(x: {a: P}): Int32 = 0
+  > EOF
+  $ diktor --type-check valkind2.kel
+  ! valkind2.kel:3:14: 型エラー: レコードのフィールド a の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > valkind3.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(g: (P) => Int32): Int32 = 0
+  > EOF
+  $ diktor --type-check valkind3.kel
+  ! valkind3.kel:3:11: 型エラー: 矢印の引数の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > valkind4.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(g: () => P @ {}): Int32 = 0
+  > EOF
+  $ diktor --type-check valkind4.kel
+  ! valkind4.kel:3:16: 型エラー: 矢印の返り値の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > valkind5.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(x: #T(P)): Int32 = 0
+  > EOF
+  $ diktor --type-check valkind5.kel
+  ! valkind5.kel:3:13: 型エラー: ヴァリアント #T の積載の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > valkind6.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > type class C2[A] { val m: (A) => P }
+  > EOF
+  $ diktor --type-check valkind6.kel
+  ! valkind6.kel:3:34: 型エラー: 矢印の返り値の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+
+注釈の位置も値の型の位置(D131)。かつては束縛の単一化まで生き延びて
+内部名の「カインドが一致しません: _A :: Type と {Print}」だった:
+
+  $ cat > annotkind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(x: P): Int32 = 0
+  > EOF
+  $ diktor --type-check annotkind.kel
+  ! annotkind.kel:3:10: 型エラー: 型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > annotkind2.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(): P = ???
+  > EOF
+  $ diktor --type-check annotkind2.kel
+  ! annotkind2.kel:3:10: 型エラー: 返り値の型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > annotkind3.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let m: P = ???
+  > EOF
+  $ diktor --type-check annotkind3.kel
+  ! annotkind3.kel:3:8: 型エラー: 型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+
+同じパラメータを行と値の両方で使う宣言は、包んであっても宣言の時点で
+落ちる(台帳 V17)。落ちる位置は先に読んだ側がカインドを決めたあとの
+二番目の使用点になる:
+
+  $ cat > rowval.kel <<'EOF'
+  > type Unit = {}
+  > newtype Bad2[E] = Bad2((E, Int32), () => Unit @ E)
+  > EOF
+  $ diktor --type-check --no-prelude rowval.kel
+  ! rowval.kel:2:49: 型エラー: 行カインドではない型パラメータです: E
+  [1]
+  $ cat > rowval2.kel <<'EOF'
+  > type Unit = {}
+  > newtype Bad3[E] = Bad3(() => Unit @ E, {a: E})
+  > EOF
+  $ diktor --type-check --no-prelude rowval2.kel
+  ! rowval2.kel:2:44: 型エラー: レコードのフィールド a の型のカインドが Type ではありません: R1 :: Row
+  [1]
+  $ cat > rowval3.kel <<'EOF'
+  > type Unit = {}
+  > let f[E](x: (() => Unit @ E, E)): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude rowval3.kel
+  ! rowval3.kel:2:27: 型エラー: 行カインドではない型パラメータです: E
+  [1]
+
+高階カインドのパラメータを裸で値の型の位置に書いた形も同じ照合が落とす
+(D131。かつてはタプルに包むと素通りしていた):
+
+  $ cat > hktval.kel <<'EOF'
+  > type Unit = {}
+  > newtype W[F[_]] = MkW((F, Int32))
+  > EOF
+  $ diktor --type-check --no-prelude hktval.kel
+  ! hktval.kel:2:24: 型エラー: タプルの要素の型のカインドが Type ではありません: F :: [_] Type
+  [1]
