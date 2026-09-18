@@ -503,3 +503,67 @@ Functor の正常系は変わらない:
   $ diktor --type-check --no-prelude hktval.kel
   ! hktval.kel:2:24: 型エラー: タプルの要素の型のカインドが Type ではありません: F :: [_] Type
   [1]
+
+エフェクト位置(@ の右と EffectRow エイリアスの本体)に書けるのは、カインドが
+Row の型だけ(D127。台帳 V19。仕様 sample.kel §9「@ の右はエフェクト行」)。
+かつては elab_eff の最後の枝が elab_type に落ちるだけで、Type カインドの適用型が
+行の尾部に入った — 型検査は通り、その関数は誰からも呼べなくなっていた:
+
+  $ printf 'let f(x: Int32): Int32 @ MutableArray[Int32, Int32] = x\n' > effkind.kel
+  $ diktor --type-check effkind.kel
+  ! effkind.kel:1:26: 型エラー: エフェクト位置の型のカインドが Row ではありません: MutableArray[Int32, Int32] :: Type
+  [1]
+  $ printf 'type Unit = {}\ntype Pair2[A] = (A, A)\nlet f(x: Int32): Int32 @ Pair2[Int32] = x\n' > effkind2.kel
+  $ diktor --type-check --no-prelude effkind2.kel
+  ! effkind2.kel:3:26: 型エラー: エフェクト位置の型のカインドが Row ではありません: (Int32, Int32) :: Type
+  [1]
+
+module 修飾の型名と EffectRow エイリアスの本体も同じ枝を通る(台帳 V19 が
+書いていなかった 2 つ目と 3 つ目の穴):
+
+  $ printf 'module M { pub type T = Int32 }\nlet f(x: Int32): Int32 @ M.T = x\n' > effkind3.kel
+  $ diktor --type-check effkind3.kel
+  ! effkind3.kel:2:26: 型エラー: エフェクト位置の型のカインドが Row ではありません: Int32 :: Type
+  [1]
+  $ printf 'type W: EffectRow = MutableArray[Int32, Int32]\nlet f(x: Int32): Int32 @ W = x\n' > effkind4.kel
+  $ diktor --type-check effkind4.kel
+  ! effkind4.kel:1:21: 型エラー: エフェクト位置の型のカインドが Row ではありません: MutableArray[Int32, Int32] :: Type
+  [1]
+
+結果のカインドが未確定な適用も落とす。arity 0 の束縛子に引数を付けると
+drop_arrows がカインドを張るので、same_kind で照合すると「Type を取って Row を
+返す」という言語に無い構成子を受理してしまう。判定は構造マッチで、カインドが
+未確定のときだけ :: の併記を落とす(内部の連番が漏れ、プレリュードの行数で
+番号が動くため):
+
+  $ printf 'let f[F, E](x: Int32): Int32 @ F[E] = x\n' > effkind5.kel
+  $ diktor --type-check effkind5.kel
+  ! effkind5.kel:1:32: 型エラー: エフェクト位置の型のカインドが Row ではありません: ς1[ς2]
+  [1]
+
+EffectRow エイリアスの適用はこの枝を通って正しく行になる(枝ごと落とさずに
+照合だけを足した理由。module 修飾でもパラメータつきでも同じ):
+
+  $ cat > effok.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > module M { pub type W[E]: EffectRow = {Print extends E} }
+  > let f[E](x: Int32): Int32 @ M.W[E] = x
+  > EOF
+  $ diktor --type-check --no-prelude effok.kel
+  f : (Int32) => Int32 @ {Print extends R1}
+
+D82 の型引数の読み分けから呼ぶときだけ照合を抑制する(~check_row:false)。
+呼び出し側は構成子名と引数の位置を添えられるので、そちらの診断を残す:
+
+  $ printf 'newtype Callback[E] = Callback(() => Unit @ E)\nlet f(c: Callback[MutableArray[Int32, Int32]]): Int32 = 0\n' > nest2.kel
+  $ diktor --type-check nest2.kel
+  ! nest2.kel:2:10: 型エラー: 型構成子 Callback の第1引数のカインドが一致しません: Row を期待しましたが MutableArray[Int32, Int32] は Type です
+  [1]
+
+エフェクト位置で落ちる診断は 3 つあり、言っている事実が違う。裸の名前が型として
+登録されていなければ「未知のエフェクト: Nope」(綴りの誤り。上の nope)、登録されて
+いれば「型 Int32 はエフェクトではありません」(位置の誤り。上の kinderr2)、module
+修飾の名前と適用形は読んだ結果のカインドを見て「エフェクト位置の型のカインドが
+Row ではありません」(読んだ結果が行にならない)。3 つを 1 つの文言に揃えると、
+どれかが嘘になる。
