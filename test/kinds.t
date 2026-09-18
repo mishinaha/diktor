@@ -2,8 +2,9 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
 型エイリアスのカインド、行 splice、HKT の定義域)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
-仕様 §6「型パラメータのカインドは本体での使われ方から推論し、使われ方が
-無ければ Type」と §9 の `newtype Callback[E] = Callback(() => Unit @ E)`。
+仕様 §6「型パラメータのカインドは宣言群の中の型の本体での使われ方から推論し、
+使われ方が無ければ Type」「型引数の位置は、そのパラメータのカインドで読み方が
+変わる」と、§9 の `newtype Callback[E] = Callback(() => Unit @ E)`。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -269,8 +270,37 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
   f : (Callback[R1]) => Callback[R1]
   g : (Callback[{Print}]) => Int32
 
-宣言順に依存しない(推論は 1b の後始末の投機的な精緻化で、使用点より前に済む。
-使用がエイリアスより前でも、エイリアスが newtype より前でも同じ):
+型引数の位置は、宣言されたパラメータのカインドで読み方が変わる(D82。仕様 §6)。
+Row のパラメータの位置ではエフェクト行として読むので、{} は空行に、裸の Print は
+{Print} の略記になる。Type のパラメータの位置では型として読む:
+
+  $ cat > rowarg.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > newtype Box[A] = Box(A)
+  > let a(): Callback[{}] = Callback(fn() => {})
+  > let b(c: Callback[Print]): Callback[Print] = c
+  > let d(x: Box[{}]): Box[{}] = x
+  > let e(): Box[{}] = Box({})
+  > EOF
+  $ diktor --type-check --no-prelude rowarg.kel
+  a : () => Callback[{}]
+  b : (Callback[{Print}]) => Callback[{Print}]
+  d : (Box[{}]) => Box[{}]
+  e : () => Box[{}]
+
+同じ {} が位置で別の意味になるが、印字はどちらも {} で見分けが付かない。Type の
+位置の {} が空レコード(= Unit)であることは、値を入れると見える:
+
+  $ printf 'type Unit = {}\nnewtype Box[A] = Box(A)\nlet bad(): Box[{}] = Box(1)\n' > rowarg2.kel
+  $ diktor --type-check --no-prelude rowarg2.kel
+  ! rowarg2.kel:3:5: 型エラー: 注釈された返り値型を満たしません({} は Integral のインスタンスではありません)
+  [1]
+
+エイリアスのパラメータのカインドの推論は宣言順に依存しない(1b の後始末の
+投機的な精緻化で、使用点より前に済む。使用がエイリアスより前でも、
+エイリアスが newtype より前でも同じ):
 
   $ cat > aliasorder.kel <<'EOF'
   > effect Print = { print: (String) => Unit }

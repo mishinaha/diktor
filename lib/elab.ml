@@ -298,6 +298,12 @@ let check_pub_annots ~params ~ret =
    型として読み、`{}` は Unit です。`Box[E]` に行変数を渡す形は、使用点で
    `bind` が内部名を並べて落とすのではなく、宣言のその場で
    「Type を期待しましたが ς1 は Row です」と落ちます(`test/kinds.t` の kinderr)。
+   この読み分けを仕様 §6 の条文にしたのが M29 (D123) です。認めないと
+   `pub let mk(): Callback[{}]` が書けません — 仕様 §13 が `pub` の型注釈を
+   完全に書けと要求するので、`Callback[{}]` と書く手段が無ければ `Callback` を
+   公開 API に出す道が閉じます。同じ `{}` が `Callback[{}]` では空行、
+   `Box[{}]` では Unit になる非対称は印字では見分けが付かず、値を入れて初めて
+   見えます(`test/kinds.t` の rowarg)。
 
    読み分けの判定は `kind_repr` の構造マッチで、照合は `same_kind` です。
    §1.6 の格言「カインドを直接パターンで見ている箇所は、それだけでバグ候補」に
@@ -703,7 +709,7 @@ and elab_value_type env level ~expanding what t =
   at_node t (fun () -> check_value_kind what ty);
   ty
 
-(* 型引数を宣言されたパラメータのカインドに合わせて読む(D82)。
+(* 型引数を宣言されたパラメータのカインドに合わせて読む(D82、仕様 §6)。
    Row のパラメータなら elab_eff、そうでなければ elab_type。
    読み終えたらカインドを照合する — 不一致はここで落とす方が、
    subst_params 越しに使用点で bind が落とすより早く読みやすい。
