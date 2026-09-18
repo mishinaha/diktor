@@ -890,10 +890,14 @@ and expand_alias env level ~expanding info args =
    登録されているなら綴りの誤りではなく位置の誤りなので、`Callback[Int32]` は
    「型 Int32 はエフェクトではありません」と言います(`unknown_effect`)。
 
-   上の枝のどれにも当たらなかったものが**最後の枝**に落ちます。文法
-   (`eff` / `eff_name`)がここへ通すのは、module 修飾の名前 (`M.T` / `M.W`) と、
-   エフェクト名でない頭への適用 (`W[E]` / `MutableArray[Int32, Int32]`) の
-   2 つだけです。EffectRow エイリアスの適用はここを通って正しく行になるので、
+   上の枝のどれにも当たらなかったものが**最後の枝**に落ちます。ここへ通る道は
+   3 つです。文法(`eff` / `eff_name`)が通す module 修飾の名前 (`M.T` / `M.W`) と、
+   エフェクト名でない頭への適用 (`W[E]` / `MutableArray[Int32, Int32]`)。
+   そして 3 つ目が `{… extends <ty>}` の右です — 文法の `extends` は `eff` では
+   なく **`ty`** を取り(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
+   `EBraceRow` の枝がその `ty` をそのまま `elab_eff` へ再帰で渡すので、
+   `@ {extends #Tag}` のように `eff` では書けない型式もここへ届きます。
+   EffectRow エイリアスの適用はここを通って正しく行になるので、
    枝ごと落とすわけにはいきません。そこで M29 (D127) からは、`elab_type` で
    読んだ結果のカインドを照合し、行でなければ
    「エフェクト位置の型のカインドが Row ではありません: <型> :: <カインド>」と
@@ -906,14 +910,29 @@ and expand_alias env level ~expanding info args =
    本体 (`type W: EffectRow = MutableArray[Int32, Int32]`) にもあり、
    あわせて閉じました(`test/kinds.t` の effkind 〜 effkind5)。
 
+   3 つ目の道の副作用として、`EBraceRow` の枝が持っていた検査
+   「extends の右は行でなければなりません」は**到達不能**になりました。
+   最後の枝を通ったものは新しい照合を先に抜けるのでカインドが必ず `Row` で、
+   ほかの枝が返すのも行だからです。`@ {extends #Tag}` の診断はこの改稿で
+   「extends の右は行でなければなりません」から
+   「エフェクト位置の型のカインドが Row ではありません: #Tag :: Type」へ
+   変わりました(M29 の検証で実測)。枝は安全網として残してあります。
+
    この照合だけは `kind_repr` の構造マッチで、`same_kind` を使いません。
    **エフェクト位置では推論をさせない**、というのが理由です。裸の型パラメータは
    1 番目の枝が受け、そこは `same_kind` で「まだ `KVar` の行変数かもしれない」を
-   拾います。最後の枝に届くのは module 修飾の名前と適用形だけで、どちらも
-   `TVar` にはなりません。`KVar` が現れる唯一の経路は arity 0 の束縛子への適用
-   (`let f[F, E](x: Int32): Int32 @ F[E]`) で、`drop_arrows` が
-   `KArrow (KVar, KVar)` を張った結果の新しい `KVar` です。ここで `same_kind` を
-   呼ぶと、それは検査ではなく既定化になります — `F` のカインドが
+   拾います。最後の枝にも、カインドが未確定のまま届くものはあります。経路は
+   2 つで、1 つは arity 0 の束縛子への適用
+   (`let f[F, E](x: Int32): Int32 @ F[E]`) — `drop_arrows` が
+   `KArrow (KVar, KVar)` を張った結果の新しい `KVar` です。もう 1 つは
+   パラメータのカインドがまだ推論されていない型エイリアスの適用で、
+   こちらは `TVar` が返ります。エイリアスのカインド推論(D84)は 1b の後始末に
+   走るので、1b の newtype の本体から見ると `al_kinds` は `KVar` のままです
+   (`type Id[A] = A` と `newtype N[X] = MkN(() => Unit @ Id[X])` を並べると、
+   展開結果の `A` が `KVar` のカインドで最後の枝へ返ります)。
+   つまり構造で比べる根拠は「この枝に未確定のカインドは来ない」ではありません。
+   **来るからこそ**構造で比べます — ここで `same_kind` を呼べば、それは検査では
+   なく `Row` への既定化になります。`F[E]` なら `F` のカインドが
    「Type を取って Row を返す」に固定され、そんなカインドの型構成子は言語に
    無いので、宣言できても呼べない `f` がまた 1 つ残ります。カインドが未確定の
    ときは `:: <カインド>` の併記を落とします。内部の連番が漏れると、番号が
@@ -924,12 +943,18 @@ and expand_alias env level ~expanding info args =
    (`elab_con_args` と `expand_alias`) だけで、そこは呼び出し側が
    「型構成子 Callback の第1引数のカインドが一致しません」と構成子名と引数の
    位置を添えて言うからです(`test/kinds.t` の nest2)。既定が `true` なので、
-   将来の新しい呼び出し側は照合つきになります。この結果、エフェクト位置で
-   落ちる診断は 3 つに分かれました — 綴りの誤り(`未知のエフェクト: Nope`)、
-   位置の誤り(`型 Int32 はエフェクトではありません`)、読んだ結果が行に
-   ならない(`エフェクト位置の型のカインドが Row ではありません`)。
-   1 つの文言に揃えるとどれかが嘘になるので、`test/kinds.t` が 3 つを並べて
-   固定しています。
+   将来の新しい呼び出し側は照合つきになります。この結果、**エフェクト位置に
+   名前や適用形を書いて、読んだ結果が行にならなかったとき**の言い分けが 3 つに
+   分かれました — 綴りの誤り(`未知のエフェクト: Nope`)、位置の誤り
+   (`型 Int32 はエフェクトではありません`)、読んだ結果のカインドが行でない
+   (`エフェクト位置の型のカインドが Row ではありません`)。1 つの文言に
+   揃えるとどれかが嘘になるので、`test/kinds.t` が 3 つを並べて固定しています。
+   エフェクト位置で落ちる診断がこの 3 つで尽きるわけではありません。行カインド
+   でない型パラメータ(`@ h`)と Type エイリアス(`@ P`)は、名前を引いた時点で
+   手前の枝が「行カインドではない型パラメータです: h」
+   「エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けて
+   ください)」と別の文言で先に落とします(`test/kinds.t` の regionkind /
+   classrow)。
 
    相互再帰の 3 関数を定義し終えたら、`~expanding` を空リストで閉じた
    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
@@ -963,6 +988,10 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
         match ext with
         | None -> TRowEmpty
         | Some t -> (
+            (* extends の右は文法(parser.mly)が eff ではなく ty を取るので、
+               ここから elab_eff へ再帰で読む = 最後の枝への 3 つ目の入口。
+               下の検査は D127 の照合が先に落とすので到達不能になったが、
+               安全網として残す(§11.6) *)
             let tt = elab_eff env level ~expanding t in
             if same_kind (Unify.kind_of tt) KRow then tt else type_error "extends の右は行でなければなりません")
       in
@@ -998,12 +1027,13 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
   | _ ->
-      (* 最後の枝(D127)。文法(eff)がここへ通すのは module 修飾の名前と、
-         エフェクト名でない頭への適用だけ。EffectRow エイリアスの適用
-         (W[E] / M.W)はここを通って正しく行になるので、落とすのではなく
+      (* 最後の枝(D127)。ここへ通るのは module 修飾の名前、エフェクト名でない
+         頭への適用、そして {… extends <ty>} の右の 3 つ。EffectRow エイリアスの
+         適用(W[E] / M.W)はここを通って正しく行になるので、落とすのではなく
          読んだ結果のカインドを照合する。判定は kind_repr の構造マッチで、
-         same_kind は使わない — この枝に行変数は来ないので、same_kind で
-         見ると検査ではなく既定化になる(§11.6) *)
+         same_kind は使わない — カインドが未確定のまま届く経路があり(F[E] と
+         カインド未推論のエイリアスの適用)、same_kind で見ると検査ではなく
+         Row への既定化になる(§11.6) *)
       let ty = elab_type env level ~expanding t in
       if check_row && kind_repr (Unify.kind_of ty) <> KRow then kind_error "エフェクト位置の型" ~expected:"Row" ty;
       ty
