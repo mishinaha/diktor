@@ -70,6 +70,34 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
   $ diktor --type-check --no-prelude phantom.kel
   ok : () => Phantom[Int32]
 
+カインドを決める「使われ方」は自分の宣言の本体に限らない(D129)。宣言群の中の
+型の本体が材料になるので、自分の本体では Int32 しか使っていないパラメータでも、
+他の宣言の本体が行として使えば行カインドになる:
+
+  $ cat > phantomrow.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > newtype Ph[E] = MkPh(Int32)
+  > newtype N[X] = MkN(Ph[X], Callback[X])
+  > let f(x: Ph[{Print}]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude phantomrow.kel
+  f : (Ph[{Print}]) => Int32
+
+同じ形から、行として使う側(上の N と Callback)を消すと Type に既定化され、
+型引数の {Print} は型として読まれる:
+
+  $ cat > phantomtype.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Ph2[E] = MkPh2(Int32)
+  > let f(x: Ph2[{Print}]): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude phantomtype.kel
+  ! phantomtype.kel:4:14: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
+  [1]
+
 表現を隠した newtype(= ???)でもパラメータは登録され既定化される:
 
   $ printf 'newtype X[A] = ???\nlet f[A](x: X[A]): X[A] = x\n' > hole.kel
@@ -567,3 +595,29 @@ D82 の型引数の読み分けから呼ぶときだけ照合を抑制する(~ch
 修飾の名前と適用形は読んだ結果のカインドを見て「エフェクト位置の型のカインドが
 Row ではありません」(読んだ結果が行にならない)。3 つを 1 つの文言に揃えると、
 どれかが嘘になる。
+
+run が導入するリージョン変数 h のカインドは Type(D130。仕様 §10)。行の位置
+(@ h)には書けない:
+
+  $ cat > regionkind.kel <<'EOF'
+  > let f(): Int32 = run h {
+  >   let g: () => Int32 @ h = fn() => 1
+  >   g()
+  > }
+  > EOF
+  $ diktor --type-check regionkind.kel
+  ! regionkind.kel:2:24: 型エラー: 行カインドではない型パラメータです: h
+  [1]
+
+値の型の位置には書けてしまう。値の型の位置はカインド Type を要求する(D131)
+ので、これが通ること自体が h のカインドが Type だという観測になる。h の値を
+作る手段は無いので実行には届かない(台帳 V21):
+
+  $ cat > regionkind2.kel <<'EOF'
+  > let f(): Int32 = run h {
+  >   let g: (h) => Int32 = fn(x) => 1
+  >   0
+  > }
+  > EOF
+  $ diktor --type-check regionkind2.kel
+  f : () => Int32
