@@ -716,7 +716,9 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
    — それまでは newtype も `KStar` 決め打ちで、ここは嘘でした。型クラス自身の
    パラメータ(`type class C[A]` の `A`)だけは今も `KStar` 固定です — インスタンスの
    選択が型構成子のタグで行われる以上、行のクラスは意味を持たないという読みで、
-   仕様への確認は計画 260912-1 の C.10 の 7 にあります。
+   仕様 §8 がこれを定めています (M29 / D125)。エフェクトで量化したいときは、
+   クラスのパラメータではなくメソッドの型パラメータに行変数を取ります
+   (`test/kinds.t` の classrow / classrow2 / classrowok)。
 
    `tp_classes` は `long_id list` です。クラス名も経路で書けるので
    (`Prelude.Add`)、素の文字列にはしていません。 *)

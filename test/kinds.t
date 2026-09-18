@@ -236,8 +236,9 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   ! redecl2.kel:1:32: 型エラー: コンストラクタ Callback のフィールドの型のカインドが Type ではありません: R1 :: Row
   [1]
 
-行カインドのパラメータを持つ型は Functor のインスタンスにできない
-(頭のカインドが [_] Type ではなくなるため。D80 の副産物):
+行カインドのパラメータを持つ型は Functor のインスタンスにできない(D126)。
+頭のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と
+合わないためで、仕様 §8 が derive structural の制限と並べて帰結として書いている:
 
   $ cat > nofunctor.kel <<'EOF'
   > type Unit = {}
@@ -252,6 +253,45 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   $ diktor --type-check --no-prelude nofunctor.kel
   ! nofunctor.kel:6:1: 型エラー: インスタンス頭 Callback のカインドがクラス Functor のパラメータと一致しません
   [1]
+
+型クラスのパラメータに EffectRow のカインドは取れない(D125。仕様 §8。取れるのは
+Type か、HKT の F[_] = Type を取って Type を返す形だけ)。行として使うと、
+メソッドの署名に直接書いても、行カインドのパラメータを持つ newtype に渡しても、
+宣言の時点で落ちる:
+
+  $ cat > classrow.kel <<'EOF'
+  > type Unit = {}
+  > type class C[E] {
+  >   val m: (Int32) => Unit @ E
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude classrow.kel
+  ! classrow.kel:3:28: 型エラー: 行カインドではない型パラメータです: E
+  [1]
+  $ cat > classrow2.kel <<'EOF'
+  > type Unit = {}
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > type class C[E] {
+  >   val m: (Callback[E]) => Unit
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude classrow2.kel
+  ! classrow2.kel:4:20: 型エラー: 行カインドではない型パラメータです: E
+  [1]
+
+メソッドの型パラメータのほうは行カインドになれる。エフェクトで量化したいときは、
+クラスのパラメータではなくこちらに行変数を取る(仕様 §8 の Functor の map が見本):
+
+  $ cat > classrowok.kel <<'EOF'
+  > type Unit = {}
+  > type class Runner[A] {
+  >   val run_[E]: (A, () => Unit @ E) => Unit @ E
+  > }
+  > type instance Runner[Int32] {
+  >   let run_(x, f) = f()
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude classrowok.kel
 
 型エイリアスのパラメータのカインドも本体から推論して表に残す(D84)。
 newtype を透過に包むエイリアスに、行変数でも具体的な行でも渡せる(かつては
