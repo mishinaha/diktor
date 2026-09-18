@@ -1,0 +1,46 @@
+# R11.patch: J1.5 の診断文言を値の位置と共通の補助関数から出す(レビュー指摘 R11)
+diff --git a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -345,13 +345,21 @@
+    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
+    時間を返せるからです。 *)
+ 
+-(* 値の型の位置のカインド照合(D-J24)。what は「… の型」で終わる名詞句で、
+-   文面は D83 が newtype のフィールドに与えていたものをそのまま一般化した。
+-   判定に same_kind を使うのは §11.31 と同じ理由 — 裸のパラメータ 1 個の
+-   位置では「値の位置に現れた ⇒ Type」という推論として働く *)
++(* 位置が要求するカインドとの照合(D-J24 / R11)。what は「… の型」で終わる
++   名詞句で、文面は D83 が newtype のフィールドに与えていたものを一般化した。
++   期待カインドを引数に取るのは、値の位置(Type)とエフェクト位置(Row)で
++   診断の形を揃えるため。判定に same_kind を使うのは §11.31 と同じ理由 —
++   裸のパラメータ 1 個の位置では「この位置に現れた ⇒ そのカインド」という
++   推論として働く *)
++let kind_mismatch ~expect what ty =
++  type_error
++    (what ^ "のカインドが " ^ show_kind expect ^ " ではありません: " ^ Show.show ty ^ " :: "
++   ^ show_kind (Unify.kind_of ty))
++
++(* 値の型の位置。判定に same_kind を使うのは §11.31 と同じ理由 — 裸の
++   パラメータ 1 個の位置では「値の位置に現れた ⇒ Type」という推論として働く *)
+ let check_value_kind what ty =
+-  if not (same_kind (Unify.kind_of ty) KStar) then
+-    type_error (what ^ "のカインドが Type ではありません: " ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty))
++  if not (same_kind (Unify.kind_of ty) KStar) then kind_mismatch ~expect:KStar what ty
+ 
+ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
+   (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
+@@ -886,8 +894,11 @@
+          ~check_row:false で呼ぶのは D82 の読み分けの 2 か所だけで、そこは
+          呼び出し側が構成子名と引数の位置を添えた診断を出します *)
+       let ty = elab_type env level ~expanding t in
+-      if (not check_row) || kind_repr (Unify.kind_of ty) = KRow then ty
+-      else type_error ("型 " ^ Show.show ty ^ " はエフェクト行ではありません(ここにはエフェクト行が要ります)")
++      (* 判定は kind_repr の一致だけ — same_kind だと F[E] のような未確定の
++         カインドを Row に張って通してしまう(実測)。文面だけを値の位置と
++         共通の kind_mismatch から出す(R11) *)
++      if check_row && kind_repr (Unify.kind_of ty) <> KRow then kind_mismatch ~expect:KRow "エフェクト位置の型" ty;
++      ty
+ 
+ (* 束縛の**最外**の矢印が注釈としてそのまま書かれている位置(型クラスの
+    メソッドの型と、引数リストを持たない値束縛の注釈)専用の入口。ここだけ

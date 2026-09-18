@@ -1,0 +1,57 @@
+# K-b: K.8b(decls.ml の ii_prelude / add_instance の受理枝 / prelude_instance_exists、
+#      interp.ml の DInstance の差し替え抑止)。レビューで defer になった分。
+# K-a.patch を当てた木に patch -p1 で重ねて当たる
+--- a/lib/decls.ml
++++ b/lib/decls.ml
+@@ -984,6 +984,7 @@
+ type instance_info = {
+   ii_premises : (int * oid) list; (* 引数位置 → 要求クラス *)
+   ii_builtin : bool;
++  ii_prelude : bool; (* プレリュード所有(D35 の規律をインスタンスにも及ぼす。P28) *)
+   ii_methods : (oid * T.let_binding) list; (* ユーザ宣言のメソッド本体(interp のディスパッチ用) *)
+ }
+ 
+@@ -1012,8 +1013,8 @@
+   (if reserved_predicate cls && not builtin then
+      type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
+   match Hashtbl.find_opt instances (cls, con) with
+-  | Some prev when prev.ii_builtin && not builtin ->
+-      (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い(1 回まで) *)
++  | Some prev when (prev.ii_builtin || prev.ii_prelude) && not (builtin || !in_prelude) ->
++      (* 実体は組み込み/プレリュードのまま。ユーザ本体は検査済みという扱い(1 回まで) *)
+       if Hashtbl.mem builtin_redecls (cls, con) then
+         type_error
+           ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+@@ -1021,7 +1022,9 @@
+   | Some _ ->
+       type_error
+         ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+-  | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin; ii_methods = methods }
++  | None ->
++      Hashtbl.add instances (cls, con)
++        { ii_premises = premises; ii_builtin = builtin; ii_prelude = !in_prelude; ii_methods = methods }
+ 
+ let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
+ 
+@@ -1029,6 +1032,10 @@
+ let builtin_instance_exists cls con =
+   match Hashtbl.find_opt instances (cls, con) with Some { ii_builtin; _ } -> ii_builtin | None -> false
+ 
++(* そのキーがプレリュード所有のインスタンスか(interp が実体を差し替えないため。P28) *)
++let prelude_instance_exists cls con =
++  match Hashtbl.find_opt instances (cls, con) with Some { ii_prelude; _ } -> ii_prelude | None -> false
++
+ (* ## 6.10 組み込み登録の道具立て
+ 
+    ここから下は、ソースに書けない — あるいは書かせたくない — 宣言を
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -1256,6 +1256,8 @@
+         (match Decls.find_class cls with Some ci -> ci.Decls.ci_builtin | None -> false)
+         && Decls.builtin_instance_exists cls con
+       then env (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
++      else if Decls.prelude_instance_exists cls con && Hashtbl.mem user_instances (cls, con) then
++        env (* プレリュード所有のインスタンスは差し替えない(P28。最初の 1 回 = プレリュード自身の実行だけが入る) *)
+       else
+       let methods =
+         List.concat_map

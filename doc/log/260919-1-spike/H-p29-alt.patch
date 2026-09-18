@@ -1,0 +1,37 @@
+--- a/lib/parser.mly
++++ b/lib/parser.mly
+@@ -879,9 +879,13 @@
+   | field COMMA            { [ $1 ] }
+   | field COMMA field_list { $1 :: $3 }
+ field:
+-  | lower_id EQ exp { ($1, $3) }
++  | label_id EQ exp { ($1, $3) }
+   | lower_id        { ($1, mk $sloc (Ident (LongId [ $1 ]))) } (* パンニング {a, b} = {a = a, b = b} *)
+ 
++label_id:
++  | lower_id { $1 }
++  | RUN      { "run" }
++
+ paren_exp:
+   | LPAREN RPAREN                    { mk $sloc RecordEmpty }
+   | LPAREN exp RPAREN                { $2 } (* グループ化。タプルにしない(計画 §6.4) *)
+@@ -1078,7 +1082,7 @@
+   | brace_item COMMA                 { [ $1 ] }
+   | brace_item COMMA brace_item_list { $1 :: $3 }
+ brace_item:
+-  | lower_id COLON ty { BField ($1, $3) }   (* レコード型のフィールド *)
++  | label_id COLON ty { BField ($1, $3) }   (* レコード型のフィールド *)
+   | eff_name          { let li, args = $1 in BLabel (li, args) }   (* エフェクト行の要素 *)
+ 
+ eff:
+--- a/lib/lexer.ml
++++ b/lib/lexer.ml
+@@ -641,7 +641,7 @@
+     in
+     go 0 k
+ 
+-  let is_ident_tok = function LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ -> true | _ -> false
++  let is_ident_tok = function LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ | RUN -> true | _ -> false
+ 
+ (* ## 2.9 再分類層 — `{` を 3 通りに読み分ける
+ 

@@ -1,0 +1,44 @@
+ファイル,行,字面,参照値,指し先,新参照,内容変化の有無,判別根拠
+lib/decls.ml,221,(:641,641,MiniLang.scala,—,—,「MiniLang の conKinds (:641)」
+lib/decls.ml,665,:1756,1756,MiniLang.scala,—,—,「MiniLang:1721 …同じ式が U 側の :1756 にも」
+lib/decls.ml,780,(:407,407,doc/sample.kel,444,無,
+lib/decls.ml,780,(:514,514,doc/sample.kel,565,無,
+lib/decls.ml,789,(:1261-1264,1261-1264,MiniLang.scala,—,—,「MiniLang の lookupOp (:1261-1264)」
+lib/decls.ml,795,:544,544,doc/sample.kel,595,無,
+lib/decls.ml,799,:459-460,459-460,doc/sample.kel,508-509,無,
+lib/elab.ml,28,(:440,440,doc/sample.kel,487,無,
+lib/elab.ml,1578,(:407,407,doc/sample.kel,444,無,
+lib/elab.ml,1578,(:514,514,doc/sample.kel,565,無,
+lib/elab.ml,1584,(:1261-1264,1261-1264,MiniLang.scala,—,—,「MiniLang の lookupOp は…(:1261-1264)」
+lib/elab.ml,1821,:641,641,doc/sample.kel,699,無,
+lib/elab.ml,1835,:462,462,doc/sample.kel,511,無,
+lib/elab.ml,1837,:462,462,doc/sample.kel,511,無,
+lib/elab.ml,3124,(:440,440,doc/sample.kel,487,無,
+lib/parser.mly,327,:543,543,doc/sample.kel,594,無,
+lib/parser.mly,328,(:556,556,doc/sample.kel,607,無,
+lib/parser.mly,648,:672-675,672-675,doc/sample.kel,730-733,無,
+lib/prelude.kel,69,(:209-210,209-210,doc/sample.kel,227-228,無,
+lib/prelude.kel,69,(:407,407,doc/sample.kel,444,無,
+lib/prelude.kel,69,(:408,408,doc/sample.kel,445,無,
+lib/prelude.kel,69,(:329,329,doc/sample.kel,356,無,
+lib/prelude.kel,135,:641,641,doc/sample.kel,699,無,
+lib/syntax.ml,364,(:172-174,172-174,doc/sample.kel,190-192,無,
+lib/syntax.ml,365,:181-186,181-186,doc/sample.kel,199-204,無,
+lib/unify.ml,421,(:172-174,172-174,doc/sample.kel,190-192,無,
+lib/unify.ml,421,、:180-186,180-186,doc/sample.kel,198-204,無,
+lib/unify.ml,582,(:836-840,836-840,MiniLang.scala,—,—,「MiniLang §6 (:836-840) の同じ細工」
+lib/unify.ml,591,(:834-835,834-835,MiniLang.scala,—,—,「この方針も MiniLang §6 (:834-835) のまま」
+test/fs_effect.t,1,:518-524,518-524,doc/sample.kel,569-575,無,
+test/fs_effect.t,82,:462,462,doc/sample.kel,511,無,
+test/runtime_effects.t,2,:641,641,doc/sample.kel,699,無,
+test/runtime_effects.t,16,:462,462,doc/sample.kel,511,無,
+test/runtime_effects.t,29,:462,462,doc/sample.kel,511,無,
+test/spec_gaps.t,15,§14:765,765,doc/sample.kel,829,無,
+test/spec_gaps.t,15,(:766,766,doc/sample.kel,830,無,
+test/spec_gaps.t,16,(:767-771,767-771,doc/sample.kel,831-836,有,"置換された旧行: 767,768,769,770"
+test/spec_gaps.t,19,§14:775-776,775-776,doc/sample.kel,842-843,無,
+test/spec_gaps.t,47,§14:772,772,doc/sample.kel,837,無,
+test/spec_gaps.t,55,§14:773,773,doc/sample.kel,838,無,
+test/spec_gaps.t,72,§14:774,774,doc/sample.kel,839,無,
+test/typecheck_sample.t,73,:580,580,doc/sample.kel,633,無,
+test/verify_fixes.t,4,:180-186,180-186,doc/sample.kel,198-204,無,

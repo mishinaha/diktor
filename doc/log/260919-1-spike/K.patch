@@ -1,0 +1,126 @@
+--- a/lib/decls.ml
++++ b/lib/decls.ml
+@@ -984,6 +984,7 @@
+ type instance_info = {
+   ii_premises : (int * oid) list; (* 引数位置 → 要求クラス *)
+   ii_builtin : bool;
++  ii_prelude : bool; (* プレリュード所有(D35 の規律をインスタンスにも及ぼす。P28) *)
+   ii_methods : (oid * T.let_binding) list; (* ユーザ宣言のメソッド本体(interp のディスパッチ用) *)
+ }
+ 
+@@ -1012,8 +1013,8 @@
+   (if reserved_predicate cls && not builtin then
+      type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
+   match Hashtbl.find_opt instances (cls, con) with
+-  | Some prev when prev.ii_builtin && not builtin ->
+-      (* 実体は組み込みのまま。ユーザ本体は検査済みという扱い(1 回まで) *)
++  | Some prev when (prev.ii_builtin || prev.ii_prelude) && not (builtin || !in_prelude) ->
++      (* 実体は組み込み/プレリュードのまま。ユーザ本体は検査済みという扱い(1 回まで) *)
+       if Hashtbl.mem builtin_redecls (cls, con) then
+         type_error
+           ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+@@ -1021,7 +1022,9 @@
+   | Some _ ->
+       type_error
+         ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+-  | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin; ii_methods = methods }
++  | None ->
++      Hashtbl.add instances (cls, con)
++        { ii_premises = premises; ii_builtin = builtin; ii_prelude = !in_prelude; ii_methods = methods }
+ 
+ let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
+ 
+@@ -1029,6 +1032,10 @@
+ let builtin_instance_exists cls con =
+   match Hashtbl.find_opt instances (cls, con) with Some { ii_builtin; _ } -> ii_builtin | None -> false
+ 
++(* そのキーがプレリュード所有のインスタンスか(interp が実体を差し替えないため。P28) *)
++let prelude_instance_exists cls con =
++  match Hashtbl.find_opt instances (cls, con) with Some { ii_prelude; _ } -> ii_prelude | None -> false
++
+ (* ## 6.10 組み込み登録の道具立て
+ 
+    ここから下は、ソースに書けない — あるいは書かせたくない — 宣言を
+@@ -1367,6 +1374,12 @@
+     classes []
+   @ !builtin_ops
+ 
++(* 組み込みが値環境に置く名前か(修飾名 Ref.new / MutableArray.set と、
++   クラスメソッドの Show.show / show の両方を含む)。module 平坦化が
++   同じ綴りの修飾名を作るのを拒むために第11章が引く(P18 / D-K18)。
++   名簿は builtin_values 1 枚で、ここは問い合わせ口にすぎない *)
++let is_builtin_value name = List.mem_assoc name (builtin_values ())
++
+ let reset () =
+   Hashtbl.reset con_kinds;
+   Hashtbl.reset aliases;
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -3906,6 +3906,13 @@
+                   type_error
+                     ("module " ^ mname ^ " の " ^ x ^ " は型クラス " ^ mname ^ " のメソッド " ^ x
+                    ^ " と修飾名が衝突します(module か メソッドを改名してください)")
++                else if (not !Decls.in_prelude) && Decls.is_builtin_value (mname ^ "." ^ x) then
++                  (* 組み込みの修飾名(Ref.new / MutableArray.set …)は奪えない。
++                     予約型名を newtype で奪えない (§6.10) のと同じ規律で、
++                     黙って覆うと組み込みの署名ごと消える(D-K18) *)
++                  type_error
++                    ("module " ^ mname ^ " の " ^ x ^ " は組み込みの " ^ mname ^ "." ^ x
++                   ^ " と同名です(組み込みの名前は宣言できません)")
+                 else Decls.(Hashtbl.replace module_val_synonyms (mname, intern x) (intern (mname ^ "." ^ x)));
+                 Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
+               in
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -1256,6 +1256,8 @@
+         (match Decls.find_class cls with Some ci -> ci.Decls.ci_builtin | None -> false)
+         && Decls.builtin_instance_exists cls con
+       then env (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
++      else if Decls.prelude_instance_exists cls con && Hashtbl.mem user_instances (cls, con) then
++        env (* プレリュード所有のインスタンスは差し替えない(P28。最初の 1 回 = プレリュード自身の実行だけが入る) *)
+       else
+       let methods =
+         List.concat_map
+--- a/lib/prelude.kel
++++ b/lib/prelude.kel
+@@ -394,3 +394,40 @@
+     case print(message) => resume(perform write(message))
+     case return(x) => x
+   }
++
++// ## 15.8 List と Option の Show
++//
++// `show` は組み込みの 6 型 (String / Boolean / Int32 / Int64 / Float64) にしか
++// 付いていませんでした。プレリュードが `List` と `Option` を宣言する以上、
++// その 2 つの `Show` もここが持ちます (P28 / D-K28)。前提つきインスタンス
++// (仕様 sample.kel:364-373) なので、要素が `Show` のときだけ効きます。
++//
++// 出力の形は `[1, 2, 3]` と `Some(1)` / `None` です。要素の区切りは `, ` で、
++// 空リストは `[]`。`Show[String]` は引用符を付けない恒等写像なので、
++// `show(Cons("a", Nil))` は `[a]` になります。
++//
++// 再帰はメソッド本体の中の `let rec go` が持ちます。インスタンス本体に
++// 書けるのはクラスのメソッドだけなので、補助関数をプレリュードの
++// トップレベルに置くと大域の名前が 1 つ増えます。ブロック内の `let rec` なら
++// 名前は漏れません。要素側の `show` を `Show.show` と修飾するのは、
++// 非修飾の `show` がこのメソッド自身に解決されうるためです。
++
++type instance[A: Show] Show[List[_]] {
++  let show(xs) = {
++    let rec go(ys) = ys match {
++      case Nil => ""
++      case Cons(head = h, tail = t) => t match {
++        case Nil => Show.show(h)
++        case _   => Show.show(h) + ", " + go(t)
++      }
++    }
++    "[" + go(xs) + "]"
++  }
++}
++
++type instance[A: Show] Show[Option[_]] {
++  let show(o) = o match {
++    case None    => "None"
++    case Some(x) => "Some(" + Show.show(x) + ")"
++  }
++}

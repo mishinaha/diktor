@@ -1,0 +1,219 @@
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -265,6 +265,15 @@
+    問題は消えたが、規則は仕様 §13(sample.kel:729-732)が可読性の理由で
+    残した — 公開 API では純粋を意図したのか書き忘れたのかを読み手が
+    区別できなければならない。pub newtype のフィールド(§11.31)も同じ *)
++(* 値束縛の注釈の**頭**の矢印は最外なので、pub の完全注釈検査から外す
++   (仕様 §13、sample.kel:729-732。「入れ子の矢印の @ も省略できない」の
++   「入れ子」に頭は入らず、:731 が最外の省略を「本体は純粋、公開は行多相」と
++   定めている。D-I1b)。関数束縛の lb_ret は返り値型 = 入れ子なので対象外 *)
++let fully_effected_value_head ((_, te) as t : T.type_exp) =
++  match te with
++  | T.EArrow (params, ret, _) -> List.for_all fully_effected params && fully_effected ret
++  | _ -> fully_effected t
++
+ let check_pub_annots ~params ~ret =
+   (match params with
+   | Some ps ->
+@@ -279,7 +288,9 @@
+   | None -> ());
+   match ret with
+   | None -> type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"
+-  | Some te -> if not (fully_effected te) then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
++  | Some te ->
++      let ok = match params with None -> fully_effected_value_head te | Some _ -> fully_effected te in
++      if not ok then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
+ 
+ (* ## 11.3 型式の精緻化 — 書かれた型を内部型へ
+ 
+@@ -1759,6 +1770,11 @@
+     | T.PVar "cancel" -> `Cancel cnode
+     | T.PCtor (LongId comps, args) -> (
+         match List.rev comps with
++        (* return / cancel は操作名ではないので修飾できない(D-I4)。
++           `case File.return(x)` を受理すると修飾が黙って捨てられ、
++           節が対象エフェクトを決める材料にならないのに書けてしまう *)
++        | (("return" | "cancel") as kw) :: _ :: _ ->
++            type_error (kw ^ " 節は修飾できません(" ^ kw ^ " は操作名ではなく handle の節の名前です。修飾を外してください)")
+         | "cancel" :: _ ->
+             if args <> [] then noimpl "cancel(reason)(v0 は case cancel のみ)" else `Cancel cnode
+         | "return" :: _ -> (
+@@ -2336,11 +2352,38 @@
+         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
+         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+     | None ->
+-        let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
++        (* 値束縛の注釈の**頭**の矢印は束縛の最外(D75 / P9 の裁定 D-I1)。
++           ラベル付きの閉じた行を書いたときは関数束縛と同じく、本体には
++           Rigid を足して開き、公開スキーマでは Generic にする
++           (§11.26 の表の 1 行目)。書かれた @ {} と省略された @ は触らない *)
++        let vty =
++          match b.T.lb_ret with
++          | None -> new_var lvl
++          | Some t -> (
++              let ty = elab_type_outer env_ty lvl t in
++              match (snd t, repr ty) with
++              | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
++                  let e', eff_rigids = open_explicit_eff lvl e in
++                  extra_rigids := eff_rigids @ !extra_rigids;
++                  TArrow (a, r, e')
++              | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
++                  (* pub の省略 @ は「本体は純粋、公開は行多相」(D44 / 仕様
++                     §13 の sample.kel:731。関数束縛の lb_eff = None と同じ扱い) *)
++                  let rr = new_rigid_ref ~kind:KRow lvl in
++                  (match !rr with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
++                  extra_rigids := ("", TVar rr, rr) :: !extra_rigids;
++                  TArrow (a, r, TVar rr)
++              | _ -> ty)
++        in
+         (* 値束縛は外側の eff で評価される *)
+         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
+         (try Unify.unify vty body_ty
+-         with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
++         with Type_error msg when b.T.lb_ret <> None ->
++           (* pub の省略 @ の値束縛では、失敗の原因は本体が純粋でないこと
++              (D-I1b)。関数束縛(§11.12)と同じ言い換えをここでも置く *)
++           if b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg then
++             type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
++           else type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
+         vty
+   in
+   (* @ 省略の let の行が本体で空に固まったら、公開のときに開き直す
+@@ -2466,7 +2509,19 @@
+             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
+             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+         | None ->
+-            let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
++            (* 値束縛の注釈の頭の矢印は最外(D-I1。§11.28 と同じ) *)
++            let vty =
++              match b.T.lb_ret with
++              | None -> new_var lvl
++              | Some t -> (
++                  let ty = elab_type_outer env_ty lvl t in
++                  match (snd t, repr ty) with
++                  | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
++                      let e', eff_rigids = open_explicit_eff lvl e in
++                      extra_rigids := eff_rigids @ !extra_rigids;
++                      TArrow (a, r, e')
++                  | _ -> ty)
++            in
+             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
+             vty
+       in
+@@ -2727,6 +2782,13 @@
+     List.map
+       (fun (op, te) ->
+         match snd te with
++        | T.EArrow (_, _, Some _) ->
++            (* 操作型の**頭**の矢印に @ は書けない(D-I5 / 仕様 §9)。
++               操作が起こす行は handle 側が与えるので、ここに書いた行は
++               perform も handle も読まない。受理すると黙って捨てられる *)
++            type_error
++              ("操作 " ^ op
++             ^ " の型の頭の矢印には @ を書けません(操作を perform した文脈の行は handle 側が決めます。引数の矢印には書けます — 仕様 §9)")
+         | T.EArrow _ ->
+             let ty = elab_type env 1 te in
+             Unify.generalize 0 ty;
+@@ -2898,9 +2960,13 @@
+            型クラスのメソッドも最外に含める — sample.kel:415-421)。M26 の検証
+            まで let / extern にしか掛かっておらず、val f: (T) => Int32 @ Console
+            のメソッドがどの文脈からも呼べなかった(計画 B0 の表の見落とし) *)
++        (* 開くのは注釈の頭が**矢印リテラル**のときだけ(D-I6 / P27)。
++           頭が型エイリアスなら展開先の矢印は入れ子で、書いた行はそのまま
++           閉じたまま読む(仕様 §9、sample.kel:433-434)。値束縛(§11.28 の
++           outer_eff_written)と同じ規律で、ここだけ開いていた *)
+         let ty, eff_rigids =
+-          match repr ty with
+-          | TArrow (a, r, e) ->
++          match (snd v.T.cv_ty, repr ty) with
++          | T.EArrow _, TArrow (a, r, e) ->
+               let e', rig = open_explicit_eff 1 e in
+               (TArrow (a, r, e'), rig)
+           | _ -> (ty, [])
+@@ -3197,7 +3263,7 @@
+     params_annotated && b.T.lb_ret <> None
+     && (match b.T.lb_params with
+        | Some _ -> b.T.lb_eff <> None || b.T.lb_pub
+-       | None -> ( match b.T.lb_ret with Some t -> head_effected t | None -> false))
++       | None -> ( match b.T.lb_ret with Some t -> head_effected t || b.T.lb_pub | None -> false))
+   in
+   if not full then None
+   else
+@@ -3225,7 +3291,23 @@
+             let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
+             release_rigids eff_rigids;
+             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+-        | None -> ( match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> assert false)
++        | None -> (
++            (* 1c の署名もパス 2 と同じ読み(D-I1)。開かないと前方参照の
++               有無で値束縛の行の開き方が変わる *)
++            match b.T.lb_ret with
++            | Some t -> (
++                let ty = elab_type_outer env_ty lvl t in
++                match (snd t, repr ty) with
++                | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
++                    let e', eff_rigids = open_explicit_eff lvl e in
++                    release_rigids eff_rigids;
++                    TArrow (a, r, e')
++                | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
++                    (* pub の省略 @ は公開の側で行多相(D44 / D-I1b)。
++                       1c は本体を見ないので Generic を直に置く *)
++                    TArrow (a, r, new_row_var lvl)
++                | _ -> ty)
++            | None -> assert false)
+       in
+       Unify.generalize 0 ty;
+       release_rigids rigids;
+@@ -3308,7 +3390,8 @@
+     let lvl = 1 in
+     let skol = Unify.skolemize lvl (expected_of mname) in
+     let inf = Unify.instantiate lvl inferred in
+-    try
++    let wrap f = try f () with Type_error msg -> type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")") in
++    (
+       (* 最外の行だけ最後に見る(仕様 §9 の「型クラスのメソッド = 実装は純粋、
+          公開は行多相」— D77)。引数と返り値を先に合わせたあと、実装の行が
+          空 = 純粋なら、宣言の行(剛定数)と単一化せずに受理する — 純粋な
+@@ -3319,12 +3402,24 @@
+          無いと宣言できるのに実装できないメソッドが生まれる(実測) *)
+       match (repr inf, repr skol) with
+       | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
+-          Unify.unify ia sa;
+-          Unify.unify ir sr;
+-          if repr ie = TRowEmpty then () else Unify.unify ie se
+-      | _ -> Unify.unify inf skol
+-    with Type_error msg ->
+-      type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")
++          wrap (fun () -> Unify.unify ia sa);
++          wrap (fun () -> Unify.unify ir sr);
++          if repr ie = TRowEmpty then ()
++          else
++            (* 宣言側の行が**裸の行変数**(= メソッドの最外の @ を省略した)
++               ときだけ、規則を名指しする(D-I7)。一般文言「行 ς1 は注釈で
++               固定された行変数なので」では、純粋性が規則だと読み手に伝わらない。
++               宣言が @ Console と書いている場合はラベルの食い違いなので
++               従来の文言のまま *)
++            let bare = match row_fields se with [], tail -> ( match repr tail with TVar _ -> true | _ -> false) | _ -> false in
++            (try Unify.unify ie se
++             with Type_error msg ->
++               if bare && row_failure msg then
++                 type_error
++                   ("型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド "
++                  ^ mname ^ " の本体がエフェクトを起こしています。元の報告: " ^ msg)
++               else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")"))
++      | _ -> wrap (fun () -> Unify.unify inf skol))
+   in
+   List.iter
+     (fun ((_, d) : T.decl) ->
+--- a/test/classes.t
++++ b/test/classes.t
+@@ -219,7 +219,7 @@
+   > type instance Sizer[Box] { let size(b) = b match { case Box(x) => { echo("eff!"); x } } }
+   > KEL
+   $ diktor --type-check clsimpure.kel
+-  ! clsimpure.kel:3:32: 型エラー: インスタンスメソッド size がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
++  ! clsimpure.kel:3:32: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド size の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
+   [1]
+ 
+ 型クラスのメソッドの最外のラベル付き行も、let / extern と同じく公開では行変数で

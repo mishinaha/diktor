@@ -1,0 +1,503 @@
+diff --git a/lib/elab.ml b/lib/elab.ml
+index 7e92d8d..2204c6f 100644
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -334,6 +334,14 @@ let check_pub_annots ~params ~ret =
+    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
+    時間を返せるからです。 *)
+ 
++(* 値の型の位置のカインド照合(D-J24)。what は「… の型」で終わる名詞句で、
++   文面は D83 が newtype のフィールドに与えていたものをそのまま一般化した。
++   判定に same_kind を使うのは §11.31 と同じ理由 — 裸のパラメータ 1 個の
++   位置では「値の位置に現れた ⇒ Type」という推論として働く *)
++let check_value_kind what ty =
++  if not (same_kind (Unify.kind_of ty) KStar) then
++    type_error (what ^ "のカインドが Type ではありません: " ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty))
++
+ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
+   (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
+      注釈のどこで落ちても注釈全体の先頭がアンカーになってしまう *)
+@@ -477,7 +485,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
+    穴を許すと部分適用と同じ問題に踏み込むので、ここで拒否します。 *)
+ 
+   | T.EArrow (params, ret, eff_opt) ->
+-      let param_tys = List.map (fun p -> elab_type env level ~expanding p) params in
++      let param_tys = List.map (fun p -> elab_value_type env level ~expanding "矢印の引数の型" p) params in
+       (* 仕様 §9(改訂): 省略された @ の読み方は矢印の**位置**で決まる(D75)。
+          入れ子の矢印(最外以外の全て — 引数の型・返り値の中・newtype の
+          フィールド・effect の操作型・型エイリアスが展開する矢印)の省略は
+@@ -489,7 +497,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
+         | Some e -> elab_eff env level ~expanding e
+         | None -> if outer then new_row_var level else TRowEmpty
+       in
+-      TArrow (TRecord (closed_item_row param_tys), elab_type env level ~expanding ret, eff)
++      TArrow (TRecord (closed_item_row param_tys), elab_value_type env level ~expanding "矢印の返り値の型" ret, eff)
+   | T.EBraceRow (elems, ext) ->
+       let tail =
+         match ext with
+@@ -506,13 +514,17 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
+         List.fold_right
+           (fun elem acc ->
+             match elem with
+-            | T.BField (l, t) -> TRowExtend (intern l, elab_type env level ~expanding t, acc)
++            | T.BField (l, t) ->
++                let what = if l = "_item" then "タプルの要素の型" else "レコードのフィールド " ^ l ^ " の型" in
++                TRowExtend (intern l, elab_value_type env level ~expanding what t, acc)
+             | T.BLabel _ -> type_error "エフェクトラベルはこの位置(レコード型)では使えません")
+           elems tail
+       in
+       TRecord row
+   | T.EVariantCase (s, payload) ->
+-      let pty = match payload with None -> t_unit | Some t -> elab_type env level ~expanding t in
++      let pty =
++        match payload with None -> t_unit | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
++      in
+       TVariant (TRowExtend (intern s, pty, TRowEmpty))
+   | T.EUnion ts ->
+       (* 各要素を行に落として連結(計画 §7.3)。開いてよいのは末尾要素だけ *)
+@@ -523,7 +535,11 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
+             let is_last = i = n - 1 in
+             match snd t with
+             | T.EVariantCase (s, payload) ->
+-                let pty = match payload with None -> t_unit | Some t -> elab_type env level ~expanding t in
++                let pty =
++                  match payload with
++                  | None -> t_unit
++                  | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
++                in
+                 TRowExtend (intern s, pty, TRowEmpty)
+             | _ -> (
+                 let tt = elab_type env level ~expanding t in
+@@ -615,6 +631,20 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
+    Keleut では行変数とエフェクト名が構文上同形なので、エイリアスの側に
+    カインドの注記が要ります (§11.6)。 *)
+ 
++(* 値の型の位置で読んだ型のカインドが Type であることを見る(D-J24)。
++   矢印の引数と返り値、レコードのフィールド(タプルの要素を含む)、
++   ヴァリアントの積載、そして外側からは引数と返り値の注釈がこれを通る。
++   見ないと、行カインドの型パラメータや EffectRow エイリアスが値の型として
++   表に入り、使用点まで診断が遅れて内部名になる(台帳 V17 / V20)。
++   判定に same_kind を使うのは §11.31 のフィールド検査と同じ理由で、
++   裸のパラメータ 1 個の位置では「値の位置に現れた ⇒ Type」という推論として
++   働く。at_node を部分式に掛け直すのは、注釈全体の先頭ではなく
++   カインドが合わなかった位置を指すため *)
++and elab_value_type env level ~expanding what t =
++  let ty = elab_type env level ~expanding t in
++  at_node t (fun () -> check_value_kind what ty);
++  ty
++
+ (* 型引数を宣言されたパラメータのカインドに合わせて読む(D82)。
+    Row のパラメータなら elab_eff、そうでなければ elab_type。
+    読み終えたらカインドを照合する — 不一致はここで落とす方が、
+@@ -847,6 +877,17 @@ let elab_type_outer env level t = at_node t (fun () -> elab_type env level ~expa
+ 
+ let elab_type env level t = at_node t (fun () -> elab_type env level ~expanding:[] t)
+ 
++(* 注釈の位置(引数・返り値・値束縛の頭)も値の型の位置なので同じ照合を通す
++   (P24 の (d))。通さないと EffectRow エイリアスを書いた注釈が束縛の
++   単一化まで生き延び、「カインドが一致しません: _A :: Type と {Print}」と
++   内部名で落ちる *)
++let elab_value_type env level what t = at_node t (fun () -> elab_value_type env level ~expanding:[] what t)
++
++let elab_value_type_outer env level what t =
++  let ty = elab_type_outer env level t in
++  at_node t (fun () -> check_value_kind what ty);
++  ty
++
+ let elab_eff env level t = at_node t (fun () -> elab_eff env level ~expanding:[] t)
+ 
+ (* ## 11.7 パターン — 期待型に対する検査、束縛は単相
+@@ -884,7 +925,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
+         seen := x :: !seen;
+         { env with values = SMap.add x expected env.values })
+   | T.PAnnot (sub, te) ->
+-      Unify.unify expected (elab_type env level te);
++      Unify.unify expected (elab_value_type env level "型注釈" te);
+       elab_pat env level seen expected sub
+   | T.PBool _ ->
+       Unify.unify expected t_boolean;
+@@ -2326,7 +2367,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
+           | None -> (new_row_var lvl, [])
+         in
+         extra_rigids := eff_rigids @ !extra_rigids;
+-        let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
++        let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
+         let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
+         (* 言い換えは注釈が書かれているときだけ(値束縛側と同じガード。E6)。
+            lb_ret = None のここで落ちる経路は現状無いが、あれば注釈の話を
+@@ -2336,7 +2377,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
+         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
+         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+     | None ->
+-        let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
++        let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
+         (* 値束縛は外側の eff で評価される *)
+         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
+         (try Unify.unify vty body_ty
+@@ -2456,7 +2497,7 @@ and elab_rec_bindings env level eff bs : env =
+               | None -> (new_row_var lvl, [])
+             in
+             extra_rigids := eff_rigids;
+-            let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
++            let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
+             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
+             Unify.unify ret_ty body_ty;
+             (* 引数パターンの検査エントリは**群の全本体の後**に積む(下)。
+@@ -2466,7 +2507,7 @@ and elab_rec_bindings env level eff bs : env =
+             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
+             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+         | None ->
+-            let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
++            let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
+             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
+             vty
+       in
+@@ -2621,12 +2662,13 @@ let initial_env () =
+    「値の位置に現れた ⇒ `Type`」という推論として働きます
+    (`test/kinds.t` の fieldkind)。 *)
+ 
+-let register_newtype env (n : T.newtype') =
+-  (* 1a で頭に積んだカインドをそのまま剥がして使う(D80)。頭と本体で
+-     別のセルを作ると、本体で決まったカインドが頭に反映されない。
+-     プレリュード所有名の再宣言では 1a が頭を差し替えないので、ここで
+-     剥がすのはプレリュードが決めたカインド — ユーザ側はそれを引き継ぐ
+-     (別セルを作ると data_match の kind_equiv で KVar と KStar が食い違う) *)
++(* 1a が頭に積んだカインドのセルをそのまま剥がして、パラメータの型環境を
++   作る(D80)。頭と本体で別のセルを作ると、本体で決まったカインドが頭に
++   反映されない。プレリュード所有名の再宣言では 1a が頭を差し替えないので、
++   ここで剥がすのはプレリュードが決めたカインド — ユーザ側はそれを引き継ぐ
++   (別セルを作ると data_match の kind_equiv で KVar と KStar が食い違う)。
++   register_newtype と 1b の前の投機(D-J25)が同じセルを共有するための共通部 *)
++let newtype_param_env env (n : T.newtype') =
+   let head_kinds =
+     let k = Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params) in
+     let rec peel k n =
+@@ -2637,9 +2679,7 @@ let register_newtype env (n : T.newtype') =
+   in
+   let params =
+     List.map2
+-      (fun tp hk ->
+-        (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
+-           F[_] と書いてあればその場で確定。既定化は 1b の後始末(D81) *)
++      (fun (tp : type_param) hk ->
+         let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else hk in
+         let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+         { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
+@@ -2650,7 +2690,33 @@ let register_newtype env (n : T.newtype') =
+       (fun m (tp : type_param) i -> SMap.add tp.tp_name (TVar (ref (Generic i))) m)
+       env.types n.T.nt_params params
+   in
+-  let env' = { env with types } in
++  (params, { env with types })
++
++(* newtype の本体を 1b より前に一度**投機的に**読み、パラメータのカインドだけを
++   決める(D-J25)。型エイリアスの投機(D84、§11.39)と同じ道具で、違いは
++   構築子を登録しないことだけ — 登録も pub の注釈検査も generalize もせず、
++   `elab_type` の副作用であるカインドの張りだけを残す。診断は捨てる(D55 の
++   分類 (a) の 4 つだけを捕まえ、Panic は捕まえない)。
++   これが要るのは、行カインドのパラメータへ**具体的な行**を前方参照つきで
++   渡す形(`newtype A[X] = MkA(B[{Print extends X}])` が `B` より前)で、
++   1b が B のパラメータのカインドをまだ知らないと §11.3 の読み分けが
++   `{…}` を型として読むからです(台帳 V18、`test/kinds.t` の fwdrow) *)
++let speculate_newtype env (n : T.newtype') =
++  match n.T.nt_rhs with
++  | T.NtHole -> ()
++  | T.NtCtors ctors -> (
++      try
++        let _, env' = newtype_param_env env n in
++        List.iter
++          (fun (c : T.ctor_decl) ->
++            List.iter (fun (f : T.field_decl) -> ignore (elab_type env' 1 f.T.fd_ty)) c.T.cd_fields)
++          ctors
++      with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ())
++
++let register_newtype env (n : T.newtype') =
++  (* newtype パラメータのカインドは本体での使われ方から推論する(D80)。
++     F[_] と書いてあればその場で確定。既定化は 1b の後始末(D81) *)
++  let params, env' = newtype_param_env env n in
+   match n.T.nt_rhs with
+   | T.NtHole ->
+       Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = []; dd_opaque = true }
+@@ -2676,10 +2742,7 @@ let register_newtype env (n : T.newtype') =
+                        パラメータ 1 個のフィールドでは「値の位置に現れた ⇒ Type」
+                        という推論として働く *)
+                     at_node f.T.fd_ty (fun () ->
+-                        if not (same_kind (Unify.kind_of ty) KStar) then
+-                          type_error
+-                            ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型のカインドが Type ではありません: "
+-                           ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty)));
++                        check_value_kind ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型") ty);
+                     (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
+                     Unify.generalize 0 ty;
+                     { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })
+@@ -3210,7 +3273,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
+         | Some ps ->
+             let param_tys =
+               List.map
+-                (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_type env_ty lvl te | _ -> assert false)
++                (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_value_type env_ty lvl "型注釈" te | _ -> assert false)
+                 ps
+             in
+             let fn_eff, eff_rigids =
+@@ -3222,10 +3285,10 @@ let signature_of_binding env (b : T.let_binding') : ty option =
+                   let r = new_rigid_ref ~kind:KRow lvl in
+                   (TVar r, [ ("", TVar r, r) ])
+             in
+-            let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
++            let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> assert false in
+             release_rigids eff_rigids;
+             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+-        | None -> ( match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> assert false)
++        | None -> ( match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> assert false)
+       in
+       Unify.generalize 0 ty;
+       release_rigids rigids;
+@@ -3481,6 +3544,14 @@ let process_decls env ~emit decls =
+       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
+       | _ -> ())
+     decls;
++  (* パス1a の後始末: newtype の本体の投機(D-J25)。宣言順に依存せずに
++     パラメータのカインドを決めるために、登録の前に本体を一度読んで捨てる *)
++  List.iter
++    (fun ((_, d) as node : T.decl) ->
++      at_node node @@ fun () ->
++      with_decl_module node @@ fun () ->
++      match d with T.DNewtype n -> speculate_newtype env n | _ -> ())
++    decls;
+   (* パス1b: newtype のコンストラクタ・effect・type class の登録(相互再帰・前方参照可) *)
+   let env =
+     List.fold_left
+@@ -3706,7 +3777,7 @@ let process_decls env ~emit decls =
+           let fn_eff, eff_rigids =
+             match ex.T.ex_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
+           in
+-          let ret_ty = match ex.T.ex_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
++          let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
+           (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
+              @ Blocking を付けるかはバインディング作者の判断(sample.kel:711) *)
+           (if ex.T.ex_abi = "C" then
+diff --git a/test/kinds.t b/test/kinds.t
+index 516553b..3d7673f 100644
+--- a/test/kinds.t
++++ b/test/kinds.t
+@@ -135,9 +135,9 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で
+   $ diktor --type-check --no-prelude mutual2.kel
+   f : (A3[R1]) => A3[R1]
+ 
+-行カインドのパラメータへ具体的な行を前方参照つきで渡す形だけは宣言順に
+-依存する(§11.31 の末尾。相手がまだ 1b を通っていないとカインドが KVar の
+-ままなので、読み分けが {…} を型として読む。行変数を渡す形は依存しない):
++行カインドのパラメータへ具体的な行を前方参照つきで渡す形も宣言順に依存しない
++(D-J25。1b の前に newtype の本体を投機的に読んでカインドだけ決めるので、
++読み分けが {…} を行として読める。かつては B4 を先に置かないと落ちた):
+ 
+   $ cat > fwdrow.kel <<'EOF'
+   > type Unit = {}
+@@ -147,8 +147,7 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で
+   > let f[E](x: A4[E]): A4[E] = x
+   > EOF
+   $ diktor --type-check --no-prelude fwdrow.kel
+-  ! fwdrow.kel:3:25: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
+-  [1]
++  f : (A4[R1]) => A4[R1]
+   $ cat > fwdrow2.kel <<'EOF'
+   > type Unit = {}
+   > effect Print = { print: (String) => Unit }
+@@ -159,6 +158,29 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で
+   $ diktor --type-check --no-prelude fwdrow2.kel
+   f : (A5[R1]) => A5[R1]
+ 
++連鎖と module の中でも同じ(投機は宣言順に 1 周するだけだが、深さ 2 は届く):
++
++  $ cat > fwdrow3.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype A7[X] = MkA7(B7[{Print extends X}])
++  > newtype B7[Y] = MkB7(C7[Y])
++  > newtype C7[E] = MkC7(() => Unit @ E)
++  > let f[E](x: A7[E]): A7[E] = x
++  > EOF
++  $ diktor --type-check --no-prelude fwdrow3.kel
++  f : (A7[R1]) => A7[R1]
++  $ cat > fwdrowmod.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > module M {
++  >   pub newtype A6[X] = MkA6(B6[{Print extends X}])
++  >   pub newtype B6[E] = MkB6(() => Unit @ E)
++  > }
++  > let f[E](x: M.A6[E]): M.A6[E] = x
++  > EOF
++  $ diktor --type-check fwdrowmod.kel
++  f : (M.A6[R1]) => M.A6[R1]
++
+ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾名で引く):
+ 
+   $ cat > modcb.kel <<'EOF'
+@@ -363,3 +385,167 @@ Functor の正常系は変わらない:
+   $ diktor --type-check hktok.kel
+   f : (F[A]) => F[A]
+   g : (List[Int32]) => List[Int32]
++
++値の型の位置(矢印の引数と返り値、レコードのフィールド、タプルの要素、
++ヴァリアントの積載)は、読んだ型のカインドが Type でなければならない
++(D-J24。台帳 V20)。EffectRow エイリアスを書くとその位置で落ちる:
++
++  $ cat > valkind.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(x: (P, Int32)): Int32 = 0
++  > EOF
++  $ diktor --type-check valkind.kel
++  ! valkind.kel:3:11: 型エラー: タプルの要素の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > valkind2.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(x: {a: P}): Int32 = 0
++  > EOF
++  $ diktor --type-check valkind2.kel
++  ! valkind2.kel:3:14: 型エラー: レコードのフィールド a の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > valkind3.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(g: (P) => Int32): Int32 = 0
++  > EOF
++  $ diktor --type-check valkind3.kel
++  ! valkind3.kel:3:11: 型エラー: 矢印の引数の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > valkind4.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(g: () => P @ {}): Int32 = 0
++  > EOF
++  $ diktor --type-check valkind4.kel
++  ! valkind4.kel:3:16: 型エラー: 矢印の返り値の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > valkind5.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(x: #T(P)): Int32 = 0
++  > EOF
++  $ diktor --type-check valkind5.kel
++  ! valkind5.kel:3:13: 型エラー: ヴァリアント #T の積載の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > valkind6.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > type class C2[A] { val m: (A) => P }
++  > EOF
++  $ diktor --type-check valkind6.kel
++  ! valkind6.kel:3:34: 型エラー: 矢印の返り値の型のカインドが Type ではありません: {Print} :: Row
++  [1]
++
++注釈の位置も値の型の位置(P24 の (d))。かつては束縛の単一化まで生き延びて
++内部名の「カインドが一致しません: _A :: Type と {Print}」だった:
++
++  $ cat > annotkind.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(x: P): Int32 = 0
++  > EOF
++  $ diktor --type-check annotkind.kel
++  ! annotkind.kel:3:10: 型エラー: 型注釈のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > annotkind2.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let f(): P = ???
++  > EOF
++  $ diktor --type-check annotkind2.kel
++  ! annotkind2.kel:3:10: 型エラー: 返り値の型注釈のカインドが Type ではありません: {Print} :: Row
++  [1]
++  $ cat > annotkind3.kel <<'EOF'
++  > effect Print = { print: (String) => Unit }
++  > type P: EffectRow = {Print}
++  > let m: P = ???
++  > EOF
++  $ diktor --type-check annotkind3.kel
++  ! annotkind3.kel:3:8: 型エラー: 型注釈のカインドが Type ではありません: {Print} :: Row
++  [1]
++
++同じパラメータを行と値の両方で使う宣言は、包んであっても宣言の時点で
++落ちる(台帳 V17)。落ちる位置は先に読んだ側がカインドを決めたあとの
++二番目の使用点になる:
++
++  $ cat > rowval.kel <<'EOF'
++  > type Unit = {}
++  > newtype Bad2[E] = Bad2((E, Int32), () => Unit @ E)
++  > EOF
++  $ diktor --type-check --no-prelude rowval.kel
++  ! rowval.kel:2:49: 型エラー: 行カインドではない型パラメータです: E
++  [1]
++  $ cat > rowval2.kel <<'EOF'
++  > type Unit = {}
++  > newtype Bad3[E] = Bad3(() => Unit @ E, {a: E})
++  > EOF
++  $ diktor --type-check --no-prelude rowval2.kel
++  ! rowval2.kel:2:44: 型エラー: レコードのフィールド a の型のカインドが Type ではありません: R1 :: Row
++  [1]
++  $ cat > rowval3.kel <<'EOF'
++  > type Unit = {}
++  > let f[E](x: (() => Unit @ E, E)): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude rowval3.kel
++  ! rowval3.kel:2:27: 型エラー: 行カインドではない型パラメータです: E
++  [1]
++
++カインドを決める「使われ方」は宣言群の中の型の本体すべてで、自分の宣言本体に
++限らない(D-J22)。使われ方の無いパラメータでも、他の宣言の本体が行として
++使えば行になる:
++
++  $ cat > phantomrow.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype Callback[E] = Callback(() => Unit @ E)
++  > newtype Ph[E] = MkPh(Int32)
++  > newtype N[X] = MkN(Ph[X], Callback[X])
++  > let f(x: Ph[{Print}]): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude phantomrow.kel
++  f : (Ph[{Print}]) => Int32
++  $ cat > phantomtype.kel <<'EOF'
++  > type Unit = {}
++  > effect Print = { print: (String) => Unit }
++  > newtype Ph2[E] = MkPh2(Int32)
++  > let f(x: Ph2[{Print}]): Int32 = 0
++  > EOF
++  $ diktor --type-check --no-prelude phantomtype.kel
++  ! phantomtype.kel:4:14: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
++  [1]
++
++リージョン変数 h のカインドは Type(D-J23。`lib/elab.ml` の Run 枝が
++`new_rigid` を既定のカインドで作る)。行の位置には書けず、値の型の位置には
++書けてしまう(台帳 V21):
++
++  $ cat > regionkind.kel <<'EOF'
++  > let f(): Int32 = run h {
++  >   let g: () => Int32 @ h = fn() => 1
++  >   g()
++  > }
++  > EOF
++  $ diktor --type-check regionkind.kel
++  ! regionkind.kel:2:24: 型エラー: 行カインドではない型パラメータです: h
++  [1]
++  $ cat > regionkind2.kel <<'EOF'
++  > let f(): Int32 = run h {
++  >   let g: (h) => Int32 = fn(x) => 1
++  >   0
++  > }
++  > EOF
++  $ diktor --type-check regionkind2.kel
++  f : () => Int32
++
++高階カインドのパラメータを裸で値の型の位置に書いた形も同じ照合が落とす
++(D-J24。かつてはタプルに包むと素通りしていた):
++
++  $ cat > hktval.kel <<'EOF'
++  > type Unit = {}
++  > newtype W[F[_]] = MkW((F, Int32))
++  > EOF
++  $ diktor --type-check --no-prelude hktval.kel
++  ! hktval.kel:2:24: 型エラー: タプルの要素の型のカインドが Type ではありません: F :: [_] Type
++  [1]

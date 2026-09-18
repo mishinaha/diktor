@@ -1,0 +1,48 @@
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -630,7 +630,7 @@
+     | a :: rest ->
+         let pk, kr = match kind_repr k with KArrow (a', r) -> (a', r) | _ -> (new_kind_var (), KStar) in
+         let a = check_no_hole a in
+-        let t = match kind_repr pk with KRow -> elab_eff env level ~expanding a | _ -> elab_type env level ~expanding a in
++        let t = match kind_repr pk with KRow -> elab_eff ~check_row:false env level ~expanding a | _ -> elab_type env level ~expanding a in
+         if not (same_kind pk (Unify.kind_of t)) then
+           type_error
+             (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
+@@ -691,7 +691,7 @@
+           let a = check_no_hole a in
+           let t =
+             match kind_repr pk with
+-            | KRow -> elab_eff env level ~expanding a
++            | KRow -> elab_eff ~check_row:false env level ~expanding a
+             | _ -> elab_type env level ~expanding a
+           in
+           if not (same_kind pk (Unify.kind_of t)) then
+@@ -773,7 +773,7 @@
+    相互再帰の 3 関数を定義し終えたら、`~expanding` を空リストで閉じた
+    同名の関数で覆います。以降の呼び出し側は展開中集合の存在を知りません。 *)
+ 
+-and elab_eff env level ~expanding ((_, te) as t : T.type_exp) : ty =
++and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp) : ty =
+   at_node t @@ fun () ->
+   match te with
+   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
+@@ -836,7 +836,17 @@
+           | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
+           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
+         elems tail
+-  | _ -> elab_type env level ~expanding t
++  | _ ->
++      (* 最後の枝。文法 (eff) がここへ通すのは module 修飾の名前と、エフェクト名
++         でない頭への適用だけです。EffectRow エイリアスの適用 (W[E] / M.W) は
++         ここを通って正しく行になるので、落とすのではなく読んだ結果のカインドを
++         照合します。照合を置かないと @ MutableArray[Int32, Int32] のような
++         Type カインドの適用型が行の尾部に入ります (V19)。
++         ~check_row:false で呼ぶのは D82 の読み分けの 2 か所だけで、そこは
++         呼び出し側が構成子名と引数の位置を添えた診断を出します *)
++      let ty = elab_type env level ~expanding t in
++      if (not check_row) || kind_repr (Unify.kind_of ty) = KRow then ty
++      else type_error ("型 " ^ Show.show ty ^ " はエフェクト行ではありません(ここにはエフェクト行が要ります)")
+ 
+ (* 束縛の**最外**の矢印が注釈としてそのまま書かれている位置(型クラスの
+    メソッドの型と、引数リストを持たない値束縛の注釈)専用の入口。ここだけ
