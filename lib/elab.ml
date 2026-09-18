@@ -334,6 +334,19 @@ let check_pub_annots ~params ~ret =
    「未知の型」と言われるより「v0 では未対応」と言われたほうが読み手の
    時間を返せるからです。 *)
 
+(* 値の型の位置のカインド照合(D131)。what は「… の型」で終わる名詞句で、
+   文面は D83 が newtype のフィールドに与えていたものをそのまま一般化した。
+   カインドの併記を落とす枝があるのは、未確定の KVar が ?k997 の形で
+   漏れると番号がプレリュードの行数で動くため — 照合が same_kind の
+   ここでは KVar は張られて通るので届かないが、同じ文面を構造マッチで
+   判定する側(エフェクト位置)と 1 か所に揃えておく *)
+let kind_error what ~expected ty =
+  let k = kind_repr (Unify.kind_of ty) in
+  let annot = match k with KVar _ -> "" | _ -> " :: " ^ show_kind k in
+  type_error (what ^ "のカインドが " ^ expected ^ " ではありません: " ^ Show.show ty ^ annot)
+
+let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
+
 let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
   (* 内部再帰にも at_node を掛ける(検証の指摘)。入口だけ包むと、入れ子の
      注釈のどこで落ちても注釈全体の先頭がアンカーになってしまう *)
@@ -477,7 +490,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    穴を許すと部分適用と同じ問題に踏み込むので、ここで拒否します。 *)
 
   | T.EArrow (params, ret, eff_opt) ->
-      let param_tys = List.map (fun p -> elab_type env level ~expanding p) params in
+      let param_tys = List.map (fun p -> elab_value_type env level ~expanding "矢印の引数の型" p) params in
       (* 仕様 §9(改訂): 省略された @ の読み方は矢印の**位置**で決まる(D75)。
          入れ子の矢印(最外以外の全て — 引数の型・返り値の中・newtype の
          フィールド・effect の操作型・型エイリアスが展開する矢印)の省略は
@@ -489,7 +502,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
         | Some e -> elab_eff env level ~expanding e
         | None -> if outer then new_row_var level else TRowEmpty
       in
-      TArrow (TRecord (closed_item_row param_tys), elab_type env level ~expanding ret, eff)
+      TArrow (TRecord (closed_item_row param_tys), elab_value_type env level ~expanding "矢印の返り値の型" ret, eff)
   | T.EBraceRow (elems, ext) ->
       let tail =
         match ext with
@@ -506,13 +519,17 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
         List.fold_right
           (fun elem acc ->
             match elem with
-            | T.BField (l, t) -> TRowExtend (intern l, elab_type env level ~expanding t, acc)
+            | T.BField (l, t) ->
+                let what = if l = "_item" then "タプルの要素の型" else "レコードのフィールド " ^ l ^ " の型" in
+                TRowExtend (intern l, elab_value_type env level ~expanding what t, acc)
             | T.BLabel _ -> type_error "エフェクトラベルはこの位置(レコード型)では使えません")
           elems tail
       in
       TRecord row
   | T.EVariantCase (s, payload) ->
-      let pty = match payload with None -> t_unit | Some t -> elab_type env level ~expanding t in
+      let pty =
+        match payload with None -> t_unit | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
+      in
       TVariant (TRowExtend (intern s, pty, TRowEmpty))
   | T.EUnion ts ->
       (* 各要素を行に落として連結(計画 §7.3)。開いてよいのは末尾要素だけ *)
@@ -523,7 +540,11 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
             let is_last = i = n - 1 in
             match snd t with
             | T.EVariantCase (s, payload) ->
-                let pty = match payload with None -> t_unit | Some t -> elab_type env level ~expanding t in
+                let pty =
+                  match payload with
+                  | None -> t_unit
+                  | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
+                in
                 TRowExtend (intern s, pty, TRowEmpty)
             | _ -> (
                 let tt = elab_type env level ~expanding t in
@@ -614,6 +635,20 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    `al_kind` が `EffectRow` のときだけ本体をエフェクト行として精緻化します。
    Keleut では行変数とエフェクト名が構文上同形なので、エイリアスの側に
    カインドの注記が要ります (§11.6)。 *)
+
+(* 値の型の位置で読んだ型のカインドが Type であることを見る(D131)。
+   矢印の引数と返り値、レコードのフィールド(タプルの要素を含む)、
+   ヴァリアントの積載、そして外側からは引数と返り値の注釈がこれを通る。
+   見ないと、行カインドの型パラメータや EffectRow エイリアスが値の型として
+   表に入り、使用点まで診断が遅れて内部名になる(台帳 V17 / V20)。
+   判定に same_kind を使うのは §11.31 のフィールド検査と同じ理由で、
+   裸のパラメータ 1 個の位置では「値の位置に現れた ⇒ Type」という推論として
+   働く。at_node を部分式に掛け直すのは、注釈全体の先頭ではなく
+   カインドが合わなかった位置を指すため *)
+and elab_value_type env level ~expanding what t =
+  let ty = elab_type env level ~expanding t in
+  at_node t (fun () -> check_value_kind what ty);
+  ty
 
 (* 型引数を宣言されたパラメータのカインドに合わせて読む(D82)。
    Row のパラメータなら elab_eff、そうでなければ elab_type。
@@ -847,6 +882,17 @@ let elab_type_outer env level t = at_node t (fun () -> elab_type env level ~expa
 
 let elab_type env level t = at_node t (fun () -> elab_type env level ~expanding:[] t)
 
+(* 注釈の位置(引数・返り値・値束縛の頭)も値の型の位置なので同じ照合を通す
+   (D131)。通さないと EffectRow エイリアスを書いた注釈が束縛の
+   単一化まで生き延び、「カインドが一致しません: _A :: Type と {Print}」と
+   内部名で落ちる *)
+let elab_value_type env level what t = at_node t (fun () -> elab_value_type env level ~expanding:[] what t)
+
+let elab_value_type_outer env level what t =
+  let ty = elab_type_outer env level t in
+  at_node t (fun () -> check_value_kind what ty);
+  ty
+
 let elab_eff env level t = at_node t (fun () -> elab_eff env level ~expanding:[] t)
 
 (* ## 11.7 パターン — 期待型に対する検査、束縛は単相
@@ -884,7 +930,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
         seen := x :: !seen;
         { env with values = SMap.add x expected env.values })
   | T.PAnnot (sub, te) ->
-      Unify.unify expected (elab_type env level te);
+      Unify.unify expected (elab_value_type env level "型注釈" te);
       elab_pat env level seen expected sub
   | T.PBool _ ->
       Unify.unify expected t_boolean;
@@ -2326,7 +2372,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
           | None -> (new_row_var lvl, [])
         in
         extra_rigids := eff_rigids @ !extra_rigids;
-        let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+        let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
         let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
         (* 言い換えは注釈が書かれているときだけ(値束縛側と同じガード。E6)。
            lb_ret = None のここで落ちる経路は現状無いが、あれば注釈の話を
@@ -2336,7 +2382,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
-        let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
+        let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
         (* 値束縛は外側の eff で評価される *)
         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
         (try Unify.unify vty body_ty
@@ -2456,7 +2502,7 @@ and elab_rec_bindings env level eff bs : env =
               | None -> (new_row_var lvl, [])
             in
             extra_rigids := eff_rigids;
-            let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+            let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
             Unify.unify ret_ty body_ty;
             (* 引数パターンの検査エントリは**群の全本体の後**に積む(下)。
@@ -2466,7 +2512,7 @@ and elab_rec_bindings env level eff bs : env =
             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
-            let vty = match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> new_var lvl in
+            let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
             vty
       in
@@ -2670,16 +2716,13 @@ let register_newtype env (n : T.newtype') =
                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
                        type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
                     let ty = elab_type env' 1 f.T.fd_ty in
-                    (* フィールドの型はカインド Type(D83)。ここで見ないと、
-                       行カインドのパラメータや EffectRow エイリアスがそのまま
-                       値の型になり、構築点まで落ちない。same_kind なので裸の
-                       パラメータ 1 個のフィールドでは「値の位置に現れた ⇒ Type」
-                       という推論として働く *)
-                    at_node f.T.fd_ty (fun () ->
-                        if not (same_kind (Unify.kind_of ty) KStar) then
-                          type_error
-                            ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型のカインドが Type ではありません: "
-                           ^ Show.show ty ^ " :: " ^ show_kind (Unify.kind_of ty)));
+                    (* フィールドの型はカインド Type(D83)。値の型の位置の
+                       一般検査(D131、§11.3)の 1 事例なので、照合そのものは
+                       check_value_kind に任せ、ここは名詞句にコンストラクタ名を
+                       添えるだけ。フィールドの**最外**を見る枝はこちらに残す —
+                       どのフィールドかを名指しできるのはここだけで、内側に
+                       包んだ形は elab_value_type が位置ごとに落とす *)
+                    at_node f.T.fd_ty (fun () -> check_value_kind ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型") ty);
                     (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
                     Unify.generalize 0 ty;
                     { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })
@@ -3210,7 +3253,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
         | Some ps ->
             let param_tys =
               List.map
-                (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_type env_ty lvl te | _ -> assert false)
+                (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_value_type env_ty lvl "型注釈" te | _ -> assert false)
                 ps
             in
             let fn_eff, eff_rigids =
@@ -3222,10 +3265,10 @@ let signature_of_binding env (b : T.let_binding') : ty option =
                   let r = new_rigid_ref ~kind:KRow lvl in
                   (TVar r, [ ("", TVar r, r) ])
             in
-            let ret_ty = match b.T.lb_ret with Some t -> elab_type env_ty lvl t | None -> assert false in
+            let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> assert false in
             release_rigids eff_rigids;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
-        | None -> ( match b.T.lb_ret with Some t -> elab_type_outer env_ty lvl t | None -> assert false)
+        | None -> ( match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> assert false)
       in
       Unify.generalize 0 ty;
       release_rigids rigids;
@@ -3706,7 +3749,7 @@ let process_decls env ~emit decls =
           let fn_eff, eff_rigids =
             match ex.T.ex_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
           in
-          let ret_ty = match ex.T.ex_ret with Some t -> elab_type env_ty lvl t | None -> new_var lvl in
+          let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
           (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
              @ Blocking を付けるかはバインディング作者の判断(sample.kel:711) *)
           (if ex.T.ex_abi = "C" then
