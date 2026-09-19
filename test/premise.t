@@ -1,5 +1,6 @@
-前提つきインスタンス(仕様 §8、M22 / D93〜D97)。sample.kel §8 の Eq[List[_]] が
-そのまま通ること:
+前提つきインスタンス(仕様 §8。細部の 6 項目は sample.kel:394-401 が規則として
+書いている — M22 / D93〜D97 / D142)。sample.kel:402 の Eq[List[_]] がそのまま
+通ること:
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
