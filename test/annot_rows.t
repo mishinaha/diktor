@@ -375,6 +375,92 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   ! pubrecval.kel:2:15: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
   [1]
 
+群(let rec … and …)では、注釈が作った剛定数のうち相手の pre に入り込んだものを
+束縛ごとではなく群の終わりに解放する(§11.29)。そうするまで、先頭の注釈つき値束縛が
+後続を呼ぶ形は [BUG] 単一化中に Generic 変数が現れました(終了コード 3)で落ちていた。
+いまは群の 2 本とも Console を含む開いた行で公開され、Print を足した文脈から
+どちらも呼べる:
+
+  $ cat > recand.kel <<'KEL'
+  > let rec f: (Int32) => Int32 @ Console = fn(x) => g(x)
+  > and g: (Int32) => Int32 = fn(x) => { echoln("g"); x }
+  > let use(): Int32 @ {Console, Print} = { println("p"); f(1) + g(2) }
+  > with_stdout(fn() => use())
+  > KEL
+  $ diktor --type-check recand.kel
+  f : (Int32) => Int32 @ {Console extends R1}
+  g : (Int32) => Int32 @ {Console extends R1}
+  use : () => Int32 @ {Console, Print extends R1}
+  _ : Int32
+  $ diktor recand.kel
+  p
+  g
+  g
+
+同じ形を関数束縛で書いたものも通る。こちらは D116 が値束縛をこの経路へ載せる前から
+同じ [BUG] で落ちていた:
+
+  $ cat > recandfn.kel <<'KEL'
+  > let rec a(n: Int32): Int32 @ Console = { echoln("a"); b(n) }
+  > and b(n: Int32): Int32 = n
+  > let use(): Int32 @ {Console, Print} = { println("p"); a(1) + b(2) }
+  > KEL
+  $ diktor --type-check recandfn.kel
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
+  use : () => Int32 @ {Console, Print extends R1}
+
+遅らせる対象は行の剛定数だけではない。型パラメータの剛定数が相手の型へ入り込む形も
+同じ [BUG] で落ちていた:
+
+  $ cat > recandtp.kel <<'KEL'
+  > let rec f[A](x: A): A = g(x)
+  > and g(y) = y
+  > KEL
+  $ diktor --type-check recandtp.kel
+  f : (A) => A
+  g : (A) => A
+
+相手へ入り込んでいない剛定数は、従来どおり束縛ごとに解放する(§11.29)。注釈つきの
+先行束縛を後続が多相に使う形がその側で、f は A のまま一般化されて後から String でも
+使え、b は a より広い行を名乗れる:
+
+  $ cat > recandpoly.kel <<'KEL'
+  > let rec f[A](x: A): A = x
+  > and g(n: Int32): Int32 = f(n)
+  > let s: String = f("s")
+  > KEL
+  $ diktor --type-check recandpoly.kel
+  f : (A) => A
+  g : (Int32) => Int32
+  s : String
+  $ cat > recandeff.kel <<'KEL'
+  > let rec a(n: Int32): Int32 @ Console = { echo("a"); n }
+  > and b(n: Int32): Int32 @ {Console, Print} = a(n)
+  > KEL
+  $ diktor --type-check recandeff.kel
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console, Print extends R1}
+
+群の 2 本以上が最外の矢印に @ をリテラルで書き、互いを呼び合うと通らない。診断が
+名指しする 2 つの行(ς1 と ς2)が別々の剛定数だからで、値束縛でも関数束縛でも同じ
+制限になる。呼ぶ向きが片方だけなら通るのは、上の recandeff のとおり:
+
+  $ cat > recandboth.kel <<'KEL'
+  > let rec f: (Int32) => Int32 @ Console = fn(x) => g(x)
+  > and g: (Int32) => Int32 @ Console = fn(x) => f(x)
+  > KEL
+  $ diktor --type-check recandboth.kel
+  ! recandboth.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+  $ cat > recandbothfn.kel <<'KEL'
+  > let rec a(n: Int32): Int32 @ Console = b(n)
+  > and b(n: Int32): Int32 @ Console = a(n)
+  > KEL
+  $ diktor --type-check recandbothfn.kel
+  ! recandbothfn.kel:2:36: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+
 effect の操作型の**頭**の矢印に書いた @ は、受理されるが型付けに効かない(D120)。
 操作を perform した文脈の行は handle 側が決めるので、ここに書いた行を読む側が
 いない — 下の op は頭に @ Print と書いてあるのに、f の行に Print は現れない。
