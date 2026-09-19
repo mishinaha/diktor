@@ -598,9 +598,9 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
      2  foo
      3  <EOF>
 
-`{` の読み分けの 3 文脈(仕様 §0、sample.kel:26-27)。実装は文脈で先読みを止めるのでは
-なく、3 種を束ねた %inline lbrace で受ける(D12 / FIX-2b)。したがって分類の
-結果は文脈ではなく先読みで決まるが、どの分類でも同じ木になる:
+`{` の読み分けの 3 文脈(仕様 §0、sample.kel:26-27)。実装は文脈で先読みを
+止めるのではなく、3 種を束ねた %inline lbrace で受ける(D12 / FIX-2b)。
+したがって分類の結果は文脈ではなく先読みで決まるが、どの分類でも同じ木になる:
 
   $ cat > effbrace.kel <<'KEL'
   > effect Print = { print: (String) => {} }
