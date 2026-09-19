@@ -80,6 +80,17 @@
   ! pr5a.kel:3:1: 型エラー: インスタンス頭 List は型引数を 1 個取りますが、_ が 3 個書かれています
   [1]
 
+`_` が構成子のアリティより少ない側も、同じ形の診断で落ちる(D96。上の pr5a が
+多い側):
+
+  $ cat > pr5b.kel <<'EOF'
+  > newtype Pair[A, B] = MkPair(fst: A, snd: B)
+  > type instance[A: Eq] Eq[Pair[_]] { let eq(p, q) = true }
+  > EOF
+  $ diktor --type-check --no-prelude pr5b.kel
+  ! pr5b.kel:2:1: 型エラー: インスタンス頭 Pair は型引数を 2 個取りますが、_ が 1 個書かれています
+  [1]
+
 束縛子は穴より多くできない。束縛子のカインドは頭の引数と一致すること(D97):
 
   $ cat > pr5.kel <<'EOF'
@@ -95,6 +106,17 @@
   > EOF
   $ diktor --type-check --no-prelude pr6.kel
   ! pr6.kel:2:1: 型エラー: インスタンスの型パラメータ F のカインドが頭 List の引数と一致しません
+  [1]
+
+穴が 0 個の頭には束縛子を付けられない(D93 の「束縛子は穴を超えない」の、穴が
+無い側の境界):
+
+  $ cat > pr20.kel <<'EOF'
+  > newtype Opaque = MkOpaque(Int32)
+  > type instance[A: Eq] Eq[Opaque] { let eq(a, b) = true }
+  > EOF
+  $ diktor --type-check --no-prelude pr20.kel
+  ! pr20.kel:2:1: 型エラー: インスタンスの型パラメータが 1 個ありますが、頭 Opaque の _ は 0 個です
   [1]
 
 制約を書かない束縛子では本体の `==` が通らない(前提は選択にだけ使うので、
@@ -178,6 +200,47 @@ AST ダンプ(束縛子があるときだけ tparams が出る):
   > EOF
   $ diktor --type-check --no-prelude pr12.kel
 
+同名の newtype があっても本体の注釈は通り、インスタンスの外の A は newtype A
+のまま z の型に出る(D94):
+
+  $ cat > pr21.kel <<'EOF'
+  > newtype A = MkA(Int32)
+  > newtype List[X] = Cons(X, tail: List[X]) | Nil
+  > type instance[A: Eq] Eq[List[_]] { let rec eq(xs: List[A], ys: List[A]): Boolean = true }
+  > let z(p: A): A = p
+  > EOF
+  $ diktor --type-check --no-prelude pr21.kel
+  z : (A) => A
+
+束縛子は頭の穴を束縛する。穴に対応する位置の片方だけを具体型で注釈すると、
+クラス宣言の側のスコープ付きの型と合わずに落ちる(D94):
+
+  $ cat > pr22.kel <<'EOF'
+  > newtype List[A] = Cons(A, tail: List[A]) | Nil
+  > newtype Opaque = MkOpaque(Int32)
+  > type instance[A: Eq] Eq[List[_]] { let rec eq(xs: List[Opaque], ys: List[A]): Boolean = true }
+  > EOF
+  $ diktor --type-check --no-prelude pr22.kel
+  ! pr22.kel:3:44: 型エラー: インスタンスメソッド eq がクラス宣言の型を満たしません(スコープ付きの型が一致しません: Opaque と ς1)
+  [1]
+
+メソッド自身の型パラメータが同名なら内側が勝つ。束縛子に書いた Eq の制約は
+本体へ届かず、本体の == が落ちる(D94):
+
+  $ cat > pr23.kel <<'EOF'
+  > newtype List[X] = Cons(X, tail: List[X]) | Nil
+  > type instance[A: Eq] Eq[List[_]] {
+  >   let rec eq[A](xs: List[A], ys: List[A]): Boolean = (xs, ys) match {
+  >     case (Nil, Nil) => true
+  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
+  >     case _ => false
+  >   }
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude pr23.kel
+  ! pr23.kel:5:40: 型エラー: 型パラメータ ς1 は Eq のインスタンスではありません。[A: Eq] のように制約を書いてください
+  [1]
+
 束縛子の末尾カンマは置ける(D56)。空の束縛子リストは構文エラー。pub は
 従来どおり付けられない(コヒーレンスが大域可視を要求するので意味が無い):
 
@@ -191,6 +254,18 @@ AST ダンプ(束縛子があるときだけ tparams が出る):
   $ diktor --type-check --no-prelude pr15.kel
   pr15.kel:3:1: 構文エラー: type instance に pub は付けられません
   [2]
+
+instance と [ の間には空白・改行・ブロックコメントのどれを挟んでもよく、束縛子
+リストと頭の間の空白も落とせる(D142。4 本とも exit 0 で出力は無い):
+
+  $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\ntype instance [A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr24.kel
+  $ diktor --type-check --no-prelude pr24.kel
+  $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\ntype instance\n  [A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr25.kel
+  $ diktor --type-check --no-prelude pr25.kel
+  $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\ntype instance /* c */ [A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr26.kel
+  $ diktor --type-check --no-prelude pr26.kel
+  $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\ntype instance[A: Eq]Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr27.kel
+  $ diktor --type-check --no-prelude pr27.kel
 
 module 越しの前提つきインスタンス(頭は修飾名 M.L[_]):
 
