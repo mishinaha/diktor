@@ -169,6 +169,54 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   ! alval4.kel:3:31: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
+型クラスのメソッドの注釈も同じ規律で読む(D121 / P27)。頭が型エイリアスなら
+展開先の矢印は入れ子なので開かず、書いた行は閉じたまま残る。下の 2 つの入力は
+メソッドの型の書き方だけが違い(エイリアス F[T] か矢印リテラルか)、インスタンスの
+本体と use の字面は同じである:
+
+  $ cat > clsalias3.kel <<'KEL'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > effect Log = { log: (String) => Unit }
+  > newtype Box = Box(Int32)
+  > type F[A] = (A) => Int32 @ Print
+  > type class Sz[T] { val size: F[T] }
+  > type instance Sz[Box] { let size(b) = b match { case Box(x) => { perform print("e"); x } } }
+  > let use(b: Box): Int32 @ {Print, Log} = { perform log("l"); size(b) }
+  > KEL
+  $ diktor --type-check --no-prelude clsalias3.kel
+  ! clsalias3.kel:8:61: 型エラー: ラベル Log がありません(行は閉じています)
+  [1]
+
+矢印リテラルで書いたメソッドは最外として開くので、同じ use が通る:
+
+  $ cat > clslit.kel <<'KEL'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > effect Log = { log: (String) => Unit }
+  > newtype Box = Box(Int32)
+  > type class Sz[T] { val size: (T) => Int32 @ Print }
+  > type instance Sz[Box] { let size(b) = b match { case Box(x) => { perform print("e"); x } } }
+  > let use(b: Box): Int32 @ {Print, Log} = { perform log("l"); size(b) }
+  > KEL
+  $ diktor --type-check --no-prelude clslit.kel
+  use : (Box) => Int32 @ {Print, Log extends R1}
+
+エイリアスで書いたメソッドにも呼び方はある。呼び出し側が @ を省略すれば行が
+推論され、公開される型は閉じた {Print} になる:
+
+  $ cat > clsalias3ok.kel <<'KEL'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Box = Box(Int32)
+  > type F[A] = (A) => Int32 @ Print
+  > type class Sz[T] { val size: F[T] }
+  > type instance Sz[Box] { let size(b) = b match { case Box(x) => { perform print("e"); x } } }
+  > let use(b: Box): Int32 = size(b)
+  > KEL
+  $ diktor --type-check --no-prelude clsalias3ok.kel
+  use : (Box) => Int32 @ {Print}
+
 let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
 
   $ cat > rec2.kel <<'KEL'
