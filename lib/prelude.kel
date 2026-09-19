@@ -394,3 +394,23 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
     case print(message) => resume(perform write(message))
     case return(x) => x
   }
+
+type instance[A: Show] Show[List[_]] {
+  let show(xs) = {
+    let rec go(ys) = ys match {
+      case Nil => ""
+      case Cons(head = h, tail = t) => t match {
+        case Nil => Show.show(h)
+        case _   => Show.show(h) + ", " + go(t)
+      }
+    }
+    "[" + go(xs) + "]"
+  }
+}
+
+type instance[A: Show] Show[Option[_]] {
+  let show(o) = o match {
+    case None    => "None"
+    case Some(x) => "Some(" + Show.show(x) + ")"
+  }
+}
