@@ -872,7 +872,11 @@ record_exp:
         in
         row $2 }
   | LBRACE_RECORD exp WITH field_list RBRACE
-      { (* {base with l = e}: base は字句分類の帰結で実質 lower_id 1個(計画 §5.3) *)
+      { (* {base with l = e}: 字句分類(§2.9)が base を識別子 1 個に絞る。
+           大文字も通るので、レコードでないものはここで落とす(裁定 D113) *)
+        (match $2 with
+        | _, Ident (LongId [ x ]) when not (is_upper x) -> ()
+        | _ -> raise (Syntax_error "レコード更新の基底は小文字始まりの識別子 1 個です"));
         List.fold_left (fun acc (l, v) -> mk $sloc (RecordUpdate (acc, l, v))) $2 $4 }
 field_list:
   | field                  { [ $1 ] }
