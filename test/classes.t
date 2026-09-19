@@ -252,3 +252,28 @@ Generic を扱えず、満たしていても落ちた):
   $ diktor --type-check clsrow4.kel
   ! clsrow4.kel:4:31: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
+
+規則名指しの言い分け(D122)。宣言が @ Print とラベルを書いているときは、実装が
+起こした Console との食い違いであって純粋性の話ではないので、文言は従来のまま:
+
+  $ cat > clsmismatch.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Pr[T] { val pr: (T) => Unit @ Print }
+  > type instance Pr[Box] { let pr(b) = b match { case Box(x) => echo("n") } }
+  > KEL
+  $ diktor --type-check clsmismatch.kel
+  ! clsmismatch.kel:3:29: 型エラー: インスタンスメソッド pr がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  [1]
+
+言い分けの判定は「宣言側の行がラベル 0 個の裸の行変数か」である。メソッドの型
+パラメータに行変数を取って @ E と書いた形も、@ を省略した clsimpure と同じ
+規則名指しの文言になる:
+
+  $ cat > clsbarerow.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Pr2[T] { val pr2[E]: (T) => Unit @ E }
+  > type instance Pr2[Box] { let pr2(b) = b match { case Box(x) => echo("n") } }
+  > KEL
+  $ diktor --type-check clsbarerow.kel
+  ! clsbarerow.kel:3:30: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド pr2 の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
+  [1]
