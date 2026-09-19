@@ -418,7 +418,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
 
    実害は仕様の中心部に出ました。sample.kel:184 の
    `fst(t: {_item: A extends R})` にレコード `{x = 1, _item = ...}` を
-   渡す例 (:172-174) と、:180-186 の `describe(#Other)` — つまり
+   渡す例 (:190-192) と、:198-204 の `describe(#Other)` — つまり
    「行多相レコード」と「構造的ヴァリアントの残りの行」の両方が
    型エラーで落ちていました。第1章 (syntax.ml) が
    「`KVar` は宣言終了時に `KStar` へ既定化する」と決めた以上、

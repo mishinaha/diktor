@@ -324,8 +324,8 @@ let rec block_of_items sloc items =
    - `pat` が `_` なら **0引数**の継続 `fn() => 残り`
    - それ以外なら **1引数**の継続 `fn(pat) => 残り`
 
-   `with _ = with_file(src)` (sample.kel:592, :543) が要求する `body: () => A` と、
-   `with x = Parser.bind(...)` (:556) が要求する `(A) => ...` の両方を、同じ糖衣で
+   `with _ = with_file(src)` (sample.kel:592, :594) が要求する `body: () => A` と、
+   `with x = Parser.bind(...)` (:607) が要求する `(A) => ...` の両方を、同じ糖衣で
    満たすための分岐です。`_` を「値を捨てる1引数」にしてしまうと前者が型付きません。
 
    右辺が呼び出しでなければエラーにします。行を差し込む先が無いからで、これは
@@ -645,7 +645,7 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    は構文エラー — 検証で確定した境界)。実装は `X | X COMMA | X COMMA list`
    の3択で、`(a)` と `(a,)` を意味アクションで区別でき、conflict も
    出ません。sample.kel:565 の effect 本体や
-   :672-675 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
+   :730-733 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
    出てきます (§3.22)。かつて `ty_args` / `typaram_list` / `lowline_list` の 3 本だけ
    2択のままで末尾カンマが構文エラーでした — 計画 §6.1 の「全リスト」の字義に
    M18 で届いた形です。区切りが `|` の `ctors` と `+` の `cls_list` はカンマ区切り

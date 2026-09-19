@@ -25,7 +25,7 @@
    ## 宣言処理のパス構成
 
    トップレベルは 1 回では片付きません。前方参照 (sample.kel:436 の
-   `user_names` が後方の `println`(:440) を呼ぶ) と、宣言どうしの相互再帰を
+   `user_names` が後方の `println`(:487) を呼ぶ) と、宣言どうしの相互再帰を
    通すために、宣言列を 4 回なめます。
 
    | パス | 登録するもの | なぜ独立のパスか |
@@ -1852,7 +1852,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 (* ## 11.20 操作名の解決 — 行の最左が勝つ
 
    Keleut は操作名の重複を許します。許さざるを得ません。仕様である
-   sample.kel 自身が `Console.write`(:407) と `File.write`(:514) を両方
+   sample.kel 自身が `Console.write`(:444) と `File.write`(:565) を両方
    宣言しているからです。したがって「操作名は大域一意」という素朴な裁定は
    最初から使えません (D22)。
 
@@ -2127,7 +2127,7 @@ and elab_handle env level eff clauses body =
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。仕様
      sample.kel:511 が Console / Async / Fs の 3 つを名指しで定めた(Async は
-     :641 にも「スケジューラは書かせない」。Console はかつて提案中で、
+     :699 にも「スケジューラは書かせない」。Console はかつて提案中で、
      2026-09-12 の改訂で明文化)。許すと出力が黙って消える恒等ハンドラが書け、
      File.write のつもりの case write(s) が Console を消す事故も起きる。
      判定はランタイム行に名前があり**かつ**プレリュード所有であること —
@@ -3792,7 +3792,7 @@ let register_instance (i : T.instance_decl') =
 
    パス 1c で登録する「注釈が完全な let の署名」は、前方参照を通すための
    仕掛けです。sample.kel:436 の `user_names` が、後ろで定義される
-   `println`(:440) を呼べるのはこれのおかげです。
+   `println`(:487) を呼べるのはこれのおかげです。
 
    問題は「完全」の定義でした。計画は「引数と返り値に型注釈があること」と
    書いていました。それでは穴が空きました — M26 より前の話です。
