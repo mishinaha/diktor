@@ -488,9 +488,9 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   a : (Int32) => Int32 @ {Console extends R1}
   b : (Int32) => Int32 @ {Console, Print extends R1}
 
-群の 2 本以上が最外の矢印に @ をリテラルで書き、互いを呼び合うと通らない。診断が
-名指しする 2 つの行(ς1 と ς2)が別々の剛定数だからで、値束縛でも関数束縛でも同じ
-制限になる。呼ぶ向きが片方だけなら通るのは、上の recandeff のとおり:
+群の 2 本以上が最外の矢印に @ をリテラルで書き、先行する束縛が後続を呼ぶと通らない。
+診断が名指しする 2 つの行(ς1 と ς2)が別々の剛定数だからで、値束縛でも関数束縛でも
+同じ制限になる。まず互いを呼び合う形:
 
   $ cat > recandboth.kel <<'KEL'
   > let rec f: (Int32) => Int32 @ Console = fn(x) => g(x)
@@ -506,6 +506,31 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   $ diktor --type-check recandbothfn.kel
   ! recandbothfn.kel:2:36: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
+
+決めるのは呼ぶ向きで、互いを呼び合うことではない。先行が後続を呼ぶだけの形も落ち、
+同じ 2 本で後続が先行を呼ぶだけの形は通る(M33 の検証):
+
+  $ cat > recandfwd.kel <<'KEL'
+  > let rec a: (Int32) => Int32 @ Console = fn(n) => b(n)
+  > and b: (Int32) => Int32 @ Console = fn(n) => { echo("b"); n }
+  > KEL
+  $ diktor --type-check recandfwd.kel
+  ! recandfwd.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+  $ cat > recandfwdfn.kel <<'KEL'
+  > let rec a(n: Int32): Int32 @ Console = b(n)
+  > and b(n: Int32): Int32 @ Console = { echo("b"); n }
+  > KEL
+  $ diktor --type-check recandfwdfn.kel
+  ! recandfwdfn.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+  $ cat > recandback.kel <<'KEL'
+  > let rec a: (Int32) => Int32 @ Console = fn(n) => { echo("a"); n }
+  > and b: (Int32) => Int32 @ Console = fn(n) => a(n)
+  > KEL
+  $ diktor --type-check recandback.kel
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
 
 effect の操作型の**頭**の矢印に書いた @ は、受理されるが型付けに効かない(D120)。
 操作を perform した文脈の行は handle 側が決めるので、ここに書いた行を読む側が
