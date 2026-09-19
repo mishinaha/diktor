@@ -13,7 +13,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :641 にも明�
   >   }
   > KEL
   $ diktor --type-check quiet.kel
-  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :462)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:444, :511)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
 修飾しても同じ:
@@ -26,7 +26,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :641 にも明�
   >   }
   > KEL
   $ diktor --type-check quietq.kel
-  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:407, :462)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:444, :511)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
   $ cat > sched.kel <<'KEL'
@@ -38,7 +38,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :641 にも明�
   >   }
   > KEL
   $ diktor --type-check sched.kel
-  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:641。スケジューラは書けません)
+  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:699。スケジューラは書けません)
   [1]
 
 --no-prelude で自前の effect Console を宣言した場合は禁止しない
