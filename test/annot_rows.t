@@ -369,8 +369,8 @@ pub の規則を名指しして落ちる:
   [1]
 
 let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だけは入れていないので
-(群が Rigid の行を 1 本共有する設計。§11.29 / P34)、pub の値束縛は従来どおり
-頭にも @ を要求する:
+(群が Rigid の行を 1 本共有する設計。§11.29 / P34)、pub let rec の値束縛は
+従来どおり頭にも @ を要求する:
 
   $ cat > recval.kel <<'KEL'
   > let rec k: (Int32) => Int32 @ Console = fn(n) => n match { case 0 => 0 case m => { echo("."); k(m - 1) } }
