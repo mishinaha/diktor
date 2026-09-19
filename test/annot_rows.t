@@ -331,3 +331,24 @@ pub な値束縛も最外の @ を省略できる。公開される型は行多�
   $ diktor --type-check pubvalnest.kel
   ! pubvalnest.kel:2:11: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
   [1]
+
+let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だけは入れていないので
+(群が Rigid の行を 1 本共有する設計。§11.29 / P34)、pub の値束縛は従来どおり
+頭にも @ を要求する:
+
+  $ cat > recval.kel <<'KEL'
+  > let rec k: (Int32) => Int32 @ Console = fn(n) => n match { case 0 => 0 case m => { echo("."); k(m - 1) } }
+  > let use(): Int32 @ {Console, Print} = { println("p"); k(3) }
+  > KEL
+  $ diktor --type-check recval.kel
+  k : (Int32) => Int32 @ {Console extends R1}
+  use : () => Int32 @ {Console, Print extends R1}
+
+  $ cat > pubrecval.kel <<'KEL'
+  > module M {
+  >   pub let rec k: (Int32) => Int32 = fn(n) => n match { case 0 => 0 case m => k(m - 1) }
+  > }
+  > KEL
+  $ diktor --type-check pubrecval.kel
+  ! pubrecval.kel:2:15: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
