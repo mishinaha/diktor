@@ -27,8 +27,10 @@ or パターンは入れない(§7。パターンの文法に | を出さなけ�
   patannot.kel:2:9: パースエラー(付近のトークンを確認してください)
   [2]
 
-レコード更新の基底は識別子 1 個(§3。§0 の `{` の読み分けが IDENT の直後の
-with だけを見るため。基底を式にしたいときは let で束縛する):
+レコード更新の基底は小文字始まりの識別子 1 個(§3。§0 の `{` の読み分けが
+IDENT の直後の with だけを見るので、基底に式は書けない。大文字始まりは
+字句分類を通るため、意味アクションが構文エラーで落とす(D113)。基底を式に
+したいときは let で束縛する):
 
   $ printf 'let p = {origin = {x = 1.0}}\nlet q = {p.origin with x = 3.0}\n' > updbase.kel
   $ diktor --type-check updbase.kel
@@ -39,6 +41,14 @@ with だけを見るため。基底を式にしたいときは let で束縛す�
   $ diktor --type-check updbase2.kel
   updbase2.kel:2:15: パースエラー(付近のトークンを確認してください)
   [2]
+
+  $ printf 'let p = {x = 1}\nlet q = {P with x = 3}\n' > updbase3.kel
+  $ diktor --type-check updbase3.kel
+  updbase3.kel:3:1: 構文エラー: レコード更新の基底は小文字始まりの識別子 1 個です
+  [2]
+
+(小文字の基底が通ることは test/typecheck.t / test/eval.t / test/ast.t /
+test/tokens.t の `{p with …}` のブロックが固定している。)
 
 識別子の大小(§0。型名・コンストラクタ・エフェクト名・モジュール名は大文字
 始まり、操作名は小文字始まり。文法が構造的に強制する):
