@@ -13,6 +13,11 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 - `../doc/sample.kel` — 表層構文と言語設計(コメントが仕様)
 - `../reference/MiniLang.scala` — 型推論器のリファレンス実装
 
+`lib` と `test` の記事本文が引く `sample.kel:NNN` は、親のリビジョン
+**8b64d4f**(846 行)の行番号です。仕様が改訂されたら `test/sample/sample.kel`
+の同期と同時に付け替えます。`doc/log` の過去エントリの行番号は当時のまま
+残します(書き換えると記録が読めなくなるため)。
+
 `--dump-ast` の S 式と `--dump-tokens` のトークン列は diktor 固有の診断用の出力で、
 仕様は形式を定めていません。`test/ast.t` や `test/tokens.t` などがゴールデンで固定
 していますが、実装の都合で変わります。他の実装との読み合わせには使えません。
@@ -67,10 +72,11 @@ ocamlformat / `dune fmt` は列 0 ブロックを再インデントして規約�
 `dune promote` でゴールデンファイルを更新し、その更新は実装の変更とは
 別のコミットにしてください。
 
-`test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです。取り込み元の
-リビジョン・blob SHA・md5 は `test/sample/README.md` に記録してあり、同じ
-ファイルに同期手順と、無改変であることを git の blob SHA で検証する 1 行が
-あります。sample.kel 本体には何も書き足しません。
+`test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです(現在は親の
+8b64d4f、846 行)。取り込み元のリビジョン・blob SHA・md5 は
+`test/sample/README.md` に記録してあり、同じファイルに同期手順と、無改変で
+あることを git の blob SHA で検証する 1 行があります。sample.kel 本体には何も
+書き足しません。
 
 # 名前の由来
 
