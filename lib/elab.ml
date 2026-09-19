@@ -2028,6 +2028,11 @@ and elab_handle env level eff clauses body =
     | T.PVar "cancel" -> `Cancel cnode
     | T.PCtor (LongId comps, args) -> (
         match List.rev comps with
+        (* return / cancel は操作名ではないので修飾できない(D119)。この枝を
+           `cancel` / `return` の枝より前に置かないと、先頭だけを見る後続の
+           枝が食ってしまい、修飾が黙って捨てられる *)
+        | (("return" | "cancel") as kw) :: _ :: _ ->
+            type_error (kw ^ " 節は修飾できません(" ^ kw ^ " は操作名ではなく handle の節の名前です。修飾を外してください)")
         | "cancel" :: _ ->
             if args <> [] then noimpl "cancel(reason)(v0 は case cancel のみ)" else `Cancel cnode
         | "return" :: _ -> (
