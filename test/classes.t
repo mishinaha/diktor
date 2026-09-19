@@ -298,3 +298,100 @@ Generic を扱えず、満たしていても落ちた):
   $ diktor --type-check clsargcall.kel
   ! clsargcall.kel:3:29: 型エラー: インスタンスメソッド r3 がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
   [1]
+
+プレリュードが List と Option に前提つきの Show を持つ(D140 / P28)。出力の形を
+ここで固定する。要素の区切りは `, `、空リストは `[]`、Option はコンストラクタの
+綴りのまま。文字列の要素に引用符が付かないのは Show[String] が恒等写像だから:
+
+  $ cat > pshow.kel <<'KEL'
+  > let empty(): List[Int32] = Nil
+  > let none(): Option[Int32] = None
+  > echoln(show(Cons(1, Cons(2, Cons(3, Nil)))))
+  > echoln(show(Cons(1, Nil)))
+  > echoln(show(empty()))
+  > echoln(show(Some(1)))
+  > echoln(show(none()))
+  > echoln(show(Cons(Some(1), Cons(None, Nil))))
+  > echoln(show(Cons("a", Cons("b", Nil))))
+  > KEL
+  $ diktor pshow.kel
+  [1, 2, 3]
+  [1]
+  []
+  Some(1)
+  None
+  [Some(1), None]
+  [a, b]
+
+頭に書いた前提 [A: Show] は効いている。要素が Show のインスタンスでなければ落ちる:
+
+  $ cat > pshowop.kel <<'KEL'
+  > newtype Opaque = Op(Int32)
+  > echoln(show(Cons(Op(1), Nil)))
+  > KEL
+  $ diktor --type-check pshowop.kel
+  ! pshowop.kel:2:13: 型エラー: Opaque は Show のインスタンスではありません
+  [1]
+
+同梱プレリュードの下でユーザが同じ頭をもう一度宣言すると、現行の規則どおり
+コヒーレンス違反になる(標準ライブラリ所有インスタンスの再宣言を受理するかは
+D140 が保留し、申し送り P36 として親に送った):
+
+  $ cat > pshowdup.kel <<'KEL'
+  > type instance[A: Show] Show[List[_]] {
+  >   let show(xs) = "USER"
+  > }
+  > KEL
+  $ diktor --type-check pshowdup.kel
+  ! pshowdup.kel:1:1: 型エラー: インスタンス Show[List] が二重に宣言されています(コヒーレンス違反)
+  [1]
+
+残る 2 つの世界。--no-prelude では List もインスタンスも消えるので、上で拒否された
+のと同じ頭をユーザが自分で宣言できる。二度書けばユーザ同士の重複として落ちる:
+
+  $ cat > pshow2.kel <<'KEL'
+  > newtype List[A] = Nil | Cons(head: A, tail: List[A])
+  > type instance[A: Show] Show[List[_]] {
+  >   let show(xs) = xs match {
+  >     case Nil => "<>"
+  >     case Cons(head = h, tail = t) => Show.show(h)
+  >   }
+  > }
+  > let s = show(Cons(1, Nil))
+  > KEL
+  $ diktor --type-check --no-prelude pshow2.kel
+  s : String
+  $ cat > pshow2b.kel <<'KEL'
+  > newtype List[A] = Nil | Cons(head: A, tail: List[A])
+  > type instance[A: Show] Show[List[_]] { let show(xs) = "1" }
+  > type instance[A: Show] Show[List[_]] { let show(xs) = "2" }
+  > KEL
+  $ diktor --type-check --no-prelude pshow2b.kel
+  ! pshow2b.kel:3:1: 型エラー: インスタンス Show[List] が二重に宣言されています(コヒーレンス違反)
+  [1]
+
+--prelude で差し替えた世界では、差し替え先が置いたインスタンスが効く。同梱の
+Show[Option] は他の宣言ごと消え、ユーザの再宣言は同梱のときと同じく落ちる:
+
+  $ cat > pshowpre.kel <<'KEL'
+  > type Unit = {}
+  > effect Console = { write: (String) => Unit }
+  > newtype List[A] = Nil | Cons(head: A, tail: List[A])
+  > type instance[A: Show] Show[List[_]] {
+  >   let show(xs) = xs match {
+  >     case Nil => "<>"
+  >     case Cons(head = h, tail = t) => "<" + Show.show(h) + ">"
+  >   }
+  > }
+  > let echoln(message: String): Unit @ Console = perform write(message + "\n")
+  > KEL
+  $ printf 'echoln(show(Cons(7, Nil)))\n' > pshowuse.kel
+  $ diktor --prelude pshowpre.kel pshowuse.kel
+  <7>
+  $ printf 'echoln(show(Some(1)))\n' > pshowuse2.kel
+  $ diktor --prelude pshowpre.kel --type-check pshowuse2.kel
+  ! pshowuse2.kel:1:13: 型エラー: 未知のコンストラクタ: Some
+  [1]
+  $ diktor --prelude pshowpre.kel --type-check pshowdup.kel
+  ! pshowdup.kel:1:1: 型エラー: インスタンス Show[List] が二重に宣言されています(コヒーレンス違反)
+  [1]
