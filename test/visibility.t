@@ -235,3 +235,29 @@ newtype の型名とコンストラクタは可視性を共有する(§13。pub 
   $ diktor --type-check vispriv.kel
   ! vispriv.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
   [1]
+
+組み込みの修飾名は module 宣言で奪えない(D141 / P18)。診断は宣言の位置を
+指す:
+
+  $ cat > visbi.kel <<'KEL'
+  > module MutableArray {
+  >   pub let set[A](a: A, i: Int32, x: A): Unit = {}
+  > }
+  > KEL
+  $ diktor --type-check visbi.kel
+  ! visbi.kel:2:3: 型エラー: module MutableArray の set は組み込みの MutableArray.set と同名です(組み込みの名前は宣言できません)
+  [1]
+  $ printf 'module Ref { pub let new[A](x: A): Int32 = 0 }\n' > visbi2.kel
+  $ diktor --type-check visbi2.kel
+  ! visbi2.kel:1:14: 型エラー: module Ref の new は組み込みの Ref.new と同名です(組み込みの名前は宣言できません)
+  [1]
+
+module 名そのものは予約しない。組み込みに無い綴りを同じ module 名の下に
+足すのは通る:
+
+  $ printf 'module Array { pub let sum(a: Array[Int32]): Int32 = 0 }\n' > visbi3.kel
+  $ diktor --type-check visbi3.kel
+  Array.sum : (Array[Int32]) => Int32
+  $ printf 'module Ref { pub let swap[A](a: Ref[A, Int32]): Int32 = 0 }\n' > visbi4.kel
+  $ diktor --type-check visbi4.kel
+  Ref.swap : (Ref[A, Int32]) => Int32
