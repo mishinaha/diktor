@@ -587,7 +587,7 @@ module Type = struct
    型エラーで拒否します (D13)。
 
    `t_unit` に名目型はありません。**Unit は空レコード**です
-   (sample.kel:57,144)。`()` と `{}` は同じ型で、単一化はレコードの
+   (sample.kel:57, :157)。`()` と `{}` は同じ型で、単一化はレコードの
    経路にそのまま乗ります。`Unit` という名前はプレリュードの型
    エイリアスとしてのみ存在します (第15章)。
 
@@ -609,7 +609,7 @@ module Type = struct
    組み立てるのは、実装が OCaml 側の値と分かちがたく、プレリュードに
    置くと二重管理になるからです。`Blocking` は同じ組み込み表に相乗りするラベルで、
    `extern` がブロックしうることを表明するために名指しします
-   (sample.kel:767,722)。
+   (sample.kel:767, :782)。
 
    ### 実際に踏んだ罠
 
@@ -638,7 +638,7 @@ module Type = struct
 
   let t_never = TCon (intern "Never", [])
 
-  (* Unit は名目型ではなく空レコード(sample.kel:57,144)。
+  (* Unit は名目型ではなく空レコード(sample.kel:57, :157)。
      プレリュードの型エイリアスとしてのみ名前を持つ *)
   let t_unit = TRecord TRowEmpty
 

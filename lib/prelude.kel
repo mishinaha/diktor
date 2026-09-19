@@ -200,7 +200,7 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 //
 // > 実行時に何もしないエフェクトでも、型に載っていれば検査は働く。
 
-// ランタイムが提供する低レベルなエフェクト(仕様 sample.kel:444, 408, 646)
+// ランタイムが提供する低レベルなエフェクト(仕様 sample.kel:444, :445, :704)
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
 effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
