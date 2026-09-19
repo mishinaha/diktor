@@ -128,6 +128,132 @@ D22 のエラー経路(修飾要求)と修飾解決:
   ! twocand.kel:4:11: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
   [1]
 
+handle の節の修飾(仕様 §9、D119)。操作節が 1 つでも修飾されていれば、その
+修飾先が対象エフェクトになり、非修飾の節はそのエフェクトの操作として読まれる。
+下の File と Sink はどちらも write を宣言しているので、File.read の修飾が
+対象を決めている。非修飾の case write(s) が File の write として数えられた
+ことは、網羅の検査(File の read と write が両方要る)が通ったことで分かる:
+
+  $ cat > qual1.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case write(s) => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual1.kel
+  prog : () => String @ {File extends R1}
+  h : () => String
+
+修飾が後ろの節にあっても同じ。Sink.flush の修飾が対象を Sink に決め、先に
+書いた非修飾の write は Sink の write として読まれる:
+
+  $ cat > qual2.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): Unit @ Sink = { perform write("a"); perform flush() }
+  > let h(): Unit = prog() handle {
+  >   case write(s) => resume(())
+  >   case Sink.flush() => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual2.kel
+  prog : () => {} @ {Sink extends R1}
+  h : () => {}
+
+修飾先が 2 つ以上に割れたらエラー:
+
+  $ cat > qual3.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case Sink.write(s) => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual3.kel
+  prog : () => String @ {File extends R1}
+  ! qual3.kel:5:19: 型エラー: handle の節の修飾エフェクトが一致しません
+  [1]
+
+非修飾の節が修飾先に属さなければエラー。flush は Sink の操作なので、対象が
+File に決まったこの handle では行き場がない:
+
+  $ cat > qual4.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case write(s) => resume(())
+  >   case flush() => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual4.kel
+  prog : () => String @ {File extends R1}
+  ! qual4.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
+  [1]
+
+qual4 から case write(s) を落とすと、File の write の網羅漏れと flush の
+所属違反が同時に成り立つ。対象確定後の検査は網羅を先に見るので、網羅漏れが
+報告される:
+
+  $ cat > qual5.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case flush() => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual5.kel
+  prog : () => String @ {File extends R1}
+  ! qual5.kel:5:19: 型エラー: ハンドラが操作を網羅していません: File の write が漏れています
+  [1]
+
+修飾できるのは操作節だけで、return 節と cancel 節は修飾できない(D119)。
+節の名前を修飾しても対象エフェクトの決定には効かないので、受理すると書いた
+修飾が黙って捨てられる:
+
+  $ cat > qualret.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case write(s) => resume(())
+  >   case File.return(x) => x
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qualret.kel
+  prog : () => String @ {File extends R1}
+  ! qualret.kel:4:19: 型エラー: return 節は修飾できません(return は操作名ではなく handle の節の名前です。修飾を外してください)
+  [1]
+
+  $ cat > qualcancel.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  >   case write(s) => resume(())
+  >   case File.cancel => ()
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qualcancel.kel
+  prog : () => String @ {File extends R1}
+  ! qualcancel.kel:4:19: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
+  [1]
+
 未処理エフェクト・網羅性・resume の誤用のエラー:
 
   $ cat > efferr.kel <<'EOF'
