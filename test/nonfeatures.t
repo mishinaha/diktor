@@ -79,5 +79,29 @@ test/tokens.t の `{p with …}` のブロックが固定している。)
   case6.kel:1:13: パースエラー(付近のトークンを確認してください)
   [2]
 
+型パラメータの束縛子はこの規則の例外で、大小を問わない(裁定 D110)。大小は型の
+表示に現れないので、小文字で束縛しても大文字で束縛しても同じ型が出る。リージョン
+変数を型パラメータの位置に小文字で書けるのもこの例外による。run が導入する
+リージョン変数のほうは小文字に限り、大文字始まりも _ も構文エラーになる(小文字の
+run h が通ることは test/region.t / test/parallel.t が固定している):
+
+  $ printf 'let f[a](x: a): a = x\n' > case7.kel
+  $ diktor --type-check case7.kel
+  f : (A) => A
+  $ printf 'let f[A](x: A): A = x\n' > case7b.kel
+  $ diktor --type-check case7b.kel
+  f : (A) => A
+  $ printf 'let use[h, A](r: Ref[h, A]): A @ Heap[h] = Ref.get(r)\n' > case7c.kel
+  $ diktor --type-check case7c.kel
+  use : (Ref[A, B]) => B @ {Heap[A] extends R1}
+  $ printf 'let g(): Int32 = run H { 1 }\n' > case8.kel
+  $ diktor --type-check case8.kel
+  case8.kel:1:22: パースエラー(付近のトークンを確認してください)
+  [2]
+  $ printf 'let g(): Int32 = run _ { 1 }\n' > case9.kel
+  $ diktor --type-check case9.kel
+  case9.kel:1:22: パースエラー(付近のトークンを確認してください)
+  [2]
+
 (スーパークラスの拒否は test/classes.t、Zero / One が無いことは型クラス表に
 そもそも項目が無いことで、Char が無いことは test/numeric.t で固定している。)

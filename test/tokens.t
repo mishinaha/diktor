@@ -443,8 +443,8 @@ NBSP・ソフトハイフン・U+200B〜U+200F・U+2028〜U+202E・U+2060〜U+20
   [2]
 
 文字列とコメントの外なら、BOM は先頭以外でも読めない(仕様が定めているのは
-先頭だけだが、読めないことに変わりはない — D102。文字列の中の BOM は値の
-一部になり、コメントの中の BOM は読み飛ばされる):
+先頭だけだが、読めないことに変わりはない — D102 / D111。文字列の中の BOM は
+値の一部になり、コメントの中の BOM は読み飛ばされる):
 
   $ printf 'let x = 1\n\xef\xbb\xbflet y = 2\n' > bom2.kel
   $ diktor --dump-tokens bom2.kel
@@ -457,6 +457,14 @@ NBSP・ソフトハイフン・U+200B〜U+200F・U+2028〜U+202E・U+2060〜U+20
      1  x
      1  =
      1  "a\239\187\191b"
+     2  <EOF>
+
+  $ printf 'let x = 1 // a\xef\xbb\xbfb\n' > bomcom.kel
+  $ diktor --dump-tokens bomcom.kel
+     1  let
+     1  x
+     1  =
+     1  1
      2  <EOF>
 
 U+XXXX に落とす各区間の代表(C0 の垂直タブ・DEL・C1 の NEL・NBSP・
