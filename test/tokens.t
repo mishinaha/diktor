@@ -623,6 +623,33 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
   p : (String) => {} @ {Print extends R1}
   z : () => {}
 
+3 文脈は、分類がどれになっても行の途中の改行で切れない(裁定 D114)。下の
+effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行目)・@ の直後
+(7 行目)は、どれも中身と } の間に改行を挟んである。分類は {ty と {blk に散るが、
+{blk の 2 つでも改行は文区切りにならず、f と g は同じ行に型付く(ASI 層は §2.10):
+
+  $ cat > effnl.kel <<'KEL'
+  > effect Print = {
+  >   print: (String) => {}
+  > }
+  > type R: EffectRow = {
+  >   Print
+  > }
+  > let f(): {} @ {Print
+  > } = perform print("x")
+  > let g(): {} @ R = perform print("x")
+  > KEL
+  $ diktor --dump-tokens effnl.kel | grep '{'
+     1  {ty
+     2  {rec
+     4  {blk
+     7  {rec
+     7  {blk
+     9  {rec
+  $ diktor --type-check --no-prelude effnl.kel
+  f : () => {} @ {Print extends R1}
+  g : () => {} @ {Print extends R1}
+
 エフェクト行にレコード型のフィールドを書くと、分類は {ty になるが拒否は
 意味の層が行う(「決めずに運んで、意味の層で決める」— §3.23):
 

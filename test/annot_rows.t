@@ -30,6 +30,28 @@
   ! nested2.kel:4:41: 型エラー: エフェクト A をここでは実行できません(ラベル A がありません(行は閉じています))
   [1]
 
+レコード型のフィールドとタプル型の要素の矢印も入れ子(裁定 D115)。省略した @ は
+@ {} と読むので、そこへエフェクトつきの閉包は渡せない。書いた行は閉じたまま残る:
+
+  $ cat > nestrec.kel <<'KEL'
+  > let use(r: {go: () => Unit}): Unit = r.go()
+  > let pair(p: (() => Unit, Int32)): Int32 = p._1
+  > let mk(): {go: () => Unit @ Console} = {go = fn() => echoln("hi")}
+  > KEL
+  $ diktor --type-check nestrec.kel
+  use : ({go: () => {}}) => {}
+  pair : ((() => {}, Int32)) => Int32
+  mk : () => {go: () => {} @ {Console}}
+
+  $ cat > nestrec2.kel <<'KEL'
+  > let use(r: {go: () => Unit}): Unit = r.go()
+  > let main(): Unit @ Console = use({go = fn() => echoln("x")})
+  > KEL
+  $ diktor --type-check nestrec2.kel
+  use : ({go: () => {}}) => {}
+  ! nestrec2.kel:2:48: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
 入れ子のラベル付き行は開かない(I8 の提案は仕様が却下した。正道は行変数の明示):
 
   $ cat > nested3.kel <<'KEL'
@@ -351,4 +373,24 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   > KEL
   $ diktor --type-check pubrecval.kel
   ! pubrecval.kel:2:15: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+
+effect の操作型の**頭**の矢印に書いた @ は、受理されるが型付けに効かない(D120)。
+操作を perform した文脈の行は handle 側が決めるので、ここに書いた行を読む側が
+いない — 下の op は頭に @ Print と書いてあるのに、f の行に Print は現れない。
+行そのものは精緻化されるので、未知のラベルはその場で落ちる。この位置を書けなく
+するか意味を与えるかは D120 が保留し、申し送り P35 として親に送った(diktor は
+宣言時の拒否を入れていないので、現状は通る):
+
+  $ cat > ophead.kel <<'KEL'
+  > effect Print = { print: (String) => Unit }
+  > effect Weird = { op: (String) => Unit @ Print }
+  > let f(): Unit @ Weird = perform op("a")
+  > KEL
+  $ diktor --type-check ophead.kel
+  f : () => {} @ {Weird extends R1}
+
+  $ printf 'effect Weird = { op: (String) => Unit @ Undeclared }\n' > ophead2.kel
+  $ diktor --type-check ophead2.kel
+  ! ophead2.kel:1:41: 型エラー: 未知のエフェクト: Undeclared
   [1]

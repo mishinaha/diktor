@@ -103,5 +103,16 @@ run h が通ることは test/region.t / test/parallel.t が固定している):
   case9.kel:1:22: パースエラー(付近のトークンを確認してください)
   [2]
 
+予約語はラベルの位置でも識別子にならない(D115)。{run: …} が書けない理由は
+矢印ではない — 下の入力にはそもそも矢印が無く、それでも run の位置で落ちる。
+ラベルに立てないのは run が予約語(第2章 §2.4)だからで、同じ形をフィールド名
+go で書けば通る(test/annot_rows.t の nestrec が固定している)。仕様に予約語の
+一覧を足すか、ラベルの位置だけ予約語を通すかは、申し送り P32 として親に送った:
+
+  $ printf 'let f(r: {run: Int32}): Int32 = 1\n' > kwlabel.kel
+  $ diktor --type-check kwlabel.kel
+  kwlabel.kel:1:11: パースエラー(付近のトークンを確認してください)
+  [2]
+
 (スーパークラスの拒否は test/classes.t、Zero / One が無いことは型クラス表に
 そもそも項目が無いことで、Char が無いことは test/numeric.t で固定している。)
