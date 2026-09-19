@@ -13,6 +13,10 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 - `../doc/sample.kel` — 表層構文と言語設計(コメントが仕様)
 - `../reference/MiniLang.scala` — 型推論器のリファレンス実装
 
+`--dump-ast` の S 式と `--dump-tokens` のトークン列は diktor 固有の診断用の出力で、
+仕様は形式を定めていません。`test/ast.t` や `test/tokens.t` などがゴールデンで固定
+していますが、実装の都合で変わります。他の実装との読み合わせには使えません。
+
 # 教材として読む(文芸的プログラミング)
 
 ソースコードは `../reference/MiniLang.scala` と同じ文芸的プログラミングの流儀で
