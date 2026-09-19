@@ -3251,10 +3251,15 @@ let register_class env (c : T.class_decl') =
         (* 最外のラベル付き行は開く(D44 と同じ Rigid → Generic。仕様 §9 の表は
            型クラスのメソッドも最外に含める — sample.kel:415-421)。M26 の検証
            まで let / extern にしか掛かっておらず、val f: (T) => Int32 @ Console
-           のメソッドがどの文脈からも呼べなかった(計画 B0 の表の見落とし) *)
+           のメソッドがどの文脈からも呼べなかった(計画 B0 の表の見落とし)。
+           開くのは注釈の頭が**矢印リテラル**のときだけ(D121 / P27)。頭が
+           型エイリアスなら、展開先の矢印は入れ子なので書いた行をそのまま
+           閉じたまま読む(§11.5 の規則 4)。値束縛の outer_eff_written
+           (§11.28)と同じ「構文を見る」判定を、こちらは cv_ty に対して
+           行っている — どちらかを直すときは両方を見ること *)
         let ty, eff_rigids =
-          match repr ty with
-          | TArrow (a, r, e) ->
+          match (snd v.T.cv_ty, repr ty) with
+          | T.EArrow _, TArrow (a, r, e) ->
               let e', rig = open_explicit_eff 1 e in
               (TArrow (a, r, e'), rig)
           | _ -> (ty, [])
