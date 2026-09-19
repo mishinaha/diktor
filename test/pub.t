@@ -36,7 +36,7 @@ pub の完全注釈検査と「@ 省略 = 純粋」(M16 / H6、D44)。
   [1]
 
 @ 省略の pub はどんな行の文脈からでも呼べる(公開スキーマは Generic。
-sample.kel:577 と同形 — この形が通ることが H6 の受け入れ条件):
+sample.kel:628 と同形 — この形が通ることが H6 の受け入れ条件):
 
   $ cat > pub4.kel <<'KEL'
   > newtype Resp = R(String)

@@ -847,7 +847,7 @@ let rec show_ipat = function
    `case P if cond => e` は、実行時に `cond` が偽なら次の節へ落ちます。
    つまり**その節は必ずマッチするとは限らない**ので、被覆として数えると
    不健全な「網羅です」を出してしまいます。仕様も
-   sample.kel:284-286 で「ガード付きのケースは網羅性検査で
+   sample.kel:308-310 で「ガード付きのケースは網羅性検査で
    必ずマッチするとは数えられないので、最後のケース (ガードなし) が必要」
    と明言しています。
 
@@ -885,7 +885,7 @@ let check_entry { qe_rows; qe_ty } =
      「節」が無いので、節番号を出さない(M19 検証 — 利用者が存在しない
      第 1 節を探すことになる) *)
   let single = match qe_rows with [ _ ] -> true | _ -> false in
-  (* ガード付き節は「必ずマッチ」と数えない(sample.kel:284-286)ので網羅性から除外 *)
+  (* ガード付き節は「必ずマッチ」と数えない(sample.kel:308-310)ので網羅性から除外 *)
   (match missing unguarded tys with
   | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
   | None -> ());

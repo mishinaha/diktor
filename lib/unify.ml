@@ -225,7 +225,7 @@ let rec occurs_adjust tv lvl t =
    先に `Add` を満たしておく必要があるわけです。注釈経由でよければ
    `let f[A](x: A): A = 1` でも同じ分岐に着きます。
 
-   構造的導出のケース (sample.kel:348-352) は Keleut 固有です。
+   構造的導出のケース (sample.kel:375-379) は Keleut 固有です。
    `* -> *` のクラスがこの枝に到達し得ないのは、第11章が宣言時に
    カインドで弾いているからです (M17 / D9)。
    `Eq` のようにクラス宣言に `derive structural` が付いていれば、
@@ -309,7 +309,7 @@ let rec add_class t c =
           List.iter (fun (i, c2) -> if i < List.length args then add_class (List.nth args i) c2) ii_premises
       | None -> type_error (name_of n ^ " は " ^ name_of c ^ " のインスタンスではありません"))
   | (TRecord row | TVariant row) when ci.ci_derive_structural ->
-      (* 閉じた行への構造的導出(sample.kel:348-352)。開いた行は不可 *)
+      (* 閉じた行への構造的導出(sample.kel:375-379)。開いた行は不可 *)
       let fields, tail = row_fields row in
       (match repr tail with
       | TRowEmpty -> List.iter (fun (_, f) -> add_class f c) fields
@@ -371,7 +371,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
    レコードでは**手前のフィールドが勝ち**、エフェクト行では
    **最も左のラベルが選ばれ**、`run` の入れ子では**内側のヒープが優先**
    されます。さらに実装記録の乖離 3 — 操作名の非修飾解決 (D22) を
-   「行の最左優先」に精密化した件 — も同じ原理です。sample.kel:544 の
+   「行の最左優先」に精密化した件 — も同じ原理です。sample.kel:595 の
    `copy` の中で `write` が File と Console の両方に該当したとき、
    最左を採れば、handle の入れ子から推論で組み立てられた行では最内の
    ハンドラと一致します。ただし注釈で行を明示したときの最左は**書かれた
@@ -416,7 +416,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
    カインドは `KStar` でも `KRow` でもなく `KVar` のまま、
    リンク先が `KRow` という状態になります。構造マッチはこれを取りこぼします。
 
-   実害は仕様の中心部に出ました。sample.kel:166 の
+   実害は仕様の中心部に出ました。sample.kel:184 の
    `fst(t: {_item: A extends R})` にレコード `{x = 1, _item = ...}` を
    渡す例 (:172-174) と、:180-186 の `describe(#Other)` — つまり
    「行多相レコード」と「構造的ヴァリアントの残りの行」の両方が

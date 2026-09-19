@@ -154,7 +154,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   compose : ((A) => B, (B) => C) => (A) => C
   pure_fn : (Int32) => Int32
 
-構造的 Eq の導出(閉じた行のみ。sample.kel:348-352):
+構造的 Eq の導出(閉じた行のみ。sample.kel:375-379):
 
   $ cat > eq.kel <<'EOF'
   > type Point = {x: Float64, y: Float64}
