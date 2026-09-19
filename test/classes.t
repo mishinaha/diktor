@@ -277,3 +277,24 @@ Generic を扱えず、満たしていても落ちた):
   $ diktor --type-check clsbarerow.kel
   ! clsbarerow.kel:3:30: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド pr2 の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
   [1]
+
+名指しは最外の行の単一化で失敗したときのものなので、同じ宣言でも実装しだいで
+文言が変わる。高階の引数を呼ばない実装は最外の行まで届き、呼ぶ実装は引数の
+単一化のほうが先に失敗する(どちらも落ちることは変わらない):
+
+  $ cat > clsargpure.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class R3[T] { val r3[E]: (T, () => Unit @ E) => Unit @ E }
+  > type instance R3[Box] { let r3(b, f) = { echo("x"); () } }
+  > KEL
+  $ diktor --type-check clsargpure.kel
+  ! clsargpure.kel:3:29: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド r3 の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
+  [1]
+  $ cat > clsargcall.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class R3[T] { val r3[E]: (T, () => Unit @ E) => Unit @ E }
+  > type instance R3[Box] { let r3(b, f) = { echo("x"); f() } }
+  > KEL
+  $ diktor --type-check clsargcall.kel
+  ! clsargcall.kel:3:29: 型エラー: インスタンスメソッド r3 がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  [1]
