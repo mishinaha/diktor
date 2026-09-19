@@ -37,11 +37,13 @@
   > let use(r: {go: () => Unit}): Unit = r.go()
   > let pair(p: (() => Unit, Int32)): Int32 = p._1
   > let mk(): {go: () => Unit @ Console} = {go = fn() => echoln("hi")}
+  > let mkt(): (() => Unit @ Console, Int32) = (fn() => echoln("hi"), 1)
   > KEL
   $ diktor --type-check nestrec.kel
   use : ({go: () => {}}) => {}
   pair : ((() => {}, Int32)) => Int32
   mk : () => {go: () => {} @ {Console}}
+  mkt : () => (() => {} @ {Console}, Int32)
 
   $ cat > nestrec2.kel <<'KEL'
   > let use(r: {go: () => Unit}): Unit = r.go()
@@ -50,6 +52,18 @@
   $ diktor --type-check nestrec2.kel
   use : ({go: () => {}}) => {}
   ! nestrec2.kel:2:48: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+タプル型の要素でも同じ(空行と裸の行変数は表示が同じなので、上の pair の 1 行だけでは
+省略した @ が @ {} であることを示せない。渡して落ちることで固定する):
+
+  $ cat > nestrec3.kel <<'KEL'
+  > let pair(p: (() => Unit, Int32)): Int32 = p._1
+  > let main(): Int32 @ Console = pair((fn() => echoln("x"), 1))
+  > KEL
+  $ diktor --type-check nestrec3.kel
+  pair : ((() => {}, Int32)) => Int32
+  ! nestrec3.kel:2:45: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
 入れ子のラベル付き行は開かない(I8 の提案は仕様が却下した。正道は行変数の明示):
