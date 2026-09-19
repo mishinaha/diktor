@@ -332,7 +332,21 @@ pub な値束縛も最外の @ を省略できる。公開される型は行多�
   M.k : (Int32) => Int32
   use : () => Int32 @ {Console extends R1}
 
-省略した側の本体は純粋でなければならず、破ると pub の規則を名指しして落ちる:
+パス 1c が pub の値束縛にも署名を作るので、この形も宣言順に依存しない。module M の
+宣言より前に M.k を呼んでも通り、公開される型は上の pubval と同じになる:
+
+  $ cat > pubvalfwd.kel <<'KEL'
+  > let use(): Int32 @ Console = { echo("p"); M.k(1) }
+  > module M {
+  >   pub let k: (Int32) => Int32 = fn(x) => x
+  > }
+  > KEL
+  $ diktor --type-check pubvalfwd.kel
+  use : () => Int32 @ {Console extends R1}
+  M.k : (Int32) => Int32
+
+省略したとき純粋を要求されるのは頭の矢印の本体、つまり fn の中身である。破ると
+pub の規則を名指しして落ちる:
 
   $ cat > pubvalerr.kel <<'KEL'
   > module M {
