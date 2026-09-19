@@ -357,6 +357,24 @@ pub の規則を名指しして落ちる:
   ! pubvalerr.kel:2:11: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
   [1]
 
+初期化式そのものは束縛の外側の行で評価されるので、そこに書いたエフェクトは
+この検査に掛からない。下の M.g は純粋な型で公開されるが、宣言を読み込むときに
+1 度だけ出力する:
+
+  $ cat > pubvalinit.kel <<'KEL'
+  > module M {
+  >   pub let g: () => Int32 = { echoln("init"); fn() => 1 }
+  > }
+  > let use(): Int32 @ Console = M.g()
+  > with_stdout(fn() => use())
+  > KEL
+  $ diktor --type-check pubvalinit.kel
+  M.g : () => Int32
+  use : () => Int32 @ {Console extends R1}
+  _ : Int32
+  $ diktor pubvalinit.kel
+  init
+
 省略してよいのは注釈の頭の矢印で、注釈の中の矢印には従来どおり @ が要る:
 
   $ cat > pubvalnest.kel <<'KEL'
