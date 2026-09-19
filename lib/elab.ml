@@ -3906,23 +3906,38 @@ let check_instance_bodies env (i : T.instance_decl') =
     let lvl = 1 in
     let skol = Unify.skolemize lvl (expected_of mname) in
     let inf = Unify.instantiate lvl inferred in
-    try
-      (* 最外の行だけ最後に見る(仕様 §9 の「型クラスのメソッド = 実装は純粋、
-         公開は行多相」— D77)。引数と返り値を先に合わせたあと、実装の行が
-         空 = 純粋なら、宣言の行(剛定数)と単一化せずに受理する — 純粋な
-         実装はどの行の下からでも呼べるので、公開の行多相を名乗ってよい。
-         pub の @ 省略(D44)が Rigid → Generic でやっている非対称を、
-         推論された空行に対して行う形。メソッドの引数に @ を省略した
-         矢印があると実装の行は必ず {} に固まる(D75)ので、この抜け道が
-         無いと宣言できるのに実装できないメソッドが生まれる(実測) *)
-      match (repr inf, repr skol) with
-      | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
-          Unify.unify ia sa;
-          Unify.unify ir sr;
-          if repr ie = TRowEmpty then () else Unify.unify ie se
-      | _ -> Unify.unify inf skol
-    with Type_error msg ->
-      type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")
+    (* 包摂の失敗の既定の文言。最外の行の単一化だけは別に包んで D122 の
+       言い分けをするので、包む単位をここで関数に切り出す。引数と返り値の
+       失敗は従来どおりこの文言に落ちる *)
+    let wrap f = try f () with Type_error msg -> type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")") in
+    (* 最外の行だけ最後に見る(仕様 §9 の「型クラスのメソッド = 実装は純粋、
+       公開は行多相」— D77)。引数と返り値を先に合わせたあと、実装の行が
+       空 = 純粋なら、宣言の行(剛定数)と単一化せずに受理する — 純粋な
+       実装はどの行の下からでも呼べるので、公開の行多相を名乗ってよい。
+       pub の @ 省略(D44)が Rigid → Generic でやっている非対称を、
+       推論された空行に対して行う形。メソッドの引数に @ を省略した
+       矢印があると実装の行は必ず {} に固まる(D75)ので、この抜け道が
+       無いと宣言できるのに実装できないメソッドが生まれる(実測) *)
+    match (repr inf, repr skol) with
+    | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
+        wrap (fun () -> Unify.unify ia sa);
+        wrap (fun () -> Unify.unify ir sr);
+        if repr ie = TRowEmpty then ()
+        else
+          (* 宣言側の行がラベル 0 個の裸の行変数 — メソッドの最外の @ を
+             省略した形 — のときだけ、規則を名指しする(D122)。一般文言の
+             「行 ς1 は注釈で固定された行変数なので」では、純粋性が規則だと
+             読み手に伝わらない。宣言が @ Console と書いていればラベルの
+             食い違いなので、従来の文言のままにする *)
+          let bare = match row_fields se with [], tail -> ( match repr tail with TVar _ -> true | _ -> false) | _ -> false in
+          (try Unify.unify ie se
+           with Type_error msg ->
+             if bare && row_failure msg then
+               type_error
+                 ("型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド " ^ mname
+                ^ " の本体がエフェクトを起こしています。元の報告: " ^ msg)
+             else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")"))
+    | _ -> wrap (fun () -> Unify.unify inf skol)
   in
   List.iter
     (fun ((_, d) : T.decl) ->
