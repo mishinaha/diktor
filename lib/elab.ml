@@ -267,7 +267,22 @@ let rec fully_effected ((_, te) : T.type_exp) =
    壊れる形を実測)。いまは省略の意味が @ {} に確定している(D75)ので健全性の
    問題は消えたが、規則は仕様 §13(sample.kel:729-732)が可読性の理由で
    残した — 公開 API では純粋を意図したのか書き忘れたのかを読み手が
-   区別できなければならない。pub newtype のフィールド(§11.31)も同じ *)
+   区別できなければならない。pub newtype のフィールド(§11.31)も同じ。
+
+   値束縛(引数リストを持たない `let`)の注釈の**頭**の矢印は、この
+   「中の矢印」に入りません。頭は束縛の最外だからです(D116 / P9)。
+   仕様 §13 は入れ子の矢印の `@` も省略できないと書き、最外の省略には
+   別の意味 — 本体は純粋、公開される型は行多相 — を与えています。
+   `fully_effected_value_head` は `fully_effected` とその 1 点だけで
+   分かれます。頭が矢印リテラルなら引数と返り値だけを検査し、頭の `@` の
+   有無は問いません。頭が矢印でない注釈(型エイリアス等)には最外の矢印が
+   無いので、そのまま `fully_effected` に渡します。関数束縛の `lb_ret` は
+   返り値の型 = 入れ子なので、従来どおり全ての矢印に `@` が要ります *)
+let fully_effected_value_head ((_, te) as t : T.type_exp) =
+  match te with
+  | T.EArrow (params, ret, _) -> List.for_all fully_effected params && fully_effected ret
+  | _ -> fully_effected t
+
 let check_pub_annots ~params ~ret =
   (match params with
   | Some ps ->
@@ -282,7 +297,9 @@ let check_pub_annots ~params ~ret =
   | None -> ());
   match ret with
   | None -> type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"
-  | Some te -> if not (fully_effected te) then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
+  | Some te ->
+      let ok = match params with None -> fully_effected_value_head te | Some _ -> fully_effected te in
+      if not ok then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
 
 (* ## 11.3 型式の精緻化 — 書かれた型を内部型へ
 
@@ -2571,11 +2588,40 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
         TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
-        let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
+        (* 値束縛の注釈の**頭**の矢印は束縛の最外(D116 / P9)。ラベル付きの
+           閉じた行を書いたときは関数束縛と同じく、本体には Rigid を足して
+           開き、公開スキーマでは Generic にする(§11.26 の表の 1 行目)。
+           書かれた @ {} と省略された @ は触らない。読みは
+           elab_value_type_outer を通す — D131 のカインド照合を先に掛けてから、
+           その結果の型に行の開き方を掛ける *)
+        let vty =
+          match b.T.lb_ret with
+          | None -> new_var lvl
+          | Some t -> (
+              let ty = elab_value_type_outer env_ty lvl "型注釈" t in
+              match (snd t, repr ty) with
+              | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
+                  let e', eff_rigids = open_explicit_eff lvl e in
+                  extra_rigids := eff_rigids @ !extra_rigids;
+                  TArrow (a, r, e')
+              | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
+                  (* pub の省略 @ は「本体は純粋、公開は行多相」(D44 / 仕様
+                     §13。関数束縛の lb_eff = None と同じ扱い) *)
+                  let rr = new_rigid_ref ~kind:KRow lvl in
+                  (match !rr with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
+                  extra_rigids := ("", TVar rr, rr) :: !extra_rigids;
+                  TArrow (a, r, TVar rr)
+              | _ -> ty)
+        in
         (* 値束縛は外側の eff で評価される *)
         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
         (try Unify.unify vty body_ty
-         with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
+         with Type_error msg when b.T.lb_ret <> None ->
+           (* pub の省略 @ の値束縛では、失敗の原因は本体が純粋でないこと
+              (D116)。関数束縛(§11.12)と同じ言い換えをここでも置く *)
+           if b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg then
+             type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
+           else type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
         vty
   in
   (* @ 省略の let の行が本体で空に固まったら、公開のときに開き直す
@@ -2701,7 +2747,21 @@ and elab_rec_bindings env level eff bs : env =
             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
-            let vty = match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> new_var lvl in
+            (* 値束縛の注釈の頭の矢印は最外(D116。§11.28 と同じ)。読みは
+               D131 のカインド照合を通してから。pub の枝は入れない —
+               群が共有の Rigid 行を持つ設計と噛み合わないため(§11.29) *)
+            let vty =
+              match b.T.lb_ret with
+              | None -> new_var lvl
+              | Some t -> (
+                  let ty = elab_value_type_outer env_ty lvl "型注釈" t in
+                  match (snd t, repr ty) with
+                  | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
+                      let e', eff_rigids = open_explicit_eff lvl e in
+                      extra_rigids := eff_rigids @ !extra_rigids;
+                      TArrow (a, r, e')
+                  | _ -> ty)
+            in
             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
             vty
       in
@@ -3599,7 +3659,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
     params_annotated && b.T.lb_ret <> None
     && (match b.T.lb_params with
        | Some _ -> b.T.lb_eff <> None || b.T.lb_pub
-       | None -> ( match b.T.lb_ret with Some t -> head_effected t | None -> false))
+       | None -> ( match b.T.lb_ret with Some t -> head_effected t || b.T.lb_pub | None -> false))
   in
   if not full then None
   else
@@ -3627,7 +3687,23 @@ let signature_of_binding env (b : T.let_binding') : ty option =
             let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> assert false in
             release_rigids eff_rigids;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
-        | None -> ( match b.T.lb_ret with Some t -> elab_value_type_outer env_ty lvl "型注釈" t | None -> assert false)
+        | None -> (
+            (* 1c の署名もパス 2 と同じ読み(D116)。開かないと前方参照の
+               有無で値束縛の行の開き方が変わる。読みは D131 の照合を通す *)
+            match b.T.lb_ret with
+            | Some t -> (
+                let ty = elab_value_type_outer env_ty lvl "型注釈" t in
+                match (snd t, repr ty) with
+                | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
+                    let e', eff_rigids = open_explicit_eff lvl e in
+                    release_rigids eff_rigids;
+                    TArrow (a, r, e')
+                | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
+                    (* pub の省略 @ は公開の側で行多相(D44 / D116)。1c は
+                       本体を見ないので Generic を直に置く *)
+                    TArrow (a, r, new_row_var lvl)
+                | _ -> ty)
+            | None -> assert false)
       in
       Unify.generalize 0 ty;
       release_rigids rigids;
