@@ -219,7 +219,7 @@ Generic を扱えず、満たしていても落ちた):
   > type instance Sizer[Box] { let size(b) = b match { case Box(x) => { echo("eff!"); x } } }
   > KEL
   $ diktor --type-check clsimpure.kel
-  ! clsimpure.kel:3:32: 型エラー: インスタンスメソッド size がクラス宣言の型を満たしません(行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  ! clsimpure.kel:3:32: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド size の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
   [1]
 
 型クラスのメソッドの最外のラベル付き行も、let / extern と同じく公開では行変数で
