@@ -2818,6 +2818,27 @@ and elab_rec_bindings env level eff bs : env =
      pub を外せば通る意味論的に同一の宣言が落ちる退行だった)。群は一緒に
      純粋なので同じ行でよい。解放も群の終わりに 1 度 *)
   let shared_pub_row = ref None in
+  (* 注釈が作った剛定数(型パラメータと、書かれた @ を開いた行)のうち、
+     群のほかの束縛の pre に入り込んだものは**群の終わり**に解放する
+     (M30 の検証)。束縛ごとに解放すると、相手が pre 越しに掴んでいる型の
+     中で剛定数が Generic に変わり、相手の単一化が「単一化中に Generic
+     変数が現れました」の Panic に落ちる —
+     let rec f: (Int32) => Int32 @ Console = fn(x) => g(x) and g … の形。
+     関数束縛の同型は以前から落ちていて、D116 が値束縛をそこへ載せた。
+     入り込んでいないものは従来どおり束縛ごとに解放する — 全部を群の
+     終わりへ回すと、注釈つきの先行束縛を後続が多相に使う形
+     (let rec f[A](x: A): A = x and g(n: Int32): Int32 = f(n))が落ちる *)
+  let group_rigids = ref [] in
+  let rec mentions r t =
+    match repr t with
+    | TVar v -> v == r
+    | TCon (_, args) -> List.exists (mentions r) args
+    | TApp (f, a) -> mentions r f || mentions r a
+    | TArrow (a, ret, e) -> mentions r a || mentions r ret || mentions r e
+    | TRecord row | TVariant row -> mentions r row
+    | TRowEmpty -> false
+    | TRowExtend (_, f, rest) -> mentions r f || mentions r rest
+  in
   let rec_arg_queue = ref [] in
   let pub_pure_row lvl =
     match !shared_pub_row with
@@ -2884,8 +2905,15 @@ and elab_rec_bindings env level eff bs : env =
       in
       Unify.unify pre fn_ty;
       Tree.set_ty bnode fn_ty;
-      release_rigids (rigids @ !extra_rigids))
+      let shared, own =
+        List.partition
+          (fun (_, _, r) -> List.exists (fun (_, other) -> other != pre && mentions r other) names)
+          (rigids @ !extra_rigids)
+      in
+      release_rigids own;
+      group_rigids := shared @ !group_rigids)
     bs names;
+  release_rigids !group_rigids;
   (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
   (* @ 省略の let rec も、本体が純粋だと判明したら公開の行を開き直す
      (D76。§11.28 と同じ規則。群のうち @ を書いた束縛と pub は対象外)。
