@@ -277,13 +277,21 @@ let rec fully_effected ((_, te) : T.type_exp) =
    分かれます。頭が矢印リテラルなら引数と返り値だけを検査し、頭の `@` の
    有無は問いません。頭が矢印でない注釈(型エイリアス等)には最外の矢印が
    無いので、そのまま `fully_effected` に渡します。関数束縛の `lb_ret` は
-   返り値の型 = 入れ子なので、従来どおり全ての矢印に `@` が要ります *)
+   返り値の型 = 入れ子なので、従来どおり全ての矢印に `@` が要ります。
+
+   頭を数えないでよいのは、頭の省略に意味を与える枝を持つ呼び出し側だけ
+   です。`let` の値束縛 (§11.28) はその枝を持ち、`let rec` の値束縛は
+   持ちません — 群が Rigid の行を 1 本共有する設計 (§11.29) と噛み合わない
+   ので入れていないからです。だから `value_head_outer` を呼び出し側から
+   受け取り、`let rec` では従来どおり頭にも `@` を要求します。ここを
+   ひとまとめに緩めると、`pub let rec k: (Int32) => Int32 = …` が
+   本体の純粋性を問われないまま行多相として公開されます(実測) *)
 let fully_effected_value_head ((_, te) as t : T.type_exp) =
   match te with
   | T.EArrow (params, ret, _) -> List.for_all fully_effected params && fully_effected ret
   | _ -> fully_effected t
 
-let check_pub_annots ~params ~ret =
+let check_pub_annots ~value_head_outer ~params ~ret =
   (match params with
   | Some ps ->
       List.iter
@@ -298,7 +306,7 @@ let check_pub_annots ~params ~ret =
   match ret with
   | None -> type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"
   | Some te ->
-      let ok = match params with None -> fully_effected_value_head te | Some _ -> fully_effected te in
+      let ok = match params with None when value_head_outer -> fully_effected_value_head te | _ -> fully_effected te in
       if not ok then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
 
 (* ## 11.3 型式の精緻化 — 書かれた型を内部型へ
@@ -2546,7 +2554,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   at_node node @@ fun () ->
   (* pub の完全注釈検査(H6 / D44)。注釈が無ければ「@ 省略 = 純粋」の
      約束も立てられない — 検査は冒頭、本体を見る前に *)
-  (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
+  (if b.T.lb_pub then check_pub_annots ~value_head_outer:true ~params:b.T.lb_params ~ret:b.T.lb_ret);
   let is_fun = b.T.lb_params <> None in
   (* 値制限(計画 §7.2): 一般化してよいのは関数定義か値のみ。§11.28 を参照 *)
   let gen = is_fun || is_value b.T.lb_body in
@@ -2717,7 +2725,8 @@ and elab_rec_bindings env level eff bs : env =
       at_node bnode @@ fun () ->
       (* pub の完全注釈検査と「@ 省略 = 純粋」は let(§11.28)と同じ規則
          (H6 / D44) *)
-      (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
+      (* 値束縛の頭は最外として扱わない(§11.29。pub の省略 @ の枝が無い) *)
+      (if b.T.lb_pub then check_pub_annots ~value_head_outer:false ~params:b.T.lb_params ~ret:b.T.lb_ret);
       let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
       let extra_rigids = ref [] in
@@ -4211,7 +4220,7 @@ let process_decls env ~emit decls =
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
           (* pub の完全注釈検査(H6 / D44)。let 側 §11.28 と同じ規則 *)
-          (if ex.T.ex_pub then check_pub_annots ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
+          (if ex.T.ex_pub then check_pub_annots ~value_head_outer:true ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
           (* プレリュード保護は実装名(非修飾)、二重宣言検査は修飾名で(H14 と
              その検証の帰結。§6.2) *)
           Decls.add_extern ~prim:ex.T.ex_prim ex.T.ex_name;
