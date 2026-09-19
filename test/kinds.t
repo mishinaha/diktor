@@ -667,6 +667,18 @@ Functor の正常系は変わらない:
   ! valkind6.kel:3:34: 型エラー: 矢印の返り値の型のカインドが Type ではありません: {Print} :: Row
   [1]
 
+積載は和の中でも読む。上の valkind5 は単独の #T(P) だが、値の型として
+読める枝(#U)と並べても、行を書いた枝の位置で落ちる:
+
+  $ cat > sumkind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let f(x: #U(Int32) | #T(P)): Int32 = 0
+  > EOF
+  $ diktor --type-check sumkind.kel
+  ! sumkind.kel:3:25: 型エラー: ヴァリアント #T の積載の型のカインドが Type ではありません: {Print} :: Row
+  [1]
+
 注釈の位置も値の型の位置(D131)。かつては束縛の単一化まで生き延びて
 内部名の「カインドが一致しません: _A :: Type と {Print}」だった:
 
@@ -693,6 +705,37 @@ Functor の正常系は変わらない:
   > EOF
   $ diktor --type-check annotkind3.kel
   ! annotkind3.kel:3:8: 型エラー: 型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+
+上の annotkind2 は素の let だが、返り値の注釈は他の宣言の形でも同じ照合を
+受ける。extern・let rec・型クラスのインスタンスのメソッドの 3 つとも、
+annotkind2 と同じ文言で落ちる(D131):
+
+  $ cat > extkind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > extern "C" let nosuch(x: Float64): P
+  > EOF
+  $ diktor --type-check extkind.kel
+  ! extkind.kel:3:36: 型エラー: 返り値の型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > reckind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > let rec f(x: Int32): P = f(x)
+  > EOF
+  $ diktor --type-check reckind.kel
+  ! reckind.kel:3:22: 型エラー: 返り値の型注釈のカインドが Type ではありません: {Print} :: Row
+  [1]
+  $ cat > instkind.kel <<'EOF'
+  > effect Print = { print: (String) => Unit }
+  > type P: EffectRow = {Print}
+  > newtype Box = Box(Int32)
+  > type class C[A] { val m: (A) => Int32 }
+  > type instance C[Box] { let m(b): P = ??? }
+  > EOF
+  $ diktor --type-check instkind.kel
+  ! instkind.kel:5:34: 型エラー: 返り値の型注釈のカインドが Type ではありません: {Print} :: Row
   [1]
 
 同じパラメータを行と値の両方で使う宣言は、包んであっても宣言の時点で
