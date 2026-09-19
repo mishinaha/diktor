@@ -2074,7 +2074,9 @@ and elab_handle env level eff clauses body =
    ここへは届きません。曖昧な 1 節を修飾したら残りの節まで書き直せ、という
    読み方は採りません — 修飾は曖昧さの解消手段であって、書式の要求では
    ないからです。
-   観測点は `test/typecheck_m6.t` の qual1〜qual4 です。
+   観測点は `test/typecheck_m6.t` の qual1〜qual4b です。qual4 と qual4b は
+   同じ handle の修飾あり / なしの対で、修飾が対象の決定に効いていることを
+   診断の違いで示します。
 
    **全部が非修飾なら** D22 の規則で絞ります。
 

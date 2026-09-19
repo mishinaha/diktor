@@ -128,11 +128,10 @@ D22 のエラー経路(修飾要求)と修飾解決:
   ! twocand.kel:4:11: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
   [1]
 
-handle の節の修飾(仕様 §9、D119)。操作節が 1 つでも修飾されていれば、その
-修飾先が対象エフェクトになり、非修飾の節はそのエフェクトの操作として読まれる。
-下の File と Sink はどちらも write を宣言しているので、File.read の修飾が
-対象を決めている。非修飾の case write(s) が File の write として数えられた
-ことは、網羅の検査(File の read と write が両方要る)が通ったことで分かる:
+handle の節の修飾(仕様 §9、D119)。操作節は修飾しても非修飾でもよく、
+混ざっていても受理される。非修飾の case write(s) が対象エフェクトの操作と
+して読まれたことは、網羅の検査(File は read と write の 2 つを宣言して
+いる)が通ったことで分かる:
 
   $ cat > qual1.kel <<'EOF'
   > type Unit = {}
@@ -148,8 +147,8 @@ handle の節の修飾(仕様 §9、D119)。操作節が 1 つでも修飾され
   prog : () => String @ {File extends R1}
   h : () => String
 
-修飾が後ろの節にあっても同じ。Sink.flush の修飾が対象を Sink に決め、先に
-書いた非修飾の write は Sink の write として読まれる:
+修飾が後ろの節にあっても同じ。Sink は write と flush を宣言していて、先に
+書いた非修飾の write もその網羅に数えられている:
 
   $ cat > qual2.kel <<'EOF'
   > type Unit = {}
@@ -182,8 +181,10 @@ handle の節の修飾(仕様 §9、D119)。操作節が 1 つでも修飾され
   ! qual3.kel:5:19: 型エラー: handle の節の修飾エフェクトが一致しません
   [1]
 
-非修飾の節が修飾先に属さなければエラー。flush は Sink の操作なので、対象が
-File に決まったこの handle では行き場がない:
+非修飾の節が修飾先に属さなければエラー。File.read の修飾が対象を File に
+決めるので、Sink の操作である flush の節が行き場を失う。同じ handle から
+File. の修飾だけを外すと対象が決まらなくなり、診断が変わる — この対で、
+修飾が対象の決定に効いていることが見える:
 
   $ cat > qual4.kel <<'EOF'
   > type Unit = {}
@@ -199,6 +200,22 @@ File に決まったこの handle では行き場がない:
   $ diktor --type-check --no-prelude qual4.kel
   prog : () => String @ {File extends R1}
   ! qual4.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
+  [1]
+
+  $ cat > qual4b.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case read() => resume("x")
+  >   case write(s) => resume(())
+  >   case flush() => resume(())
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual4b.kel
+  prog : () => String @ {File extends R1}
+  ! qual4b.kel:5:19: 型エラー: この操作の組を宣言するエフェクトがありません: read, write, flush
   [1]
 
 qual4 から case write(s) を落とすと、File の write の網羅漏れと flush の
