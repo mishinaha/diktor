@@ -4594,6 +4594,13 @@ let flatten_modules (decls : T.decl list) : T.decl list =
                   type_error
                     ("module " ^ mname ^ " の " ^ x ^ " は型クラス " ^ mname ^ " のメソッド " ^ x
                    ^ " と修飾名が衝突します(module か メソッドを改名してください)")
+                else if (not !Decls.in_prelude) && Decls.is_builtin_value (mname ^ "." ^ x) then
+                  (* 組み込みの修飾名(Ref.new / MutableArray.set …)は奪えない。
+                     予約型名を newtype で奪えない (§6.6) のと同じ規律で、
+                     黙って覆うと組み込みの署名ごと消える(D141) *)
+                  type_error
+                    ("module " ^ mname ^ " の " ^ x ^ " は組み込みの " ^ mname ^ "." ^ x
+                   ^ " と同名です(組み込みの名前は宣言できません)")
                 else Decls.(Hashtbl.replace module_val_synonyms (mname, intern x) (intern (mname ^ "." ^ x)));
                 Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
               in

@@ -1367,6 +1367,12 @@ let builtin_values () =
     classes []
   @ !builtin_ops
 
+(* 組み込みが値環境に置く名前か(修飾名 Ref.new / MutableArray.set と、
+   クラスメソッドの Show.show / show の両方を含む)。module 平坦化が
+   同じ綴りの修飾名を作るのを拒むために第11章が引く(P18 / D141)。
+   名簿は builtin_values 1 枚で、ここは問い合わせ口にすぎない *)
+let is_builtin_value name = List.mem_assoc name (builtin_values ())
+
 let reset () =
   Hashtbl.reset con_kinds;
   Hashtbl.reset aliases;
