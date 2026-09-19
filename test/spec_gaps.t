@@ -11,9 +11,13 @@
 Array 系 4 ブロック(arrayhole / eachheap / eachpure / eachclosed)は
 test/region.t へ(M24)、cancelre は test/eval.t の cancelouter / cancelnores へ
 (M21)、tupledefault は削除(観測点は test/typecheck.t の resugar と
-test/typecheck_sample.t が持つ。M25)。以下は改訂後の §14 の TODO 12 件のうち、
-diktor が観測点を置ける 4 件。Chan の署名(§14:829)、module の入れ子(:830)、
-Ord[Float64] と NaN(:831-836)は cram では観測できないので記録のみ。
+test/typecheck_sample.t が持つ。M25)。2026-09-19 の改訂で §14 の TODO は
+12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:840-841。
+現状は台帳 V21 として test/kinds.t の regionkind2 が見張る)と、型パラメータの
+カインド注記(§14:844-846。注記構文は入れないと決めたので観測点は無い — D124)。
+以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:829)、
+module の入れ子(:830)、Ord[Float64] / Eq[Float64] と NaN(:831-836)は cram では
+観測できないので記録のみ。
 
 非 pub の let で「本体は純粋、呼び出しはどの行からでも可」を注釈で書く手段
 (§14:842-843、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
