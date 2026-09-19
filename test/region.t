@@ -127,6 +127,43 @@ freeze の観測可能な契約: freeze 後に元の可変配列へ書いても�
   $ diktor freeze.kel
   100
 
+この契約は 1 段だけ成り立つ。要素そのものが可変配列なら、取り出した配列の
+要素は元と同じものを指す(D137)。freeze の後に inner へ書いた 99 が、
+frozen 越しに読める:
+
+  $ cat > nested.kel <<'KEL'
+  > let probe(): Int32 = run h {
+  >   let inner = MutableArray.new(2, 0)
+  >   let outer = MutableArray.new(1, inner)
+  >   let frozen = MutableArray.freeze(outer)
+  >   MutableArray.set(inner, 0, 99)
+  >   MutableArray.get(Array.get(frozen, 0), 0)
+  > }
+  > echoln(show(probe()))
+  > KEL
+  $ diktor nested.kel
+  99
+
+値は共有されるが、型の側は破れない。要素が可変配列だと、その h が結果の型に
+残るので脱出検査が run の外への持ち出しを拒む(D137)。要素が可変配列でなければ
+同じ形が通る:
+
+  $ printf 'let leak(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, MutableArray.new(1, 0))) }\n' > nested2.kel
+  $ diktor --type-check nested2.kel
+  ! nested2.kel:1:28: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+  $ printf 'let flat(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, 0)) }\n' > flat.kel
+  $ diktor --type-check flat.kel
+  flat : () => Array[Int32]
+
+MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧が断る「ここだけの
+表記」はパラメータの並びの話であって、型式を禁じてはいない(D137)。印字は
+型パラメータを付け直すので、h は A として出る:
+
+  $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
+  $ diktor --type-check maannot.kel
+  use : (MutableArray[A, B], Int32) => B @ {Heap[A] extends R1}
+
 添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
 
   $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 1)) }\necholn(show(Array.get(mk(), 5)))\n' > oob1.kel
