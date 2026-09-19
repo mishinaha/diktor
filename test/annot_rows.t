@@ -226,3 +226,108 @@ let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
   $ diktor --type-check rec2.kel
   loop : ((Int32) => Int32, Int32) => Int32
   r : () => Int32 @ {Console extends R1}
+
+値束縛の注釈の頭の矢印も束縛の最外として読む(§9 / D116)。ラベル付きの行を書いたら
+本体に対する上限として効き、公開される型では行変数で開かれる — 関数束縛と同じ
+非対称である:
+
+  $ cat > valopen.kel <<'KEL'
+  > let k: (Int32) => Int32 @ Console = fn(x) => { echoln("v"); x }
+  > let use(): Int32 @ {Console, Print} = { println("p"); k(1) }
+  > with_stdout(fn() => use())
+  > KEL
+  $ diktor --type-check valopen.kel
+  k : (Int32) => Int32 @ {Console extends R1}
+  use : () => Int32 @ {Console, Print extends R1}
+  _ : Int32
+  $ diktor valopen.kel
+  p
+  v
+
+開いても行が消えるわけではないので、@ {} の文脈からは呼べない:
+
+  $ cat > valopen2.kel <<'KEL'
+  > let k: (Int32) => Int32 @ Console = fn(x) => { echo("v"); x }
+  > let pure_use(): Int32 @ {} = k(1)
+  > KEL
+  $ diktor --type-check valopen2.kel
+  k : (Int32) => Int32 @ {Console extends R1}
+  ! valopen2.kel:2:30: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+パス 1c の署名も頭を最外として読むので、呼び出す側を先に書いても通り、k の型は
+上の valopen と同じ形になる:
+
+  $ cat > valfwd.kel <<'KEL'
+  > let user(): Int32 @ {Console, Print} = { println("p"); k(1) }
+  > let k: (Int32) => Int32 @ Console = fn(x) => { echoln("v"); x }
+  > KEL
+  $ diktor --type-check valfwd.kel
+  user : () => Int32 @ {Console, Print extends R1}
+  k : (Int32) => Int32 @ {Console extends R1}
+
+上限は単一化で掛けるので、本体の行が閉じたまま固まっていると頭の注釈と合わない。
+下の 2 つは値束縛と関数束縛の書き分けだけが違い、どちらも同じ理由で落ちる(行の
+部分型付けを持たない設計の帰結)。注釈をエイリアスで書けば入れ子の読みになって通る:
+
+  $ cat > valclosed.kel <<'KEL'
+  > type F = (Int32) => Int32 @ Console
+  > let g: F = fn(x) => { echo("v"); x }
+  > let k: (Int32) => Int32 @ Console = g
+  > KEL
+  $ diktor --type-check valclosed.kel
+  g : (Int32) => Int32 @ {Console}
+  ! valclosed.kel:3:5: 型エラー: 注釈された型を満たしません(行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください))
+  [1]
+  $ cat > valclosedfn.kel <<'KEL'
+  > type F = (Int32) => Int32 @ Console
+  > let g: F = fn(x) => { echo("v"); x }
+  > let kf(x: Int32): Int32 @ Console = g(x)
+  > KEL
+  $ diktor --type-check valclosedfn.kel
+  g : (Int32) => Int32 @ {Console}
+  ! valclosedfn.kel:3:37: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  [1]
+  $ cat > valclosedok.kel <<'KEL'
+  > type F = (Int32) => Int32 @ Console
+  > let g: F = fn(x) => { echo("v"); x }
+  > let k: F = g
+  > KEL
+  $ diktor --type-check valclosedok.kel
+  g : (Int32) => Int32 @ {Console}
+  k : (Int32) => Int32 @ {Console}
+
+pub な値束縛も最外の @ を省略できる。公開される型は行多相なので、Console の
+文脈から呼べる:
+
+  $ cat > pubval.kel <<'KEL'
+  > module M {
+  >   pub let k: (Int32) => Int32 = fn(x) => x
+  > }
+  > let use(): Int32 @ Console = { echo("p"); M.k(1) }
+  > KEL
+  $ diktor --type-check pubval.kel
+  M.k : (Int32) => Int32
+  use : () => Int32 @ {Console extends R1}
+
+省略した側の本体は純粋でなければならず、破ると pub の規則を名指しして落ちる:
+
+  $ cat > pubvalerr.kel <<'KEL'
+  > module M {
+  >   pub let k: (Int32) => Int32 = fn(x) => { echo("no"); x }
+  > }
+  > KEL
+  $ diktor --type-check pubvalerr.kel
+  ! pubvalerr.kel:2:11: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  [1]
+
+省略してよいのは注釈の頭の矢印で、注釈の中の矢印には従来どおり @ が要る:
+
+  $ cat > pubvalnest.kel <<'KEL'
+  > module M {
+  >   pub let k: (Int32) => (Int32) => Int32 = fn(x) => fn(y) => x
+  > }
+  > KEL
+  $ diktor --type-check pubvalnest.kel
+  ! pubvalnest.kel:2:11: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
