@@ -261,3 +261,13 @@ module 名そのものは予約しない。組み込みに無い綴りを同じ 
   $ printf 'module Ref { pub let swap[A](a: Ref[A, Int32]): Int32 = 0 }\n' > visbi4.kel
   $ diktor --type-check visbi4.kel
   Ref.swap : (Ref[A, Int32]) => Int32
+
+--prelude で差し替えたプレリュードも、ユーザのプログラムと同じに拒否される。
+平坦化は in_prelude のフラグが立つ前に走るので、プレリュードだからという免除が
+効かないためである(§11.42)。診断はプレリュード側のファイルと位置を指す:
+
+  $ printf 'module Ref { pub let new[A](x: A): Int32 = 0 }\n' > visbipre.kel
+  $ printf 'let f(): Int32 = 0\n' > visbiuse.kel
+  $ diktor --prelude visbipre.kel --type-check visbiuse.kel
+  ! visbipre.kel:1:14: 型エラー: module Ref の new は組み込みの Ref.new と同名です(組み込みの名前は宣言できません)
+  [1]
