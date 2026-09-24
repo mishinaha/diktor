@@ -105,8 +105,8 @@ let tycon_of_value = function
   | VMutArray _ -> Some (Type.intern "MutableArray")
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
-(* cancel 節で握り潰した例外の行き先です(sample.kel:581 の「cancel 節は自身の行から
-   抜け出せない。例外相当を投げても抑制されてログに回る」)。ライブラリが直接
+(* cancel 節で握り潰した例外の行き先です(sample.kel:581 の「cancel 節は、自身の行から
+   抜け出せない。例外に相当するものを投げても抑制され、ログに記録される」)。ライブラリが直接
    stderr を触らないよう 1 段はさみ、driver (第16章) が差し替えます。 *)
 
 (* cancel 節内の例外の抑制ログ(sample.kel:581)。driver が差し替える *)
@@ -234,7 +234,7 @@ let number_value node (n : number) =
 
    `RecordExtend (rest, l, v)` だけは **value が先、rest が後**です。AST の
    フィールド順と逆なので目で追うと間違えます。仕様(sample.kel:278)が
-   `{l = e extends r}` を「e を先、r を最後」と定めているためで、タプルの脱糖が
+   `{l = e extends r}` を「e を先に、r を最後に」と定めているためで、タプルの脱糖が
    この規則に乗ることで `(a, b, c)` が a → b → c の順に評価されます。
 
    `Construct` は 2 つの順序を分けます。**評価はソース順、格納は宣言フィールド順**。
@@ -498,8 +498,8 @@ and dispatch_positions ci meth =
    です(ユーザ宣言が組み込みキーを奪えないことは §14.13 で別に保証します)。
 
    どこにも無ければ**構造的導出**へ落ちます。v0 が構造的に導出するのは `Eq` だけで
-   (sample.kel:383 の「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
-   自動導出のみが与える」。導出が閉じた行にしか効かないことは sample.kel:391-395)、
+   (sample.kel:383 の「利用者には書かせない。コヒーレンスを守るため、組み込みの
+   自動導出だけがインスタンスを与える」。導出が閉じた行にしか効かないことは sample.kel:391-395)、
    クラス宣言に付いた `derive structural` が実体です。
 
    ここで効いている不変条件があります。elab 側(第8章 (unify.ml))は構造的導出を
@@ -1043,7 +1043,7 @@ let register_builtin_values globals =
             a.(i) <- v;
             unit)
       | _ -> runtime_error "MutableArray.set の引数が不正です");
-  (* freeze はコピー(D69)。仕様 §10 の「freeze 後に元の可変配列へ書いても
+  (* freeze はコピー(D69)。仕様 §10 の「freeze の後に元の可変配列へ書き込んでも、
      取り出した配列は変わらない」を、共有しない最も素直な形で満たす *)
   reg "MutableArray.freeze" (fun args ->
       match Builtin.arg1 args with
@@ -1086,7 +1086,7 @@ let register_builtin_values globals =
           VRecord [ (Type.l_item, va); (Type.l_item, vb) ]
       | _ -> runtime_error "par の引数が不正です");
   (* pinned は恒等(H11)。v0 が Blocking に負う観測可能な契約は「並列度を
-     減少させない」と「キャンセル配送点ではない」の 2 つで、タスクが 1 つ
+     減らさない」と「キャンセルの配送点ではない」の 2 つで、タスクが 1 つ
      (Async は no-op)・配送点が yield_ だけの v0 ではどちらも恒等実装が
      満たす。Blocking はトップレベルに残せる(仕様 §12、D88)ので、
      pinned を通さないプログラムも実行に届くが、ランタイムが受け取る

@@ -211,7 +211,7 @@ Generic を扱えず、満たしていても落ちた):
   > KEL
   $ diktor --type-check --no-prelude clsrow2.kel
 
-実装が純粋でなければ落ちる(§9 の「実装が純粋でなければならず」):
+実装が純粋でなければ落ちる(§9 の「実装は純粋でなければならず」):
 
   $ cat > clsimpure.kel <<'KEL'
   > newtype Box = Box(Int32)

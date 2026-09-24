@@ -711,7 +711,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    > **規則 4: エイリアスが展開する矢印は常に入れ子として読む。**
 
    `type Thunk = () => Unit` の省略 `@` は、`Thunk` を最外に書いても `@ {}` です
-   (仕様 §9 が「型エイリアスが展開する矢印」を入れ子側に挙げています)。
+   (仕様 §9 が「型エイリアスを展開した矢印」を入れ子側に挙げています)。
    `expand_alias` の本体精緻化は `outer` を渡さないので、これは自動的に
    そうなります(`test/annot_rows.t` の alias)。
 
@@ -1411,7 +1411,7 @@ and elab_exp' env level eff node e =
    }
    ```
 
-   `with` は「呼び出しの末尾に継続を足す」構文糖 (第3章) なので、これは
+   `with` は「呼び出しの末尾に継続を加える」構文糖 (第3章) なので、これは
    `with_file(src, fn(_) => ...)` に脱糖されます。`with_file` の宣言は
    `body: () => A @ {File, Fs extends E}` なので、期待型を先に押し込めば、
    ラムダの行は `{File, Fs extends E}` に確定した状態で本体に入れます。すると
@@ -2139,7 +2139,7 @@ and elab_handle env level eff clauses body =
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。仕様
      sample.kel:534 が Console / Async / Fs の 3 つを名指しで定めた(Async は
-     :724 にも「スケジューラは書かせない」。Console はかつて提案中で、
+     :724 にも「スケジューラを利用者に書かせない」。Console はかつて提案中で、
      2026-09-12 の改訂で明文化)。許すと出力が黙って消える恒等ハンドラが書け、
      File.write のつもりの case write(s) が Console を消す事故も起きる。
      判定はランタイム行に名前があり**かつ**プレリュード所有であること —
@@ -2479,10 +2479,10 @@ and make_rigids ?kinds level tparams =
    `let kf(x: Int32): Int32 @ Print` は開いた `{Print extends R1}` を公開し、
    `let k: (Int32) => Int32 @ Print` は閉じた `{Print}` を公開して、
    `{Print, Log}` の文脈から呼べませんでした。仕様 §9 が
-   「公開される型では行変数で開かれる」と書いている(sample.kel:478)以上、
+   「公開される型では行変数で行を開く」と書いている(sample.kel:478)以上、
    引数リストの有無で割る根拠はありません。改訂後の §9 は「最外の矢印」の
    指す先を値束縛について名指しし(sample.kel:485)、`pub let` の行に
-   「値束縛の頭の矢印も同じ」と書き足しました(:492)。そこで同じ開き方を
+   「値束縛の先頭の矢印も同じ」と書き足しました(:492)。そこで同じ開き方を
    `elab_binding` と `elab_rec_bindings` の値束縛の枝、それにパス 1c の
    `signature_of_binding` (§11.37) に足しました。3 か所とも、注釈の頭が
    **矢印リテラル**かどうかを表層の構文 (`snd t`) で見てから開きます。
@@ -3546,8 +3546,8 @@ let register_class env (c : T.class_decl') =
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
   (* derive structural はユーザの新クラスには書けない(sample.kel:383
-     「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
-     自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
+     「利用者には書かせない。コヒーレンスを守るため、組み込みの
+     自動導出だけがインスタンスを与える」)。受理すると elab は任意のクラスで閉じた行に
      構造的導出を認めるのに、実行時の構造的フォールバック(§14.7)は
      Eq.eq 決め打ちなので、型検査を通ったプログラムが必ず実行時に落ちる
      (M15 検証)。プレリュード所有クラスの再宣言(D35)は照合対象なので
@@ -3706,7 +3706,7 @@ let register_class env (c : T.class_decl') =
    (`test/kinds.t` の nofunctor)。仕様 §8 はこれを、`derive structural` を
    Type のクラスに限る規則 (sample.kel:397-399) と並べて、同じカインドの規律から
    出る帰結として書いています (sample.kel:400-402。M29 / D126。条文の主語は
-   「インスタンスの頭のカインド」で、上の段の照合そのものです)。
+   「インスタンスの頭部のカインド」で、上の段の照合そのものです)。
    利用者から見えるのは「`Callback` を `Functor` に
    できない」という制限だけなので、それが言語の規則なのか実装の都合なのかは
    仕様の側に書いてないと区別が付きません。 *)
@@ -3859,7 +3859,7 @@ let register_instance (i : T.instance_decl') =
    避けたかった形が逆向きに残っていました)。`fully_effected` は pub の完全注釈検査
    (D44、§11.31)がまだ使います。
 
-   値束縛の `pub` は M30 (D116) の追加です。`pub` の省略 `@` は「本体は純粋、
+   値束縛の `pub` は M30 (D116) の追加です。`pub` の省略 `@` は「本体は純粋で、
    公開される型は行多相」に意味が確定しているので、関数束縛と同じ理由で
    本体を見ずに署名を作れます。足さないと `pub let k: (Int32) => Int32` を
    前方参照した呼び出しだけが「未束縛の変数」で落ち、受理が宣言順に

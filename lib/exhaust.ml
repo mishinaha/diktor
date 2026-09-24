@@ -891,7 +891,7 @@ let check_entry { qe_rows; qe_ty } =
      「節」が無いので、節番号を出さない(M19 検証 — 利用者が存在しない
      第 1 節を探すことになる) *)
   let single = match qe_rows with [ _ ] -> true | _ -> false in
-  (* ガード付き節は「必ずマッチ」と数えない(sample.kel:322-324)ので網羅性から除外 *)
+  (* ガード付き節は「必ず一致する」ケースとして数えない(sample.kel:322-324)ので網羅性から除外 *)
   (match missing unguarded tys with
   | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
   | None -> ());

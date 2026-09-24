@@ -2,9 +2,9 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
 型エイリアスのカインド、行 splice、HKT の定義域)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
-仕様 §6「型パラメータのカインドは宣言群の中の型の本体での使われ方から推論し、
-使われ方が無ければ Type」(sample.kel:246-247)「型引数の位置は、そのパラメータの
-カインドで読み方が変わる」(sample.kel:252)と、§9 の
+仕様 §6「型パラメータのカインドは、宣言群の中の型の本体での使われ方から推論する。
+使われ方がなければ Type とする」(sample.kel:246-247)「型引数の読み方は、対応するパラメータの
+カインドによって変わる」(sample.kel:252)と、§9 の
 `newtype Callback[E] = Callback(() => Unit @ E)`(sample.kel:507)。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
