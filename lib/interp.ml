@@ -105,8 +105,8 @@ let tycon_of_value = function
   | VMutArray _ -> Some (Type.intern "MutableArray")
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
-(* cancel 節で握り潰した例外の行き先です(sample.kel:581 の「cancel 節は、自身の行から
-   抜け出せない。例外に相当するものを投げても抑制され、ログに記録される」)。ライブラリが直接
+(* cancel 節で握り潰した例外の行き先です(sample.kel:581 の「cancel 節の途中から外へ
+   脱出することはできない。例外に相当するものを投げても抑制され、ログに記録される」)。ライブラリが直接
    stderr を触らないよう 1 段はさみ、driver (第16章) が差し替えます。 *)
 
 (* cancel 節内の例外の抑制ログ(sample.kel:581)。driver が差し替える *)
