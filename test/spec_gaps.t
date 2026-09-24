@@ -12,15 +12,15 @@ Array 系 4 ブロック(arrayhole / eachheap / eachpure / eachclosed)は
 test/region.t へ(M24)、cancelre は test/eval.t の cancelouter / cancelnores へ
 (M21)、tupledefault は削除(観測点は test/typecheck.t の resugar と
 test/typecheck_sample.t が持つ。M25)。2026-09-19 の改訂で §14 の TODO は
-12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:840-841。
+12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:868-869。
 現状は台帳 V21 として test/kinds.t の regionkind2 が見張る)と、型パラメータの
-カインド注記(§14:844-846。注記構文は入れないと決めたので観測点は無い — D124)。
-以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:829)、
-module の入れ子(:830)、Ord[Float64] / Eq[Float64] と NaN(:831-836)は cram では
+カインド注記(§14:872-874。注記構文は入れないと決めたので観測点は無い — D124)。
+以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:857)、
+module の入れ子(:858)、Ord[Float64] / Eq[Float64] と NaN(:859-864)は cram では
 観測できないので記録のみ。
 
 非 pub の let で「本体は純粋、呼び出しはどの行からでも可」を注釈で書く手段
-(§14:842-843、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
+(§14:870-871、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
 明示すると呼び出し側の行まで空に縛る。sum と sum2 は表示が同じ
 (Array[Int32]) => Int32 なのに、片方だけが Console の下から呼べる(第9章 §9.6
 の「正直な代償」の観測点):
@@ -48,7 +48,7 @@ module の入れ子(:830)、Ord[Float64] / Eq[Float64] と NaN(:831-836)は cram
   ! sumclosed.kel:2:70: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-非有限値(NaN、無限大)のリテラル(§14:837、§2)。現状は無く、文字列化の字面
+非有限値(NaN、無限大)のリテラル(§14:865、§2)。現状は無く、文字列化の字面
 nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
 
   $ printf 'let x: Float64 = nan\n' > nanlit.kel
@@ -56,7 +56,7 @@ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
   ! nanlit.kel:1:18: 型エラー: 未束縛の変数: nan
   [1]
 
-整数算術の桁あふれ(§14:838、§2)。現状は wrap-around で、実行時エラーにする
+整数算術の桁あふれ(§14:866、§2)。現状は wrap-around で、実行時エラーにする
 案が仕様に残っている(変換の実行時エラーとの対比は test/numeric.t の cvbig):
 
   $ cat > wrap.kel <<'KEL'
@@ -73,7 +73,7 @@ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
   -2
   -9223372036854775808
 
-不変配列の生成手段(§14:839、§10)。現状は MutableArray.freeze だけで、リテラルも
+不変配列の生成手段(§14:867、§10)。現状は MutableArray.freeze だけで、リテラルも
 Array.new も無い(freeze の側は test/region.t の freeze / nonew):
 
   $ printf 'let mk(): Array[Int32] = run h { Array.new(3, 0) }\n' > nonew.kel

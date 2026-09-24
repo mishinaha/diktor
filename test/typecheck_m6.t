@@ -71,7 +71,7 @@ copy の perform write は行の最左の File に解決される(この例で�
   echo_test : () => {} @ {Console extends R1}
   captured : {value: {}, output: String}
 
-EffectRow エイリアスの splice(sample.kel:623):
+EffectRow エイリアスの splice(sample.kel:648):
 
   $ cat > effrow.kel <<'EOF'
   > type Unit = {}
@@ -128,7 +128,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   ! twocand.kel:4:11: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
   [1]
 
-handle の節の修飾(仕様 §9、sample.kel:504-505。D119)。操作節は修飾しても
+handle の節の修飾(仕様 §9、sample.kel:526-527。D119)。操作節は修飾しても
 非修飾でもよく、混ざっていても受理される。非修飾の case write(s) が対象
 エフェクトの操作として読まれたことは、網羅の検査(File は read と write の
 2 つを宣言している)が通ったことで分かる:
@@ -238,7 +238,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   [1]
 
 修飾できるのは操作節だけで、return 節と cancel 節は修飾できない
-(仕様 §9、sample.kel:493。D119)。
+(仕様 §9、sample.kel:514-515。D119)。
 節の名前を修飾しても対象エフェクトの決定には効かないので、受理すると書いた
 修飾が黙って捨てられる:
 

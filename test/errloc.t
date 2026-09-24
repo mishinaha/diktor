@@ -22,7 +22,7 @@
 
   $ printf 'type class C5[A, B] { val f: (A) => B }\n' > c5.kel
   $ diktor --type-check --no-prelude c5.kel
-  ! c5.kel:1:1: 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:342)
+  ! c5.kel:1:1: 型エラー: type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:356)
   [1]
 
 前方参照シグネチャ(パス 1c)は位置つきエラーも握り潰す(§11.37 の回帰。

@@ -24,8 +24,8 @@
 
    ## 宣言処理のパス構成
 
-   トップレベルは 1 回では片付きません。前方参照 (sample.kel:436 の
-   `user_names` が後方の `println`(:487) を呼ぶ) と、宣言どうしの相互再帰を
+   トップレベルは 1 回では片付きません。前方参照 (sample.kel:456 の
+   `user_names` が後方の `println`(:508) を呼ぶ) と、宣言どうしの相互再帰を
    通すために、宣言列を 4 回なめます。
 
    | パス | 登録するもの | なぜ独立のパスか |
@@ -265,18 +265,18 @@ let rec fully_effected ((_, te) : T.type_exp) =
    推論任せの行になるので、公開 API のエフェクト行が実装で決まる」だった
    (M16 検証で、同じ pub 署名・同じ表示型のまま本体の変更だけで呼び出し側が
    壊れる形を実測)。いまは省略の意味が @ {} に確定している(D75)ので健全性の
-   問題は消えたが、規則は仕様 §13(sample.kel:789-793)が可読性の理由で
+   問題は消えたが、規則は仕様 §13(sample.kel:815-821)が可読性の理由で
    残した — 公開 API では純粋を意図したのか書き忘れたのかを読み手が
    区別できなければならない。pub newtype のフィールド(§11.31)も同じで、
-   2026-09-19 の改訂で仕様自身がそう書きました(sample.kel:791、D117)。
+   2026-09-19 の改訂で仕様自身がそう書きました(sample.kel:818-819、D117)。
 
    値束縛(引数リストを持たない `let`)の注釈の**頭**の矢印は、この
    「中の矢印」に入りません。頭は束縛の最外だからです(D116 / P9。
    仕様 §9 が「最外の矢印」の指す先を関数束縛と値束縛で書き分けました —
-   sample.kel:464-465)。仕様 §13 は入れ子の矢印の `@` も省略できないと書き
-   (sample.kel:789)、最外の省略には別の意味 — 本体は純粋、公開される型は
-   行多相 — を与えています(sample.kel:792-793。値束縛の頭の矢印も同じ、と
-   §9 の表が書いています — :472)。
+   sample.kel:484-485)。仕様 §13 は入れ子の矢印の `@` も省略できないと書き
+   (sample.kel:815)、最外の省略には別の意味 — 本体は純粋、公開される型は
+   行多相 — を与えています(sample.kel:820-821。値束縛の頭の矢印も同じ、と
+   §9 の表が書いています — :492)。
    `fully_effected_value_head` は `fully_effected` とその 1 点だけで
    分かれます。頭が矢印リテラルなら引数と返り値だけを検査し、頭の `@` の
    有無は問いません。頭が矢印でない注釈(型エイリアス等)には最外の矢印が
@@ -327,7 +327,7 @@ let check_pub_annots ~value_head_outer ~params ~ret =
    型として読み、`{}` は Unit です。`Box[E]` に行変数を渡す形は、使用点で
    `bind` が内部名を並べて落とすのではなく、宣言のその場で
    「Type を期待しましたが ς1 は Row です」と落ちます(`test/kinds.t` の kinderr)。
-   この読み分けを仕様 §6 の条文にしたのが M29 (D123) です(sample.kel:238-241)。
+   この読み分けを仕様 §6 の条文にしたのが M29 (D123) です(sample.kel:252-255)。
    認めないと `pub let mk(): Callback[{}]` が書けません — 仕様 §13 が `pub` の型注釈を
    完全に書けと要求するので、`Callback[{}]` と書く手段が無ければ `Callback` を
    公開 API に出す道が閉じます。同じ `{}` が `Callback[{}]` では空行、
@@ -523,7 +523,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    `(A, B) => R` は行の長さが違うというだけで別の型になります。
 
    `@` を省いた矢印の読み方は、矢印の**位置**で決まります(仕様 §9、
-   sample.kel:450-482、M26 / D75)。
+   sample.kel:470-502、M26 / D75)。
 
    | 矢印の位置 | 書いたラベル付き行 | `@ {}` | `@` 省略 |
    |---|---|---|---|
@@ -536,7 +536,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    矢印の `@` です。注釈の頭が型エイリアスのときは最外の矢印が無く、
    エイリアスが展開する矢印を入れ子として読みます(D121。§11.5 の規則 4)。
    この 3 つはどれも 2026-09-19 の改訂で仕様の定義になりました
-   (sample.kel:464-466)。
+   (sample.kel:484-486)。
 
    関数束縛の最外の矢印は `elab_binding` が `TArrow` を手で組み立てるので、
    ここには来ません。ここに来る矢印のうち最外なのは `elab_type_outer` が
@@ -557,7 +557,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    表の 2 行目にレコード型のフィールドとタプル型の要素を挙げたのは M31 (D115) の
    追加で、仕様 §9 の入れ子の矢印の一覧にも同じ 2 つが入りました
-   (sample.kel:476-478)。それまでこの 2 つは一覧から落ちており、
+   (sample.kel:496-498)。それまでこの 2 つは一覧から落ちており、
    `{run: () => Unit}` が
    パースエラーになることを根拠に「レコード型のフィールドには裸の矢印を書けない」と
    読まれていました。落ちる原因は矢印ではなく、`run` が予約語(§2.4)でラベルの
@@ -595,7 +595,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    途中に開いた行が来ると、連結後にどのラベルがどの尾部に属するのかが
    決まりません。閉じた要素どうしの連結なら結果も閉じ、`report`
-   (sample.kel:211-216) が `case _` なしで網羅と判定されます。ヴァリアント和が
+   (sample.kel:222-227) が `case _` なしで網羅と判定されます。ヴァリアント和が
    網羅性検査 (第10章) と噛み合うのは、この「閉じたまま連結できる」性質
    ちょうどそのものです。
 
@@ -771,7 +771,7 @@ and elab_value_type env level ~expanding what t =
   ty
 
 (* 型引数を宣言されたパラメータのカインドに合わせて読む(D82、仕様 §6。
-   sample.kel:238-241)。
+   sample.kel:252-255)。
    Row のパラメータなら elab_eff、そうでなければ elab_type。
    読み終えたらカインドを照合する — 不一致はここで落とす方が、
    subst_params 越しに使用点で bind が落とすより早く読みやすい。
@@ -1034,7 +1034,7 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
       (* @ Heap[h] = @ {Heap[h]} の略記。文法(eff_name)は受けるのに枝が
          無く、ブレース無しの引数付きラベルだけ「未知の型: Heap」に落ちて
-         いた(M18 検証)。sample.kel:447 の略記則に引数の例外は無い *)
+         いた(M18 検証)。sample.kel:467 の略記則に引数の例外は無い *)
       TRowExtend
         ( intern n,
           (match args with
@@ -1400,7 +1400,7 @@ and elab_exp' env level eff node e =
    決まっていない新しい行変数で、ラベルが 1 つも見えません。解決が
    間に合わないのです。
 
-   決定的な例が sample.kel:591-596 の `copy` です。
+   決定的な例が sample.kel:616-621 の `copy` です。
 
    ```
    let copy(src: String, dst: String): Unit @ {Console, Fs} = {
@@ -1647,7 +1647,7 @@ and elab_exp' env level eff node e =
    同じハンドラの下で走り切り、最終結果が返ってくることを型が言っています。
 
    引数の省略は操作の返り値型が Unit のときだけ許します
-   (sample.kel:521)。`Unit` と単一化するだけなので、規則は 1 行です。
+   (sample.kel:545)。`Unit` と単一化するだけなので、規則は 1 行です。
 
    なぜ resume を値環境に入れず env のフィールドにしたのか。値として
    束縛できてしまうと、節を抜けたあとに呼べる継続が作れてしまい、
@@ -1662,7 +1662,7 @@ and elab_exp' env level eff node e =
           (match arg with
           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
           | None ->
-              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:521) *)
+              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:545) *)
               Unify.unify t_unit op_ret);
           tres)
 (* ## 11.17 run — 「レベルを上げる、剛定数を作る、出口で漏れを見る」
@@ -1861,7 +1861,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 (* ## 11.20 操作名の解決 — 行の最左が勝つ
 
    Keleut は操作名の重複を許します。許さざるを得ません。仕様である
-   sample.kel 自身が `Console.write`(:444) と `File.write`(:565) を両方
+   sample.kel 自身が `Console.write`(:464) と `File.write`(:590) を両方
    宣言しているからです。したがって「操作名は大域一意」という素朴な裁定は
    最初から使えません (D22)。
 
@@ -1971,7 +1971,7 @@ and resolve_perform eff li =
    内側の resume を外側の resume と取り違えます。
 
    静的検査が効いていると何が嬉しいのか。節を抜ける時点で継続の生死が
-   確定するので、cancel による自動巻き戻しが成立します (sample.kel:518-521)。
+   確定するので、cancel による自動巻き戻しが成立します (sample.kel:542-545)。
    継続がどこかのクロージャに生き残っている可能性があると、巻き戻しの
    タイミングが決められません。 *)
 
@@ -2031,7 +2031,7 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
    (`cancel(reason)` は将来拡張)。操作節は最低 1 つ必要です — 操作を 1 つも
    扱わない handle は、書き手が何かを間違えています。
 
-   **修飾できるのは操作節だけです** (sample.kel:493、D119)。`return` と `cancel` は
+   **修飾できるのは操作節だけです** (sample.kel:514-515、D119)。`return` と `cancel` は
    操作名ではなく handle の節の名前なので、修飾先を書いても対象エフェクトの決定には
    何も寄与しません (§11.23)。分類器は `List.rev comps` の先頭 — つまり
    修飾名の**末尾**の部分 — だけを見るので、かつては `case File.return(x)` を
@@ -2082,12 +2082,12 @@ and elab_handle env level eff clauses body =
 
    節が操作名で書かれている以上、このハンドラがどのエフェクトを消すのかを
    決めなければなりません。規則は 2 段です (D119)。仕様 §9 は非修飾の操作名の
-   解決規則を perform と handle で書き分けており(sample.kel:495-505)、この
+   解決規則を perform と handle で書き分けており(sample.kel:517-527)、この
    2 段はそのうち handle の側です。
 
    **操作節が 1 つでも修飾されていれば、その修飾先が対象**です。非修飾の節は
    そのエフェクトの操作として読みます。修飾先が 2 つ以上に割れていればエラー
-   です (sample.kel:504-505)。実装は下の `List.sort_uniq compare quals` の
+   です (sample.kel:526-527)。実装は下の `List.sort_uniq compare quals` の
    1 行で、要素が 1 つなら対象決定、2 つ以上ならエラー、空なら次の段へ
    進みます。材料は操作節の
    修飾だけです。修飾された `return` / `cancel` は §11.22 が先に落とすので、
@@ -2138,8 +2138,8 @@ and elab_handle env level eff clauses body =
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイム提供エフェクトはハンドルさせない(M20 / I4 / D63)。仕様
-     sample.kel:511 が Console / Async / Fs の 3 つを名指しで定めた(Async は
-     :699 にも「スケジューラは書かせない」。Console はかつて提案中で、
+     sample.kel:534 が Console / Async / Fs の 3 つを名指しで定めた(Async は
+     :724 にも「スケジューラは書かせない」。Console はかつて提案中で、
      2026-09-12 の改訂で明文化)。許すと出力が黙って消える恒等ハンドラが書け、
      File.write のつもりの case write(s) が Console を消す事故も起きる。
      判定はランタイム行に名前があり**かつ**プレリュード所有であること —
@@ -2436,7 +2436,7 @@ and make_rigids ?kinds level tparams =
 
    計画が想定していなかった裁定です (乖離 1)。`@ Print` と書いたら
    ラベル 1 つの**閉じた**行になる、というのが仕様の字義です。ところが
-   それでは sample.kel:522 が型付きません。
+   それでは sample.kel:546 が型付きません。
 
    ```
    println(msg) handle {
@@ -2449,7 +2449,7 @@ and make_rigids ?kinds level tparams =
    `{Print, Console}` である必要があります。閉じたままではハンドラを通せません。
 
    そこで、**最外の**ラベルの付いた閉じた行の注釈だけを開きます。
-   位置で決まる、というのが要点です(仕様 §9、sample.kel:450-482)。
+   位置で決まる、というのが要点です(仕様 §9、sample.kel:470-502)。
 
    | 位置と注釈 | 本体の検査で | 公開スキーマで |
    |---|---|---|
@@ -2466,7 +2466,7 @@ and make_rigids ?kinds level tparams =
    昇格し (D23-a / D44)、空の行にも同じ非対称 — 本体には剛く、公開には
    寛く — を適用しました。この読みの下では `pub let f(): Unit`(省略)と
    `pub let f(): Unit @ {}`(明示)が別の型になります。**2026-09-12 の改訂で
-   仕様がこの読みを採用しました**(sample.kel:789-793「推論に任せず、本体は
+   仕様がこの読みを採用しました**(sample.kel:815-821「推論に任せず、本体は
    純粋でなければならず、公開される型は行多相と読む」)。提案が通った形です。
    後ろの 2 行(入れ子)は M26 の追加で、§11.4 の表と同じ規則です。
 
@@ -2479,10 +2479,10 @@ and make_rigids ?kinds level tparams =
    `let kf(x: Int32): Int32 @ Print` は開いた `{Print extends R1}` を公開し、
    `let k: (Int32) => Int32 @ Print` は閉じた `{Print}` を公開して、
    `{Print, Log}` の文脈から呼べませんでした。仕様 §9 が
-   「公開される型では行変数で開かれる」と書いている(sample.kel:458)以上、
+   「公開される型では行変数で開かれる」と書いている(sample.kel:478)以上、
    引数リストの有無で割る根拠はありません。改訂後の §9 は「最外の矢印」の
-   指す先を値束縛について名指しし(sample.kel:465)、`pub let` の行に
-   「値束縛の頭の矢印も同じ」と書き足しました(:472)。そこで同じ開き方を
+   指す先を値束縛について名指しし(sample.kel:485)、`pub let` の行に
+   「値束縛の頭の矢印も同じ」と書き足しました(:492)。そこで同じ開き方を
    `elab_binding` と `elab_rec_bindings` の値束縛の枝、それにパス 1c の
    `signature_of_binding` (§11.37) に足しました。3 か所とも、注釈の頭が
    **矢印リテラル**かどうかを表層の構文 (`snd t`) で見てから開きます。
@@ -2528,13 +2528,13 @@ and make_rigids ?kinds level tparams =
    > 尾部を開くと通しやすくなる。剛くしておくと嘘をつけなくなる。両方要る。
 
    `@ {}` を閉じたままにしてあるので、「純粋を強制したい」という意図は
-   引き続き書けます (sample.kel:461「`@ {}` だけは両方向に効く」)。
+   引き続き書けます (sample.kel:481「`@ {}` だけは両方向に効く」)。
    `@ Print` の意味論も仕様が §9 で明文化しました — 最外なら「Print を含む
-   上限」(sample.kel:456-459)、入れ子なら「正確に Print だけ」
-   (sample.kel:476-478)です。
+   上限」(sample.kel:476-479)、入れ子なら「正確に Print だけ」
+   (sample.kel:496-498)です。
 
    空の行も開く、ただし書かれた `@ {}` は開かない — これが D76 で、2026-09-19 の
-   改訂で仕様がこの読みを採りました (sample.kel:470-471、D118)。
+   改訂で仕様がこの読みを採りました (sample.kel:490-491、D118)。
    `@` を省略した `let` の行は最初は行変数ですが、本体が `@ {}` の関数
    (入れ子の省略 `@` を含む)を呼ぶと単一化で空に固まります。D75 の下では
    これが普通に起き、`count_if` の類が「エフェクトのある文脈から呼べない
@@ -3031,7 +3031,7 @@ and elab_rec_bindings env level eff bs : env =
 
    - `Console` — 出力の最終目的地。ランタイムが実装を持ち、ユーザは
      ハンドルできません (§11.23)。
-   - `Async` — sample.kel:747 の `crunch` が `@ Async` を持ったまま
+   - `Async` — sample.kel:772 の `crunch` が `@ Async` を持ったまま
      トップレベルから呼ばれるからです。`yield_` は型検査を通り、実行時には
      何もしない — この約束をランタイム側の提供エフェクトとして表現しています。
    - `Fs` — ファイルプリミティブ 4 本が `@ Fs` を課す(M27 / D87)ので、
@@ -3041,7 +3041,7 @@ and elab_rec_bindings env level eff bs : env =
      ハンドル禁止の名簿 (`runtime_effects`) には入りません — 操作が無いので
      禁じる場面が無く、入れると診断が変わります (第7章 §7.3)。
 
-   `Heap` がこの名簿に無いのは、引数を取るラベルだからです (sample.kel:631-632、
+   `Heap` がこの名簿に無いのは、引数を取るラベルだからです (sample.kel:656-657、
    D135)。下の `toplevel_eff` がラベルの引数に `t_unit` を置いているのがその
    裏返しで、`Heap` を足しても行に載るのは `Heap[Unit]` であり、`run h` が導入する
    剛定数 `h` の `Heap[h]` とは単一化しません。
@@ -3096,7 +3096,7 @@ let initial_env () =
    使う側のコードが 1 本で済みます。
 
    パラメータのカインドは本体での使われ方から推論します(仕様 §6、
-   sample.kel:235。M23 / D80)。
+   sample.kel:246-247。M23 / D80)。
    `newtype Callback[E] = Callback(() => Unit @ E)` の `E` は矢印の `@` に
    現れるので行カインドに決まり、使われ方が無ければ `Type` に既定化されます。
    かつてはここを `KStar` 決め打ちにしていて、その理由を「後から推論で決まると
@@ -3110,7 +3110,7 @@ let initial_env () =
    `KVar` と `KStar` が食い違う)。
 
    ここで言う「使われ方」は自分の宣言の本体に限らず、**宣言群の中の型の本体
-   すべて**が材料です(sample.kel:235-236。M29 / D129。値の本体 — `let` の
+   すべて**が材料です(sample.kel:246-249。M29 / D129。値の本体 — `let` の
    右辺 — は数えません)。頭と本体がいま見たとおり 1 つのセルを
    共有し、既定化が 1b の後始末まで遅れる(次の段)ことの帰結で、自分の本体では
    `Int32` しか使っていないパラメータでも、同じ宣言群の別の宣言がそれを行として
@@ -3310,8 +3310,8 @@ let register_newtype env (n : T.newtype') =
                     (* pub の完全注釈検査(D44 / 仕様 §13)はフィールドの矢印にも及ぶ。
                        省略の意味は @ {} に決まっているが、公開 API では
                        「純粋を意図したのか書き忘れたのか」を読み手が
-                       区別できなければならない(sample.kel:789-793。フィールドへの
-                       適用は改訂後の :791 が明文。D78 / D117) *)
+                       区別できなければならない(sample.kel:815-821。フィールドへの
+                       適用は改訂後の :818-819 が明文。D78 / D117) *)
                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
                        type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
                     let ty = elab_type env' 1 f.T.fd_ty in
@@ -3389,7 +3389,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 (* ## 11.33 type class の登録 — と、パラメータは頭に現れよという条件
 
    クラスのパラメータは 1 つだけです (D11)。多引数クラスは仕様が明示的に
-   排除しており (sample.kel:342)、それを受けて型スキーマ用のデータ型も
+   排除しており (sample.kel:356)、それを受けて型スキーマ用のデータ型も
    制約ストアも持たずに済んでいます。Generic マークだけで多相が表せるのは
    この裁定のおかげです。
 
@@ -3399,11 +3399,11 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    `KVar` を経由しません (§1.12)。EffectRow のパラメータが取れないのはこの
    固定の帰結で、理由は §11.34 のキーにあります — インスタンスの選択は
    型構成子のタグ 1 つで決まるので、ラベルの集合でしかない行は選択の鍵に
-   なりません。仕様 §8 がこれを定めています (sample.kel:344-345、M29 / D125)。
+   なりません。仕様 §8 がこれを定めています (sample.kel:358-360、M29 / D125)。
    逃げ道は用意してあります。**メソッドの型パラメータ**のほうは `KVar` を
    作るので行カインドになれ、`val run_[E]: (A, () => Unit @ E) => Unit @ E` は
    通ります。エフェクトで量化したいクラスは、クラスのパラメータではなく
-   こちらに行変数を取ります(sample.kel:346。仕様 §8 の `Functor` の `map` が
+   こちらに行変数を取ります(sample.kel:361-362。仕様 §8 の `Functor` の `map` が
    見本。`test/kinds.t` の classrow / classrow2 / classrowok)。これを書かずに
    「クラスのパラメータは `KStar` 固定」とだけ言うと、エフェクト多相な
    クラスが一切書けないという誤読になります。
@@ -3421,8 +3421,8 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
    メソッドの注釈の最外にラベル付きの行を書いたときは、その行を開きます
    (D44 と同じ Rigid → Generic)。仕様 §9 が束縛の最外に型クラスのメソッドを
-   数え(sample.kel:456)、そこに書いた行は本体への上限として働き公開される型
-   では行変数で開かれる、と定めている(sample.kel:457-458)からです。開かないと
+   数え(sample.kel:476)、そこに書いた行は本体への上限として働き公開される型
+   では行変数で開かれる、と定めている(sample.kel:477-478)からです。開かないと
    `val f: (T) => Int32 @ Console` のメソッドがどの文脈からも呼べなくなります。
 
    開くのは、注釈の**頭が矢印リテラル**のときに限ります (D121 / P27)。
@@ -3487,7 +3487,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
    代償として `pure : (A) => F[A]` の類は宣言できません。返り値の位置に
    しかパラメータが現れないからです。仕様が Monad / Applicative を
-   プレリュードに置かないと明言しているので (sample.kel:431-435)、
+   プレリュードに置かないと明言しているので (sample.kel:451-455)、
    v0 ではこの制約と衝突しません。
 
    組み込みと同名のクラスをユーザが宣言したときは、**組み込みに無いメソッドを
@@ -3534,7 +3534,7 @@ let register_class env (c : T.class_decl') =
   let param =
     match c.T.cls_params with
     | [ p ] -> p
-    | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:342)"
+    | _ -> type_error "type class のパラメータは1個です(多パラメータ型クラスは意図的に排除、sample.kel:356)"
   in
   let param_kind = if param.tp_arity > 0 then k_arrow param.tp_arity else KStar in
   (if param.tp_classes <> [] then
@@ -3545,7 +3545,7 @@ let register_class env (c : T.class_decl') =
   List.iter
     (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
     c.T.cls_derives;
-  (* derive structural はユーザの新クラスには書けない(sample.kel:367
+  (* derive structural はユーザの新クラスには書けない(sample.kel:383
      「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
      自動導出のみが与える」)。受理すると elab は任意のクラスで閉じた行に
      構造的導出を認めるのに、実行時の構造的フォールバック(§14.7)は
@@ -3558,7 +3558,7 @@ let register_class env (c : T.class_decl') =
      type_error "derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)");
   (* derive structural のカインド検査(M17 / D9)。かつて仕様は TODO
      「Functor のように導出が不可能なクラスをカインドで弾けるか要確認」を
-     置いていて、この検査がその回答だった。改訂後の仕様 sample.kel:381-383 は
+     置いていて、この検査がその回答だった。改訂後の仕様 sample.kel:397-399 は
      TODO を本文に昇格させ「カインドで弾けるので宣言の時点でエラーにする」と
      定めた。構造的導出はレコード・ヴァリアントに配る規則なので
      Type のクラスにしか意味が無い。上の全面拒否があるので、ここが単独で
@@ -3582,7 +3582,7 @@ let register_class env (c : T.class_decl') =
         let types = List.fold_left (fun m (n, t) -> SMap.add n t m) (SMap.add param.tp_name pvar env.types) mt_params in
         let ty = elab_type_outer { env with types } 1 v.T.cv_ty in
         (* 最外のラベル付き行は開く(D44 と同じ Rigid → Generic。仕様 §9 の表は
-           型クラスのメソッドも最外に含める — sample.kel:452-458)。M26 の検証
+           型クラスのメソッドも最外に含める — sample.kel:472-478)。M26 の検証
            まで let / extern にしか掛かっておらず、val f: (T) => Int32 @ Console
            のメソッドがどの文脈からも呼べなかった(計画 B0 の表の見落とし)。
            開くのは注釈の頭が**矢印リテラル**のときだけ(D121 / P27)。頭が
@@ -3664,9 +3664,9 @@ let register_class env (c : T.class_decl') =
    インスタンスの頭は `Int32` か `List[_]` の形しか受けません。`List[Int32]` の
    ような具体的な頭は書けません。`_` は**位置**です。前提つきインスタンス
    (仕様 §8、M22 / D93) の束縛子は、この位置へ左から順に対応します
-   (sample.kel:396)。型パラメータリストを `instance` の直後に書くこと、
+   (sample.kel:412-413)。型パラメータリストを `instance` の直後に書くこと、
    `instance` と `[` の間の空白と改行の置き方が自由であることも、同じ段の
-   1 行目にあります(sample.kel:394、D142)。
+   1 行目にあります(sample.kel:410、D142)。
 
    > 穴は位置であり、束縛子が左から順にそれを埋める。埋まらなかった穴は
    > カインドの矢印として残る。
@@ -3678,25 +3678,25 @@ let register_class env (c : T.class_decl') =
    束縛子の個数は `_` の個数を超えられません。対応しなかった右側の `_` は
    未適用のまま残る、というところまで仕様が規則として書いており、
    `Eq[List[_]]` と `Functor[List[_]]` の両端も条文の側にあります
-   (sample.kel:397-398、D142)。
+   (sample.kel:414-416、D142)。
 
    `_` の個数そのものは、型構成子のアリティと一致していなければなりません
-   (sample.kel:395、D96)。かつてここを見ておらず、`Functor[List[_, _, _]]` も
+   (sample.kel:411、D96)。かつてここを見ておらず、`Functor[List[_, _, _]]` も
    穴なしの `Functor[List]` も受理していました (`holes` は `con_kind` の
    フォールバック引数にしか使われず、表に載っていれば捨てられていた)。
 
    キーは従来どおり (クラス, 型構成子の頭) の 2 つ組で、**前提はキーに
    入りません**。探索は表引き 1 回のままです。重なり合うインスタンスは
    存在しないので、コヒーレンスは「同じキーを 2 度登録したらエラー」の
-   1 行で保証できます (sample.kel:343)。組み込みキーだけは
+   1 行で保証できます (sample.kel:357)。組み込みキーだけは
    1 度目のユーザ宣言が「受理するが採用しない」(乖離 4、§6.9)なので、
    エラーになるのは 2 度目からです — この数え方が第6章の
    `builtin_redecls` 表にあります。
 
    頭のカインドはクラスパラメータのカインドと一致していなければなりません
-   (sample.kel:384)。`Functor` は `[_] Type` のクラスなので、`Functor[Int32]` は
+   (sample.kel:400)。`Functor` は `[_] Type` のクラスなので、`Functor[Int32]` は
    ここで落ちます。束縛子つきなら、束縛子のカインドも頭の構成子がその位置に
-   要求するものと一致していなければなりません (sample.kel:399。D97。
+   要求するものと一致していなければなりません (sample.kel:417。D97。
    `[F[_]: C]` を `List[_]` の穴には置けない)。
 
    行カインドのパラメータを持つ型も、この照合でここに掛かります。M23 (D80) から
@@ -3704,8 +3704,8 @@ let register_class env (c : T.class_decl') =
    `Functor[F[_]]` が要求する `Type -> Type` と合わず、
    `type instance Functor[Callback[_]]` は宣言の時点で落ちます
    (`test/kinds.t` の nofunctor)。仕様 §8 はこれを、`derive structural` を
-   Type のクラスに限る規則 (sample.kel:381-383) と並べて、同じカインドの規律から
-   出る帰結として書いています (sample.kel:384-386。M29 / D126。条文の主語は
+   Type のクラスに限る規則 (sample.kel:397-399) と並べて、同じカインドの規律から
+   出る帰結として書いています (sample.kel:400-402。M29 / D126。条文の主語は
    「インスタンスの頭のカインド」で、上の段の照合そのものです)。
    利用者から見えるのは「`Callback` を `Functor` に
    できない」という制限だけなので、それが言語の規則なのか実装の都合なのかは
@@ -3765,7 +3765,7 @@ let instance_head (i : T.instance_decl') =
 
    インスタンス本体に書けるのは let と let rec だけです。`Functor[List[_]]` の
    `map` は自分自身を再帰呼び出しするので、let rec が要ります
-   (sample.kel:421-424)。 *)
+   (sample.kel:441-444)。 *)
 
 let register_instance (i : T.instance_decl') =
   let cls, con, holes = instance_head i in
@@ -3830,8 +3830,8 @@ let register_instance (i : T.instance_decl') =
 (* ## 11.36 前方参照は、頭の矢印に注釈があるときだけ
 
    パス 1c で登録する「注釈が完全な let の署名」は、前方参照を通すための
-   仕掛けです。sample.kel:436 の `user_names` が、後ろで定義される
-   `println`(:487) を呼べるのはこれのおかげです。
+   仕掛けです。sample.kel:456 の `user_names` が、後ろで定義される
+   `println`(:508) を呼べるのはこれのおかげです。
 
    問題は「完全」の定義でした。計画は「引数と返り値に型注釈があること」と
    書いていました。それでは穴が空きました — M26 より前の話です。
@@ -4056,13 +4056,13 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    の行を足すなら「`Rigid` のまま。前提は宣言の側の要求」です。`expected_of`
    と `subsume` は 1 文字も変えていません。`tapp` の正規化が `F[A]` を
    `List[A]` に畳んでくれるからです。束縛子の名前は本体の型スコープにも
-   入るので、メソッドに `xs: List[A]` と注釈を書けます (sample.kel:400、D94。
+   入るので、メソッドに `xs: List[A]` と注釈を書けます (sample.kel:418-419、D94。
    メソッド自身の型パラメータが同名なら内側が勝ちます — 遮蔽の向きも
    同じ行が書いています)。
 
    本体は普通の `elab_binding` / `elab_rec_bindings` で推論します。だから
    注釈付きのメソッドも let rec のメソッドも同じ経路で通ります
-   (sample.kel:421-424)。 *)
+   (sample.kel:441-444)。 *)
 
 let check_instance_bodies env (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
@@ -4218,7 +4218,7 @@ let check_instance_bodies env (i : T.instance_decl') =
    プレリュードも同じ `process_decls` を通します。違いは `emit` を
    捨てることだけです。 *)
 
-(* コンパニオン型の大域同義語の登録(D43 / sample.kel:810)。平坦化では
+(* コンパニオン型の大域同義語の登録(D43 / sample.kel:838)。平坦化では
    なくパス 1a で行う — プレリュードの宣言表はユーザ平坦化の時点では
    まだ空なので、既存名との照合がここでないと効かない(M16 検証:
    module List { pub newtype List } がプレリュード自身の型検査を壊した) *)
@@ -4540,7 +4540,7 @@ let process_decls env ~emit decls =
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
           (* C 既知名は型契約を照合する(第6章 §6.2b)。行は照合しない —
-             @ Blocking を付けるかはバインディング作者の判断(sample.kel:769) *)
+             @ Blocking を付けるかはバインディング作者の判断(sample.kel:794) *)
           (if ex.T.ex_abi = "C" then
              match Decls.c_known_signature ex.T.ex_prim with
              | None -> ()
@@ -4642,7 +4642,7 @@ let type_check_decls ?(prelude = []) decls =
 
    - `newtype` / `type` は `M.名前` に改名して登録し、module スコープの
      同義語 `(M, 非修飾名) → M.名前` を張ります (D43)。大域に張るのは
-     **コンパニオン**(module 名と同名の型。sample.kel:810)だけです。
+     **コンパニオン**(module 名と同名の型。sample.kel:838)だけです。
      かつて同義語は大域 1 枚で、`module M { newtype List[A] = … }` と
      書くだけでプレリュード自身の型検査が壊れました(M15 検証)。
    - `let` も `M.名前` に改名し、module スコープの値同義語を張ります
@@ -4656,7 +4656,7 @@ let type_check_decls ?(prelude = []) decls =
      写します。検査は使用点(§11.3 / §11.11 / §11.8)で、境界は module
      だけです (D41)。コンストラクタは所属 newtype の pub に従います (D42)。
    - `instance` はそのまま大域に出します。インスタンスは常に大域可視で、
-     import で見え方が変わるものではありません (sample.kel:805)。
+     import で見え方が変わるものではありません (sample.kel:833)。
    - `extern` は `ex_name` を `M.f` に修飾しますが、**実装名 `ex_prim` は
      元のまま**です (第1章)。実装は処理系側の表にあり、module はその表を
      切り分けません。第6章の登録簿は、プレリュード保護を `ex_prim` で、

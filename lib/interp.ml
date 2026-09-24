@@ -46,7 +46,7 @@
       > 評価器の再帰を 1 枚の try で包むと、その言語からループが消える。
 
    2. **評価順序は let で固定する**。OCaml の関数適用の引数評価順は未規定で、
-      現行のコンパイラは右から左です。Keleut の仕様は左から右(sample.kel:264)
+      現行のコンパイラは右から左です。Keleut の仕様は左から右(sample.kel:278)
       なので、`apply (eval env f) (eval env arg)` と書くと順序が逆になります。
       1 つずつ `let` で束縛して順序を言語仕様から切り離します。
 
@@ -105,11 +105,11 @@ let tycon_of_value = function
   | VMutArray _ -> Some (Type.intern "MutableArray")
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
-(* cancel 節で握り潰した例外の行き先です(sample.kel:557 の「cancel 節は自身の行から
+(* cancel 節で握り潰した例外の行き先です(sample.kel:581 の「cancel 節は自身の行から
    抜け出せない。例外相当を投げても抑制されてログに回る」)。ライブラリが直接
    stderr を触らないよう 1 段はさみ、driver (第16章) が差し替えます。 *)
 
-(* cancel 節内の例外の抑制ログ(sample.kel:557)。driver が差し替える *)
+(* cancel 節内の例外の抑制ログ(sample.kel:581)。driver が差し替える *)
 let cancel_log : (string -> unit) ref = ref (fun _ -> ())
 
 (* ## 14.2 パターン照合 — 失敗は例外ではない
@@ -233,7 +233,7 @@ let number_value node (n : number) =
    出力順が仕様と食い違います。書き味の問題ではなく、**観測できる意味論**です。
 
    `RecordExtend (rest, l, v)` だけは **value が先、rest が後**です。AST の
-   フィールド順と逆なので目で追うと間違えます。仕様(sample.kel:264)が
+   フィールド順と逆なので目で追うと間違えます。仕様(sample.kel:278)が
    `{l = e extends r}` を「e を先、r を最後」と定めているためで、タプルの脱糖が
    この規則に乗ることで `(a, b, c)` が a → b → c の順に評価されます。
 
@@ -322,7 +322,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.BinOp (l, op, r) -> (
       match Prims.bin_op_sem op with
       | Prims.OpBool -> (
-          (* 短絡(sample.kel:352) *)
+          (* 短絡(sample.kel:368) *)
           match op with
           | And -> if Builtin.as_bool (eval env l) then eval env r else VBool false
           | Or -> if Builtin.as_bool (eval env l) then VBool true else eval env r
@@ -368,7 +368,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       try_clauses clauses
   | T.RecordEmpty -> unit
   | T.RecordExtend (rest, l, v) ->
-      (* value が先、rest が後(sample.kel:264。AST のフィールド順と逆。計画 §8.3) *)
+      (* value が先、rest が後(sample.kel:278。AST のフィールド順と逆。計画 §8.3) *)
       let vv = eval env v in
       let vrest = eval env rest in
       record_extend vrest (Type.intern l) vv
@@ -406,7 +406,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
    よって適用は「引数レコードのフィールドを仮引数パターンに順に束縛する」だけです。
 
    個数の不一致はここでは本来起きません。arity は矢印型の一部で、閉じた `_item`
-   行の単一化として型検査が弾いているからです(sample.kel:179-180)。残してある
+   行の単一化として型検査が弾いているからです(sample.kel:190-191)。残してある
    のは、プリミティブ経由や内部バグで壊れた引数が来たときに `Array.for_all2` の
    `Invalid_argument` のような無関係な例外に化けさせないための保険です。
 
@@ -498,8 +498,8 @@ and dispatch_positions ci meth =
    です(ユーザ宣言が組み込みキーを奪えないことは §14.13 で別に保証します)。
 
    どこにも無ければ**構造的導出**へ落ちます。v0 が構造的に導出するのは `Eq` だけで
-   (sample.kel:367 の「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
-   自動導出のみが与える」。導出が閉じた行にしか効かないことは sample.kel:375-379)、
+   (sample.kel:383 の「ユーザには書かせない。コヒーレンスを堅持するため、組み込みの
+   自動導出のみが与える」。導出が閉じた行にしか効かないことは sample.kel:391-395)、
    クラス宣言に付いた `derive structural` が実体です。
 
    ここで効いている不変条件があります。elab 側(第8章 (unify.ml))は構造的導出を
@@ -712,7 +712,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからです。
    評価器に順序を管理するコードはありません(spike TEST 3 で `with_file` 2 枚重ねの
-   close 順を確認済み)。仕様(sample.kel:544-557)が defer 構文を持たず「後始末は
+   close 順を確認済み)。仕様(sample.kel:568-581)が defer 構文を持たず「後始末は
    ハンドラの cancel 節」と決めたことが、実装ではこの 4 行に落ちます。
 
    ### 3 つの径路 — resume されない経路と例外経路
@@ -804,7 +804,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    §9 にまで写り、2026-09-12 に仕様側を訂正しました。**仕様へ出す文面は
    実装の本文からではなく実測から起こす**、という教訓がここにあります。
 
-   cancel 節の例外をすべて握り潰してログに回すのは仕様(sample.kel:557)です。
+   cancel 節の例外をすべて握り潰してログに回すのは仕様(sample.kel:581)です。
    OCaml の生の例外表現がそのままログに出ないよう、`Printexc.to_string` を通します。
 
    `retc` と `run_cancel` が `cl_guard` を読まないのは、elab が return 節と
@@ -845,7 +845,7 @@ and eval_handle env body clauses =
     match cancel_clause with
     | None -> ()
     | Some (_, c) -> (
-        (* cancel 節内の例外は抑制してログ(sample.kel:557) *)
+        (* cancel 節内の例外は抑制してログ(sample.kel:581) *)
         try ignore (eval { env with resume = None } c.T.cl_body)
         with
         | Runtime_error msg -> !cancel_log msg

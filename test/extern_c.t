@@ -18,7 +18,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   3.0
 
 行は照合しない(@ Blocking を付けるかはバインディング作者の判断、
-sample.kel:769):
+sample.kel:794):
 
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
@@ -35,7 +35,7 @@ sample.kel:769):
   実行時エラー: 未実装のプリミティブ: nosuch
   [3]
 
-仕様の形(sample.kel:767 相当)が通り続けること:
+仕様の形(sample.kel:792 相当)が通り続けること:
 
   $ printf 'newtype Stmt = ???\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
   $ diktor --type-check cblk2.kel

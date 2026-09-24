@@ -158,7 +158,7 @@ let mk (sp, ep) x = (Data.allocate { Location.start = sp; Location.finish = ep }
    剥がす側の機構は第8章 (unify.ml) の `rewrite_row` にあります。
 
    `t.0` と書くと構文エラーになります。`_0` は LOWER_IDENTIFIER なので選択規則に
-   そのまま乗りますが、`0` は NUMBER なので乗らないからです。sample.kel:165 の意図どおりで、
+   そのまま乗りますが、`0` は NUMBER なので乗らないからです。sample.kel:175 の意図どおりで、
    これは実装の都合ではなく仕様です。`is_index_label` が見ているのは
    「先頭が `_` で、残りが 10 進の桁だけ」という綴りの形だけです。 *)
 let is_upper s = s <> "" && s.[0] >= 'A' && s.[0] <= 'Z'
@@ -324,8 +324,8 @@ let rec block_of_items sloc items =
    - `pat` が `_` なら **0引数**の継続 `fn() => 残り`
    - それ以外なら **1引数**の継続 `fn(pat) => 残り`
 
-   `with _ = with_file(src)` (sample.kel:592, :594) が要求する `body: () => A` と、
-   `with x = Parser.bind(...)` (:607) が要求する `(A) => ...` の両方を、同じ糖衣で
+   `with _ = with_file(src)` (sample.kel:617, :619) が要求する `body: () => A` と、
+   `with x = Parser.bind(...)` (:632) が要求する `(A) => ...` の両方を、同じ糖衣で
    満たすための分岐です。`_` を「値を捨てる1引数」にしてしまうと前者が型付きません。
 
    右辺が呼び出しでなければエラーにします。行を差し込む先が無いからで、これは
@@ -644,8 +644,8 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    なので、その後にカンマは書けません(`{x, ...r,}` と `{x: T extends R,}`
    は構文エラー — 検証で確定した境界)。実装は `X | X COMMA | X COMMA list`
    の3択で、`(a)` と `(a,)` を意味アクションで区別でき、conflict も
-   出ません。sample.kel:565 の effect 本体や
-   :730-733 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
+   出ません。sample.kel:590 の effect 本体や
+   :755-758 のパラメータリストに実例があります。同じ手口が `pp_items` の真偽値にも
    出てきます (§3.22)。かつて `ty_args` / `typaram_list` / `lowline_list` の 3 本だけ
    2択のままで末尾カンマが構文エラーでした — 計画 §6.1 の「全リスト」の字義に
    M18 で届いた形です。区切りが `|` の `ctors` と `+` の `cls_list` はカンマ区切り
@@ -663,9 +663,9 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    行変数なのか型なのかは使われ方で決まる — ので、第1章のカインド変数に委ねます。
    `ty_ident` が大文字も小文字も受けるのは、リージョン変数 `h` が小文字で書かれるからです。
    仕様 §0 は識別子の大小の規則から型パラメータを外し、文法は大小を問わないと
-   書いています(sample.kel:48-49。慣習として型は大文字、リージョン変数は小文字で、
+   書いています(sample.kel:50-51。慣習として型は大文字、リージョン変数は小文字で、
    §10 の署名一覧がその見本)。例外はもう 1 つあって、`run` が導入するリージョン
-   変数だけは文法上も小文字始まりの識別子に限ります(sample.kel:50、D110)。
+   変数だけは文法上も小文字始まりの識別子に限ります(sample.kel:52、D110)。
    だから `expr` の `run` は `ty_ident` ではなく `lower_id` を取ります
    — `run H` も `run _` も構文エラーです(`test/nonfeatures.t` の case8 / case9)。
 
@@ -753,10 +753,10 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
    比較は**非結合**です。`a < b < c` は文法の段階で落ちます。
 
    単項マイナスは `HYPHEN NUMBER` の形でだけ受け、その場で負リテラルに畳みます。
-   AST に単項マイナス演算子は存在しません (計画 §5.5、sample.kel:90。第2章 (lexer.ml) の
+   AST に単項マイナス演算子は存在しません (計画 §5.5、sample.kel:94。第2章 (lexer.ml) の
    §2.1 が同じ裁定を字句側から書いています)。符号を字句側で扱うと
    `1-2` が「1 と -2 の並置」に化けるので、その分担を第2章から引き取っています。
-   二項の `-` (sample.kel:321 の `is_even(0 - n)` がその用例) と併存して
+   二項の `-` (sample.kel:335 の `is_even(0 - n)` がその用例) と併存して
    conflict しないことは実測済みです。 *)
 
 exp:
@@ -1034,10 +1034,10 @@ pp_items:
    からです。そこで `brace_ty` 1本に統合し、要素は `l: T` (レコード型のフィールド) か
    `Name[args]` (エフェクトラベル、または splice される行エイリアス) の2択とし、
    **どちらの意味なのかは第11章が要素の形から判定します**。おかげで `@ {}`、
-   `@ {Print extends E}`、`{ReqId, Logger, Tracer}` (sample.kel:623)、`effect` 宣言の本体が、
+   `@ {Print extends E}`、`{ReqId, Logger, Tracer}` (sample.kel:648)、`effect` 宣言の本体が、
    全部同じ規則に乗ります。仕様 §0 は、`@` の直後・EffectRow のエイリアスの
    右辺・effect 宣言の本体の 3 文脈は `{` の読み分けの表でどれに分類されても
-   エフェクト行(または宣言本体)と読む、と書いています(sample.kel:26-27)。
+   エフェクト行(または宣言本体)と読む、と書いています(sample.kel:26-28)。
    実装は先読みを止めず、どの分類で来ても同じ木に落とします(第2章 §2.9)。
    改訂前の条文は「先読みせずエフェクト行と読む」で、この段はそれと実装の
    食い違いを断り書きにしていました。2026-09-19 の改訂(D114)で、3 種を同じ木に

@@ -1,5 +1,5 @@
-ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:511 が
-Console / Async / Fs の 3 つを名指しで定めた(Async は :699 にも明文。Console は
+ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:534 が
+Console / Async / Fs の 3 つを名指しで定めた(Async は :724 にも明文。Console は
 かつて提案中だった — 2026-09-12 の改訂で明文化)。かつては出力を黙って消す
 恒等ハンドラが書けた。
 
@@ -70,7 +70,7 @@ Console はハンドル候補からも外れるので、File のつもりの cas
   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
   [1]
 
-perform は禁止しない(sample.kel:633 がトップレベルの perform write を
+perform は禁止しない(sample.kel:658 がトップレベルの perform write を
 書いており、プレリュードの echo / echoln も同じ):
 
   $ printf 'perform write("direct\\n")\n' > pw.kel

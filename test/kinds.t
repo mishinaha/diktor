@@ -3,9 +3,9 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
 変更時は dune promote で更新し、必ず目視レビューすること。
 
 仕様 §6「型パラメータのカインドは宣言群の中の型の本体での使われ方から推論し、
-使われ方が無ければ Type」(sample.kel:235)「型引数の位置は、そのパラメータの
-カインドで読み方が変わる」(sample.kel:238)と、§9 の
-`newtype Callback[E] = Callback(() => Unit @ E)`(sample.kel:486)。
+使われ方が無ければ Type」(sample.kel:246-247)「型引数の位置は、そのパラメータの
+カインドで読み方が変わる」(sample.kel:252)と、§9 の
+`newtype Callback[E] = Callback(() => Unit @ E)`(sample.kel:507)。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -369,8 +369,8 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
 
 行カインドのパラメータを持つ型は Functor のインスタンスにできない(D126)。
 頭のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と
-合わないためで、仕様 §8 が derive structural の制限(sample.kel:381-383)と
-並べて帰結として書いている(sample.kel:384-386):
+合わないためで、仕様 §8 が derive structural の制限(sample.kel:397-399)と
+並べて帰結として書いている(sample.kel:400-402):
 
   $ cat > nofunctor.kel <<'EOF'
   > type Unit = {}
@@ -387,7 +387,7 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   [1]
 
 型クラスのパラメータに EffectRow のカインドは取れない(D125。仕様 §8、
-sample.kel:344-345。カインドは束縛子の形で宣言時に決まり、[A] なら Type、
+sample.kel:358-360。カインドは束縛子の形で宣言時に決まり、[A] なら Type、
 [F[_]] なら Type を取って Type を返す形になる — 穴は F[_, _] と複数でもよい)。
 行として使うと、メソッドの署名に直接書いても、行カインドのパラメータを
 持つ newtype に渡しても、宣言の時点で落ちる:
@@ -413,7 +413,7 @@ sample.kel:344-345。カインドは束縛子の形で宣言時に決まり、[A
   [1]
 
 メソッドの型パラメータのほうは行カインドになれる。エフェクトで量化したいときは、
-クラスのパラメータではなくこちらに行変数を取る(sample.kel:346。仕様 §8 の
+クラスのパラメータではなくこちらに行変数を取る(sample.kel:361-362。仕様 §8 の
 Functor の map が見本):
 
   $ cat > classrowok.kel <<'EOF'
@@ -445,7 +445,7 @@ newtype を透過に包むエイリアスに、行変数でも具体的な行で
   g : (Callback[{Print}]) => Int32
 
 型引数の位置は、宣言されたパラメータのカインドで読み方が変わる(D82。仕様 §6、
-sample.kel:238-241)。Row のパラメータの位置ではエフェクト行として読むので、{} は
+sample.kel:252-255)。Row のパラメータの位置ではエフェクト行として読むので、{} は
 空行に、裸の Print は {Print} の略記になる。Type のパラメータの位置では型として
 読む:
 
@@ -781,7 +781,7 @@ annotkind2 と同じ文言で落ちる(D131):
   [1]
 
 エフェクト位置(@ の右と EffectRow エイリアスの本体)に書けるのは、カインドが
-Row の型だけ(D127。台帳 V19。仕様 §9「@ の右はエフェクト行」— sample.kel:447)。
+Row の型だけ(D127。台帳 V19。仕様 §9「@ の右はエフェクト行」— sample.kel:467)。
 かつては elab_eff の最後の枝が elab_type に落ちるだけで、Type カインドの適用型が
 行の尾部に入った — 型検査は通り、その関数は誰からも呼べなくなっていた:
 
@@ -862,7 +862,7 @@ ty を取る)。この経路ができたぶん、EBraceRow の枝の「extends �
   [1]
 
 run が導入するリージョン変数 h のカインドは Type(D130。仕様 §10、
-sample.kel:641)。行の位置(@ h)には書けない:
+sample.kel:666)。行の位置(@ h)には書けない:
 
   $ cat > regionkind.kel <<'EOF'
   > let f(): Int32 = run h {

@@ -1,7 +1,7 @@
 敵対的検証(260829-2b)で見つけた欠陥の回帰テスト。
 これらが再発すると健全性・頑健性が壊れる。詳細は doc/log/260829-2-impl.md。
 
-行変数 [R] が行位置で使える(sample.kel:190-192 / :198-204):
+行変数 [R] が行位置で使える(sample.kel:201-203 / :209-215):
 
   $ cat > rowvar.kel <<'EOF'
   > let fst2[A, R](t: {_item: A extends R}): A = t._item

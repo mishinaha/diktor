@@ -38,7 +38,7 @@
 
 MutableArray.length も Heap[h] を要求する(長さは変わらないが、可変配列に
 触れること自体が行に載る — 仕様 §10 の署名一覧と、その理由を書いた
-sample.kel:667 のとおり):
+sample.kel:692 のとおり):
 
   $ cat > mlen.kel <<'KEL'
   > let demo(): Int32 = run h {
@@ -129,7 +129,7 @@ freeze の観測可能な契約: freeze 後に元の可変配列へ書いても�
   100
 
 この契約は 1 段だけ成り立つ。要素そのものが可変配列なら、取り出した配列の
-要素は元と同じものを指す(仕様 §10、sample.kel:665。D137)。freeze の後に
+要素は元と同じものを指す(仕様 §10、sample.kel:690。D137)。freeze の後に
 inner へ書いた 99 が、frozen 越しに読める:
 
   $ cat > nested.kel <<'KEL'
@@ -146,7 +146,7 @@ inner へ書いた 99 が、frozen 越しに読める:
   99
 
 値は共有されるが、型の側は破れない。要素が可変配列だと、その h が結果の型に
-残るので脱出検査が run の外への持ち出しを拒む(sample.kel:666。D137)。要素が
+残るので脱出検査が run の外への持ち出しを拒む(sample.kel:691。D137)。要素が
 可変配列でなければ同じ形が通る:
 
   $ printf 'let leak(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, MutableArray.new(1, 0))) }\n' > nested2.kel
@@ -158,8 +158,8 @@ inner へ書いた 99 が、frozen 越しに読める:
   flat : () => Array[Int32]
 
 MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧が断る「ここだけの
-表記」(sample.kel:650)はパラメータの並びの話であって、型式を禁じてはいない
-(sample.kel:668。D137)。印字は型パラメータを付け直すので、h は A として出る:
+表記」(sample.kel:675)はパラメータの並びの話であって、型式を禁じてはいない
+(sample.kel:693。D137)。印字は型パラメータを付け直すので、h は A として出る:
 
   $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
   $ diktor --type-check maannot.kel
