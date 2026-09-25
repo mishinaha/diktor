@@ -127,7 +127,8 @@ let parse_number text =
   | Some i ->
       let body = String.sub text 0 i in
       let raw = String.sub text i (len - i) in
-      (* 解釈できない幅は -1 に落とし、第11章の未実装エラーへ回す。字句は Plus digit
+      (* 解釈できない幅は -1 に落とし、第11章の number_ty へ回す。number_ty は、本体が小数で
+         接尾辞が整数なら型エラーにし、そうでなければ未実装エラーにする。字句は Plus digit
          なので負の幅はソースに書けず、-1 はどの実装の幅とも衝突しない番兵になる *)
       let width = match int_of_string_opt (String.sub text (i + 1) (len - i - 1)) with Some w -> w | None -> -1 in
       let suffix = match text.[i] with 'i' -> NsInt width | 'u' -> NsUInt width | _ -> NsFloat width in
@@ -546,8 +547,10 @@ module Make (Data : Syntax.Data) = struct
 
    - `pending`：生トークンの先読みキュー。先頭が次に消費者へ渡すトークンである
    - `regions`：ASI の region スタック。底は常に `RTop` である
-   - `prev`：直前に消費者へ渡した有意トークン。`NL` の判定に使う
-   - `last_sp` / `last_ep`：直前に渡したトークンの位置。構文エラーの報告に使う
+   - `prev`：直前に消費者へ渡したトークン(区切りに昇格した `NL` を含む)。`NL` の判定に使う
+   - `last_sp` / `last_ep`：直前に渡したトークンの開始位置と終了位置。
+     第16章(driver.ml)が `last_sp` を構文エラーの報告に使う。
+     `last_ep` はどこからも読まれていない
 
    `peek t i` は、キューが足りなければ生トークンを継ぎ足して i 番目を返す。
    `peek_sig t k` は、`NL` を飛ばして k 個目の有意トークンを覗く。
@@ -582,7 +585,7 @@ module Make (Data : Syntax.Data) = struct
     lexbuf : Sedlexing.lexbuf;
     mutable pending : entry list; (* 生トークンの先読みキュー(先頭が次) *)
     mutable regions : region list;
-    mutable prev : token option; (* 直前に消費者へ渡した有意トークン *)
+    mutable prev : token option; (* 直前に消費者へ渡したトークン(昇格した NL を含む) *)
     mutable last_sp : Lexing.position; (* 直前に消費者へ渡したトークンの位置(エラー報告用) *)
     mutable last_ep : Lexing.position;
   }
@@ -729,6 +732,7 @@ module Make (Data : Syntax.Data) = struct
 
    `can_end_statement` は、値として完結しているトークンの集合である。
    閉じ括弧、識別子、リテラル、`???` がこれにあたる。
+   二項演算子はこの集合に入っていないので、`1 + ⏎ 2` のように演算子で終わる行は次の行につながる。
    `can_begin_statement` は、宣言のキーワードと、式を始められるトークンの集合である。
 
    `can_begin_statement` から除いたトークンは、前の行の続きとして扱われる。
@@ -739,7 +743,7 @@ module Make (Data : Syntax.Data) = struct
    - `MATCH` / `HANDLE`：後置なので、改行してから書ける
    - `DOT` / `BACKSLASH`：メソッドチェーンとレコードの制限を行の途中で折り返す
    - `EXTENDS` / `VERTICAL`：`extends` の直前と、`#X | #Y` の `|` の直前で改行できる
-   - 二項演算子：`1 + ⏎ 2` をつなぐ
+   - 二項演算子：`1 ⏎ + 2` のように、演算子で始まる行を前の行につなぐ
 
    `DOT` は除いているが、行末の `1.` は文を終えられる。
    `1.` は `1` と `DOT` の 2 トークンではなく、1 個の `NUMBER` だからである(§2.2)。
@@ -776,7 +780,8 @@ module Make (Data : Syntax.Data) = struct
    `test/tokens.t` の effnl がこの振る舞いを固定している。
 
    `RClause` は、`case` から `=>` までのパターンとガードを覆う。
-   ここで改行が区切りになると、`case Some(x) ⏎ if x == 1 => x` が書けない。
+   ここで改行が区切りになると、`case x if f ⏎ (x) => x` が書けない。
+   `f` は文を終えられ、`(` は文を始められるので、述語だけではこの改行が区切りになる。
    文法の節は `=>` を使うので、pop の契機は `EQ_GREATER` である。
 
    ASI の層は、括弧に包まれた `=>` を節の矢印と取り違えない。
@@ -885,8 +890,8 @@ module Make (Data : Syntax.Data) = struct
 (* ## 2.11 消費者 API
 
    Menhir の revised API は `unit -> token * position * position` の関数を求める。
-   `read` がその関数で、あわせて直前に渡したトークンの位置を状態に控える
-   (その位置を構文エラーの報告に使うのは第16章(driver.ml)である)。
+   `read` がその関数で、あわせて直前に渡したトークンの開始位置と終了位置を状態に控える
+   (そのうち開始位置を構文エラーの報告に使うのは第16章(driver.ml)である)。
    `parse` は、`traditional2revised` で包むだけの薄い層である。
 
    `all_tokens` は `--dump-tokens` のための出口で、ASI を適用した後のトークン列を EOF まで集める。
