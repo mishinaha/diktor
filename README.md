@@ -31,20 +31,20 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 | 章 | ファイル | 内容 |
 |---|---|---|
 | 第1章 | `lib/syntax.ml`(+ `aux.ml` / `location.ml`) | 型・カインド・行・AST。全体の見取り図 |
-| 第2章 | `lib/lexer.ml` | 字句解析 — 3 層と ASI |
+| 第2章 | `lib/lexer.ml` | 字句解析(3 層と ASI) |
 | 第3章 | `lib/parser.mly` | 構文解析と脱糖 |
 | 第4章 | `lib/dump.ml` | AST を目で見る(--dump-ast) |
-| 第5章 | `lib/tree.ml` | 精緻化木 — 型検査は木への書き込み |
-| 第6章 | `lib/decls.ml` | 宣言環境 — 名前の世界 |
+| 第5章 | `lib/tree.ml` | 精緻化木(型検査の結果を書き込む木) |
+| 第6章 | `lib/decls.ml` | 宣言環境 |
 | 第7章 | `lib/prims.ml` | 演算子と組み込みエフェクトの表 |
-| 第8章 | `lib/unify.ml` | 単一化 — 推論器の心臓部 |
+| 第8章 | `lib/unify.ml` | 単一化 |
 | 第9章 | `lib/show.ml` | 型の表示 |
-| 第10章 | `lib/exhaust.ml` | 網羅性検査 (Maranget) |
+| 第10章 | `lib/exhaust.ml` | 網羅性検査(Maranget) |
 | 第11章 | `lib/elab.ml` | 型推論の本体 |
 | 第12章 | `lib/value.ml` | 実行時の値 |
 | 第13章 | `lib/builtin.ml` | プリミティブと組み込み実行環境 |
-| 第14章 | `lib/interp.ml` | 評価器 — OCaml 5 のエフェクトで Keleut のエフェクトを写す |
-| 第15章 | `lib/prelude.kel` | プレリュード — Keleut 自身で書く最初のページ |
+| 第14章 | `lib/interp.ml` | 評価器(Keleut のエフェクトを OCaml 5 のエフェクトで写す) |
+| 第15章 | `lib/prelude.kel` | プレリュード(Keleut 自身で書いた唯一の章) |
 | 第16章 | `lib/driver.ml`(+ `bin/main.ml`) | ドライバと終了コード規約 |
 
 各章は Markdown 記事に変換できます(列 0 の `(* … *)` ブロック、`.kel` は
