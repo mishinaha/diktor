@@ -56,7 +56,7 @@
    | `elab_pat` | パターンを期待型に対して検査し、単相の束縛を足した環境を返す |
    | `is_value` | 値制限の構文判定 |
    | `elab_exp` / `elab_exp'` | 式の型を推論し、木に型を書き込む |
-   | `elab_check` | 軽い検査モード。ラムダと引数レコードにだけ期待型を押し込む |
+   | `elab_check` | 軽い検査モード。ラムダとレコード拡張(引数レコードを含む)にだけ期待型を押し込む |
    | `resolve_perform` | 操作名から(エフェクト, 操作, スキーマ)を引く。修飾なしの名前は行の最左を優先する |
    | `at_node` | 位置なしの型エラーに、最も内側のノードの span を付ける |
    | `check_resume_static` | resume が第二級であることの構文検査 |
@@ -1518,7 +1518,8 @@ and elab_exp' env level eff node e =
    検査は構造的ヴァリアントの行を閉じて型を書き換えることがあるので、
    できるだけ遅く走らせる(第10章 §10.13)。
    ただし、キューに積んだ検査は一般化より前に処理し終えなければならない。
-   `close_variant_rows` が Generic になった行変数に単一化をかけると、内部エラーになるからである。
+   `close_variant_rows` が Generic になった行変数に単一化をかけると、
+   単一化はその変数を未定変数として扱わず、原因と関係のない型エラーで落ちるからである(第8章 §8.9)。
    `Exhaust.drain` でキューを処理する場所は 1 か所ではないが、どれも一般化より前にある。
    束縛群(`elab_binding` / `elab_rec_bindings`)では `generalize` の直前、
    トップレベルの式(`DExp`)では推論の直後である(§11.28、§11.40)。
@@ -1904,8 +1905,9 @@ and resolve_perform eff li =
       | [] -> type_error ("未知の操作: " ^ op)
       | [ e ] -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
       | many -> (
-          (* 現在の eff 行に現れる候補のうち、最左を採る。推論された行では最左が
-             最も内側のハンドラ、注釈された行では書かれた順で最左が決まる(§11.20) *)
+          (* 現在の eff 行に現れる候補のうち、最左を採る。handle の入れ子から推論された
+             行では最左が最も内側のハンドラになり、注釈された行では書かれた順で最左が
+             決まる(§11.20) *)
           let labels = List.map fst (fst (row_fields eff)) in
           let pos e =
             let rec go i = function [] -> None | l :: tl -> if l = e then Some i else go (i + 1) tl in
@@ -3528,8 +3530,9 @@ let register_class env (c : T.class_decl') =
      と定める。受理すると、elab は任意のクラスで閉じた行に構造的導出を認めるのに、
      実行時の構造的フォールバック(§14.7)は Eq.eq に決め打ちなので、
      型検査を通ったプログラムが実行時に落ちる。
-     プレリュード所有のクラスの再宣言は照合の対象なので、ここでは弾かない。
-     導出の指定が一致するかは add_class_decl が見る。この検査はカインドの検査より先に置く。
+     クラス表に既にある名前の宣言は、ここでは弾かない。組み込み表が登録したクラスの
+     再宣言なら、導出の指定が一致するかを add_class_decl が照合し、それ以外の名前なら
+     add_class_decl が二重宣言として拒否する。この検査はカインドの検査より先に置く。
      逆の順だと、新しいクラスに、カインドを直せという直しようのない案内が出る
      (直すと、今度はこちらの検査に当たる) *)
   (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
