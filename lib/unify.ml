@@ -17,10 +17,12 @@
    | 関数 | 使う章 |
    |---|---|
    | `unify` / `add_class` | 第11章(elab.ml)の全規則、第10章(exhaust.ml)の 1 か所 |
-   | `generalize` / `default_numerics` / `check_ambiguity` / `reset` | 第11章の let と宣言の終わり |
-   | `instantiate` / `skolemize` | 第11章の変数参照と、インスタンス本体の包摂検査 |
+   | `generalize` | 第11章の let 束縛と、宣言から作るスキーマ |
+   | `check_ambiguity` / `default_numerics` | 第11章の let 束縛と宣言の終わり |
+   | `reset` | 第11章の検査の開始時と、パス 2 の直前 |
+   | `instantiate` / `skolemize` | 第11章のスキーマの使用点(変数参照、演算子、操作)と、インスタンス本体の包摂検査 |
    | `subst_params` | 第10章と第11章でのコンストラクタのフィールドの展開 |
-   | `rewrite_row` | 第11章のフィールドアクセスの規則 |
+   | `rewrite_row` | 第11章の検査モード(§11.19)のレコード拡張の分岐 |
    | `kind_of` / `var_info_of` / `map_generics_with` | 第11章の型の補助関数 |
    | `is_predicate` / `show_ref` | 第9章(show.ml)。制約の印字と、循環参照を避けるための穴 |
 
@@ -42,7 +44,7 @@
 
    最後の行について補足する。
    本章の関数はレベルをすべて引数で受け取り、
-   `generalize` や `instantiate` が大域状態を暗黙に読むことはない。
+   `generalize` や `instantiate` が現在のレベルを大域変数から暗黙に読むことはない。
    そのため、ある宣言の処理が残したレベルが次の宣言を汚すことがない。
    その代わり、呼び出し側は正しいレベルを渡す責任を負う。 *)
 
@@ -71,12 +73,14 @@ open Type
    本実装のカインド推論はこれだけである。
    張った定義域を型引数と照合するのは、上に書いたとおり精緻化の側である。
    `drop_arrows` 自身は矢印の左を捨て、右だけを返す。
-   未解決のまま残った `KVar` は、宣言の終わりに第1章の `default_kind` が `KStar` へ既定化する。
+   未解決のまま残った `KVar` は、第1章の `default_kind` が `KStar` へ既定化する。
+   既定化の時期は型パラメータの種類で異なり、第1章 §1.6 にまとめてある。
 
    `var_info_of` は、型変数の 4 つの状態(`Unbound` / `Generic` / `Rigid` / `Link`)から `var_info` を取り出す。
    `Link` に当たったときは `bug` にする。
    `repr` を通した後の `TVar` は `Link` ではない、という不変条件をここで確かめるためである。
-   本章の関数はすべて、型を `repr` してから `match` する。 *)
+   本章で型を `match` する関数は、`unbound_var` を除いて、どれも先に型を `repr` する。
+   `unbound_var` は、呼び出し側の `unify` が `repr` 済みの型を渡す前提で `repr` を省く(§8.5)。 *)
 
 let rec drop_arrows k n =
   if n = 0 then k
@@ -260,9 +264,11 @@ let is_predicate c = c = cls_integral || c = cls_fractional
    check_ambiguity が到達不能な制約を報告する) *)
 let class_vars : tvar ref list ref = ref []
 
-(* 制約つきの新変数は必ずここで作り、作った時点で台帳に載せる。
-   台帳が制約つき変数をすべて控えるのは、作成の経路がこの 1 本だからである。
+(* 制約つきの新変数はここで作り、作った時点で台帳に載せる。
    instantiate、subst_params、第11章のコンストラクタの具体化(dd_params の展開)もここを通る。
+   未定変数が制約を持つ入口は、この関数と、既存の未定変数に制約を足す add_class
+   (数値リテラルの変数はこちらを通る)の 2 つで、どちらも台帳に載せる。
+   そのため、台帳は制約つきの未定変数をすべて控える。
    別の経路で作ると、その変数の制約は曖昧性検査に届かない *)
 let new_class_var ~kind ~classes level =
   let v = new_var ~kind ~classes level in
@@ -406,11 +412,13 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
    構造の一致ではこれを行変数と判定できない。
 
    構造の一致で判定すると、仕様の中心的な例が型エラーになる。
-   sample.kel:195 の `fst(t: {_item: A extends R})` にレコード `{x = 1, _item = ...}` を渡す例(:201-203)と、
-   :209-215 の `describe(#Other)` で、それぞれ行多相のレコードと、
-   構造的ヴァリアントの残りの行を使う例である。
-   第1章(syntax.ml)は `KVar` を宣言の終わりに `KStar` へ既定化するので、
-   既定化までカインドは確定していない。
+   1 つは、sample.kel:195 の `fst(t: {_item: A extends R})` にレコード `{x = 1, _item = ...}` を渡す例(:201-203)で、
+   行多相のレコードを使う。
+   もう 1 つは、:209-215 の `describe` に `#Other` を渡す例で、構造的ヴァリアントの残りの行を使う。
+   この呼び出しは `test/verify_fixes.t` にある。
+   第1章(syntax.ml)の `default_kind` が `KVar` を `KStar` へ既定化するまで(時期は第1章 §1.6)、
+   カインドは確定していないことがある。
+   `vkind` に入った `KVar` は、確定した後も既定化した後も、リンクを持つ `KVar` のまま残る。
    そのため、カインドは構造では比べず、`same_kind` で比べる。
 
    `same_kind` は比較しながら `KVar` を相手のカインドに張る(単一化する)ので、
@@ -463,8 +471,9 @@ let rec rewrite_row row label =
 
    `TArrow` は、引数と返り値に加えてエフェクト行も単一化する。
    関数を呼ぶ側の行と呼ばれる側の行がここで結ばれることで、エフェクトが型に乗る。
-   Keleut の引数は閉じた `_item` 行のレコードなので、引数の個数の不一致は行の単一化から検出される。
-   引数の個数を数える専用のコードは、この推論器にはない。
+   Keleut の引数は閉じた `_item` 行のレコードなので、
+   関数適用の引数の個数の不一致は行の単一化から検出される。
+   関数適用(第11章 §11.12)には、引数の個数を数える専用のコードがない。
 
    ### 型適用(高階カインド)
 
@@ -488,8 +497,14 @@ let rec rewrite_row row label =
    ここで専用のメッセージを出すのは、この分岐がリージョンの取り違えを報告する主な経路だからである。
    `run` を入れ子にして外側のヒープの参照を内側で読もうとすると、
    `occurs_adjust` の脱出検査ではなく、この分岐で落ちる。
-   エフェクト行の中で、外側と内側の `run` が作った 2 つの剛定数が一致しないからである。
+   第11章は関数適用で、関数の型を先に呼び出し側の行と単一化し、その後で引数を検査する(§11.12)。
+   `Ref.get` の行の `Heap` は、最左一致で内側の `run` の `Heap` と結ばれるので、
+   `Ref.get` のリージョン変数は内側の `run` の剛定数に決まる。
+   その後で引数を検査すると、`Ref` の型引数の位置で、
+   外側と内側の `run` が作った 2 つの剛定数が一致しない。
    これは仕様どおりの拒否である。
+   衝突がエフェクト行の `Heap` ラベルの引数で起きたときは、
+   この分岐のメッセージに §8.8 の言い換えが付く。
 
    空の行と剛な行変数が衝突したときは、その手前の分岐で、
    行が注釈で固定されていることを述べるメッセージを出す。
@@ -619,11 +634,15 @@ and unify_row label field rest row2 =
    `default_numerics` は宣言の終わりにそれらを既定の型へ落とす。
    §8.4 で積んだ台帳をここで消費し、掃いた後は台帳を空に戻す。
 
-   宣言の終わりに走らせるのは `default_numerics` だけである。
-   網羅性検査の遅延キューはそれより早く、各 let 束縛群の `generalize` の直前に処理する。
-   順序が逆だと、第10章(exhaust.ml)が `Generic` になった行変数に `unify` を掛けて、
-   内部エラーになる。
-   §8.3 で `Generic` を `bug` にしたのと同じ境界である。 *)
+   宣言の終わりには、`check_ambiguity`(`~all:true`)と `default_numerics` を走らせる。
+   網羅性検査の遅延キューはそれより早く処理する。
+   let 束縛群では `generalize` の直前に、トップレベルの式では推論の直後に処理する(第11章 §11.14)。
+   `generalize` の後でキューを処理すると、
+   第10章(exhaust.ml)が `Generic` になった行変数に `unify` を掛ける。
+   `unbound_var` は `Generic` を未定変数と見なさないので、`unify` は `bind` へ進まず、
+   §8.7 の剛な行変数の分岐に落ちる。
+   その結果、構造的ヴァリアントの行を閉じる `match` が、原因と関係のない型エラーで落ちる。
+   `Generic` を単一化に渡さないという、§8.3 と同じ前提を守るための順序である。 *)
 
 (* level より深い Unbound を Generic にする。Rigid は一般化しない。
    予約述語つきの変数は既定の型へ bind する(Integral → Int32、Fractional → Float64) *)
@@ -724,7 +743,7 @@ let check_ambiguity ~all ~level tys =
 
    | 関数 | `Generic` の置き換え先 | 使う場所 |
    |---|---|---|
-   | `instantiate` | 現在のレベルの新しい未定変数 | 変数参照(第11章) |
+   | `instantiate` | 現在のレベルの新しい未定変数 | 変数参照、演算子、perform と handle の節、包摂検査(第11章) |
    | `skolemize` | 現在のレベルの新しい剛定数 | インスタンス本体の包摂検査(§11.38) |
    | `subst_params` | 指定された型引数(無ければ新しい変数) | 宣言表の展開(第10章と第11章) |
 
@@ -732,8 +751,9 @@ let check_ambiguity ~all ~level tys =
 
    `instantiate` は `new_class_var ~kind:i.vkind ~classes:i.vcls level` で、
    カインドと制約の集合をまとめて複製する。
-   `[A: Add] let double(x: A) = x + x` を一般化すると、`A` は `{Add}` を持つ `Generic` になり、
-   `double` を使うたびに `{Add}` を持つ新しい未定変数が作られる。
+   `let double(x) = x + x` を一般化すると、`x` の型の変数は `{Add}` を持つ `Generic` になり、
+   `double` の型は `[A: Add] (A) => A` になる。
+   `double` を使うたびに、`{Add}` を持つ新しい未定変数が作られる。
    その変数が `Int32` と単一化されると、`bind` が `add_class` を呼び、
    `Int32` に `Add` のインスタンスがあるかを確かめる。
    制約の検査はこれで完結する。
@@ -767,9 +787,13 @@ let check_ambiguity ~all ~level tys =
 
    ### ランク 1 多相
 
-   `generalize` を呼ぶのは let 束縛のときだけで、`instantiate` を呼ぶのは変数参照のときだけである。
-   ラムダの引数には常に単なる未定変数を割り当てるので、
-   引数を 2 つの異なる型で使うと単一化に失敗する。
+   `generalize` を掛けるのは、let 束縛の型と、宣言から作るスキーマ
+   (newtype のフィールド型、操作の型、クラスメソッドの型、署名、extern)だけである。
+   `instantiate` を掛けるのは、環境や宣言表から引いたスキーマだけで、
+   変数参照、演算子のメソッド、perform と handle の節の操作、包摂検査がそれに当たる。
+   ラムダの引数には、推論では新しい未定変数を、検査モードでは期待型のフィールド型を割り当てる。
+   どちらの型も、ラムダの本体の中では一般化しない。
+   そのため、引数を 2 つの異なる型で使うと単一化に失敗する。
    この呼び出しの規律によって、多相はランク 1 に限られる。
    量化子を型の中に持たず、`Generic` の印だけで多相を表す設計は、この規律を前提にしている。
    Keleut は多パラメータ型クラスを持たないので(sample.kel:356)、型スキーマ専用のデータ型も要らない。
@@ -781,7 +805,8 @@ let check_ambiguity ~all ~level tys =
    `process_decls` はパス 2 に入る直前に呼ぶ。
    後者は、パス 1(インスタンスの頭や前方参照のシグネチャの instantiate)で溜まった制約つき変数を、
    宣言ごとの曖昧性の判定に持ち込まないための後始末である。
-   1 回の型検査で `reset` は 2 回走る。 *)
+   `type_check_decls` は `process_decls` をプレリュードと利用者の宣言に 1 回ずつ呼ぶので、
+   1 回の型検査で `reset` は 3 回走る。 *)
 
 let map_generics_with memo f t =
   let rec go t =
@@ -820,7 +845,7 @@ let instantiate level t =
    包摂検査だけ(§11.38)。注釈の剛定数は elab の make_rigids が作る *)
 let skolemize level t = map_generics (fun i -> new_rigid ~kind:i.vkind ~classes:i.vcls level) t
 
-(* Generic → 指定した型(データ宣言・エフェクト宣言のパラメータ置換) *)
+(* Generic → 指定した型(データ宣言のパラメータ置換。コンストラクタのフィールド型の展開) *)
 let subst_params level args t =
   map_generics
     (fun i -> match List.assoc_opt i.vid args with Some t -> t | None -> new_class_var ~kind:i.vkind ~classes:i.vcls level)
