@@ -54,6 +54,16 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 awk -f tools/weave.awk lib/unify.ml > unify.md
 ```
 
+コメントを編集したときは、`tools/` の 2 つの Python 3 スクリプトで確かめられます。
+記事は一文ごとに改行して書き、長い文は `litwrap.py` で読点の直後で折り返します。
+`litcheck.py` は、コメントを除いたコードが HEAD から変わっていないことと、
+コメントの字句(`"` や対にならない `(*` を含まないか)と記事ブロックの形式を検査します。
+
+```sh
+python3 tools/litwrap.py lib/unify.ml
+python3 tools/litcheck.py            # FILE を省くと lib と bin の全ソース
+```
+
 規約の詳細(コメントの機械的な形式、コード不変の検証方法)は
 `doc/log/260829-3-literate.md` を参照してください。
 ocamlformat / `dune fmt` は列 0 ブロックを再インデントして規約を壊すため、
