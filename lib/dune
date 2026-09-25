@@ -10,7 +10,7 @@
  (flags --explain --strict)
  (modules parser))
 
-; プレリュードの文字列埋め込み(計画 §8.6。--prelude PATH で差し替え可)
+; プレリュードを文字列として埋め込む(--prelude PATH で差し替えられる)
 (rule
  (targets prelude_embed.ml)
  (deps prelude.kel)
