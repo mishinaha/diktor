@@ -29,7 +29,7 @@
 
    ### 誰にも渡さないもの
 
-   - 出力を読むのは、人間と `test/ast.t` の cram ゴールデンだけである。
+   - 出力を読むのは、人間と cram ゴールデン(`test/ast.t` と、`test/premise.t` の pr11)だけである。
      出力を AST に読み戻す機能はない(§4.2) *)
 open Syntax
 open Tree.Tree
