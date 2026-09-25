@@ -1,0 +1,67 @@
+diff --git a/test/tokens.t b/test/tokens.t
+index dc497b9..3d5ae0c 100644
+--- a/test/tokens.t
++++ b/test/tokens.t
+@@ -665,12 +665,12 @@ sample.kel 全文のトークン化(2741 トークン。スパイク 260829-1 
+   $ diktor --dump-tokens sample/sample.kel | wc -l
+   2741
+   $ diktor --dump-tokens sample/sample.kel | tail -6
+-   840  .
+-   840  parse
+-   840  (
+-   840  "456"
+-   840  )
+-   875  <EOF>
++   842  .
++   842  parse
++   842  (
++   842  "456"
++   842  )
++   877  <EOF>
+ 
+ 小数部の省略(1. / 2.e3)と、その後の ASI(D25。行末の 1. は NUMBER で
+ 文を終えられる — 以前は DOT で継続していた):
+diff --git a/test/fs_effect.t b/test/fs_effect.t
+index 503cc49..c095fed 100644
+--- a/test/fs_effect.t
++++ b/test/fs_effect.t
+@@ -79,7 +79,7 @@ Fs はランタイムが提供するのでユーザはハンドルできない(D
+   >   }
+   > KEL
+   $ diktor --type-check fsh.kel
+-  ! fsh.kel:2:3: 型エラー: エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:465, :534)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:600 の with_file が見本)
++  ! fsh.kel:2:3: 型エラー: エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:465, :536)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:602 の with_file が見本)
+   [1]
+ 
+ 仕様 sample.kel が自分で effect Fs = {} を宣言する形は、D35 の構造照合で
+diff --git a/test/runtime_effects.t b/test/runtime_effects.t
+index d5fdac7..755992a 100644
+--- a/test/runtime_effects.t
++++ b/test/runtime_effects.t
+@@ -13,7 +13,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明
+   >   }
+   > KEL
+   $ diktor --type-check quiet.kel
+-  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :534)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
++  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :536)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+   [1]
+ 
+ 修飾しても同じ:
+@@ -26,7 +26,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明
+   >   }
+   > KEL
+   $ diktor --type-check quietq.kel
+-  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :534)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
++  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :536)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+   [1]
+ 
+   $ cat > sched.kel <<'KEL'
+@@ -38,7 +38,7 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明
+   >   }
+   > KEL
+   $ diktor --type-check sched.kel
+-  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:724。スケジューラは書けません)
++  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:726。スケジューラは書けません)
+   [1]
+ 
+ --no-prelude で自前の effect Console を宣言した場合は禁止しない

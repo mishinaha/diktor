@@ -1,0 +1,290 @@
+ファイル,行,旧,新,形,場所,区分,適用,照合,旧の行の先頭
+lib/builtin.ml,36,sample.kel:273-275,sample.kel:273-275,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 関数は複数の引数を取り、1 個の値を返す。引数の個数（arity）は矢印型の一部である。
+lib/builtin.ml,95,sample.kel:601-606,sample.kel:603-608,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,let h = __open(path)
+lib/builtin.ml,98,sample.kel:605-606,sample.kel:607-608,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,case return(x) => { __close(h); x }
+lib/builtin.ml,175,sample.kel:120,sample.kel:120,sample.kel:N,コメント,512 行以前(不変),不変,一致,// Int64 から Int32 への変換は折り返す（wrap-around）。整数算術の桁あふれも折り返す（暫定。§
+lib/builtin.ml,197,sample.kel:859-864,sample.kel:861-866,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// TODO: Ord[Float64]、Eq[Float64] と NaN。IEEE 754 に従うと、eq、lt、
+lib/builtin.ml,200,sample.kel:259,sample.kel:259,sample.kel:N,コメント,512 行以前(不変),不変,一致,newtype TotalFloat64(Float64)                 // §14 の Ord[F
+lib/builtin.ml,201,sample.kel:259,sample.kel:259,sample.kel:N,コメント,512 行以前(不変),不変,一致,newtype TotalFloat64(Float64)                 // §14 の Ord[F
+lib/builtin.ml,204,sample.kel:861,sample.kel:863,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,//       derive structural の Eq も同様で、Float64 のフィールドを 1 つ持つだけ
+lib/decls.ml,203,sample.kel:791,sample.kel:793,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"extern ""C"" let sin(x: Float64): Float64                  // "
+lib/decls.ml,207,sample.kel:794,sample.kel:796,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// 関数がブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。
+lib/decls.ml,285,sample.kel:838,sample.kel:840,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,type MyBigInt = BigInt  // コンパニオン型（モジュールと同名の型は、モジュール名だけで参照でき
+lib/decls.ml,792,:464,:464,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/decls.ml,792,:590,:592,接頭辞のない裸の :N,コメント,513 行以降(+2),付け替え(本文),一致,"write: (String) => Unit,"
+lib/decls.ml,803,sample.kel:616,sample.kel:618,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"let copy(src: String, dst: String): Unit @ {Console, Fs} = {"
+lib/decls.ml,803,:620,:622,同じ行の二次参照(:N),コメント,513 行以降(+2),付け替え(本文),一致,perform write(text)                         // 最も左の File は d
+lib/decls.ml,805,:530-532,:532-534,接頭辞のない裸の :N(範囲),コメント,513 行以降(+2),付け替え(本文),一致,// 下の copy の write は、候補が File と Console の 2 つある。with_file が積
+lib/decls.ml,878,sample.kel:388,sample.kel:388,sample.kel:N,コメント,512 行以前(不変),不変,一致,derive structural                           // 組み込みの構造的導出を有効
+lib/decls.ml,881,sample.kel:391-395,sample.kel:391-395,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
+lib/decls.ml,962,sample.kel:449-450,sample.kel:449-450,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 標準ライブラリは、List と Option に Show のインスタンスを持つ（`type instance[A
+lib/decls.ml,963,sample.kel:421,sample.kel:421,sample.kel:N,コメント,512 行以前(不変),不変,一致,type instance[A: Eq] Eq[List[_]] {
+lib/decls.ml,965,sample.kel:357,sample.kel:357,sample.kel:N,コメント,512 行以前(不変),不変,一致,// コヒーレンス（インスタンスの一意性）は守る。インスタンスは常に大域的に見え、隠したり選び直したりできない。
+lib/decls.ml,1007,sample.kel:357,sample.kel:357,sample.kel:N,コメント,512 行以前(不変),不変,一致,// コヒーレンス（インスタンスの一意性）は守る。インスタンスは常に大域的に見え、隠したり選び直したりできない。
+lib/decls.ml,1051,sample.kel:433-436,sample.kel:433-436,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 入れ子の矢印（メソッドの引数の型）で省略した `@` は、`@ {}`（純粋）と読む（§9）。
+lib/decls.ml,1052,sample.kel:496-502,sample.kel:496-502,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 入れ子の矢印に書いた行は、書いたとおりに読み、行変数で開かない。入れ子の矢印とは、最外以外のすべての矢印である。
+lib/decls.ml,1117,sample.kel:690,sample.kel:692,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// この契約は 1 段だけに適用する。要素そのものが可変配列なら、取り出した配列の要素は、元の可変配列の要素と同じもの
+lib/decls.ml,1122,sample.kel:691,sample.kel:693,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"// ただし要素の h は結果の型 Array[MutableArray[h, A]] に残るので、脱出検査がリージョン"
+lib/decls.ml,1132,sample.kel:692,sample.kel:694,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// length が Heap[h] を要求するのは、長さが変わりうるからではない（長さを変える操作はない）。可変配列
+lib/decls.ml,1207,sample.kel:720,sample.kel:722,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// 並列処理は純粋な計算に限るので、結果は決定的である。
+lib/decls.ml,1260,sample.kel:371,sample.kel:371,sample.kel:N,コメント,512 行以前(不変),不変,一致,// Num のような 1 つのクラスにまとめないのは、String のように `+` だけを持つ型があるためである。
+lib/decls.ml,1310,sample.kel:372-395,sample.kel:372-395,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,"type class Add[A] { val add: (A, A) => A }"
+lib/elab.ml,31,sample.kel:456,sample.kel:456,sample.kel:N,コメント,512 行以前(不変),不変,一致,let user_names[E](xs: List[User]): List[String] @ {Print ext
+lib/elab.ml,31,:508,:508,同じ行の二次参照(:N),コメント,512 行以前(不変),不変,一致,let println(message: String): Unit @ Print = perform print(m
+lib/elab.ml,284,sample.kel:815-821,sample.kel:817-823,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// pub を付けるには、型注釈が完全でなければならない。入れ子の矢印の `@` も省略できない。
+lib/elab.ml,286,sample.kel:818-819,sample.kel:820-821,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// この要求は、pub newtype のフィールドに現れる矢印にも適用する（§9 の Parser が例）。
+lib/elab.ml,290,sample.kel:484-485,sample.kel:484-485,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 「最外の矢印」は、関数束縛（`let f(x: T): R @ E`）では返り値の後ろの `@` を、
+lib/elab.ml,291,sample.kel:815,sample.kel:817,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// pub を付けるには、型注釈が完全でなければならない。入れ子の矢印の `@` も省略できない。
+lib/elab.ml,292,sample.kel:820-821,sample.kel:822-823,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// 最外の矢印のエフェクト行を省略した場合は、推論に任せず、「本体は純粋でなければならず、
+lib/elab.ml,294,:492,:492,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,//   pub let             本体は純粋でなければならず、公開される型は行多相になる（§13）。値束
+lib/elab.ml,344,sample.kel:252-255,sample.kel:252-255,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型引数の読み方は、対応するパラメータのカインドによって変わる。カインドが EffectRow なら引数をエフェクト
+lib/elab.ml,542,sample.kel:470-502,sample.kel:470-502,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//
+lib/elab.ml,554,sample.kel:484-486,sample.kel:484-486,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 「最外の矢印」は、関数束縛（`let f(x: T): R @ E`）では返り値の後ろの `@` を、
+lib/elab.ml,572,sample.kel:496-498,sample.kel:496-498,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 入れ子の矢印に書いた行は、書いたとおりに読み、行変数で開かない。入れ子の矢印とは、最外以外のすべての矢印である。
+lib/elab.ml,607,sample.kel:222-227,sample.kel:222-227,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,let report(e: IoError | ParseError): String =
+lib/elab.ml,766,sample.kel:252-255,sample.kel:252-255,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型引数の読み方は、対応するパラメータのカインドによって変わる。カインドが EffectRow なら引数をエフェクト
+lib/elab.ml,1117,sample.kel:467,sample.kel:467,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `@` の右側はエフェクト行である。`@ Print` は `@ {Print}` の略記
+lib/elab.ml,1481,sample.kel:616-621,sample.kel:618-623,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"let copy(src: String, dst: String): Unit @ {Console, Fs} = {"
+lib/elab.ml,1723,sample.kel:545,sample.kel:547,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// resume はアフィンである（呼び出しは高々 1 回）。操作の返り値の型が Unit なら、`resume()`
+lib/elab.ml,1740,sample.kel:545,sample.kel:547,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// resume はアフィンである（呼び出しは高々 1 回）。操作の返り値の型が Unit なら、`resume()`
+lib/elab.ml,1947,:464,:464,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/elab.ml,1947,:590,:592,接頭辞のない裸の :N,コメント,513 行以降(+2),付け替え(本文),一致,"write: (String) => Unit,"
+lib/elab.ml,2075,sample.kel:542-545,sample.kel:544-547,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// resume は継続を表す。resume は第二級（second-class）の値であり、節の外へ持ち出せない
+lib/elab.ml,2141,sample.kel:514-515,sample.kel:516-517,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// 操作名は英小文字で始める。`return` と `cancel` は handle の節の名前と衝突するので、操作
+lib/elab.ml,2193,sample.kel:517-527,sample.kel:519-529,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// 非修飾の操作名を解決する規則は、perform と handle で異なる：
+lib/elab.ml,2198,sample.kel:526-527,sample.kel:528-529,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,//            操作節が 1 つでも修飾されているときは、その修飾先を対象とし、非修飾の節もそのエフェクトの
+lib/elab.ml,2249,sample.kel:534,sample.kel:536,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/elab.ml,2250,:724,:726,接頭辞のない裸の :N,コメント,513 行以降(+2),付け替え(本文),一致,// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+lib/elab.ml,2264,sample.kel:464,sample.kel:464,sample.kel:N,診断文字列,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/elab.ml,2264,:534,:536,"一覧の2つめ以降(, :N)",診断文字列,513 行以降(+2),付け替え(診断文字列),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/elab.ml,2266,sample.kel:465,sample.kel:465,sample.kel:N,診断文字列,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+lib/elab.ml,2266,:534,:536,"一覧の2つめ以降(, :N)",診断文字列,513 行以降(+2),付け替え(診断文字列),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/elab.ml,2266,sample.kel:600,sample.kel:602,sample.kel:N,診断文字列,513 行以降(+2),付け替え(診断文字列),一致,"let with_file[A, E](path: String, body: () => A @ {File, Fs "
+lib/elab.ml,2267,sample.kel:724,sample.kel:726,sample.kel:N,診断文字列,513 行以降(+2),付け替え(診断文字列),一致,// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+lib/elab.ml,2557,sample.kel:546,sample.kel:548,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"println(""test"") handle {"
+lib/elab.ml,2571,sample.kel:470-502,sample.kel:470-502,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//
+lib/elab.ml,2584,sample.kel:815-821,sample.kel:817-823,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// pub を付けるには、型注釈が完全でなければならない。入れ子の矢印の `@` も省略できない。
+lib/elab.ml,2605,sample.kel:481,sample.kel:481,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `@ {}` だけは両方向に効く。本体は純粋でなければならず、呼び出し側の行も空でなければならない。
+lib/elab.ml,2606,sample.kel:476-479,sample.kel:476-479,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 束縛（let、pub let、extern、型クラスのメソッド）の最外の矢印にラベル付きの行を書くと、
+lib/elab.ml,2607,sample.kel:496-498,sample.kel:496-498,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 入れ子の矢印に書いた行は、書いたとおりに読み、行変数で開かない。入れ子の矢印とは、最外以外のすべての矢印である。
+lib/elab.ml,2609,sample.kel:490-491,sample.kel:490-491,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//                       本体が `@ {}` の関数（入れ子で `@` を省略したものを含む）
+lib/elab.ml,2633,sample.kel:485,sample.kel:485,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 値束縛（`let k: (T) => R @ E = …`）では注釈そのものの先頭の矢印の `@` を指す。
+lib/elab.ml,2633,:492,:492,同じ行の二次参照(:N),コメント,512 行以前(不変),不変,一致,//   pub let             本体は純粋でなければならず、公開される型は行多相になる（§13）。値束
+lib/elab.ml,2636,sample.kel:478,sample.kel:478,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 一方、公開される型では行変数で行を開くので、呼び出し側の行に他のエフェクトがあってもよい。
+lib/elab.ml,3143,sample.kel:772,sample.kel:774,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,let crunch(xs: Array[Int32]): Int32 @ Async = run h {
+lib/elab.ml,3155,sample.kel:656-657,sample.kel:658-659,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// Heap がこの 4 つに含まれないのは、Heap[h] がリージョン変数を引数に取るラベルであり、トップレベルに
+lib/elab.ml,3208,sample.kel:246-247,sample.kel:246-247,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータのカインドは、宣言群の中の型の本体での使われ方から推論する。使われ方がなければ Type とする。
+lib/elab.ml,3223,sample.kel:246-249,sample.kel:246-249,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータのカインドは、宣言群の中の型の本体での使われ方から推論する。使われ方がなければ Type とする。
+lib/elab.ml,3434,sample.kel:815-821,sample.kel:817-823,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// pub を付けるには、型注釈が完全でなければならない。入れ子の矢印の `@` も省略できない。
+lib/elab.ml,3434,:818-819,:820-821,同じ行の二次参照(:N)(範囲),コメント,513 行以降(+2),付け替え(本文),一致,// この要求は、pub newtype のフィールドに現れる矢印にも適用する（§9 の Parser が例）。
+lib/elab.ml,3515,sample.kel:356,sample.kel:356,sample.kel:N,コメント,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+lib/elab.ml,3527,sample.kel:358-360,sample.kel:358-360,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型クラスのパラメータのカインドは、Type か、HKT の `F[_]` のように Type を取って Type 
+lib/elab.ml,3533,sample.kel:361-362,sample.kel:361-362,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// エフェクトについて量化したいときは、クラスのパラメータではなく、メソッドの型パラメータとして行変数を取る
+lib/elab.ml,3564,sample.kel:476,sample.kel:476,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 束縛（let、pub let、extern、型クラスのメソッド）の最外の矢印にラベル付きの行を書くと、
+lib/elab.ml,3566,sample.kel:477-478,sample.kel:477-478,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// その行は本体のエフェクトの上限として働く。注釈にないエフェクトを本体が起こすと、エラーになる。
+lib/elab.ml,3624,sample.kel:451-455,sample.kel:451-455,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// Monad、Applicative、Traversable はプレリュードに置かない。理由は次のとおりである。
+lib/elab.ml,3667,sample.kel:356,sample.kel:356,sample.kel:N,診断文字列,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+lib/elab.ml,3678,sample.kel:383,sample.kel:383,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 利用者には書かせない。コヒーレンスを守るため、組み込みの自動導出だけがインスタンスを与える。
+lib/elab.ml,3690,sample.kel:397-399,sample.kel:397-399,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// `derive structural` を書けるのは、クラスパラメータのカインドが Type のクラスだけである。
+lib/elab.ml,3716,sample.kel:476,sample.kel:476,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 束縛（let、pub let、extern、型クラスのメソッド）の最外の矢印にラベル付きの行を書くと、
+lib/elab.ml,3795,sample.kel:412-413,sample.kel:412-413,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// リストの型パラメータは、インスタンスの型に現れる `_` へ左から順に対応する
+lib/elab.ml,3798,sample.kel:410,sample.kel:410,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 前提付きインスタンスでは、型パラメータリストを `instance` の直後に書く。`instance` と `[
+lib/elab.ml,3807,sample.kel:414-416,sample.kel:414-416,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータの個数は、`_` の個数を超えてはならない。対応しなかった右側の `_` は未適用のまま残り、
+lib/elab.ml,3809,sample.kel:411,sample.kel:411,sample.kel:N,コメント,512 行以前(不変),不変,一致,// インスタンスの型に書く `_` の個数は、その型構成子が取る型引数の個数と一致しなければならない。
+lib/elab.ml,3816,sample.kel:357,sample.kel:357,sample.kel:N,コメント,512 行以前(不変),不変,一致,// コヒーレンス（インスタンスの一意性）は守る。インスタンスは常に大域的に見え、隠したり選び直したりできない。
+lib/elab.ml,3821,sample.kel:400,sample.kel:400,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 同じカインドの規則により、インスタンスの頭部のカインドは、クラスパラメータのカインドと一致しなければならない。
+lib/elab.ml,3824,sample.kel:417,sample.kel:417,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 型パラメータのカインドは、対応する `_` の位置で型構成子が要求するカインドと一致しなければならない。
+lib/elab.ml,3831,sample.kel:397-399,sample.kel:397-399,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// `derive structural` を書けるのは、クラスパラメータのカインドが Type のクラスだけである。
+lib/elab.ml,3832,sample.kel:400-402,sample.kel:400-402,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 同じカインドの規則により、インスタンスの頭部のカインドは、クラスパラメータのカインドと一致しなければならない。
+lib/elab.ml,3890,sample.kel:441-444,sample.kel:441-444,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,type instance Functor[List[_]] {
+lib/elab.ml,3955,sample.kel:456,sample.kel:456,sample.kel:N,コメント,512 行以前(不変),不変,一致,let user_names[E](xs: List[User]): List[String] @ {Print ext
+lib/elab.ml,3955,:508,:508,同じ行の二次参照(:N),コメント,512 行以前(不変),不変,一致,let println(message: String): Unit @ Print = perform print(m
+lib/elab.ml,4184,sample.kel:418-419,sample.kel:418-419,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータの名前はインスタンス本体の型スコープに入るので、メソッドの型注釈で使える。
+lib/elab.ml,4186,sample.kel:418-419,sample.kel:418-419,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータの名前はインスタンス本体の型スコープに入るので、メソッドの型注釈で使える。
+lib/elab.ml,4189,sample.kel:441-444,sample.kel:441-444,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,type instance Functor[List[_]] {
+lib/elab.ml,4359,sample.kel:838,sample.kel:840,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,type MyBigInt = BigInt  // コンパニオン型（モジュールと同名の型は、モジュール名だけで参照でき
+lib/elab.ml,4687,sample.kel:794,sample.kel:796,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// 関数がブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。
+lib/elab.ml,4784,sample.kel:838,sample.kel:840,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,type MyBigInt = BigInt  // コンパニオン型（モジュールと同名の型は、モジュール名だけで参照でき
+lib/elab.ml,4798,sample.kel:833,sample.kel:835,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// インスタンスは常に大域的に見える。pub は書かない
+lib/exhaust.ml,771,sample.kel:182,sample.kel:182,sample.kel:N,コメント,512 行以前(不変),不変,一致,"// 値とパターンは、2 要素以上を `(a, b)`、1 要素を `(a,)`、空行を `()` と表示する。"
+lib/exhaust.ml,775,sample.kel:179-180,sample.kel:179-180,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// ラベル名は `_item` とする。処理系は、`_item` だけからなる閉じた行をタプルの表記に戻して表示する。
+lib/exhaust.ml,781,sample.kel:182,sample.kel:182,sample.kel:N,コメント,512 行以前(不変),不変,一致,"// 値とパターンは、2 要素以上を `(a, b)`、1 要素を `(a,)`、空行を `()` と表示する。"
+lib/exhaust.ml,782,sample.kel:183-185,sample.kel:183-185,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型と値で表記が異なるのは空行だけである。空行は、型でも値でもパターンでも、`{}` と `()` のどちらで書いて
+lib/exhaust.ml,861,sample.kel:322-324,sample.kel:322-324,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// ガード付きパターン `case P if cond => e`
+lib/exhaust.ml,899,sample.kel:322-324,sample.kel:322-324,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// ガード付きパターン `case P if cond => e`
+lib/interp.ml,51,sample.kel:277,sample.kel:277,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 評価順序は左から右である。引数リスト、レコードの各フィールド、match の照合対象は、どれも左から右へ評価する。
+lib/interp.ml,113,sample.kel:581,sample.kel:583,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、脱出は抑制
+lib/interp.ml,118,sample.kel:581,sample.kel:583,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、脱出は抑制
+lib/interp.ml,245,sample.kel:278,sample.kel:278,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `{l = e extends r}` は e を先に、r を最後に評価する。
+lib/interp.ml,335,sample.kel:368,sample.kel:368,sample.kel:N,コメント,512 行以前(不変),不変,一致,//   && || !         Boolean の組み込み（短絡評価するので、型クラスにはできない）
+lib/interp.ml,381,sample.kel:278,sample.kel:278,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `{l = e extends r}` は e を先に、r を最後に評価する。
+lib/interp.ml,421,sample.kel:190-191,sample.kel:190-191,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 閉じた行なので、要素数（arity）は静的に検査する。
+lib/interp.ml,516,sample.kel:383,sample.kel:383,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 利用者には書かせない。コヒーレンスを守るため、組み込みの自動導出だけがインスタンスを与える。
+lib/interp.ml,517,sample.kel:391-395,sample.kel:391-395,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
+lib/interp.ml,736,sample.kel:568-581,sample.kel:570-583,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"let try_[A, E](body: () => A @ {Fail extends E}): #Ok(A) | #"
+lib/interp.ml,825,sample.kel:581,sample.kel:583,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、脱出は抑制
+lib/interp.ml,851,sample.kel:473,sample.kel:473,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 行の部分型付け（サブエフェクティング）はない。関数の行と呼び出し側の行は、単一化で一致させる。
+lib/interp.ml,870,sample.kel:581,sample.kel:583,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、脱出は抑制
+lib/lexer.ml,20,sample.kel:20-29,sample.kel:20-29,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// --- `{` の読み分け（2 トークン先読み） ---
+lib/lexer.ml,105,sample.kel:94,sample.kel:94,sample.kel:N,コメント,512 行以前(不変),不変,一致,let d = -1                           // 符号はリテラルの字句に含まれる（単項マイ
+lib/lexer.ml,157,sample.kel:174-175,sample.kel:174-175,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 位置によるアクセスは `t._0`、`t._1` … と書く。`t.0` にしないのは、`t.0.1` が
+lib/lexer.ml,648,sample.kel:20-29,sample.kel:20-29,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// --- `{` の読み分け（2 トークン先読み） ---
+lib/lexer.ml,668,sample.kel:26-28,sample.kel:26-28,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//   `@` の直後、EffectRow のエイリアスの右辺、effect 宣言の本体では、上の表のどれに分類されて
+lib/lexer.ml,679,sample.kel:29,sample.kel:29,sample.kel:N,コメント,512 行以前(不変),不変,一致,//   `{x}` は IDENT `}` なのでブロックになる。フィールドが 1 個のレコードは、`{x = x}`
+lib/lexer.ml,752,sample.kel:295,sample.kel:295,sample.kel:N,コメント,512 行以前(不変),不変,一致,// ただし、行頭の `(` は前の行の続きとはみなさない（改行による区切りが優先する）
+lib/parser.mly,156,sample.kel:175,sample.kel:175,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 浮動小数点リテラルと字句上で衝突するためである（Rust が実際に苦労した点）。
+lib/parser.mly,331,sample.kel:617,sample.kel:619,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,with _ = with_file(src)
+lib/parser.mly,331,:619,:621,"一覧の2つめ以降(, :N)",コメント,513 行以降(+2),付け替え(本文),一致,with _ = with_file(dst)
+lib/parser.mly,332,:632,:634,接頭辞のない裸の :N,コメント,513 行以降(+2),付け替え(本文),一致,"with x = Parser.bind(Parser.token(""(""))"
+lib/parser.mly,666,sample.kel:590,sample.kel:592,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"write: (String) => Unit,"
+lib/parser.mly,666,:755-758,:757-760,同じ行の二次参照(:N)(範囲),コメント,513 行以降(+2),付け替え(本文),一致,"let with_timeout[A, E]("
+lib/parser.mly,686,sample.kel:50-51,sample.kel:50-51,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータはこの規則の対象外で、文法上は大文字で始めても小文字で始めてもよい。慣習として、型は大文字
+lib/parser.mly,688,sample.kel:52,sample.kel:52,sample.kel:N,コメント,512 行以前(不変),不変,一致,// ただし `run` が導入するリージョン変数は、文法上も小文字で始まる識別子に限る（`run h { … }`。`
+lib/parser.mly,777,sample.kel:94,sample.kel:94,sample.kel:N,コメント,512 行以前(不変),不変,一致,let d = -1                           // 符号はリテラルの字句に含まれる（単項マイ
+lib/parser.mly,780,sample.kel:335,sample.kel:335,sample.kel:N,コメント,512 行以前(不変),不変,一致,case n if n < 0 => is_even(0 - n)
+lib/parser.mly,1074,sample.kel:648,sample.kel:650,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"type Request: EffectRow = {ReqId, Logger, Tracer}"
+lib/parser.mly,1080,sample.kel:26-28,sample.kel:26-28,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//   `@` の直後、EffectRow のエイリアスの右辺、effect 宣言の本体では、上の表のどれに分類されて
+lib/prelude.kel,59,sample.kel:546-549,sample.kel:548-551,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"println(""test"") handle {"
+lib/prelude.kel,81,:59,:59,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,type Unit  = {}                      // 空レコード。`()` も同じものを指す
+lib/prelude.kel,81,:238-239,:238-239,接頭辞のない裸の :N(範囲),コメント,512 行以前(不変),不変,一致,newtype Option[A] = Some(A) | None
+lib/prelude.kel,82,:464,:464,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/prelude.kel,82,:465,:465,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+lib/prelude.kel,82,:372,:372,接頭辞のない裸の :N,コメント,512 行以前(不変),不変,一致,"type class Add[A] { val add: (A, A) => A }"
+lib/prelude.kel,125,sample.kel:239,sample.kel:239,sample.kel:N,コメント,512 行以前(不変),不変,一致,"newtype List[A]   = Cons(head: A, tail: List[A]) | Nil"
+lib/prelude.kel,128,sample.kel:242-245,sample.kel:242-245,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// コンストラクタのフィールドは常に順序を持つ。ラベルは付けても付けなくてもよい。
+lib/prelude.kel,153,sample.kel:464,sample.kel:464,sample.kel:N,コメント,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/prelude.kel,154,sample.kel:729,sample.kel:731,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"effect Async = { yield_: () => Unit, sleep: (Int64) => Unit "
+lib/prelude.kel,155,sample.kel:465,sample.kel:465,sample.kel:N,コメント,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+lib/prelude.kel,159,sample.kel:534,sample.kel:536,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/prelude.kel,161,:724,:726,接頭辞のない裸の :N,コメント,513 行以降(+2),付け替え(本文),一致,// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+lib/prelude.kel,189,sample.kel:553,sample.kel:555,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"let capture[A, E](body: () => A @ {Print extends E}): {value"
+lib/prelude.kel,200,sample.kel:720,sample.kel:722,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// 並列処理は純粋な計算に限るので、結果は決定的である。
+lib/prelude.kel,202,sample.kel:594-597,sample.kel:596-599,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,//   __open  : (String) => Int32 @ Fs
+lib/prelude.kel,205,sample.kel:465,sample.kel:465,sample.kel:N,コメント,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+lib/prelude.kel,208,sample.kel:802-804,sample.kel:804-806,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// 操作を持たないラベル（Heap、Blocking、Fs）は、どれも宣言が要らない。標準ライブラリが同じ宣言を持つ場
+lib/prelude.kel,219,sample.kel:726-729,sample.kel:728-731,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// yield_ は、キャンセルが届く地点（配送点）である。キャンセルは協調的で、
+lib/prelude.kel,224,sample.kel:464,sample.kel:464,sample.kel:N,コメント,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+lib/prelude.kel,224,:465,:465,"一覧の2つめ以降(, :N)",コメント,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+lib/prelude.kel,224,:729,:731,"一覧の2つめ以降(, :N)",コメント,513 行以降(+2),付け替え(本文),一致,"effect Async = { yield_: () => Unit, sleep: (Int64) => Unit "
+lib/prelude.kel,265,sample.kel:600-608,sample.kel:602-610,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"let with_file[A, E](path: String, body: () => A @ {File, Fs "
+lib/prelude.kel,392,sample.kel:546-549,sample.kel:548-551,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"println(""test"") handle {"
+lib/prelude.kel,448,sample.kel:546-549,sample.kel:548-551,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,"println(""test"") handle {"
+lib/prelude.kel,461,sample.kel:449-450,sample.kel:449-450,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 標準ライブラリは、List と Option に Show のインスタンスを持つ（`type instance[A
+lib/prelude.kel,469,sample.kel:410-420,sample.kel:410-420,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 前提付きインスタンスでは、型パラメータリストを `instance` の直後に書く。`instance` と `[
+lib/prelude.kel,469,:421,:421,同じ行の二次参照(:N),コメント,512 行以前(不変),不変,一致,type instance[A: Eq] Eq[List[_]] {
+lib/prims.ml,42,sample.kel:364-369,sample.kel:364-369,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 利用者定義の演算子は導入しない。組み込みの演算子が、標準ライブラリの型クラスのメソッドを呼ぶ。
+lib/prims.ml,153,sample.kel:534,sample.kel:536,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/prims.ml,154,sample.kel:655,sample.kel:657,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// トップレベルに残せるエフェクトは、ランタイムが提供するもの（Console、Async、Fs、Blocking）だ
+lib/prims.ml,169,sample.kel:594-597,sample.kel:596-599,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,//   __open  : (String) => Int32 @ Fs
+lib/prims.ml,172,sample.kel:792,sample.kel:794,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"extern ""C"" let sqlite_step(s: Stmt): Int32 @ Blocking    // "
+lib/prims.ml,176,sample.kel:535-537,sample.kel:537-539,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// 「ランタイムが実装を持つ」には 2 通りある。1 つは、操作の実装をランタイムが持つ場合（Console の wr
+lib/prims.ml,193,sample.kel:534,sample.kel:536,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+lib/prims.ml,198,sample.kel:805,sample.kel:807,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,// Blocking はトップレベルに残してよく、下の pinned で取り除くこともできる。
+lib/prims.ml,200,sample.kel:656-657,sample.kel:658-659,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// Heap がこの 4 つに含まれないのは、Heap[h] がリージョン変数を引数に取るラベルであり、トップレベルに
+lib/prims.ml,206,sample.kel:772,sample.kel:774,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,let crunch(xs: Array[Int32]): Int32 @ Async = run h {
+lib/show.ml,203,sample.kel:195,sample.kel:195,sample.kel:N,コメント,512 行以前(不変),不変,一致,"let fst[A, R](t: {_item: A extends R}): A = t._item"
+lib/show.ml,258,sample.kel:210,sample.kel:210,sample.kel:N,コメント,512 行以前(不変),不変,一致,let describe[R](v: #Even | #Odd | R): String =
+lib/show.ml,263,sample.kel:59,sample.kel:59,sample.kel:N,コメント,512 行以前(不変),不変,一致,type Unit  = {}                      // 空レコード。`()` も同じものを指す
+lib/show.ml,263,:167,:167,"一覧の2つめ以降(, :N)",コメント,512 行以前(不変),不変,一致,//   ()         ≡  {}                             空タプル = 空レコ
+lib/syntax.ml,51,sample.kel:356,sample.kel:356,sample.kel:N,コメント,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+lib/syntax.ml,203,sample.kel:437,sample.kel:437,sample.kel:N,コメント,512 行以前(不変),不変,一致,type class Functor[F[_]] {
+lib/syntax.ml,319,sample.kel:190-191,sample.kel:190-191,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 閉じた行なので、要素数（arity）は静的に検査する。
+lib/syntax.ml,362,sample.kel:195,sample.kel:195,sample.kel:N,コメント,512 行以前(不変),不変,一致,"let fst[A, R](t: {_item: A extends R}): A = t._item"
+lib/syntax.ml,363,:201-203,:201-203,接頭辞のない裸の :N(範囲),コメント,512 行以前(不変),不変,一致,// また、`_item` は普通のラベルなので、抽象化は完全ではない。
+lib/syntax.ml,364,:210-215,:210-215,接頭辞のない裸の :N(範囲),コメント,512 行以前(不変),不変,一致,let describe[R](v: #Even | #Odd | R): String =
+lib/syntax.ml,591,sample.kel:59,sample.kel:59,sample.kel:N,コメント,512 行以前(不変),不変,一致,type Unit  = {}                      // 空レコード。`()` も同じものを指す
+lib/syntax.ml,591,:167,:167,"一覧の2つめ以降(, :N)",コメント,512 行以前(不変),不変,一致,//   ()         ≡  {}                             空タプル = 空レコ
+lib/syntax.ml,613,sample.kel:792,sample.kel:794,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"extern ""C"" let sqlite_step(s: Stmt): Int32 @ Blocking    // "
+lib/syntax.ml,613,:808,:810,"一覧の2つめ以降(, :N)",コメント,513 行以降(+2),付け替え(本文),一致,"let pinned[A, E](body: () => A @ {Blocking extends E}): A @ "
+lib/syntax.ml,639,sample.kel:59,sample.kel:59,sample.kel:N,コメント,512 行以前(不変),不変,一致,type Unit  = {}                      // 空レコード。`()` も同じものを指す
+lib/syntax.ml,639,:167,:167,"一覧の2つめ以降(, :N)",コメント,512 行以前(不変),不変,一致,//   ()         ≡  {}                             空タプル = 空レコ
+lib/syntax.ml,682,sample.kel:365-369,sample.kel:365-369,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,//   +  Add.add      -  Sub.sub      *  Mul.mul      /  Div.
+lib/syntax.ml,710,sample.kel:50-51,sample.kel:50-51,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータはこの規則の対象外で、文法上は大文字で始めても小文字で始めてもよい。慣習として、型は大文字
+lib/syntax.ml,723,sample.kel:358-360,sample.kel:358-360,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型クラスのパラメータのカインドは、Type か、HKT の `F[_]` のように Type を取って Type 
+lib/syntax.ml,725,sample.kel:361-362,sample.kel:361-362,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// エフェクトについて量化したいときは、クラスのパラメータではなく、メソッドの型パラメータとして行変数を取る
+lib/syntax.ml,731,sample.kel:246-247,sample.kel:246-247,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型パラメータのカインドは、宣言群の中の型の本体での使われ方から推論する。使われ方がなければ Type とする。
+lib/syntax.ml,733,sample.kel:872-874,sample.kel:874-876,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// TODO: 型パラメータのカインドを注記する構文。エイリアスには `type Request: EffectRow
+lib/syntax.ml,901,sample.kel:278,sample.kel:278,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `{l = e extends r}` は e を先に、r を最後に評価する。
+lib/syntax.ml,959,sample.kel:278,sample.kel:278,sample.kel:N,コメント,512 行以前(不変),不変,一致,// `{l = e extends r}` は e を先に、r を最後に評価する。
+lib/syntax.ml,1029,sample.kel:658,sample.kel:660,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"perform write(capture(fn() => println(""test"")).output)"
+lib/syntax.ml,1093,sample.kel:658,sample.kel:660,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,"perform write(capture(fn() => println(""test"")).output)"
+lib/unify.ml,228,sample.kel:391-395,sample.kel:391-395,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
+lib/unify.ml,311,sample.kel:391-395,sample.kel:391-395,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
+lib/unify.ml,374,sample.kel:620,sample.kel:622,sample.kel:N,コメント,513 行以降(+2),付け替え(本文),一致,perform write(text)                         // 最も左の File は d
+lib/unify.ml,415,sample.kel:195,sample.kel:195,sample.kel:N,コメント,512 行以前(不変),不変,一致,"let fst[A, R](t: {_item: A extends R}): A = t._item"
+lib/unify.ml,415,:201-203,:201-203,同じ行の二次参照(:N)(範囲),コメント,512 行以前(不変),不変,一致,// また、`_item` は普通のラベルなので、抽象化は完全ではない。
+lib/unify.ml,417,:209-215,:209-215,接頭辞のない裸の :N(範囲),コメント,512 行以前(不変),不変,一致,// ヴァリアントも行多相である。`| R` は「他のケースもありうる」ことを表す
+lib/unify.ml,828,sample.kel:356,sample.kel:356,sample.kel:N,コメント,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+lib/value.ml,126,sample.kel:273-275,sample.kel:273-275,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 関数は複数の引数を取り、1 個の値を返す。引数の個数（arity）は矢印型の一部である。
+lib/value.ml,169,sample.kel:542-545,sample.kel:544-547,sample.kel:N-M,コメント,513 行以降(+2),付け替え(本文),一致,// resume は継続を表す。resume は第二級（second-class）の値であり、節の外へ持ち出せない
+lib/value.ml,366,sample.kel:109,sample.kel:109,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 絶対値が 1e16 未満の整数値は小数点表記にする（`1e5` ではなく `100000.0`）。それ以外は有効数
+lib/value.ml,373,sample.kel:109-110,sample.kel:109-110,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 絶対値が 1e16 未満の整数値は小数点表記にする（`1e5` ではなく `100000.0`）。それ以外は有効数
+lib/value.ml,376,sample.kel:111-113,sample.kel:111-113,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 小数点も指数もない表記には `.0` を加える（`1` は整数リテラルなので別の値になるため）。
+lib/value.ml,382,sample.kel:110-112,sample.kel:110-112,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 最初に読み戻せた表記を使う。このとき指数部の `+` と先頭の `0` は除く（`1e16`、`1e-5`）。どち
+lib/value.ml,401,sample.kel:182,sample.kel:182,sample.kel:N,コメント,512 行以前(不変),不変,一致,"// 値とパターンは、2 要素以上を `(a, b)`、1 要素を `(a,)`、空行を `()` と表示する。"
+lib/value.ml,404,sample.kel:179-180,sample.kel:179-180,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// ラベル名は `_item` とする。処理系は、`_item` だけからなる閉じた行をタプルの表記に戻して表示する。
+lib/value.ml,408,sample.kel:181-182,sample.kel:181-182,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,"// 型は、2 要素以上を `(A, B)`、1 要素を `(A,)`、空行を `{}` と表示する。"
+lib/value.ml,410,sample.kel:183-185,sample.kel:183-185,sample.kel:N-M,コメント,512 行以前(不変),不変,一致,// 型と値で表記が異なるのは空行だけである。空行は、型でも値でもパターンでも、`{}` と `()` のどちらで書いて
+lib/value.ml,427,sample.kel:110,sample.kel:110,sample.kel:N,コメント,512 行以前(不変),不変,一致,// 最初に読み戻せた表記を使う。このとき指数部の `+` と先頭の `0` は除く（`1e16`、`1e-5`）。どち
+test/errloc.t,25,sample.kel:356,sample.kel:356,sample.kel:N,cram の期待出力,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+test/eval.t,173,sample.kel:581,sample.kel:583,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、脱出は抑制
+test/extern_c.t,21,sample.kel:794,sample.kel:796,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// 関数がブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。
+test/extern_c.t,38,sample.kel:792,sample.kel:794,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"extern ""C"" let sqlite_step(s: Stmt): Int32 @ Blocking    // "
+test/fs_effect.t,1,sample.kel:465,sample.kel:465,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+test/fs_effect.t,1,:594-600,:596-602,"一覧の2つめ以降(, :N)(範囲)",cram の前書き,513 行以降(+2),付け替え(本文),一致,//   __open  : (String) => Int32 @ Fs
+test/fs_effect.t,59,sample.kel:655,sample.kel:657,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// トップレベルに残せるエフェクトは、ランタイムが提供するもの（Console、Async、Fs、Blocking）だ
+test/fs_effect.t,82,sample.kel:465,sample.kel:465,sample.kel:N,cram の期待出力,512 行以前(不変),不変,一致,effect Fs      = {}                            // ランタイムが提供する
+test/fs_effect.t,82,:534,:536,"一覧の2つめ以降(, :N)",cram の期待出力,513 行以降(+2),promote,一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+test/fs_effect.t,82,sample.kel:600,sample.kel:602,sample.kel:N,cram の期待出力,513 行以降(+2),promote,一致,"let with_file[A, E](path: String, body: () => A @ {File, Fs "
+test/kinds.t,6,sample.kel:246-247,sample.kel:246-247,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 型パラメータのカインドは、宣言群の中の型の本体での使われ方から推論する。使われ方がなければ Type とする。
+test/kinds.t,7,sample.kel:252,sample.kel:252,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,// 型引数の読み方は、対応するパラメータのカインドによって変わる。カインドが EffectRow なら引数をエフェクト
+test/kinds.t,8,sample.kel:507,sample.kel:507,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,newtype Callback[E] = Callback(() => Unit @ E)  // エフェクト付きのク
+test/kinds.t,372,sample.kel:397-399,sample.kel:397-399,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// `derive structural` を書けるのは、クラスパラメータのカインドが Type のクラスだけである。
+test/kinds.t,373,sample.kel:400-402,sample.kel:400-402,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 同じカインドの規則により、インスタンスの頭部のカインドは、クラスパラメータのカインドと一致しなければならない。
+test/kinds.t,390,sample.kel:358-360,sample.kel:358-360,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 型クラスのパラメータのカインドは、Type か、HKT の `F[_]` のように Type を取って Type 
+test/kinds.t,416,sample.kel:361-362,sample.kel:361-362,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// エフェクトについて量化したいときは、クラスのパラメータではなく、メソッドの型パラメータとして行変数を取る
+test/kinds.t,448,sample.kel:252-255,sample.kel:252-255,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 型引数の読み方は、対応するパラメータのカインドによって変わる。カインドが EffectRow なら引数をエフェクト
+test/kinds.t,784,sample.kel:467,sample.kel:467,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,// `@` の右側はエフェクト行である。`@ Print` は `@ {Print}` の略記
+test/kinds.t,865,sample.kel:666,sample.kel:668,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// h のカインドは Type であり、行の位置（`@ h`）には書けない。リージョン専用のカインドは持たない（§14
+test/nonfeatures.t,83,sample.kel:50-51,sample.kel:50-51,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 型パラメータはこの規則の対象外で、文法上は大文字で始めても小文字で始めてもよい。慣習として、型は大文字
+test/nonfeatures.t,86,sample.kel:52,sample.kel:52,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,// ただし `run` が導入するリージョン変数は、文法上も小文字で始まる識別子に限る（`run h { … }`。`
+test/numeric.t,94,sample.kel:111-113,sample.kel:111-113,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 小数点も指数もない表記には `.0` を加える（`1` は整数リテラルなので別の値になるため）。
+test/parallel.t,30,sample.kel:720,sample.kel:722,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// 並列処理は純粋な計算に限るので、結果は決定的である。
+test/premise.t,1,sample.kel:410-420,sample.kel:410-420,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 前提付きインスタンスでは、型パラメータリストを `instance` の直後に書く。`instance` と `[
+test/premise.t,2,sample.kel:421,sample.kel:421,sample.kel:N,cram の前書き,512 行以前(不変),不変,一致,type instance[A: Eq] Eq[List[_]] {
+test/pub.t,39,sample.kel:653,sample.kel:655,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,}
+test/region.t,41,sample.kel:692,sample.kel:694,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// length が Heap[h] を要求するのは、長さが変わりうるからではない（長さを変える操作はない）。可変配列
+test/region.t,132,sample.kel:690,sample.kel:692,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// この契約は 1 段だけに適用する。要素そのものが可変配列なら、取り出した配列の要素は、元の可変配列の要素と同じもの
+test/region.t,149,sample.kel:691,sample.kel:693,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"// ただし要素の h は結果の型 Array[MutableArray[h, A]] に残るので、脱出検査がリージョン"
+test/region.t,161,sample.kel:675,sample.kel:677,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"// 標準ライブラリ側のシグネチャ（`[h, A]` は型パラメータを示す。ここだけの表記で、型式の構文ではない）："
+test/region.t,162,sample.kel:693,sample.kel:695,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"// MutableArray[h, A] は型注釈にも書ける（上の `[h, A]` はパラメータの並びを示す表記で、"
+test/runtime_effects.t,1,sample.kel:534,sample.kel:536,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+test/runtime_effects.t,2,:724,:726,接頭辞のない裸の :N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+test/runtime_effects.t,16,sample.kel:464,sample.kel:464,sample.kel:N,cram の期待出力,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+test/runtime_effects.t,16,:534,:536,"一覧の2つめ以降(, :N)",cram の期待出力,513 行以降(+2),promote,一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+test/runtime_effects.t,29,sample.kel:464,sample.kel:464,sample.kel:N,cram の期待出力,512 行以前(不変),不変,一致,effect Console = { write: (String) => Unit }   // ランタイムが提供する
+test/runtime_effects.t,29,:534,:536,"一覧の2つめ以降(, :N)",cram の期待出力,513 行以降(+2),promote,一致,// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
+test/runtime_effects.t,41,sample.kel:724,sample.kel:726,sample.kel:N,cram の期待出力,513 行以降(+2),promote,一致,// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+test/runtime_effects.t,73,sample.kel:658,sample.kel:660,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"perform write(capture(fn() => println(""test"")).output)"
+test/spec_gaps.t,15,§14:868-869,§14:870-871,§N:M(範囲),cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: リージョンに専用のカインド（Region）を導入するか。現状の h はカインド Type なので、
+test/spec_gaps.t,17,§14:872-874,§14:874-876,§N:M(範囲),cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: 型パラメータのカインドを注記する構文。エイリアスには `type Request: EffectRow
+test/spec_gaps.t,18,§14:857,§14:859,§N:M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: Chan の標準ライブラリ側のシグネチャ。§11 の channel、send、recv は署名の形し
+test/spec_gaps.t,19,:858,:860,接頭辞のない裸の :N,cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: モジュールの入れ子。名前解決と可視性の規則（外側の pub でない束縛が内側から見えるか）が未定である
+test/spec_gaps.t,19,:859-864,:861-866,接頭辞のない裸の :N(範囲),cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: Ord[Float64]、Eq[Float64] と NaN。IEEE 754 に従うと、eq、lt、
+test/spec_gaps.t,23,§14:870-871,§14:872-873,§N:M(範囲),cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: pub でない let で、「本体は純粋、呼び出しはどの行からでも可」を注釈で書く手段。
+test/spec_gaps.t,51,§14:865,§14:867,§N:M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: 非有限値（NaN、無限大）のリテラルを追加するか。現状は、文字列化した表記 `nan`、`inf` を
+test/spec_gaps.t,59,§14:866,§14:868,§N:M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: 整数算術の桁あふれ。現状は折り返すが、実行時エラーにする案も残っている（§2）。
+test/spec_gaps.t,76,§14:867,§14:869,§N:M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// TODO: 不変配列を作る手段。現状は MutableArray.freeze だけで、リテラルも Array.n
+test/tokens.t,447,sample.kel:40-42,sample.kel:40-42,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// ソースは UTF-8 で書く。BOM（U+FEFF）はソースのどこにあっても字句エラーにする。先頭だけの規則ではな
+test/tokens.t,601,sample.kel:26-28,sample.kel:26-28,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,//   `@` の直後、EffectRow のエイリアスの右辺、effect 宣言の本体では、上の表のどれに分類されて
+test/typecheck.t,157,sample.kel:391-395,sample.kel:391-395,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
+test/typecheck_m6.t,74,sample.kel:648,sample.kel:650,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"type Request: EffectRow = {ReqId, Logger, Tracer}"
+test/typecheck_m6.t,131,sample.kel:526-527,sample.kel:528-529,sample.kel:N-M,cram の前書き,513 行以降(+2),付け替え(本文),一致,//            操作節が 1 つでも修飾されているときは、その修飾先を対象とし、非修飾の節もそのエフェクトの
+test/typecheck_m6.t,241,sample.kel:514-515,sample.kel:516-517,sample.kel:N-M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// 操作名は英小文字で始める。`return` と `cancel` は handle の節の名前と衝突するので、操作
+test/typecheck_m7.t,109,sample.kel:356,sample.kel:356,sample.kel:N,cram の期待出力,512 行以前(不変),不変,一致,// ランク 2 多相と多パラメータ型クラスは、意図して除外する。代わりにエフェクトと行多相を使う。
+test/typecheck_sample.t,73,sample.kel:546,sample.kel:548,sample.kel:N,cram の前書き,513 行以降(+2),付け替え(本文),一致,"println(""test"") handle {"
+test/typecheck_sample.t,73,:658,:660,同じ行の二次参照(:N),cram の前書き,513 行以降(+2),付け替え(本文),一致,"perform write(capture(fn() => println(""test"")).output)"
+test/verify_fixes.t,4,sample.kel:201-203,sample.kel:201-203,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// また、`_item` は普通のラベルなので、抽象化は完全ではない。
+test/verify_fixes.t,4,:209-215,:209-215,同じ行の二次参照(:N)(範囲),cram の前書き,512 行以前(不変),不変,一致,// ヴァリアントも行多相である。`| R` は「他のケースもありうる」ことを表す
+test/verify_fixes.t,25,sample.kel:664-665,sample.kel:666-667,sample.kel:N-M,cram の前書き,513 行以降(+2),付け替え(本文),一致,// `run h { … }` は、rigid なリージョン変数 h（単一化で他の型に置き換わらない変数）を導入し、H
+test/verify_fixes.t,81,sample.kel:476-478,sample.kel:476-478,sample.kel:N-M,cram の前書き,512 行以前(不変),不変,一致,// 束縛（let、pub let、extern、型クラスのメソッド）の最外の矢印にラベル付きの行を書くと、

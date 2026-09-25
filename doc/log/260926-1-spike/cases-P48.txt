@@ -1,0 +1,435 @@
+==== P48/a_read.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { Ref.get(r) }
+  x
+}
+echoln(show(f()))
+==== P48/b_write.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { Ref.set(r, 5) }
+  Ref.get(r)
+}
+echoln(show(f()))
+==== P48/c2_outerlocal.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let g() = Ref.get(r)
+  let x = run h2 { g() }
+  x
+}
+echoln(show(f()))
+==== P48/c_outerfn.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let g = fn() => Ref.get(r)
+  let x = run h2 { g() }
+  x
+}
+echoln(show(f()))
+==== P48/d_closure_nocall.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let k = fn() => Ref.get(r); 7 }
+  x
+}
+echoln(show(f()))
+==== P48/e_closure_return.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 { fn() => Ref.get(r) }
+  Ref.set(r, 9)
+  k()
+}
+echoln(show(f()))
+==== P48/f2_marray_length.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(3, 0)
+  let n = run h2 { MutableArray.length(a) }
+  n
+}
+echoln(show(f()))
+==== P48/f3_marray_freeze.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(3, 5)
+  let b = run h2 { MutableArray.freeze(a) }
+  Array.get(b, 0)
+}
+echoln(show(f()))
+==== P48/f_marray_set.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(3, 0)
+  run h2 { MutableArray.set(a, 0, 42) }
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== P48/g_own_only.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); Ref.set(s, Ref.get(s) + 1); Ref.get(s) }
+  Ref.get(r) + x
+}
+echoln(show(f()))
+==== P48/h2_console_infer.kel ====
+let f() = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { echoln("inner"); let s = Ref.new(2); Ref.get(s) }
+  Ref.get(r) + x
+}
+echoln(show(f()))
+==== P48/h_console.kel ====
+let f(): Int32 @ Console = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { echoln("inner"); let s = Ref.new(2); Ref.get(s) }
+  Ref.get(r) + x
+}
+echoln(show(f()))
+==== P48/i2_argfn_local.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let rd = fn(x) => Ref.get(x)
+  let y = run h2 { rd(r) }
+  y
+}
+echoln(show(f()))
+==== P48/i3_argfn_annot.kel ====
+let rd[h](x: Ref[h, Int32]): Int32 @ {Heap[h]} = Ref.get(x)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { rd(r) }
+  x
+}
+echoln(show(f()))
+==== P48/i4_argfn_outside.kel ====
+let rd(x) = Ref.get(x)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); rd(s) }
+  rd(r) + x
+}
+echoln(show(f()))
+==== P48/i_argfn_top.kel ====
+let rd(x) = Ref.get(x)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { rd(r) }
+  x
+}
+echoln(show(f()))
+==== P48/j_outer_body.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  Ref.set(r, 2)
+  let x = run h2 { let s = Ref.new(10); Ref.get(s) }
+  Ref.set(r, Ref.get(r) + x)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== P48/k2_marray_pass.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(2, 0)
+  let b = run h2 { let s = Ref.new(a); Ref.get(s) }
+  MutableArray.set(b, 1, 8)
+  MutableArray.get(a, 1)
+}
+echoln(show(f()))
+==== P48/k_pass_through.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let r2 = run h2 { r }
+  Ref.set(r2, 3)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== P48/l_store_in_inner.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let r2 = run h2 { let s = Ref.new(r); Ref.get(s) }
+  Ref.set(r2, 4)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== P48/m1_arg_unannot.kel ====
+let setz(a) = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== P48/m2_arg_annot.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== P48/m3_arg_annot_heap.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h2 { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== P48/m4_arg_annot_open.kel ====
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = run h2 { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== P48/m5_arg_norun.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = MutableArray.set(a, 0, 42)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== P48/m6_param_pass.kel ====
+let keep[h](a: MutableArray[h, Int32]): MutableArray[h, Int32] = run h2 { a }
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 3)
+  MutableArray.get(keep(a), 0)
+}
+echoln(show(f()))
+==== P48/m7_param_closure.kel ====
+let bump[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  k()
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  bump(a)
+}
+echoln(show(f()))
+==== P48/n2_handler_inside.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 {
+    (perform Rd.rd()) handle {
+      case Rd.rd() => resume(Ref.get(r))
+    }
+  }
+}
+echoln(show(f()))
+==== P48/n_handler_bridge.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  Ref.set(r, 6)
+  run h2 { let s = Ref.new(10); Ref.get(s) + perform Rd.rd() } handle {
+    case Rd.rd() => resume(Ref.get(r))
+  }
+}
+echoln(show(f()))
+==== P48/o_triple.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let s = Ref.new(2)
+    let y = run h3 { Ref.get(s) }
+    y
+  }
+  x
+}
+echoln(show(f()))
+==== P48/p_inner_in_lambda.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let g = fn() => run h2 { Ref.get(r) }
+  g()
+}
+echoln(show(f()))
+==== P48/q_annot_outer_region.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s: Ref[h1, Int32] = Ref.new(0); 3 }
+  x
+}
+echoln(show(f()))
+==== P48/r_higher_order.kel ====
+let app[A, E](k: () => A @ E): A @ E = k()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { app(fn() => Ref.get(r)) }
+  x
+}
+echoln(show(f()))
+==== P48/s_order_swap.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); Ref.get(s) + Ref.get(r) }
+  x
+}
+echoln(show(f()))
+==== P48/t_each_outer.kel ====
+let f(xs: Array[Int32]): Int32 = run h1 {
+  let acc = Ref.new(0)
+  let n = run h2 { Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x)); 0 }
+  Ref.get(acc) + n
+}
+echoln("ok")
+==== P48/v2_store_via_closure.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(Ref.new(0))
+  let k = run h2 { let s = Ref.new(5); fn() => Ref.set(r, s) }
+  0
+}
+echoln(show(f()))
+==== P48/v3_escape_via_outer.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(None)
+  let k = run h2 { let s = Ref.new(5); fn() => Ref.set(r, Some(s)) }
+  0
+}
+echoln(show(f()))
+==== P48/v4_escape_direct.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(None)
+  run h2 { let s = Ref.new(5); Ref.set(r, Some(s)) }
+  0
+}
+echoln(show(f()))
+==== P48/v_store_outer.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(Ref.new(0))
+  run h2 { let s = Ref.new(5); Ref.set(r, s) }
+  0
+}
+echoln(show(f()))
+==== P48/w_same_name.kel ====
+let f(): Int32 = run h {
+  let r = Ref.new(1)
+  let x = run h { Ref.get(r) }
+  x
+}
+echoln(show(f()))
+==== P48/x_toplevel_nested.kel ====
+let v = run h1 { let r = Ref.new(1); run h2 { Ref.get(r) } }
+echoln(show(v))
+==== P48/y_closure_call_after.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let g = fn() => Ref.get(r)
+  let x = run h2 { let s = Ref.new(2); Ref.get(s) }
+  g() + x
+}
+echoln(show(f()))
+==== P48/z_param_region_call.kel ====
+let bump[h, E](g: () => Unit @ {Heap[h] extends E}): Unit @ {Heap[h] extends E} = run h2 { g() }
+echoln("ok")
+==== 反証/p1_return_clause.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 {
+    (perform Rd.rd()) handle {
+      case Rd.rd() => resume(3)
+      case return(x) => x + Ref.get(r)
+    }
+  }
+}
+echoln(show(f()))
+==== 反証/p2b_triple_bridge_mid.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h0 {
+  let r0 = Ref.new(7)
+  run h1 {
+    let r1 = Ref.new(1)
+    run h2 { let s = Ref.new(10); Ref.get(s) + perform Rd.rd() } handle {
+      case Rd.rd() => resume(Ref.get(r1))
+    }
+  }
+}
+echoln(show(f()))
+==== 反証/p2_triple_bridge.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h0 {
+  let r0 = Ref.new(7)
+  run h1 {
+    let r1 = Ref.new(1)
+    run h2 { let s = Ref.new(10); Ref.get(s) + perform Rd.rd() } handle {
+      case Rd.rd() => resume(Ref.get(r0))
+    }
+  }
+}
+echoln(show(f()))
+==== 反証/p3b_twoheap_swap.kel ====
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[k], Heap[h]} = 0
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); g(s, r) }
+  x
+}
+echoln(show(f()))
+==== 反証/p3c_twoheap_pure_outer.kel ====
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); g(s, r) }
+  Ref.set(r, x)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証/p3d_twoheap_op_second.kel ====
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(t)
+echoln("ok")
+==== 反証/p3e_param_region.kel ====
+let g[h, k](s: Ref[h, Int32], t: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let bump[k, E](a: MutableArray[k, Int32]): Int32 @ {Heap[k] extends E} = run h2 { let s = Ref.new(3); g(s, a) }
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 反証/p3f_param_region_noheap.kel ====
+let g[h, k](s: Ref[h, Int32], t: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let bump[k](a: MutableArray[k, Int32]): Int32 = run h2 { let s = Ref.new(3); g(s, a) }
+echoln("ok")
+==== 反証/p3g_infer.kel ====
+let g[h, k](s: Ref[h, Int32], t: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let bump(a) = run h2 { let s = Ref.new(3); g(s, a) }
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 反証/p3h_pure_annot.kel ====
+let g[h, k](s: Ref[h, Int32], t: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let bump[k](a: MutableArray[k, Int32]): Int32 @ {} = run h2 { let s = Ref.new(3); g(s, a) }
+echoln("ok")
+==== 反証/p3_twoheap.kel ====
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); g(s, r) }
+  x
+}
+echoln(show(f()))
+==== 反証/p4_spawn_like_par.kel ====
+let f(xs: Array[Int32]): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { Array.get(par_map(xs, fn(x) => x + Ref.get(r)), 0) }
+  x
+}
+echoln("ok")
+==== 反証/p5_return_outside.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  Ref.set(r, 4)
+  run h2 { let s = Ref.new(10); Ref.get(s) } handle {
+    case Rd.rd() => resume(0)
+    case return(x) => x + Ref.get(r)
+  }
+}
+echoln(show(f()))
+==== 反証/p6_closure_via_twoheap.kel ====
+let call2[h, k](s: Ref[h, Int32], go: () => Int32 @ {Heap[h], Heap[k]}): Int32 @ {Heap[h], Heap[k]} = go()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); call2(s, fn() => Ref.get(s)) }
+  x
+}
+echoln(show(f()))
+==== 棚卸し/two_inf.kel ====
+let two(a, b) = Ref.get(a) + Ref.get(b)
+==== 棚卸し/two.kel ====
+let two[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(a) + Ref.get(b)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let s = Ref.new(2)
+  two(r, s)
+}
+echoln(show(f()))
+==== 棚卸し/two_one.kel ====
+let one[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[h]} = Ref.get(a)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let s = Ref.new(2)
+  one(r, s)
+}
+echoln(show(f()))
+==== 棚卸し/two_rev.kel ====
+let two[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[k], Heap[h]} = Ref.get(b)

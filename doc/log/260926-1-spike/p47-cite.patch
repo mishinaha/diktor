@@ -1,0 +1,57 @@
+diff --git a/lib/elab.ml b/lib/elab.ml
+index c23a3e9..13601d4 100644
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2362,7 +2362,7 @@ and elab_handle env level eff clauses body =
+      実行時の節の選択は match と同じフォールスルー(第14章)だが、
+      ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形はここで拒否する。
+      実行時に取りこぼしうるプログラムを型検査で通さない。
+-     絞り込みの節を複数合わせると網羅できる場合も、総和的な節が無ければ拒否する *)
++     絞り込みの節を複数合わせると網羅できる場合も、総和的な節が無ければ拒否する(sample.kel:514) *)
+   List.iter
+     (fun (op, _) ->
+       if not (List.exists (fun ((o, _, _, _), _, _, total) -> o = op && total) op_clauses) then
+@@ -2424,7 +2424,7 @@ and elab_handle env level eff clauses body =
+      型は付くのに実行時に落ちるプログラムを通してしまう。
+      §11.21 の静的な検査は節の本体しか走査しないので、ガードの resume はここで防ぐ。
+    - 操作節には総和性検査がある(§11.23 の網羅の検査の直後)。
+-     各操作に、総和的な節が 1 つ以上要る。
++     各操作に、総和的な節が 1 つ以上要る(sample.kel:513-514)。
+      総和的な節とは、ガードが無く、引数パターンの並びがどんな引数にも一致する節である。
+      判定には第10章の missing を使うので、変数や `_` のほか、
+      コンストラクタが 1 つしかない newtype の分解や、ラベルが 1 つの閉じたヴァリアントの分解も、
+diff --git a/lib/interp.ml b/lib/interp.ml
+index 2974300..d429842 100644
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -842,6 +842,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
+    素の raise にしないのは、3 つの経路の規約どおり、捨てた継続の cancel 節を走らせるためである。
+ 
+    Diktor は、ハンドラの外への後送り(re-perform)を実装していない。
++   仕様も、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たない(sample.kel:513)。
+    機構としては実装できる。
+    `effc` のハンドラ関数は fiber の外で走るので、そこから `Effect.perform` すれば、
+    自分を飛ばして外側のハンドラに届く。
+diff --git a/test/eval.t b/test/eval.t
+index 997c07b..2c6e6cd 100644
+--- a/test/eval.t
++++ b/test/eval.t
+@@ -393,7 +393,7 @@ Run モードでも網羅性警告は stderr に出る:
+   1
+ 
+ コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの操作節は、
+-取りこぼさない節に数える。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
++取りこぼさない節に数える(sample.kel:514)。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
+ 
+   $ cat > soleop.kel <<'EOF2'
+   > newtype Box = MkBox(Int32)
+@@ -479,7 +479,8 @@ Run モードでも網羅性警告は stderr に出る:
+   ! solevar2.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+   [1]
+ 
+-絞り込みの節を複数合わせると引数を網羅できる場合も、取りこぼさない節が 1 つも無ければ拒否する:
++絞り込みの節を複数合わせると引数を網羅できる場合も、
++取りこぼさない節が 1 つも無ければ拒否する(sample.kel:514):
+ 
+   $ cat > opcover.kel <<'EOF2'
+   > effect Ask = { ask: (Option[Int32]) => Int32 }

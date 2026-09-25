@@ -1,0 +1,891 @@
+diff --git a/README.md b/README.md
+index 3731505..5300f37 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート
+ - `../reference/MiniLang.scala` — 型推論器のリファレンス実装
+ 
+ `lib` と `test` の記事本文が引く `sample.kel:NNN` は、親のリビジョン
+-**8b64d4f**(846 行)の行番号です。仕様が改訂されたら `test/sample/sample.kel`
++**<REV>**(876 行)の行番号です。仕様が改訂されたら `test/sample/sample.kel`
+ の同期と同時に付け替えます。`doc/log` の過去エントリの行番号は当時のまま
+ 残します(書き換えると記録が読めなくなるため)。
+ 
+@@ -83,7 +83,7 @@ ocamlformat / `dune fmt` は列 0 ブロックを再インデントして規約
+ 別のコミットにしてください。
+ 
+ `test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです(現在は親の
+-8b64d4f、846 行)。取り込み元のリビジョン・blob SHA・md5 は
++<REV>、876 行)。取り込み元のリビジョン・blob SHA・md5 は
+ `test/sample/README.md` に記録してあり、同じファイルに同期手順と、無改変で
+ あることを git の blob SHA で検証する 1 行があります。sample.kel 本体には何も
+ 書き足しません。
+diff --git a/lib/builtin.ml b/lib/builtin.ml
+index 05ec6d2..27d5a0d 100644
+--- a/lib/builtin.ml
++++ b/lib/builtin.ml
+@@ -92,10 +92,10 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり
+    実体はメモリ上の 2 つのハッシュ表で、パスから内容への `fs` と、
+    ハンドルからパスへの `handles` である。
+ 
+-   これで足りるのは、これらのプリミティブの目的が sample.kel:601-606 の `with_file` を動かすことにあり、
++   これで足りるのは、これらのプリミティブの目的が sample.kel:603-608 の `with_file` を動かすことにあり、
+    ファイル入出力そのものにはないからである。
+    `with_file` が示すのは、ハンドラが資源を持ち、正常に終われば `return` 節で、
+-   外側が継続を捨てたら `cancel` 節で `__close` を実行するという制御の流れである(sample.kel:605-606)。
++   外側が継続を捨てたら `cancel` 節で `__close` を実行するという制御の流れである(sample.kel:607-608)。
+    この流れは、ダミーでも本物と同じように動く。
+ 
+    その代わり、ダミーであることによる制限がある。
+@@ -194,14 +194,14 @@ let reset_fs () =
+    `Ord` クラスは順序の公理を何も約束しない。
+ 
+    全順序が必要な場面の書き方は、仕様でも未定である。
+-   仕様は §14(sample.kel:859-864)で、
++   仕様は §14(sample.kel:861-866)で、
+    `Ord[Float64]` と `Eq[Float64]` と NaN の扱いを未決の課題として 2 つの案に整理している。
+    案(1)は「newtype で包んだ TotalFloat64 だけが Ord と Eq を実装する」で、
+    sample.kel:259 の `newtype TotalFloat64(Float64)` がその例である。
+    ただし仕様は、`TotalFloat64` に `Ord` を実装するかどうかを未定と注記している(sample.kel:259)。
+    仕様が `Eq[Float64]` も並べて挙げているのは、等価でも反射律が成り立たないからである。
+    `derive structural` の `Eq` はフィールドへ再帰するので、
+-   `Float64` のフィールドを 1 つ持つレコードも反射律を失う(sample.kel:861)。
++   `Float64` のフィールドを 1 つ持つレコードも反射律を失う(sample.kel:863)。
+    たとえば `{x = 0.0 / 0.0}` は自分自身と等しくない。
+ 
+    `__string_sub` は範囲外の指定を捕まえる。
+diff --git a/lib/decls.ml b/lib/decls.ml
+index f046602..b00144b 100644
+--- a/lib/decls.ml
++++ b/lib/decls.ml
+@@ -200,11 +200,11 @@ let add_extern ~prim name =
+    その関数を呼ぶと、「Float64 ではありません」という、利用者には原因の見えない実行時エラーになる。
+    §6.2 のプレリュードの保護では、この宣言を防げない。
+    保護が効くのはプレリュードが宣言した名前だけで、sin はプレリュードで宣言できないからである。
+-   sample.kel:791 が sin を自前で宣言するので、プレリュードが先に宣言すると、
++   sample.kel:793 が sin を自前で宣言するので、プレリュードが先に宣言すると、
+    sample.kel の検査が再宣言の拒否で落ちる。
+ 
+    署名との照合で見るのは引数型と返り値型だけで、行は見ない。
+-   仕様(sample.kel:794)が、`@ Blocking` を付けるかどうかをバインディングの作者の判断に委ねているからである。
++   仕様(sample.kel:796)が、`@ Blocking` を付けるかどうかをバインディングの作者の判断に委ねているからである。
+ 
+    署名は本章、実装は第13章と、2 つの表に分かれる。
+    署名を本章に置くのは、第11章(elab.ml)から第13章を参照すると章の順序が逆転するからである。
+@@ -282,7 +282,7 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
+      同名を禁止すれば、環境に無かったときだけ module スコープの同義語を引くというフォールバックの結果が、
+      2 つの解決器で一致する。
+ 
+-   **コンパニオン型**：module と同名の型で、module 名だけで参照できる(sample.kel:838)。
++   **コンパニオン型**：module と同名の型で、module 名だけで参照できる(sample.kel:840)。
+    コンパニオン型の同義語だけは、大域の `con_synonyms` に張る。
+    `module BigInt` の中の `newtype BigInt` は `BigInt.BigInt` へ改名され、
+    大域の同義語 `BigInt` → `BigInt.BigInt` が張られる。
+@@ -789,7 +789,7 @@ let add_data info =
+ 
+    ### 操作名は大域で一意ではない
+ 
+-   sample.kel 自身が `Console.write`(:464)と `File.write`(:590)の両方を宣言しているので、
++   sample.kel 自身が `Console.write`(:464)と `File.write`(:592)の両方を宣言しているので、
+    操作名を大域で一意にするという素朴な規則は使えない。
+    そこで Diktor は操作名の重複した宣言を許す。
+    `op_index` は、非修飾の操作名から、その操作を持つエフェクトを宣言の順に並べた列を引く表である。
+@@ -800,9 +800,9 @@ let add_data info =
+    候補の先頭を採ると、宣言の順序に依存した誤った解決になる。
+    そこで第11章は、候補が複数あるとき、その地点のエフェクト行で最も左に現れる候補を採る。
+    明示されたラベルにある候補を優先する規則では足りない。
+-   sample.kel:616 の `copy` は `File` と `Console` の両方が行に載っている文脈で `write` を呼ぶ(:620)ので、
++   sample.kel:618 の `copy` は `File` と `Console` の両方が行に載っている文脈で `write` を呼ぶ(:622)ので、
+    この規則では曖昧になる。
+-   仕様は :530-532 で、`with_file` が積んだ `File` が左にあることと、
++   仕様は :532-534 で、`with_file` が積んだ `File` が左にあることと、
+    同じエフェクトを二重に積むと操作は内側のハンドラにしか届かないことを定めている。
+    最も左を採る規則は、Scoped Labels の最左一致と同じである。
+    推論で組み立てた行では、最も左の候補が最も内側のハンドラと一致する。
+@@ -1114,12 +1114,12 @@ let intern = Type.intern
+    `freeze` の契約では、取り出した後に元の可変配列へ書き込んでも、取り出した不変配列は変わらない。
+    この契約は 1 段だけに適用する。
+    要素そのものが可変配列なら、取り出した配列の要素は、
+-   元の可変配列の要素と同じものを指す(sample.kel:690)。
++   元の可変配列の要素と同じものを指す(sample.kel:692)。
+    `test/region.t` の nested は、`freeze` の後に内側の配列へ書き込んだ 99 を、
+    `frozen` を通して読み出す。
+    値は共有されるが、型は破れない。
+    要素の `h` が結果の型 `Array[MutableArray[h, A]]` に残るので、
+-   脱出検査がリージョンの外への持ち出しを拒否する(sample.kel:691)。
++   脱出検査がリージョンの外への持ち出しを拒否する(sample.kel:693)。
+    nested2 は、この持ち出しが「スコープ付きの型 ς1 がスコープの外に漏れています」で落ちることを確かめる。
+    flat は、要素が可変配列でなければ同じ形が通ることを確かめる。
+ 
+@@ -1129,7 +1129,7 @@ let intern = Type.intern
+    `MutableArray.length` は、長さが変わらないのに `Heap[h]` を要求する。
+    これは仕様の署名の一覧のとおりで、仕様はその理由も定めている。
+    `Heap[h]` を要求するのは、長さが変わりうるからではなく(長さを変える操作は無い)、
+-   可変配列に触れること自体を行に記録するためである(sample.kel:692)。
++   可変配列に触れること自体を行に記録するためである(sample.kel:694)。
+ 
+    `Array.each` の行 `e` は、コールバックと呼び出し全体で共有する。
+    高階関数がエフェクト多相であるための最小の形である。
+@@ -1204,7 +1204,7 @@ let register_ref_array () =
+ 
+    型の要点は 2 つある。
+    1 つ目は、コールバックの行を閉じた空の行(`TRowEmpty`)にすることである。
+-   仕様は sample.kel:720 で、「並列処理は純粋な計算に限るので、結果は決定的である」と保証している。
++   仕様は sample.kel:722 で、「並列処理は純粋な計算に限るので、結果は決定的である」と保証している。
+    この保証が成り立つのは、ここでコールバックに純粋であることを要求しているからである。
+    2 つ目は、外側の行を Generic の行変数にすることである。
+    `TRowEmpty` にすると、トップレベルから呼べない関数になる。
+diff --git a/lib/elab.ml b/lib/elab.ml
+index 5f8a7ef..160d2a8 100644
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -281,15 +281,15 @@ let rec fully_effected ((_, te) : T.type_exp) =
+ 
+ (* pub の完全注釈検査。引数と返り値に注釈があるだけでなく、注釈の中の矢印にも @ が要る。
+    入れ子の矢印の省略 @ は @ {} と読むので、この規則は健全性のためのものではない。
+-   仕様 §13(sample.kel:815-821)が可読性のために定めた規則で、
++   仕様 §13(sample.kel:817-823)が可読性のために定めた規則で、
+    公開 API では、純粋を意図したのか書き忘れたのかを読み手が区別できなければならない。
+-   pub newtype のフィールド(§11.31)にも同じ規則が掛かる(sample.kel:818-819)。
++   pub newtype のフィールド(§11.31)にも同じ規則が掛かる(sample.kel:820-821)。
+ 
+    値束縛(引数リストを持たない `let`)の注釈の頭の矢印は、この「中の矢印」に入らない。
+    頭は束縛の最外だからである。
+    仕様 §9 は、「最外の矢印」の指す先を関数束縛と値束縛で書き分けている(sample.kel:484-485)。
+-   仕様 §13 は入れ子の矢印の `@` も省略できないと定め(sample.kel:815)、
+-   最外の省略には別の意味を与えている(sample.kel:820-821)。
++   仕様 §13 は入れ子の矢印の `@` も省略できないと定め(sample.kel:817)、
++   最外の省略には別の意味を与えている(sample.kel:822-823)。
+    本体に純粋を要求し、公開する型を行多相にするという意味である。
+    値束縛の頭の矢印も同じ扱いであることは、仕様 §9 の表が定めている(:492)。
+ 
+@@ -1478,7 +1478,7 @@ and elab_exp' env level eff node e =
+    引数を先に推論すると、ラムダの行はまだ何も決まっていない新しい行変数で、ラベルが 1 つも見えない。
+    そのため解決が間に合わない。
+ 
+-   この順序が必要になる例が、sample.kel:616-621 の `copy` である。
++   この順序が必要になる例が、sample.kel:618-623 の `copy` である。
+ 
+    ```
+    let copy(src: String, dst: String): Unit @ {Console, Fs} = {
+@@ -1720,7 +1720,7 @@ and elab_exp' env level eff node e =
+    resume を呼ぶと残りの計算が同じハンドラの下で最後まで走り、その最終結果が返ってくることを、
+    この型が表している。
+ 
+-   引数の省略は、操作の返り値型が Unit のときだけ許す(sample.kel:545)。
++   引数の省略は、操作の返り値型が Unit のときだけ許す(sample.kel:547)。
+    `Unit` と単一化するだけなので、規則は 1 行で済む。
+ 
+    resume を値の環境に入れず `env` のフィールドにするのは、
+@@ -1737,7 +1737,7 @@ and elab_exp' env level eff node e =
+           (match arg with
+           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
+           | None ->
+-              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:545) *)
++              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:547) *)
+               Unify.unify t_unit op_ret);
+           tres)
+ (* ## 11.17 run
+@@ -1944,7 +1944,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
+ (* ## 11.20 操作名の解決
+ 
+    Keleut は操作名の重複を許す。
+-   仕様の sample.kel 自身が `Console.write`(:464)と `File.write`(:590)を両方宣言しているので、
++   仕様の sample.kel 自身が `Console.write`(:464)と `File.write`(:592)を両方宣言しているので、
+    操作名が大域で一意だとは仮定できない。
+ 
+    修飾された操作名は、宣言表を直接引く。
+@@ -2072,7 +2072,7 @@ and resolve_perform eff li =
+ 
+    2 段の検査により、継続は節の外で呼べない。
+    そのため、節を抜ける時点で継続の生死が確定し、
+-   cancel による自動の巻き戻しが成り立つ(sample.kel:542-545)。
++   cancel による自動の巻き戻しが成り立つ(sample.kel:544-547)。
+    継続がどこかの閉包に生き残っている可能性があると、巻き戻しの時点を決められない。 *)
+ 
+ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+@@ -2138,7 +2138,7 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+    操作節は 1 つ以上必要である。
+    操作を 1 つも扱わない handle は、書き手の誤りとみなす。
+ 
+-   修飾できるのは操作節だけである(sample.kel:514-515)。
++   修飾できるのは操作節だけである(sample.kel:516-517)。
+    `return` と `cancel` は操作名ではなく handle の節の名前なので、修飾先を書いても、
+    対象エフェクトの決定には何も寄与しない(§11.23)。
+    分類器は `List.rev comps` の先頭、つまり修飾名の末尾の部分で節を分類する。
+@@ -2190,12 +2190,12 @@ and elab_handle env level eff clauses body =
+ 
+    節は操作名で書くので、このハンドラがどのエフェクトを消すのかを決める必要がある。
+    規則は 2 段である。
+-   仕様 §9 は、修飾のない操作名の解決規則を perform と handle で書き分けている(sample.kel:517-527)。
++   仕様 §9 は、修飾のない操作名の解決規則を perform と handle で書き分けている(sample.kel:519-529)。
+    この 2 段は、そのうち handle の側にあたる。
+ 
+    操作節が 1 つでも修飾されていれば、その修飾先が対象である。
+    修飾されていない節は、そのエフェクトの操作として読む。
+-   修飾先が 2 つ以上に割れていれば、エラーにする(sample.kel:526-527)。
++   修飾先が 2 つ以上に割れていれば、エラーにする(sample.kel:528-529)。
+    実装は下の `List.sort_uniq compare quals` の 1 行である。
+    要素が 1 つなら対象が決まり、2 つ以上ならエラーになり、空なら次の段へ進む。
+    材料は操作節の修飾だけである。
+@@ -2246,8 +2246,8 @@ and elab_handle env level eff clauses body =
+   (* 対象エフェクトは、全節が属し全操作が網羅される候補として一意に決まらなければならない *)
+   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
+   let op_names = List.map (fun (op, _, _, _) -> op) ops in
+-  (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:534 が
+-     Console / Async / Fs の 3 つを名指しで定める(Async については :724 にも
++  (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:536 が
++     Console / Async / Fs の 3 つを名指しで定める(Async については :726 にも
+      「スケジューラを利用者に書かせない」とある)。許すと、出力を黙って消す
+      恒等ハンドラが書け、File.write のつもりの case write(s) が Console を
+      消すことも起きる。判定は、ランタイムの名簿に名前があり、かつプレリュードが
+@@ -2554,7 +2554,7 @@ and make_rigids ?kinds level tparams =
+ 
+ (* ## 11.26 明示的なエフェクト注釈を開く
+ 
+-   `@ Print` をラベル 1 つの閉じた行と読むと、sample.kel:546 が型付かない。
++   `@ Print` をラベル 1 つの閉じた行と読むと、sample.kel:548 が型付かない。
+ 
+    ```
+    println(msg) handle {
+@@ -2581,7 +2581,7 @@ and make_rigids ?kinds level tparams =
+ 
+    4 行目は、1 行目と同じ非対称(本体には剛く、公開には寛く)を、空の行にも当てはめたものである。
+    仕様 §13 も、この省略では本体が純粋でなければならず、
+-   公開される型は行多相になると定める(sample.kel:815-821)。
++   公開される型は行多相になると定める(sample.kel:817-823)。
+    省略を閉じた空の行と読むと、sample.kel 自身が型付かない。
+    `Db.query` が `handle_request` から呼べなくなる。
+    4 行目の読みでは、`pub let f(): Unit`(省略)と `pub let f(): Unit @ {}`(明示)は別の型になる。
+@@ -3140,7 +3140,7 @@ and elab_rec_bindings env level eff bs : env =
+ 
+    - `Console`：出力の最終的な行き先である。
+      ランタイムが実装を持ち、利用者はハンドルできない(§11.23)。
+-   - `Async`：sample.kel:772 の `crunch` が、
++   - `Async`：sample.kel:774 の `crunch` が、
+      `@ Async` を持ったままトップレベルから呼ばれるからである。
+      `yield_` は型検査を通り、実行時には何もしない。
+      Diktor はこの振る舞いを、`Async` をランタイムが提供するエフェクトとして行に置くことで表している。
+@@ -3152,7 +3152,7 @@ and elab_rec_bindings env level eff bs : env =
+      ハンドル禁止の名簿(`runtime_effects`)には入れない。
+      操作が無いので禁じる場面が無く、入れると診断が変わる(第7章 §7.3)。
+ 
+-   `Heap` がこの名簿に無いのは、引数を取るラベルだからである(sample.kel:656-657)。
++   `Heap` がこの名簿に無いのは、引数を取るラベルだからである(sample.kel:658-659)。
+    下の `toplevel_eff` はラベルの引数に `t_unit` を置くので、`Heap` を名簿に足しても、
+    行に載るのは `Heap[Unit]` である。
+    これは、`run h` が導入する剛定数 `h` を持つ `Heap[h]` とは単一化しない。
+@@ -3431,7 +3431,7 @@ let register_newtype env (n : T.newtype') =
+                     (* pub の完全注釈検査(仕様 §13)は、フィールドの矢印にも及ぶ。
+                        省略の意味は @ {} に決まっているが、公開 API では、純粋を
+                        意図したのか書き忘れたのかを読み手が区別できなければならない
+-                       (sample.kel:815-821。フィールドへの適用は :818-819 に
++                       (sample.kel:817-823。フィールドへの適用は :820-821 に
+                        明記されている) *)
+                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
+                        type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
+@@ -4356,7 +4356,7 @@ let check_instance_bodies env (i : T.instance_decl') =
+    違いは、何もしない `emit` を渡して出力を捨てることと、
+    `Decls.in_prelude` を立てて処理すること(§11.41)である。 *)
+ 
+-(* コンパニオン型の大域の同義語を登録する(sample.kel:838)。
++(* コンパニオン型の大域の同義語を登録する(sample.kel:840)。
+    平坦化ではなく、パス 1a で行う。
+    プレリュードの宣言表は、利用者の平坦化の時点ではまだ空なので、
+    平坦化の時点で登録すると既存の名前との照合が働かず、
+@@ -4684,7 +4684,7 @@ let process_decls env ~emit decls =
+           in
+           let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
+           (* C の既知名は、型の契約を照合する(第6章 §6.2b)。行は照合しない。
+-             @ Blocking を付けるかは、バインディングを書く側の判断である(sample.kel:794) *)
++             @ Blocking を付けるかは、バインディングを書く側の判断である(sample.kel:796) *)
+           (if ex.T.ex_abi = "C" then
+              match Decls.c_known_signature ex.T.ex_prim with
+              | None -> ()
+@@ -4781,7 +4781,7 @@ let type_check_decls ?(prelude = []) decls =
+ 
+    - `newtype` / `type`：`M.名前` に改名して登録し、
+      module スコープの同義語 `(M, 非修飾名) → M.名前` を張る。
+-     大域に張るのは、コンパニオン(module 名と同名の型。sample.kel:838)だけである。
++     大域に張るのは、コンパニオン(module 名と同名の型。sample.kel:840)だけである。
+      すべての同義語を大域に張ると、`module M { newtype List[A] = … }` と書くだけで、
+      プレリュード自身の型検査が壊れる。
+    - `let`：`M.名前` に改名し、module スコープの値の同義語を張る。
+@@ -4795,7 +4795,7 @@ let type_check_decls ?(prelude = []) decls =
+      検査は使用点(§11.3 / §11.11 / §11.8)で行い、可視性の境界は module だけである。
+      コンストラクタは、所属する newtype の `pub` に従う。
+    - `instance`：そのまま大域に出す。
+-     インスタンスは常に大域から見え、import で見え方が変わるものではない(sample.kel:833)。
++     インスタンスは常に大域から見え、import で見え方が変わるものではない(sample.kel:835)。
+    - `extern`：`ex_name` を `M.f` に修飾するが、実装名 `ex_prim` は元のままにする(第1章)。
+      実装は処理系の側の表にあり、module はその表を切り分けない。
+      第6章の登録簿は、プレリュード保護を `ex_prim` で、二重宣言の検査を修飾名で見る(§6.2)。
+diff --git a/lib/interp.ml b/lib/interp.ml
+index c0daf35..2974300 100644
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -110,12 +110,12 @@ let tycon_of_value = function
+   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
+ 
+ (* `cancel_log` は、cancel 節で抑制した例外の行き先である。
+-   仕様 sample.kel:581 は、cancel 節について次のように定めている。
++   仕様 sample.kel:583 は、cancel 節について次のように定めている。
+    「cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、
+    脱出は抑制してログに記録し、外側の後始末を続ける」。
+    ライブラリが stderr に直接書かないよう、関数を 1 段はさみ、driver(第16章)がそれを差し替える。 *)
+ 
+-(* cancel 節の中の例外を記録する関数(sample.kel:581)。driver が差し替える *)
++(* cancel 節の中の例外を記録する関数(sample.kel:583)。driver が差し替える *)
+ let cancel_log : (string -> unit) ref = ref (fun _ -> ())
+ 
+ (* ## 14.2 パターン照合
+@@ -733,7 +733,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
+ 
+    後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからである。
+    評価器には、順序を管理するコードが無い。
+-   仕様(sample.kel:568-581)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
++   仕様(sample.kel:570-583)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
+    実装では、その規則がこの 4 段階に対応する。
+ 
+    ### 3 つの経路
+@@ -822,7 +822,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
+    ログに記録するだけで外へは出さない。
+    回帰テストは `test/eval.t` の cancelouter と cancelnores である。
+ 
+-   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:581)の規則である。
++   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:583)の規則である。
+    既知の例外(`Runtime_error`、`Unwind`、`Sys_error`)は日本語のメッセージにし、
+    それ以外の例外は `Printexc.to_string` で文字列にしてからログに渡す。
+ 
+@@ -867,7 +867,7 @@ and eval_handle env body clauses =
+     match cancel_clause with
+     | None -> ()
+     | Some (_, c) -> (
+-        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:581) *)
++        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:583) *)
+         try ignore (eval { env with resume = None } c.T.cl_body)
+         with
+         | Runtime_error msg -> !cancel_log msg
+diff --git a/lib/parser.mly b/lib/parser.mly
+index 6afc8dc..0d6685f 100644
+--- a/lib/parser.mly
++++ b/lib/parser.mly
+@@ -328,8 +328,8 @@ let rec block_of_items sloc items =
+    - `pat` が `_` なら **0 引数**の継続 `fn() => 残り`
+    - それ以外なら **1 引数**の継続 `fn(pat) => 残り`
+ 
+-   この分岐は、`with _ = with_file(src)`(sample.kel:617, :619)が要求する `body: () => A` と、
+-   `with x = Parser.bind(...)`(:632)が要求する `(A) => ...` の両方を、同じ糖衣で満たすためにある。
++   この分岐は、`with _ = with_file(src)`(sample.kel:619, :621)が要求する `body: () => A` と、
++   `with x = Parser.bind(...)`(:634)が要求する `(A) => ...` の両方を、同じ糖衣で満たすためにある。
+    `_` のときも値を捨てる 1 引数の継続にすると、前者に型が付かない。
+ 
+    右辺が呼び出しでなければエラーにする。
+@@ -663,7 +663,7 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
+    対象は引数、パラメータ、型引数、型パラメータ、レコード、タプル、パターン、エフェクト行、
+    effect の操作、コンストラクタのフィールド、`F[_, _]` の穴である。
+    区切りが `|` の `ctors` と、区切りが `+` の `cls_list` は、カンマ区切りではないので対象外である。
+-   sample.kel:590 の effect 本体や :755-758 のパラメータリストに実例がある。
++   sample.kel:592 の effect 本体や :757-760 のパラメータリストに実例がある。
+ 
+    `...rest` と `extends T` は要素ではなくリストの**終端子**なので、その後にはカンマを書けない。
+    `{x, ...r,}` や `{x: T extends R,}` は構文エラーになる。
+@@ -1071,7 +1071,7 @@ pp_items:
+    1 つは `l: T`(レコード型のフィールド)、
+    もう 1 つは `Name[args]`(エフェクトのラベル、または展開される行エイリアス)である。
+    **どちらの意味なのかは、第11章が要素の形から判定する**。
+-   このおかげで、`@ {}`、`@ {Print extends E}`、`{ReqId, Logger, Tracer}`(sample.kel:648)が、
++   このおかげで、`@ {}`、`@ {Print extends E}`、`{ReqId, Logger, Tracer}`(sample.kel:650)が、
+    すべて同じ規則に乗る。
+    `effect` 宣言の本体はこの規則ではなく、`op: ty` だけを受ける専用の `eff_decl_body`(§3.17)で読む。
+ 
+diff --git a/lib/prelude.kel b/lib/prelude.kel
+index 466c4d4..d444c79 100644
+--- a/lib/prelude.kel
++++ b/lib/prelude.kel
+@@ -56,7 +56,7 @@
+ // そのため、処理系は、利用者の宣言を型検査する前に、
+ // `newtype`、`effect`、`extern`、`handle`、`resume`、行多相を一度は処理する。
+ // ここで誤りが出れば、diktor は利用者のプログラムを型検査も実行もせずに終わる。
+-// とくに §15.7 の `with_stdout` は、仕様 sample.kel:546-549 のハンドラをそのまま関数にしたもので、
++// とくに §15.7 の `with_stdout` は、仕様 sample.kel:548-551 のハンドラをそのまま関数にしたもので、
+ // エフェクト機構のテストも兼ねる。
+ //
+ // ## 15.2 埋め込みと、プレリュード所有の印
+@@ -151,14 +151,14 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
+ // | エフェクト | 出所 | 最後に受け取るもの |
+ // |---|---|---|
+ // | `Console` | ランタイム(仕様 sample.kel:464) | 第13章の最外周のハンドラ `with_runtime` |
+-// | `Async` | ランタイム(仕様 sample.kel:729) | 同上。受け取って何もしない |
++// | `Async` | ランタイム(仕様 sample.kel:731) | 同上。受け取って何もしない |
+ // | `Fs` | ランタイム(仕様 sample.kel:465) | 誰も受け取らない。操作を持たない |
+ // | `Print` | ユーザ層 | 利用者の `handle`。§15.7 の `with_stdout` が `Console` へ翻訳する |
+ //
+ // `Console` / `Async` / `Fs` は、利用者にハンドルさせないエフェクトである。
+-// 仕様 sample.kel:534 は、利用者が `handle` で処理できないエフェクトとして、
++// 仕様 sample.kel:536 は、利用者が `handle` で処理できないエフェクトとして、
+ // 特別な印を設けずに Console / Async / Fs の 3 つを名前で定める。
+-// `Async` については、:724 にもスケジューラを利用者に書かせないという記述がある。
++// `Async` については、:726 にもスケジューラを利用者に書かせないという記述がある。
+ // 利用者にハンドルさせないのは、標準出力の実体やスケジューラを Keleut の側に書かせないためである。
+ // 実装では、第13章の `with_runtime` のハンドラが評価のいちばん外側に 1 枚だけあり、
+ // そこまで上がってきた `Console.write` を受けて、実際に出力先(sink)へ書き出す。
+@@ -186,7 +186,7 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
+ //
+ // `Print` を別に立てるのは、出力の意図と出力の実体を分けるためである。
+ // プログラムは `println`、すなわち `@ Print` で書き、ハンドラを取り替えるだけで出力先を変えられる。
+-// 文字列にためて返す `capture`(仕様 sample.kel:553)も、ファイルへの書き出しも、
++// 文字列にためて返す `capture`(仕様 sample.kel:555)も、ファイルへの書き出しも、
+ // テストでのバッファへの収集も、本体を書き換えずに実現できる。
+ //
+ // `Fs` だけは操作を 1 つも持たない。
+@@ -197,15 +197,15 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
+ // その点で `Console` / `Async` とは役割が違う。
+ //
+ // ファイルプリミティブが行を持たなければ、`@ {}` と明示した閉じた行の下からファイルを開けてしまう。
+-// 仕様 sample.kel:720 は、`par` / `par_map` のコールバックの純粋性を決定性の根拠にしている。
++// 仕様 sample.kel:722 は、`par` / `par_map` のコールバックの純粋性を決定性の根拠にしている。
+ // ファイルを操作できるコールバックを許すと、この根拠が崩れる。
+-// 仕様 sample.kel:594-597 が 4 本に `@ Fs` を課すのは、これを型で防ぐためである。
++// 仕様 sample.kel:596-599 が 4 本に `@ Fs` を課すのは、これを型で防ぐためである。
+ //
+ // `Fs` は、OCaml 側の組み込みラベル(`Heap` / `Blocking`)にせず、本章で宣言する。
+ // 仕様 sample.kel:465 の `effect Fs = {}` は、
+ // プレリュードと同じ宣言として構造照合で受理される(test/fs_effect.t の fsdecl)。
+ // 仕様も、操作を持たないラベル(`Heap` / `Blocking` / `Fs`)について、どれも宣言が要らず、
+-// 標準ライブラリと同じ宣言を利用者がもう一度書いてもよいと定めている(仕様 sample.kel:802-804)。
++// 標準ライブラリと同じ宣言を利用者がもう一度書いてもよいと定めている(仕様 sample.kel:804-806)。
+ // 組み込みの `Heap` / `Blocking` と同じ宣言も、同じく照合の上で受理される。
+ // 置き場所の違いが表に出るのは、`--no-prelude` を渡したときである。
+ // `Fs` はプレリュードとともにトップレベルの行から外れ、
+@@ -216,12 +216,12 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
+ // 仕様の字面が変わるたびにプレリュードを追随させる二重管理になる。
+ //
+ // `Async.yield_` の末尾のアンダースコアは、仕様の綴りをそのまま採ったものである。
+-// この操作は、キャンセルの配送点という意味を持つ(仕様 sample.kel:726-729)。
++// この操作は、キャンセルの配送点という意味を持つ(仕様 sample.kel:728-731)。
+ // キャンセルは協調的で、中断点でしか届かない。
+ // Diktor では `yield_` は実行時に何もしないが、型として存在することには意味がある。
+ // `@ Async` の付いた関数を純粋な位置に渡そうとすると、行の単一化がその場で拒否するからである。
+ 
+-// ランタイムが提供する Console / Async / Fs(仕様 sample.kel:464, :465, :729)と、ユーザ層の Print
++// ランタイムが提供する Console / Async / Fs(仕様 sample.kel:464, :465, :731)と、ユーザ層の Print
+ effect Console = { write: (String) => Unit }
+ effect Print   = { print: (String) => Unit }
+ effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
+@@ -262,7 +262,7 @@ effect Fs      = {}
+ // - `__panic`
+ // - ファイルの 4 本
+ //
+-// ファイルの 4 本は仕様 sample.kel:600-608 の `with_file` が使い、
++// ファイルの 4 本は仕様 sample.kel:602-610 の `with_file` が使い、
+ // Diktor では第13章のメモリ上のダミー実装が受ける(実際のファイルには触れない)。
+ // この 4 本だけが行(`@ Fs`)を持つ(§15.4)。
+ // 変換 6 本のうち、Float64 から整数への 2 本だけは部分関数で、
+@@ -389,7 +389,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
+ 
+ // ## 15.7 with_stdout
+ //
+-// 仕様 sample.kel:546-549 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
++// 仕様 sample.kel:548-551 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
+ // `with_stdout` は、この例の式を再利用できる関数にしたものである。
+ // この定義では、本体よりも型のほうに多くの情報がある。
+ //
+@@ -445,7 +445,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
+ // 一方、ハンドラの張り直しと `resume` のアフィン検査は実行時の処理なので、
+ // `with_stdout` を呼んだときにはじめて働く(第14章)。
+ 
+-// 仕様 sample.kel:546-549 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
++// 仕様 sample.kel:548-551 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
+ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console extends E} =
+   body() handle {
+     case print(message) => resume(perform write(message))
+diff --git a/lib/prims.ml b/lib/prims.ml
+index 8157373..6c4b6fe 100644
+--- a/lib/prims.ml
++++ b/lib/prims.ml
+@@ -150,8 +150,8 @@ let show_bin_op = function
+ 
+    | 名簿 | 問い | 仕様 |
+    |---|---|---|
+-   | `runtime_effects` | ランタイムが実装を持つのはどれか(利用者がハンドルできないのはどれか) | sample.kel:534 |
+-   | `toplevel_effects` | トップレベルの行に残してよいのはどれか | sample.kel:655 |
++   | `runtime_effects` | ランタイムが実装を持つのはどれか(利用者がハンドルできないのはどれか) | sample.kel:536 |
++   | `toplevel_effects` | トップレベルの行に残してよいのはどれか | sample.kel:657 |
+ 
+    `runtime_effects` は `Console` / `Async` / `Fs` の 3 つである。
+    仕様は特別な印を設けず、この 3 つを名前で定めている。
+@@ -166,14 +166,14 @@ let show_bin_op = function
+    この 2 つは型の上にしか存在せず、そのラベルを行に持たない文脈から、
+    特定の関数の呼び出しを締め出すことだけが役目である。
+ 
+-   - `Fs` が締め出すのは、第15章のファイルプリミティブ 4 つである(仕様 sample.kel:594-597)。
++   - `Fs` が締め出すのは、第15章のファイルプリミティブ 4 つである(仕様 sample.kel:596-599)。
+      `Fs` が無ければ 4 つは行を持たずに型が付き、
+      `@ {}` と明示したコールバックの中からもファイルを操作できてしまう。
+-   - `Blocking` が締め出すのは、`@ Blocking` を付けた FFI バインディングである(仕様 sample.kel:792)。
++   - `Blocking` が締め出すのは、`@ Blocking` を付けた FFI バインディングである(仕様 sample.kel:794)。
+      このラベルを行から取り除くのは `pinned` の仕事である。
+ 
+    `runtime_effects` の 3 つのうち、操作を持たないのは `Fs` だけである。
+-   仕様も「ランタイムが実装を持つ」を 2 通りに分けている(sample.kel:535-537)。
++   仕様も「ランタイムが実装を持つ」を 2 通りに分けている(sample.kel:537-539)。
+    1 つは操作の実装をランタイムが持つもの(`Console` / `Async`)で、
+    もう 1 つは操作を持たず、ランタイムのプリミティブだけがそのラベルを行に載せるもの(`Fs`)である。
+ 
+@@ -190,20 +190,20 @@ let show_bin_op = function
+    操作が無いことを伝えなくなる。
+ 
+    `Fs` を `runtime_effects` に入れているのは、
+-   仕様 sample.kel:534 が名指しでハンドルを禁止しているからである。
++   仕様 sample.kel:536 が名指しでハンドルを禁止しているからである。
+    `Fs` は操作を持たないので、非修飾の節では候補に挙がらない。
+    `Fs.op` と修飾して書いたときだけ、この禁止が診断に出る(`test/fs_effect.t` の fsh)。
+ 
+    `Blocking` は `toplevel_effects` には入っているので、`@ Blocking` の付いた関数は、
+-   `pinned` を使わずにトップレベルから呼べる(仕様 §12、sample.kel:805)。
++   `pinned` を使わずにトップレベルから呼べる(仕様 §12、sample.kel:807)。
+    `Heap` はどちらの名簿にも無い。
+-   その理由は仕様が書いている(sample.kel:656-657)。
++   その理由は仕様が書いている(sample.kel:658-659)。
+    `Heap[h]` はリージョン変数を引数に取るラベルで、トップレベルには渡せる `h` が無い。
+    `h` を導入するのは `run` だけで、`run` はその `Heap[h]` を自分で取り除く。
+ 
+    ### `Async` を名簿に入れる理由
+ 
+-   `toplevel_effects` に `Async` が無いと、sample.kel:772 の `crunch` をトップレベルから呼べない。
++   `toplevel_effects` に `Async` が無いと、sample.kel:774 の `crunch` をトップレベルから呼べない。
+    型の上で `@ Async` を持つ関数を認める以上、トップレベルの行も `Async` を認めていなければ、
+    その関数を呼べる場所が無くなる。
+    Diktor は `Async` を型の上では本物のエフェクトとして扱い、実行時には何もしない。
+diff --git a/lib/syntax.ml b/lib/syntax.ml
+index b263847..6a7bbfd 100644
+--- a/lib/syntax.ml
++++ b/lib/syntax.ml
+@@ -610,7 +610,7 @@ module Type = struct
+    それでも §6.11 がこれらの操作の型をまとめて組み立てるのは、実装が OCaml 側の値と切り離せず、
+    プレリュードに置くと二重管理になるからである。
+    `Blocking` は同じ組み込みの表に入るラベルで、
+-   `extern` がブロックしうることを表明するために名指しする(sample.kel:792, :808)。
++   `extern` がブロックしうることを表明するために名指しする(sample.kel:794, :810)。
+ 
+    ### 予約型名
+ 
+@@ -730,7 +730,7 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
+    `tp_arity` が 0 の束縛子のカインドは、
+    宣言群の中の型の本体での使われ方からしか決まらない(sample.kel:246-247)。
+    使われ方が無ければ `KStar` に既定化されるので、行カインドの phantom パラメータを書く手段は無い。
+-   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:872-874)。
++   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:874-876)。
+    カインドを書けるのはエイリアスの側だけである(`type Request: EffectRow`)。
+ 
+    `tp_classes` は `long_id list` である。
+@@ -1026,7 +1026,7 @@ module Make (Data : Data) = struct
+    - `DModule` の平坦化は第11章が行う(改名と、修飾する前の名前から修飾名への同義語表)。
+      module の入れ子と、module の中の effect 宣言、type class 宣言、式文は、
+      Diktor が実装していない。
+-   - `DExp` はトップレベルの式文である(sample.kel:658)。
++   - `DExp` はトップレベルの式文である(sample.kel:660)。
+    - `ins_args` は通常 1 個で、`List[_]` のように `EHole` を含められる。
+      本体が `let` だけであることは第11章が検査する。
+    - `ins_tparams` は前提つきインスタンスの束縛子で、頭の `_` に左から順に対応する(仕様 §8)。
+@@ -1090,7 +1090,7 @@ module Make (Data : Data) = struct
+     | DLetRec of let_binding list
+     | DModule of bool * string * decl list (* pub * 名前 * 本体 *)
+     | DExtern of extern_decl'
+-    | DExp of exp (* トップレベル式文(sample.kel:658) *)
++    | DExp of exp (* トップレベル式文(sample.kel:660) *)
+ 
+   and decl = Data.t * decl'
+ 
+diff --git a/lib/unify.ml b/lib/unify.ml
+index 961a308..e589342 100644
+--- a/lib/unify.ml
++++ b/lib/unify.ml
+@@ -371,7 +371,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r
+    レコードでは手前のフィールドが勝ち、エフェクト行では最も左のラベルが選ばれ、
+    `run` の入れ子では内側のヒープが優先される。
+    修飾なしで書いた操作名の解決も、行の最左優先で決まる(第11章 §11.20)。
+-   sample.kel:620 の `copy` の中の `write` は File と Console の両方の操作に該当するが、
++   sample.kel:622 の `copy` の中の `write` は File と Console の両方の操作に該当するが、
+    最左を採ると、handle の入れ子から推論で組み立てた行では最も内側のハンドラと一致する。
+    ただし、注釈で行を明示したときの最左は書かれた順序で決まるので、
+    実行時の入れ子の順序と食い違うことがある(§11.20)。
+diff --git a/lib/value.ml b/lib/value.ml
+index c382fd1..6a922bf 100644
+--- a/lib/value.ml
++++ b/lib/value.ml
+@@ -166,7 +166,7 @@ and env = {
+    Diktor は継続を値として表さない。
+ 
+    Keleut の `resume` は second-class である。
+-   仕様(sample.kel:542-545)は、`resume` を節の外へ持ち出す手段について、
++   仕様(sample.kel:544-547)は、`resume` を節の外へ持ち出す手段について、
+    「変数への束縛、クロージャへの閉じ込め、返り値としての持ち出しは、いずれもできない」と定める。
+    この制限があるので、操作節を抜けた時点で継続が生きているかどうかが確定し、
+    `resume` を呼ばずに節を抜けたら自動で巻き戻すという規則が成り立つ。
+diff --git a/test/eval.t b/test/eval.t
+index 99b7896..997c07b 100644
+--- a/test/eval.t
++++ b/test/eval.t
+@@ -170,7 +170,7 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
+ 
+ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後ろの文は実行しない)。
+ 脱出は外へ伝えずログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
+-(仕様 sample.kel:581、LangSpec.md §13.6):
++(仕様 sample.kel:583、LangSpec.md §13.6):
+ 
+   $ cat > cancelabort.kel <<'EOF2'
+   > effect A = { a: () => Unit }
+diff --git a/test/extern_c.t b/test/extern_c.t
+index 8abcedb..6d1f503 100644
+--- a/test/extern_c.t
++++ b/test/extern_c.t
+@@ -18,7 +18,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
+   3.0
+ 
+ 行は照合しない(@ Blocking を付けるかはバインディング作者の判断、
+-sample.kel:794):
++sample.kel:796):
+ 
+   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
+   $ diktor --type-check cblk1.kel
+@@ -35,7 +35,7 @@ sample.kel:794):
+   実行時エラー: 未実装のプリミティブ: nosuch
+   [3]
+ 
+-仕様の形(sample.kel:792 相当)が通り続けること:
++仕様の形(sample.kel:794 相当)が通り続けること:
+ 
+   $ printf 'newtype Stmt = ???\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
+   $ diktor --type-check cblk2.kel
+diff --git a/test/fs_effect.t b/test/fs_effect.t
+index 35ef052..503cc49 100644
+--- a/test/fs_effect.t
++++ b/test/fs_effect.t
+@@ -1,4 +1,4 @@
+-ファイル I/O の行 Fs(仕様 §9、sample.kel:465, :594-600。M27 / D87)。__open /
++ファイル I/O の行 Fs(仕様 §9、sample.kel:465, :596-602。M27 / D87)。__open /
+ __read / __write / __close は @ Fs を載せるので、純粋な文脈からは呼べない。
+ かつては行なしで型付き、@ {} のコールバックからファイルを触れた(260829-5 台帳 V15)。
+ 
+@@ -56,7 +56,7 @@ V15 の穴が閉じた — par / par_map の @ {} コールバックから触れ
+   ! par2.kel:1:21: 型エラー: ラベル Fs がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+   [1]
+ 
+-トップレベルには Fs が載っているので、そこからは呼べる(仕様 sample.kel:655):
++トップレベルには Fs が載っているので、そこからは呼べる(仕様 sample.kel:657):
+ 
+   $ cat > top.kel <<'KEL'
+   > let h = __open("a.txt")
+diff --git a/test/kinds.t b/test/kinds.t
+index 0c161de..aba1cee 100644
+--- a/test/kinds.t
++++ b/test/kinds.t
+@@ -862,7 +862,7 @@ ty を取る)。この経路ができたぶん、EBraceRow の枝の「extends 
+   [1]
+ 
+ run が導入するリージョン変数 h のカインドは Type(D130。仕様 §10、
+-sample.kel:666)。行の位置(@ h)には書けない:
++sample.kel:668)。行の位置(@ h)には書けない:
+ 
+   $ cat > regionkind.kel <<'EOF'
+   > let f(): Int32 = run h {
+diff --git a/test/parallel.t b/test/parallel.t
+index 90f3778..d7db500 100644
+--- a/test/parallel.t
++++ b/test/parallel.t
+@@ -27,7 +27,7 @@ par / par_map の組み込み登録(M16 / H2、D45)。逐次実装だが、
+   3
+   ok
+ 
+-コールバックの純粋性は型で守られる(仕様 sample.kel:720 の決定性の根拠)。
++コールバックの純粋性は型で守られる(仕様 sample.kel:722 の決定性の根拠)。
+ 根拠は 3 つの別々の設計変更 — 配列の分離(M24。可変配列は h を型に持つ)、
+ 入れ子の省略 @ = @ {}(M26。V14 の洗浄が閉じた — test/annot_rows.t の launder)、
+ ファイル prim の @ Fs(M27。V15 が閉じた — test/fs_effect.t):
+diff --git a/test/pub.t b/test/pub.t
+index 07431c5..73a29de 100644
+--- a/test/pub.t
++++ b/test/pub.t
+@@ -36,7 +36,7 @@ pub の完全注釈検査と「@ 省略 = 純粋」(M16 / H6、D44)。
+   [1]
+ 
+ @ 省略の pub はどんな行の文脈からでも呼べる(公開スキーマは Generic。
+-sample.kel:653 と同形 — この形が通ることが H6 の受け入れ条件):
++sample.kel:655 と同形 — この形が通ることが H6 の受け入れ条件):
+ 
+   $ cat > pub4.kel <<'KEL'
+   > newtype Resp = R(String)
+diff --git a/test/region.t b/test/region.t
+index f99cd20..c6956f0 100644
+--- a/test/region.t
++++ b/test/region.t
+@@ -38,7 +38,7 @@
+ 
+ MutableArray.length も Heap[h] を要求する(長さは変わらないが、可変配列に
+ 触れること自体が行に載る — 仕様 §10 の署名一覧と、その理由を書いた
+-sample.kel:692 のとおり):
++sample.kel:694 のとおり):
+ 
+   $ cat > mlen.kel <<'KEL'
+   > let demo(): Int32 = run h {
+@@ -129,7 +129,7 @@ freeze の観測可能な契約: freeze 後に元の可変配列へ書いても
+   100
+ 
+ この契約は 1 段だけ成り立つ。要素そのものが可変配列なら、取り出した配列の
+-要素は元と同じものを指す(仕様 §10、sample.kel:690。D137)。freeze の後に
++要素は元と同じものを指す(仕様 §10、sample.kel:692。D137)。freeze の後に
+ inner へ書いた 99 が、frozen 越しに読める:
+ 
+   $ cat > nested.kel <<'KEL'
+@@ -146,7 +146,7 @@ inner へ書いた 99 が、frozen 越しに読める:
+   99
+ 
+ 値は共有されるが、型の側は破れない。要素が可変配列だと、その h が結果の型に
+-残るので脱出検査が run の外への持ち出しを拒む(sample.kel:691。D137)。要素が
++残るので脱出検査が run の外への持ち出しを拒む(sample.kel:693。D137)。要素が
+ 可変配列でなければ同じ形が通る:
+ 
+   $ printf 'let leak(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, MutableArray.new(1, 0))) }\n' > nested2.kel
+@@ -158,8 +158,8 @@ inner へ書いた 99 が、frozen 越しに読める:
+   flat : () => Array[Int32]
+ 
+ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧が断る「ここだけの
+-表記」(sample.kel:675)はパラメータの並びの話であって、型式を禁じてはいない
+-(sample.kel:693。D137)。印字は型パラメータを付け直すので、h は A として出る:
++表記」(sample.kel:677)はパラメータの並びの話であって、型式を禁じてはいない
++(sample.kel:695。D137)。印字は型パラメータを付け直すので、h は A として出る:
+ 
+   $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
+   $ diktor --type-check maannot.kel
+diff --git a/test/runtime_effects.t b/test/runtime_effects.t
+index 9347168..d5fdac7 100644
+--- a/test/runtime_effects.t
++++ b/test/runtime_effects.t
+@@ -1,5 +1,5 @@
+-ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:534 が
+-Console / Async / Fs の 3 つを名指しで定めた(Async は :724 にも明文。Console は
++ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:536 が
++Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明文。Console は
+ かつて提案中だった — 2026-09-12 の改訂で明文化)。かつては出力を黙って消す
+ 恒等ハンドラが書けた。
+ 
+@@ -70,7 +70,7 @@ Console はハンドル候補からも外れるので、File のつもりの cas
+   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
+   [1]
+ 
+-perform は禁止しない(sample.kel:658 がトップレベルの perform write を
++perform は禁止しない(sample.kel:660 がトップレベルの perform write を
+ 書いており、プレリュードの echo / echoln も同じ):
+ 
+   $ printf 'perform write("direct\\n")\n' > pw.kel
+diff --git a/test/spec_gaps.t b/test/spec_gaps.t
+index 8d0903e..963c98f 100644
+--- a/test/spec_gaps.t
++++ b/test/spec_gaps.t
+@@ -12,15 +12,15 @@ Array 系 4 ブロック(arrayhole / eachheap / eachpure / eachclosed)は
+ test/region.t へ(M24)、cancelre は test/eval.t の cancelouter / cancelnores へ
+ (M21)、tupledefault は削除(観測点は test/typecheck.t の resugar と
+ test/typecheck_sample.t が持つ。M25)。2026-09-19 の改訂で §14 の TODO は
+-12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:868-869。
++12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:870-871。
+ 現状は台帳 V21 として test/kinds.t の regionkind2 が見張る)と、型パラメータの
+-カインド注記(§14:872-874。注記構文は入れないと決めたので観測点は無い — D124)。
+-以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:857)、
+-module の入れ子(:858)、Ord[Float64] / Eq[Float64] と NaN(:859-864)は cram では
++カインド注記(§14:874-876。注記構文は入れないと決めたので観測点は無い — D124)。
++以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:859)、
++module の入れ子(:860)、Ord[Float64] / Eq[Float64] と NaN(:861-866)は cram では
+ 観測できないので記録のみ。
+ 
+ 非 pub の let で「本体は純粋、呼び出しはどの行からでも可」を注釈で書く手段
+-(§14:870-871、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
++(§14:872-873、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
+ 明示すると呼び出し側の行まで空に縛る。sum と sum2 は表示が同じ
+ (Array[Int32]) => Int32 なのに、片方だけが Console の下から呼べる(第9章 §9.6
+ の「正直な代償」の観測点):
+@@ -48,7 +48,7 @@ module の入れ子(:858)、Ord[Float64] / Eq[Float64] と NaN(:859-864)は cram
+   ! sumclosed.kel:2:70: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
+   [1]
+ 
+-非有限値(NaN、無限大)のリテラル(§14:865、§2)。現状は無く、文字列化の字面
++非有限値(NaN、無限大)のリテラル(§14:867、§2)。現状は無く、文字列化の字面
+ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
+ 
+   $ printf 'let x: Float64 = nan\n' > nanlit.kel
+@@ -56,7 +56,7 @@ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
+   ! nanlit.kel:1:18: 型エラー: 未束縛の変数: nan
+   [1]
+ 
+-整数算術の桁あふれ(§14:866、§2)。現状は wrap-around で、実行時エラーにする
++整数算術の桁あふれ(§14:868、§2)。現状は wrap-around で、実行時エラーにする
+ 案が仕様に残っている(変換の実行時エラーとの対比は test/numeric.t の cvbig):
+ 
+   $ cat > wrap.kel <<'KEL'
+@@ -73,7 +73,7 @@ nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
+   -2
+   -9223372036854775808
+ 
+-不変配列の生成手段(§14:867、§10)。現状は MutableArray.freeze だけで、リテラルも
++不変配列の生成手段(§14:869、§10)。現状は MutableArray.freeze だけで、リテラルも
+ Array.new も無い(freeze の側は test/region.t の freeze / nonew):
+ 
+   $ printf 'let mk(): Array[Int32] = run h { Array.new(3, 0) }\n' > nonew.kel
+diff --git a/test/typecheck_m6.t b/test/typecheck_m6.t
+index 772ec90..e73699c 100644
+--- a/test/typecheck_m6.t
++++ b/test/typecheck_m6.t
+@@ -71,7 +71,7 @@ copy の perform write は行の最左の File に解決される(この例で
+   echo_test : () => {} @ {Console extends R1}
+   captured : {value: {}, output: String}
+ 
+-EffectRow エイリアスの splice(sample.kel:648):
++EffectRow エイリアスの splice(sample.kel:650):
+ 
+   $ cat > effrow.kel <<'EOF'
+   > type Unit = {}
+@@ -128,7 +128,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
+   ! twocand.kel:4:11: 型エラー: 操作 op1 は複数のエフェクト(A1, A2)に属します。A1.op1 のように修飾してください
+   [1]
+ 
+-handle の節の修飾(仕様 §9、sample.kel:526-527。D119)。操作節は修飾しても
++handle の節の修飾(仕様 §9、sample.kel:528-529。D119)。操作節は修飾しても
+ 非修飾でもよく、混ざっていても受理される。非修飾の case write(s) が対象
+ エフェクトの操作として読まれたことは、網羅の検査(File は read と write の
+ 2 つを宣言している)が通ったことで分かる:
+@@ -238,7 +238,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
+   [1]
+ 
+ 修飾できるのは操作節だけで、return 節と cancel 節は修飾できない
+-(仕様 §9、sample.kel:514-515。D119)。
++(仕様 §9、sample.kel:516-517。D119)。
+ 節の名前を修飾しても対象エフェクトの決定には効かないので、受理すると書いた
+ 修飾が黙って捨てられる:
+ 
+diff --git a/test/typecheck_sample.t b/test/typecheck_sample.t
+index 229bfca..9d3c492 100644
+--- a/test/typecheck_sample.t
++++ b/test/typecheck_sample.t
+@@ -70,7 +70,7 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通
+   BigInt.normalize : (BigInt.BigInt) => BigInt.BigInt
+   big_sum : () => BigInt.BigInt
+ 
+-実行(トップレベル式文: sample.kel:546 の handle と :658 の capture):
++実行(トップレベル式文: sample.kel:548 の handle と :660 の capture):
+ 
+   $ diktor sample/stubs.kel sample/sample.kel
+   test
+diff --git a/test/verify_fixes.t b/test/verify_fixes.t
+index d5f6980..38a09b6 100644
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -22,7 +22,7 @@
+   unknown
+ 
+ Ref に入れて取り出した閉包を run の本体から返すと、閉包の型の行に Heap[h] が
+-残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:664-665):
++残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:666-667):
+ 
+   $ cat > vr.kel <<'EOF'
+   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
