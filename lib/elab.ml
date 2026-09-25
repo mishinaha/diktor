@@ -1784,8 +1784,9 @@ and elab_construct env level node cname ?eff args =
    `rewrite_row` が失敗する(そのラベルが無い)場合も `fallback` に落とし、
    エラーは通常の経路の単一化に報告させる。
 
-   検査に成功した節点にも、`set_ty` で型を書く。
-   期待型を押し込んだ節点は `elab_exp` を通らないので、ここで書かないと、木に型の無い節点が残る。 *)
+   検査に成功したノードにも、`set_ty` で型を書く。
+   期待型を押し込んだノードは `elab_exp` を通らないので、ここで書かないと、
+   木に型の無いノードが残る。 *)
 
 and elab_check env level eff ((_, e) as node : T.exp) expected =
   at_node node @@ fun () ->
@@ -1904,7 +1905,7 @@ and resolve_perform eff li =
 
 (* ## 11.21 resume の第二級性
 
-   resume は専用の構文木の節点(`Resume`)で、名前ではないので、
+   resume は専用の構文木のノード(`Resume`)で、名前ではないので、
    変数に束縛することも値として渡すこともできない。
    それでも、構文だけでは第二級性は保証されない。
 
@@ -1921,7 +1922,7 @@ and resolve_perform eff li =
    2. 動的な検査：節が終わるときに継続の生死のフラグ(第14章の `r_alive`)を下ろし、
       その後の resume の呼び出しを実行時エラーにする。
 
-   静的な検査がラムダとして扱うのは、ラムダ式(`Lambda` の節点)だけである。
+   静的な検査がラムダとして扱うのは、ラムダ式(`Lambda` のノード)だけである。
    節の中のローカルな関数束縛(`let f() = resume(41)`)の本体は、
    `Let` / `LetRec` の分岐が外側と同じ `in_lambda` のまま走査するので、
    そこに書いた resume は静的な検査を通る。
@@ -2188,7 +2189,7 @@ and elab_handle env level eff clauses body =
   (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
      この検出は match の useful 判定(第10章)より弱く、絞り込みの節の集まりで
      網羅済みでも警告は出ない。第10章の検査につなぐには、操作節から合成の
-     match の節点を作る必要があり、Diktor はそれをしない。健全性は総和性検査が
+     match のノードを作る必要があり、Diktor はそれをしない。健全性は総和性検査が
      守るので、弱いのは警告の網羅性だけである *)
   let rec dead_scan seen_total = function
     | [] -> ()
