@@ -35,7 +35,7 @@
    |---|---|---|
    | 1a | エイリアスの表、newtype の頭(名前とカインド) | 型の本体を書く前に、すべての型構成子のカインドを引けるようにする |
    | 1a′ | (登録しない)newtype の本体の投機 | パラメータのカインドを宣言順に依存せず決める |
-   | 1b | newtype のコンストラクタ、effect の操作、class のメソッド | 型の本体を書くのでカインドの表が要る。投機が相手のパラメータのカインドを決められない形(§11.31 の末尾)を除き、宣言順に依存しない |
+   | 1b | newtype のコンストラクタ、effect の操作、class のメソッド | 型の本体を書くのでカインドの表が要る。投機が相手のパラメータのカインドを決められない形(§11.31)を除き、宣言順に依存しない |
    | 1c | インスタンスの頭、前方参照できる let の署名 | 頭の検査にクラス表が要る。署名は前方参照に使う |
    | 2 | let / let rec / 式 / extern / インスタンス本体 | 本体を宣言順に推論し、順に型を印字する |
 
@@ -202,9 +202,14 @@ let unbound_value name scoped =
       | qs ->
           type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
 
-(* 構文的に反駁できないパターンかどうか。関数の引数と return 節の網羅性検査で、
-   警告が出ないと分かっている形を queue に積まないための節約である。
-   判定が厳しすぎても安全側に倒れる(queue が正しく判定する) *)
+(* 構文的に反駁できないパターンかどうか。
+   関数の引数と return 節の網羅性検査では、
+   警告が出ないと分かっている形を queue に積まないための節約に使う。
+   この用途では、判定が厳しすぎても安全側に倒れる(queue が正しく判定する)。
+   操作節の総和性の検査(§11.23)も同じ判定を使い、そこでは厳しすぎる判定が、
+   取りこぼさない節を拒否する側に倒れる。
+   newtype Box = MkBox(Int32) と、引数が Box の操作 ask があるとき、
+   ask の節が case ask(MkBox(n)) だけのハンドラは、コンストラクタが 1 つしかなくても拒否される *)
 let rec irrefutable_pat ((_, p) : T.pat) =
   match p with
   | T.PVar _ | T.PWildcard -> true
@@ -233,7 +238,7 @@ let row_failure msg =
 
 (* @ を省略した let で本体が純粋だと分かったものは、公開するときに本体の行を行変数へ開き直す。
    仕様 §9 の表は、let について
-   「let は推論する。純粋な本体なら行変数として一般化され、どこからでも呼べる」と定める。
+   「本体から推論する。本体が純粋なら行変数として一般化するので、どこからでも呼べる」と定める。
    行が空に固まるのは、本体が @ {} の関数(入れ子の省略 @ を含む)を呼んだときだけである。
    何も呼ばなければ行変数のまま残るので、この後処理が要るのはその場合に限る。
    純粋な関数にどんな行を名乗らせても、起こすエフェクトは増えないので健全である
@@ -387,7 +392,9 @@ let check_pub_annots ~value_head_outer ~params ~ret =
    および引数の注釈、返り値の注釈、値束縛の注釈。
 
    照合は `elab_value_type` が `elab_type` の結果に対して行う。
-   注釈の側の入口は `elab_value_type_outer` である。
+   引数と返り値の注釈も、この `elab_value_type` で読む。
+   引数リストを持たない値束縛の注釈だけは `elab_value_type_outer` で読む。
+   こちらは最外の省略 `@` を行変数にする `elab_type_outer` で読んでから、同じ照合を掛ける。
    合わなければ、`check_value_kind` が型エラーにする。
    文面は「… の型のカインドが Type ではありません: <型> :: <カインド>」である。
    この照合が無いと、newtype のフィールドの最外の照合(§11.31)だけが残り、
@@ -919,13 +926,16 @@ and expand_alias env level ~expanding info args =
    `Callback[Int32]` には「型 Int32 はエフェクトではありません」と報告する(`unknown_effect`)。
 
    上の分岐のどれにも当たらなかった型式は、最後の分岐に進む。
-   ここへ届く経路は 3 つある。
-   1 つ目は、文法(`eff` / `eff_name`)が通す module 修飾の名前(`M.T` / `M.W`)である。
-   2 つ目は、エフェクト名でない頭への適用(`W[E]` / `MutableArray[Int32, Int32]`)である。
-   3 つ目は `{… extends <ty>}` の右である。
-   文法の `extends` は `eff` ではなく `ty` を取り(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
-   `EBraceRow` の分岐がその `ty` をそのまま `elab_eff` へ再帰で渡すので、
-   `@ {extends #Tag}` のように `eff` では書けない型式もここへ届く。
+   `@` の後(文法の `eff` / `eff_name`)に書いた型式のうち、ここへ届く形は 2 つある。
+   module 修飾の名前(`M.T` / `M.W`)と、
+   エフェクト名でない頭への適用(`W[E]` / `MutableArray[Int32, Int32]`)である。
+   このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
+   `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
+   EffectRow エイリアスの本体(`type` 宣言の右辺)、
+   行カインドのパラメータへの型引数(§11.3 の `elab_con_args` と §11.5 の `expand_alias`)である。
+   extends の右は、`EBraceRow` の分岐がその `ty` をそのまま `elab_eff` へ再帰で渡す。
+   これらの位置からは、`@ {extends #Tag}` や `type W: EffectRow = #Tag` のように、
+   `eff` では書けない型式もここへ届く。
    EffectRow エイリアスの適用はここを通って正しく行になるので、
    この分岐に届いたものを一律に型エラーにするわけにはいかない。
    そこで最後の分岐は、`elab_type` で読んだ結果のカインドを照合し、行でなければ型エラーにする。
@@ -941,7 +951,7 @@ and expand_alias env level ~expanding info args =
 
    `EBraceRow` の分岐には「extends の右は行でなければなりません」という検査があるが、
    この検査には到達しない。
-   extends の右は `elab_eff` で読む(3 つ目の経路)ので、
+   extends の右は `elab_eff` で読む(`?check_row` は既定の true のまま)ので、
    最後の分岐を通ったものは先に照合を抜けてカインドが `Row` になっており、
    ほかの分岐が返すのも行だからである。
    `@ {extends #Tag}` は「エフェクト位置の型のカインドが Row ではありません: #Tag :: Type」で落ちる。
@@ -984,7 +994,7 @@ and expand_alias env level ~expanding info args =
    名前を引いた時点で、手前の分岐が別の文言で落とす。
    前者は「行カインドではない型パラメータです: h」、
    後者は「エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けてください)」である
-   (`test/kinds.t` の regionkind / classrow)。
+   (`test/kinds.t` の regionkind / classrow / effkind6)。
 
    相互再帰の関数群を定義し終えたら、`elab_type` / `elab_value_type` / `elab_eff` を、
    `~expanding` に空リストを渡す同名の関数で覆う。
@@ -1019,7 +1029,7 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
         | None -> TRowEmpty
         | Some t -> (
             (* extends の右は、文法(parser.mly)が eff ではなく ty を取るので、ここから
-               elab_eff へ再帰で読む。これが最後の分岐への 3 つ目の経路である。下の検査は
+               elab_eff へ再帰で読む。これが最後の分岐への経路の 1 つである。下の検査は
                最後の分岐の照合が先に落とすので到達しないが、安全網として残す(§11.6) *)
             let tt = elab_eff env level ~expanding t in
             if same_kind (Unify.kind_of tt) KRow then tt else type_error "extends の右は行でなければなりません")
@@ -1054,9 +1064,11 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
   | _ ->
-      (* 最後の分岐。ここへ通るのは、module 修飾の名前、エフェクト名でない頭への適用、
-         {… extends <ty>} の右の 3 つ。EffectRow エイリアスの適用(W[E] / M.W)はここを
-         通って正しく行になるので、落とすのではなく、読んだ結果のカインドを照合する。
+      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前とエフェクト名でない
+         頭への適用と、文法が ty を取る 3 つの位置(extends の右、EffectRow エイリアスの本体、
+         行カインドのパラメータへの型引数)から来る型式である。型引数の経路は
+         ~check_row:false を渡すので照合しない。EffectRow エイリアスの適用(W[E] / M.W)は
+         ここを通って正しく行になるので、落とすのではなく、読んだ結果のカインドを照合する。
          判定は kind_repr の構造の一致で行い、same_kind は使わない。カインドが未確定の
          まま届く経路があり(F[E] と、カインドが未推論のエイリアスの適用)、same_kind で
          調べると、検査ではなく Row への既定化になる(§11.6) *)
@@ -1067,15 +1079,17 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
 (* 束縛の最外の矢印が注釈としてそのまま書かれている位置
    (型クラスのメソッドの型と、引数リストを持たない値束縛の注釈)専用の入口。
    ここでだけ、省略した @ が新しい行変数になる。
-   仕様 §9 の表の「let は推論」「型クラスのメソッドは実装純粋 + 公開行多相」は、
-   一般化と包摂検査が担う。~outer:true を渡すのはこの 1 か所だけ *)
+   仕様 §9 の表のうち、let を本体から推論する規則と、型クラスのメソッドについて
+   インスタンスの実装を純粋とし、公開する型を行多相にする規則は、一般化と包摂検査が担う。
+   ~outer:true を渡すのはこの 1 か所だけ *)
 let elab_type_outer env level t = at_node t (fun () -> elab_type env level ~expanding:[] ~outer:true t)
 
 let elab_type env level t = at_node t (fun () -> elab_type env level ~expanding:[] t)
 
 (* 注釈の位置(引数、返り値、値束縛の頭)も値の型の位置なので、同じ照合を通す。
    通さないと、EffectRow エイリアスを書いた注釈が束縛の単一化まで残り、
-   「カインドが一致しません: _A :: Type と {Print}」と内部名で落ちる *)
+   「カインドが一致しません: _A :: Type と {Print}」と内部名で落ちる。
+   引数と返り値の注釈はこの関数で読み、値束縛の頭は下の elab_value_type_outer で読む *)
 let elab_value_type env level what t = at_node t (fun () -> elab_value_type env level ~expanding:[] what t)
 
 let elab_value_type_outer env level what t =
@@ -1308,8 +1322,9 @@ and elab_exp' env level eff node e =
       let name = show_long_id li in
       match SMap.find_opt name env.values with
       | Some sch ->
-          (* 修飾名で module の値に触るときの可視性検査。module 名とクラス名の衝突は
-             平坦化が拒否する(§11.42)ので、可視性台帳に載っている名前は必ず module の値であり、
+          (* 修飾名で module の値に触るときの可視性検査。module M の値 x の修飾名 M.x が、
+             同名のクラス M のメソッド x の修飾名と同じ綴りになる形は、平坦化が拒否する
+             (§11.42)。そのため、可視性台帳に載っている名前は必ず module の値であり、
              綴りによる免除は要らない。綴りで免除すると、同名のクラスを 1 行宣言するだけで、
              任意の非 pub の値を外から呼べてしまう *)
           Decls.check_value_visible (intern name);
@@ -1367,9 +1382,9 @@ and elab_exp' env level eff node e =
    ```
    let copy(src: String, dst: String): Unit @ {Console, Fs} = {
      with _ = with_file(src)
-     let text = perform read()                   // File は src のものが最左
+     let text = perform read()                   // 最も左の File は src のもの
      with _ = with_file(dst)
-     perform write(text)                         // File は dst のものが最左
+     perform write(text)                         // 最も左の File は dst のもの
    }
    ```
 
@@ -1387,7 +1402,7 @@ and elab_exp' env level eff node e =
    `pub` で `@` を省略した宣言の Rigid の行と衝突した形では、pub の規則を名指しする。
    呼び出し先の行が空(純粋な関数)で、それを空でない行の下から呼ぶ形と、
    この位置の行が空(高階の引数の行が `@ {}`)である形では、
-   仕様 §9 の「入れ子の矢印の `@` 省略は `@ {}`」を案内する。
+   仕様 §9 の、入れ子の矢印で省略した `@` を `@ {}`(純粋)と読む規則を案内する。
    言い換えるのは行に由来する失敗だけで、その判定を `row_failure` が行う。
    引数の型の不一致は言い換えない。
    `callee_pure` を単一化の前に取るのは、単一化が失敗しても、
@@ -1625,18 +1640,21 @@ and elab_exp' env level eff node e =
           tres)
 (* ## 11.17 run
 
-   `run[h] { ... }` はスコープ付きの可変状態である。
+   `run h { ... }` はスコープ付きの可変状態である。
    中で作った `Ref` を外に持ち出せないことを、ランク 2 多相を入れずに保証する。
-   実装は次の 3 つの手順からなり、この順序でなければ正しく働かない。
+   実装は次の 3 つの手順からなる。
 
-   1. スコープに入る前に、結果用の変数を作る(レベル L)
-   2. レベルを上げてから、剛定数 `h` を作る(レベル L+1)。これがリージョンの名前になる
-   3. 本体を `{Heap[h] | eff}` の行で推論し、最後に結果用の変数と単一化する
+   1. 結果用の変数を、スコープの外のレベル L で作る
+   2. 剛定数 `h` を、1 つ深いレベル L+1 で作る。これがリージョンの名前になる
+   3. 本体をレベル L+1 と行 `{Heap[h] | eff}` で推論し、最後に結果用の変数と単一化する
 
    手順 3 の単一化で `occurs_adjust` が走り、本体の型に残るレベル L+1 の変数を調べる。
    未定変数なら、レベルを L に下げて済む。
    剛定数はレベルを下げられないので、脱出検査がエラーにする(§8.3)。
-   手順 1 と 2 を入れ替えると、結果用の変数のレベルが L+1 になり、剛定数が検査を素通りする。
+   この検査が働くのは、結果用の変数をスコープの外のレベル L で作るからである。
+   L+1 で作ると、`occurs_adjust` は L+1 の剛定数を漏れとみなさず、剛定数が検査を素通りする。
+   Diktor はレベルを大域状態に持たず、引数で渡す。
+   そのため脱出検査に効くのは、2 つの変数を作る順序ではなく、それぞれを作るレベルである。
 
    同じ形は、注釈の型パラメータの扱いにも現れる。
    §11.25 の `make_rigids` と §11.28 の `lvl = level + 1` は、
@@ -1667,8 +1685,8 @@ and elab_exp' env level eff node e =
    単一化は、これを第8章 §8.7 が述べる剛定数どうしの不一致として報告する。 *)
 
   | T.Run (h, body) ->
-      (* スコープに入る前に結果用の変数を作り、level+1 で Rigid を作り、
-         本体を Heap[h] の行で推論する *)
+      (* 結果用の変数はスコープの外の level で、Rigid は level+1 で作り、
+         本体を level+1 と Heap[h] の行で推論する *)
       let result = new_var level in
       let heap = new_rigid (level + 1) in
       let env2 = { env with types = SMap.add h heap env.types } in
@@ -1766,7 +1784,7 @@ and elab_construct env level node cname ?eff args =
 
 (* ## 11.19 検査モード
 
-   §11.12 で述べた軽い双方向化は、`elab_check` が実装する。
+   §11.12 で述べた、引数を期待型で検査する処理(軽い双方向化)は、`elab_check` が実装する。
    期待型を押し込むのは、ラムダとレコード拡張(呼び出しの引数レコードはこの形に脱糖される)の 2 種類だけで、
    それ以外は通常どおり型を合成してから単一化する。
    合わない形に出会ったら黙って `fallback` に落ちるので、
@@ -2069,11 +2087,19 @@ and elab_handle env level eff clauses body =
    2. そのうち、自分の全操作がこの handle に書かれているものだけを残す(`covered`)
    3. ちょうど 1 つなら、それが対象である。0 個なら網羅漏れ、2 個以上なら曖昧としてエラーにする
 
-   手順 2 があるので、`Console` と `File` のように操作名が重なるエフェクトがあっても、
-   `read` と `write` の両方を書けば `File` に決まる。
+   手順 1 は、書いた操作名のどれかを宣言していないエフェクトを外す。
+   たとえば `Console` と `File` は、操作名 `write` が重なる。
+   それでも `read` と `write` の両方を書けば、
+   `read` を宣言しない `Console` は手順 1 の条件を満たさない。
+   手順 2 は、書いた操作をすべて宣言したうえで、ほかの操作も持つエフェクトを外す。
+   `File` のほかに `read` / `write` / `close` を持つエフェクトがあっても、
+   `read` と `write` の節だけを書けば `File` に決まる。
+
    ランタイムが提供するエフェクト(プレリュードの `Console` / `Async` / `Fs`)はハンドルできない。
    これらは手順 1 の候補からも外す。
-   そのため、`write` 節だけを書いた handle は `Console` には決まらず、
+   `Console` を候補に残すと、`write` 節だけを書いた handle は、
+   全操作が書かれている `Console` に手順 2 で決まる。
+   候補から外すので、この handle は `Console` には決まらず、
    「File の read が漏れています」で落ちる。
    `File` のつもりで `write` 節だけを書いた誤りは、この診断でそのまま分かる。
    `File` を意図していたなら、`File.write` と修飾するか、`read` 節も書けばよい。
@@ -2329,7 +2355,8 @@ and method_scheme cls m =
    `[A]` や `[E]` のように括弧が無ければカインド変数にしておく。
    Keleut では、型パラメータが型なのか行なのかを字句で区別できず、
    使われた位置(`extends` の右か `@` の右か)でしか決まらないからである。
-   未解決のまま残ったカインドは、宣言の終わりに `KStar` へ既定化する。
+   未解決のまま残ったカインドは、
+   剛定数を解放するとき(§11.27 の `release_rigids`)に `KStar` へ既定化する。
 
    剛定数は次の 3 段を経る。
 
@@ -2477,9 +2504,12 @@ and make_rigids ?kinds level tparams =
    公開のときに Generic へ解放する。
    値束縛でその Rigid が載るのは注釈の頭の矢印の行なので、純粋を要求されるのも頭の矢印の本体である。
    初期化式そのものは、束縛の外側の行で推論する(§11.28)。
-   本体を見ないパス 1c の署名は行変数をそのまま置き、
+   パス 1c の署名は、値束縛では行変数をそのまま置き、
    `Unify.generalize 0` がそれを Generic に変える。
-   `let rec` の値束縛には、どちらも置かない(§11.29)。
+   関数束縛の署名では、`pub_pure_rows` に載せない Rigid を置き、
+   `release_rigids` ですぐ Generic に変える。
+   `let rec` の値束縛では、`elab_rec_bindings` が頭の矢印の行に `pub_pure_rows` の Rigid を置かず、
+   頭の `@` の省略を `check_pub_annots` が拒否する(§11.29)。
 
    関数束縛と値束縛では、注釈の行で上限を掛ける仕組みが違う。
    関数束縛では、注釈の行が本体を検査する行になるので、本体が起こすエフェクトがそこへ足される。
@@ -2753,7 +2783,8 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
    値束縛の注釈の頭にラベルのある行を書いたときの開き方は、`let` と同じである(§11.26)。
    `pub` の省略 `@` だけは扱いが違い、`let rec` の値束縛には Rigid の行を置く分岐が無い。
    群では Rigid の行を 1 本共有し、束縛ごとに頭から Rigid を作る経路とは噛み合わないからである。
-   そのため、`pub let rec` の値束縛は `check_pub_annots` が拒否する。
+   そのため、頭の矢印の `@` を省略した `pub let rec` の値束縛は、
+   `check_pub_annots` が拒否する(頭に `@` を書けば受理する)。
    この拒否は仕様と食い違わない。
    仕様は、`let rec` の値束縛を認める形を書いていない。
 
@@ -3118,8 +3149,8 @@ let initial_env () =
 
    `newtype A[X] = MkA(B[{}], () => Unit @ X)` を `B` より前に置く形も、
    この 2 つの手当てで通る(`test/kinds.t` の specunit)。
-   通らないのは、相手の投機がそのパラメータのカインドを決められず、
-   しかも型引数が要素なしの波括弧である場合だけである。
+   要素なしの波括弧を前方参照で渡す形が通らないのは、
+   相手の投機がそのパラメータのカインドを決められない場合だけである。
    飛ばすのは投機の間だけなので、相手のカインドが `KVar` のまま 1b に入ると、
    1b では `{}` を空レコードとして読むことに成功してしまい、
    `elab_con_args` の照合が相手のパラメータを `Type` に張る(`test/kinds.t` の specunit2)。
@@ -3447,7 +3478,9 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    同名のメソッドを持つクラスが 2 つあると、非修飾名の勝者を elab と実行時が別の規則で選ぶ。
    elab の非修飾名の解決はパス 1b の先勝ちで、先に宣言したクラスが勝つ。
    第14章の登録(`register_class_methods`)はクラス名の順の後勝ちで、名前が後ろのクラスが勝つ。
-   そのため、型検査と実行が別のクラスを選び、型検査が選んだ実体と違う実装が黙って走るか、
+   2 つの規則が食い違うのは、先に宣言したクラスが、
+   クラス名の順で後に宣言したクラスより前にあるときである。
+   このとき型検査と実行が別のクラスを選び、型検査が選んだ実体と違う実装が黙って走るか、
    偽の「インスタンスが見つかりません」が出る。
    §14.6 が述べるとおり、ディスパッチの規約は、
    宣言を受理する側と実行する側で同じ 1 つでなければならない。
@@ -3505,7 +3538,8 @@ let register_class env (c : T.class_decl') =
      書けるのはパラメータのカインドが Type のクラスだけで、カインドで判別できるので宣言の
      時点でエラーにする、と定める。構造的導出はレコードやヴァリアントの各フィールドへ制約を
      配る規則なので、Type のクラスにしか意味が無い。上の全面的な拒否があるので、この検査が
-     単独で効くのは、組み込みと同名のクラスを再宣言したときだけ *)
+     単独で効くのは、プレリュード(--prelude で差し替えたものを含む)を処理している間と、
+     クラス表に既にある名前でクラスを宣言したときだけ *)
   (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
      type_error
        ("derive structural は Type のクラスにしか付けられません(" ^ c.T.cls_name ^ " のパラメータは "
@@ -3516,7 +3550,8 @@ let register_class env (c : T.class_decl') =
         let mt_params =
           List.map
             (fun tp ->
-              (* カインドは使われた位置から推論し、宣言の終わりに KStar へ既定化する *)
+              (* カインドは使われた位置から推論し、メソッドの型を一般化した直後に
+                 KStar へ既定化する(第1章 §1.6) *)
               let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
               let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
               (tp.tp_name, TVar (ref (Generic { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes }))))
@@ -3525,7 +3560,7 @@ let register_class env (c : T.class_decl') =
         let types = List.fold_left (fun m (n, t) -> SMap.add n t m) (SMap.add param.tp_name pvar env.types) mt_params in
         let ty = elab_type_outer { env with types } 1 v.T.cv_ty in
         (* 最外のラベル付きの行は開く(§11.26 の値束縛と同じく、Rigid を Generic に変える)。
-           仕様 §9 の表は、型クラスのメソッドも束縛の最外に含める(sample.kel:472-478)。
+           仕様 §9 は、束縛の最外に型クラスのメソッドを数える(sample.kel:476)。
            開かないと、val f: (T) => Int32 @ Console のメソッドがどの文脈からも呼べない。
            開くのは注釈の頭が矢印リテラルのときだけで、頭が型エイリアスなら、展開先の
            矢印は入れ子なので、書いた行を閉じたまま読む(§11.5 の規則 4)。値束縛の
@@ -3568,9 +3603,10 @@ let register_class env (c : T.class_decl') =
   in
   dup methods;
   (* 非修飾名の所有者は高々 1 クラス、という不変条件をここで守る。破れると、elab(宣言順の先勝ち)と
-     interp(クラス名の順の後勝ち)が別の規則で勝者を選ぶので、誤った実体を呼ぶか、偽の
-     「インスタンスが見つかりません」を出す。組み込みと同名のクラスの再宣言は同じ oid なので
-     素通しになる。不変条件が帰納的に保たれるので、候補は高々 1 つで、文言も決定的 *)
+     interp(クラス名の順の後勝ち)が別の規則で勝者を選ぶ。両者が別のクラスを選ぶと、
+     誤った実体を呼ぶか、偽の「インスタンスが見つかりません」を出す。組み込みと同名の
+     クラスの再宣言は同じ oid なので素通しになる。不変条件が帰納的に保たれるので、
+     候補は高々 1 つで、文言も決定的 *)
   List.iter
     (fun (m, _) ->
       Hashtbl.iter
@@ -3785,7 +3821,9 @@ let register_instance (i : T.instance_decl') =
    値束縛では、注釈の頭が矢印なら、その `@` が明示されているか、束縛が `pub` であることを求める。
    どちらも、引数と返り値に型注釈があることが前提である(§11.37)。
 
-   `head_effected` がこの判定を行う。
+   判定は `signature_of_binding`(§11.37)の `full` が行う。
+   関数束縛では束縛自身の `@`(`lb_eff`)を見て、値束縛では注釈の頭の矢印を `head_effected` で見る。
+   どちらも入れ子の矢印は見ないので、
    `let helper[E](f: () => Unit @ E, g: (Int32) => Int32): Int32 @ {Console extends E}` は、
    `g` の `@` を省略していても署名になる(`test/typecheck_m6.t` の fwdsig)。
    入れ子の矢印にまで `@` を要求すると、
@@ -4114,7 +4152,8 @@ let check_instance_bodies env (i : T.instance_decl') =
    型の本体を精緻化して宣言表に登録するのは、このパスである。
    1a とその後始末が終わっているので、原則として宣言の順序に依存しない。
    newtype どうしが互いを参照しても、effect が後ろの newtype を使っても通る。
-   例外は、§11.31 で述べた、投機が届かない形へ要素なしの波括弧を渡す場合である。
+   例外は、§11.31 で述べた、投機が相手のパラメータのカインドを決められない形へ、
+   波括弧で書いた行を前方参照で渡す場合である。
    クラスのメソッドは、非修飾名(`map`)と修飾名(`Functor.map`)の両方で値環境に登録する。
    どちらでも書けるという仕様を、環境に 2 つ入れるという最も単純な方法で実現している。
 
@@ -4161,7 +4200,8 @@ let check_instance_bodies env (i : T.instance_decl') =
    述語つきの弱い変数が残ったまま印字すると、利用者には意味のない内部の述語が見えるからである。
 
    プレリュードも同じ `process_decls` を通す。
-   違いは、`emit` を捨てることだけである。 *)
+   違いは、何もしない `emit` を渡して出力を捨てることと、
+   `Decls.in_prelude` を立てて処理すること(§11.41)である。 *)
 
 (* コンパニオン型の大域の同義語を登録する(sample.kel:838)。
    平坦化ではなく、パス 1a で行う。
