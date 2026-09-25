@@ -39,7 +39,7 @@
 
    `bug` は `Panic` のメッセージに `[BUG]` を前置する。
    `Panic` は Diktor 側の欠陥を表し、利用者のプログラムがどう書かれていても出てはならない。
-   典型は §1.8 の `row_append` で、左側が開いた行のときに `bug` を呼ぶ。
+   典型は §1.8 の `row_append` で、左側が開いた行で右側が空でないときに `bug` を呼ぶ。
    そこへ到達しないことは、呼び出し側の第11章が保証している。
 
    `NotImplemented` を `Type_error` と分けるのは、
@@ -53,7 +53,8 @@
 
    `noimpl` の例外も、型エラーと同じ診断の流れに乗る。
    第11章の `type_check` が `NotImplemented` を捕まえ、そこまでに出せた型の行と未実装の診断を返す。
-   第16章はそれを型の行に続く `! 未実装:` の行として印字し、終了コード 4 で終える。
+   第16章はそれを、型の行に続く `! ファイル:行:桁: 未実装: …` の行(位置が無いときは `! 未実装: …`)として印字し、
+   終了コード 4 で終える。
    受け皿の第16章にしか捕まえる節が無いと、そこまでの型の行がすべて消える。
    そのため、第11章と第16章の両方に節を置く(§16.8)。
 
@@ -87,10 +88,12 @@ let type_error msg = raise (Type_error msg)
 (* 位置つきの型エラー。第11章の at_node が、
    位置なしの Type_error に最内ノードの span を貼って投げ直す。
    Type_error を捕まえる節は 3 種類に分かれ、それぞれ次の義務を負う。
-   (a) 握り潰す節(signature_of_binding)と、(b) 受け皿(Elab.type_check / Driver.main)は、
+   (a) 精緻化を包んで握り潰す節(signature_of_binding、newtype と型エイリアスの投機)と、
+   (b) 受け皿(Elab.type_check、Driver.type_check_files の平坦化、Driver.main)は、
    Type_error_at も必ず捕まえる。
-   (c) Unify.unify だけを包んで言い換える節は、捕まえなくてよい。
-   unify は位置を知らないので、そこから Type_error_at は出ない *)
+   (c) Unify の関数(unify、rewrite_row)だけを包む節は、言い換えるにせよ握り潰すにせよ、
+   Type_error_at を捕まえなくてよい。
+   Unify は位置を知らないので、そこから Type_error_at は出ない *)
 exception Type_error_at of Location.span * string
 
 (* 位置つきの未実装。at_node は NotImplemented にも同じ規則で span を貼る *)
