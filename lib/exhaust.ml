@@ -810,8 +810,11 @@ let rec show_ipat = function
 
    §10.9 の `close_variant_rows` は `unify` を呼ぶ。
    一方、`generalize` は型変数を `Generic` に書き換える。
-   `Generic` は型スキーマの量化変数を表すので、それに `unify` を掛けるのは内部エラーである。
-   第8章の `bind` も `occurs_adjust` も、`Generic` に出会うと `bug` で落とす。
+   `Generic` は型スキーマの量化変数を表し、単一化で書き換えてよい変数ではない。
+   `unbound_var` は `Generic` を未定変数と見なさないので、
+   `close_row` の `unify` は `bind` へ進まず、
+   第8章 §8.7 の剛な行変数の分岐に落ちる。
+   その結果、網羅性検査が、原因と関係のない型エラーを出す(第8章 §8.9)。
    したがって、検査は必ず一般化より前に走らなければならない。
 
    ### 理由 2:早すぎると行がまだすべてのラベルを集めていない
