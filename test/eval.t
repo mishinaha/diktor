@@ -168,6 +168,32 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
   cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
   99
 
+cancel 節の中で例外が起きると、その cancel 節は打ち切る(後ろの文は実行しない)。
+脱出は外へ伝えずログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
+(仕様 sample.kel:581、LangSpec.md §13.6):
+
+  $ cat > cancelabort.kel <<'EOF2'
+  > effect A = { a: () => Unit }
+  > effect B = { b: () => Unit }
+  > effect Fail = { fail: () => Unit }
+  > let r = ((perform fail() handle {
+  >     case a() => resume()
+  >     case cancel => { echoln("inner cancel start"); __panic("boom"); echoln("inner cancel rest") }
+  >   }) handle {
+  >   case b() => resume()
+  >   case cancel => echoln("outer cancel")
+  > }) handle {
+  >   case fail() => echoln("caught")
+  > }
+  > echoln("after")
+  > EOF2
+  $ diktor cancelabort.kel
+  caught
+  inner cancel start
+  cancel 節で例外が抑制されました: panic: boom
+  outer cancel
+  after
+
 深いハンドラと最内一致・resume の返り値 = handle 式全体の型:
 
   $ cat > deep.kel <<'EOF'
