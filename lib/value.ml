@@ -156,7 +156,7 @@ and env = {
   resume : resume option;
   (* 出身の module。module 内の宣言から作ったクロージャはこれを覚えておき、
      非修飾名が globals に無かったとき、module スコープの値同義語を引く。
-     第11章の current_module に対応する評価器の側の情報 *)
+     第6章(decls.ml)の current_module に対応する評価器の側の情報 *)
   mod_scope : string option;
 }
 
@@ -423,7 +423,7 @@ let float_repr f =
         if float_of_string s = f then s else go (p + 1)
     in
     let s = go 1 in
-    (* 指数部の + と先頭の 0 を落とす(仕様 §2 の「最短」)。
+    (* 指数部の + と先頭の 0 を落とす(仕様 §2、sample.kel:110)。
        1e+16 は 1e16 に、1e-05 は 1e-5 になる。読み戻しは壊れない *)
     let s =
       match String.index_opt s 'e' with
