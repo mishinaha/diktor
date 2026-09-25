@@ -1,0 +1,1293 @@
+diff -ruN a/lib/decls.ml b/lib/decls.ml
+--- a/lib/decls.ml
++++ b/lib/decls.ml
+@@ -255,6 +255,9 @@
+    たとえば module 内の `let parse(...): BigInt` の `BigInt` は、
+    改名された `newtype BigInt` を指せなくなる。
+    そこで同義語表を張り、型の名前は `resolve_con` を通して引く。
++   エフェクト行の位置に書いた EffectRow エイリアスの名前も、`resolve_con` を通して引く。
++   ただし、module の宣言が行にならないときは、
++   `resolve_con_global` で大域の名前を引き直す(第11章 §11.6)。
+ 
+    module の内部の名前は module の中でだけ意味を持つので、同義語も module ごとのスコープを持つ。
+    `module_con_synonyms` の鍵は `(module 名, 非修飾名)` で、
+@@ -284,7 +287,7 @@
+    `module BigInt` の中の `newtype BigInt` は `BigInt.BigInt` へ改名され、
+    大域の同義語 `BigInt` → `BigInt.BigInt` が張られる。
+    module の外から非修飾で見えてよい型名は、コンパニオンだけである。
+-   ただし、コンパニオンは既存の型名とは衝突できない。
++   ただし、コンパニオンは既存の型名とも、エフェクト名とも衝突できない。
+    黙って同義語を張ると、`module Foo` を 1 行足すだけでトップレベルやプレリュードの型 `Foo` が乗っ取られ、
+    名目型の抽象が破れる。
+    プレリュードの名前が乗っ取られると、処理系そのものが正しく動かなくなる。
+@@ -329,11 +332,14 @@
+ 
+ let module_val_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
+ 
++(* module スコープを飛ばし、大域の同義語(コンパニオン)だけをたどる。
++   エフェクト位置の名前の解決(第11章 §11.6)が、module の名前が行にならないときに引き直すのに使う *)
++let resolve_con_global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
++
+ let resolve_con c =
+-  let global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c in
+   match !current_module with
+-  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> global c)
+-  | None -> global c
++  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> resolve_con_global c)
++  | None -> resolve_con_global c
+ 
+ (* 診断専用の候補列。解決には使わない *)
+ let con_hints : (oid, oid list) Hashtbl.t = Hashtbl.create 16
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -206,10 +206,13 @@
+    関数の引数と return 節の網羅性検査では、
+    警告が出ないと分かっている形を queue に積まないための節約に使う。
+    この用途では、判定が厳しすぎても安全側に倒れる(queue が正しく判定する)。
+-   操作節の総和性の検査(§11.23)も同じ判定を使い、そこでは厳しすぎる判定が、
+-   取りこぼさない節を拒否する側に倒れる。
+-   newtype Box = MkBox(Int32) と、引数が Box の操作 ask があるとき、
+-   ask の節が case ask(MkBox(n)) だけのハンドラは、コンストラクタが 1 つしかなくても拒否される *)
++   コンストラクタパターンは、コンストラクタが 1 つしかない型のものでも偽とし、queue に任せる。
++   queue は、値の無い型をフィールドに持つコンストラクタパターンに、
++   一致する値が無いことも警告する(newtype Absurd = MkA(Never) に対する MkA(n) など)。
++   ここで真にして積むのを省くと、その警告が出なくなる。
++   この警告は、コンストラクタパターンを queue に積んだときにしか出ない。
++   変数やレコードのパターンで値の無い型を受けても、ここで真になって積まれないので、警告は出ない。
++   操作節の総和性の検査(§11.23)はこの判定を使わず、第10章の missing で型を見て判定する *)
+ let rec irrefutable_pat ((_, p) : T.pat) =
+   match p with
+   | T.PVar _ | T.PWildcard -> true
+@@ -366,6 +369,8 @@
+    module の平坦化(§11.42)の同義語表を引くためである。
+    `module Parser` の中で `Parser` と書いても、外から `Parser.Parser` と書いても、
+    同じ oid に行き着く。
++   §11.6 の `elab_eff` も、EffectRow エイリアスの名前を `Decls.resolve_con` を通して引く。
++   ただし、module の宣言が行にならないときに大域の名前を引き直す点が、型の位置と違う。
+ 
+    `EApply` の頭が型パラメータのときだけは扱いが違う。
+    `tapp` で適用を組み立て、カインドは使用時に `kind_of` と `drop_arrows` が決める。
+@@ -800,15 +805,74 @@
+ and check_no_hole ((_, te) as t : T.type_exp) =
+   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
+ 
++(* エフェクト位置に書いた名前 n を、EffectRow エイリアスとして引く。
++   探す場所は 2 つあり、この順に引く。
++   1 つ目は、§11.3 の elab_type と同じく Decls.resolve_con で解決した先である。
++   module の中では同じ module の宣言が先に当たるので、
++   module の中で非修飾で書いた W も、module の外で修飾して書いた M.W も、同じエイリアスに行き着く。
++   2 つ目は、module スコープを飛ばして大域の同義語だけをたどった先(Decls.resolve_con_global)で、
++   トップレベルのエイリアスとコンパニオンが当たる。
++   module の中の同名の宣言が行にならない Type エイリアスや newtype のときは、
++   1 つ目で見つからず、ここで大域の名前を引き直す。
++   見つかったエイリアスとその修飾名を返す。
++   可視性は検査しないので、パターンの when の中からも呼べる *)
++and find_row_alias n =
++  let c = intern n in
++  List.find_map
++    (fun oid ->
++      match Hashtbl.find_opt Decls.aliases oid with
++      | Some info when info.Decls.al_kind = Some "EffectRow" -> Some (oid, info)
++      | _ -> None)
++    [ Decls.resolve_con c; Decls.resolve_con_global c ]
++
++(* エフェクト位置に書いた名前 n を、エイリアスとして引く。
++   EffectRow エイリアスが見つかれば、それを返す。
++   見つからず、effect の宣言表に n があれば、None を返して effect として読ませる。
++   effect の宣言表は、書かれた名前のまま引く。
++   effect は module の中に宣言できない(§11.42)ので、同義語をたどる必要が無い。
++   どちらでもなければ、行にならないエイリアスを同じ 2 つの場所で探して返す。
++   呼び出し側はそれを、エフェクト位置に置いた Type エイリアスの誤りとして報告する。
++   返すエイリアスには、elab_type と同じ可視性の検査を課す *)
++and find_alias n =
++  let c = intern n in
++  let found =
++    match find_row_alias n with
++    | Some _ as r -> r
++    | None when Hashtbl.mem Decls.effects c -> None
++    | None ->
++        List.find_map
++          (fun oid -> Option.map (fun info -> (oid, info)) (Hashtbl.find_opt Decls.aliases oid))
++          [ Decls.resolve_con c; Decls.resolve_con_global c ]
++  in
++  Option.map
++    (fun (oid, info) ->
++      Decls.check_con_visible oid;
++      info)
++    found
++
+ (* 「未知のエフェクト」の言い分け。名前が型として登録されていれば、
+    綴りの誤りではなく位置の誤りなので、そう報告する。
+    resolve_con は module の同義語をたどるので、
+    スコープ外の内部型名にもこちらの文言が出ることがあるが、
+-   受理と拒否は変わらない *)
++   受理と拒否は変わらない。
++   型でもなければ、スコープの外の module にある同名の EffectRow エイリアスを探し、
++   §11.3 の未知の型と同じく、修飾名を案内する。
++   案内するのは pub の EffectRow エイリアスだけである。
++   非 pub の名前は、修飾しても可視性の検査で落ちる。
++   Type エイリアスや newtype は、修飾しても行にならない。
++   引数の個数は見ない。
++   §11.3 の型の位置の案内と同じく、修飾した後の個数の誤りは expand_alias が報告する *)
+ and unknown_effect n =
+   if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
+     "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
+-  else "未知のエフェクト: " ^ n
++  else
++    let pub_row_alias q =
++      (match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
++      && match Hashtbl.find_opt Decls.aliases q with Some info -> info.Decls.al_kind = Some "EffectRow" | None -> false
++    in
++    match List.filter pub_row_alias (Decls.con_synonym_candidates (intern n)) with
++    | [] -> "未知のエフェクト: " ^ n
++    | cands -> "未知のエフェクト: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)"
+ 
+ (* エイリアスが開いた行に展開されたときの splice。
+    row_append は左が閉じていることを要求するので、展開結果の閉じた前置部分をなぞり、
+@@ -889,8 +953,33 @@
+ 
+    1. `env.types` にあり、カインドが行なら、行変数である。
+    2. `EffectRow` と注記されたエイリアスなら、展開して splice する。
+-      波括弧の中の要素では、引数があってもなくても、エイリアスを effect の宣言表より先に調べる。
++      `@` の後でも波括弧の中でも、引数があってもなくても、
++      エイリアスを effect の宣言表より先に調べる。
++      エイリアスは `find_row_alias` が 2 つの場所で探す。
++      1 つ目は `Decls.resolve_con` で解決した先で、module の中では同じ module の宣言が先に当たる。
++      そのため module の中では、同じ module のエイリアスを修飾せずに書ける。
++      2 つ目は大域の名前で、トップレベルのエイリアスとコンパニオンが当たる。
+    3. effect の宣言表にあれば、`@ Print` は `@ {Print}` の略記なので、ラベル 1 つの閉じた行にする。
++      effect の宣言表は、書かれた名前のまま引く。
++
++   エフェクト位置で、module の宣言が同名の大域の名前を覆うのは、
++   その宣言が EffectRow エイリアスのときだけである。
++   2 を 3 より先に調べるので、module の中に、エフェクトやトップレベルのエイリアスと同名の
++   EffectRow エイリアスを宣言すると、その module の中では、その名前は module のエイリアスを指す。
++   `@ Heap[E]` と `@ {Heap[E]}` も、どちらも module のエイリアスを指す。
++   その module の中から、覆われたエフェクトを直接名指す書き方は無い。
++   エイリアスの本体は、宣言したスコープで読む(§11.5)。
++   そのため、トップレベルに置いたエイリアスを経由すれば、覆われたエフェクトを書ける。
++   逆に、module のエイリアスの本体に同じ名前を書くと、エイリアス自身を指して再帰として落ちる。
++   module の中に型の位置の `type T = (T, Int32)` を書いたときと同じである。
++   一方、module の Type エイリアスと newtype は、エフェクト位置では何も覆わない。
++   `find_row_alias` の 1 つ目の場所でエイリアスが見つからないので、
++   2 つ目の場所と effect の宣言表を引くからである。
++   型の位置では、module の型は種類を問わず同名のトップレベルの型を覆うので、ここは規則が違う。
++   行にならない宣言はエフェクト位置では使えず、覆わせても型エラーになるだけなので、覆わせない。
++   こうしておくと、module に `type Console = Int32` を足しても、
++   その module の中の `@ Console` の意味は変わらない
++   (`test/visibility.t` の visrow6 から visrow11)。
+ 
+    1 の判定に `same_kind` を使うのは、arity 0 の型パラメータのカインドが、
+    宣言時には未定(`KVar`)だからである。
+@@ -927,8 +1016,9 @@
+ 
+    上の分岐のどれにも当たらなかった型式は、最後の分岐に進む。
+    `@` の後(文法の `eff` / `eff_name`)に書いた型式のうち、ここへ届く形は 2 つある。
+-   module 修飾の名前(`M.T` / `M.W`)と、
+-   エフェクト名でない頭への適用(`W[E]` / `MutableArray[Int32, Int32]`)である。
++   module 修飾の名前とその適用(`M.T` / `M.W` / `M.W[E]`)と、
++   エフェクト名でも EffectRow エイリアスでもない頭への適用
++   (型パラメータへの適用 `F[E]`、`MutableArray[Int32, Int32]`、Type エイリアスの適用)である。
+    このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
+    `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
+    EffectRow エイリアスの本体(`type` 宣言の右辺)、
+@@ -936,7 +1026,7 @@
+    extends の右は、`EBraceRow` の分岐がその `ty` をそのまま `elab_eff` へ再帰で渡す。
+    これらの位置からは、`@ {extends #Tag}` や `type W: EffectRow = #Tag` のように、
+    `eff` では書けない型式もここへ届く。
+-   EffectRow エイリアスの適用はここを通って正しく行になるので、
++   修飾した EffectRow エイリアス(`M.W` / `M.W[E]`)はここを通って正しく行になるので、
+    この分岐に届いたものを一律に型エラーにするわけにはいかない。
+    そこで最後の分岐は、`elab_type` で読んだ結果のカインドを照合し、行でなければ型エラーにする。
+    文面は「エフェクト位置の型のカインドが Row ではありません: <型> :: <カインド>」で、
+@@ -1006,14 +1096,23 @@
+   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
+       let tv = SMap.find n env.types in
+       if same_kind (Unify.kind_of tv) KRow then tv else type_error ("行カインドではない型パラメータです: " ^ n)
+-  | T.EIdent (LongId [ n ]) when Hashtbl.mem Decls.aliases (intern n) ->
+-      let info = Hashtbl.find Decls.aliases (intern n) in
+-      if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
+-      else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
+-  | T.EIdent (LongId [ n ]) ->
+-      (* @ Print = @ {Print} の略記 *)
+-      if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
+-      else type_error (unknown_effect n)
++  | T.EIdent (LongId [ n ]) -> (
++      match find_alias n with
++      | Some info ->
++          if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
++          else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
++      | None ->
++          (* @ Print = @ {Print} の略記 *)
++          if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
++          else type_error (unknown_effect n))
++  | T.EApply ((_, T.EIdent (LongId [ n ])), args)
++    when (not (SMap.mem n env.types)) && Option.is_some (find_row_alias n) ->
++      (* EffectRow エイリアスの適用(@ W[E])。波括弧の中の要素と同じく find_row_alias で引き、
++         effect の宣言表より先に調べる。module のエイリアスが同名の effect を覆うときも、
++         @ Heap[E] と @ {Heap[E]} は同じエイリアスを指す *)
++      let oid, info = Option.get (find_row_alias n) in
++      Decls.check_con_visible oid;
++      expand_alias env level ~expanding info args
+   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
+       (* @ Heap[h] = @ {Heap[h]} の略記。sample.kel:467 の略記の規則は、
+          引数つきのラベルを除外していない *)
+@@ -1037,11 +1136,14 @@
+       List.fold_right
+         (fun elem acc ->
+           match elem with
+-          | T.BLabel (LongId [ n ], args) -> (
++          | T.BLabel (li, args) -> (
++              let n = show_long_id li in
+               (* エイリアスを先に調べ、引数の有無で経路を分けない。エフェクト名と型名は
+                  同じ名前空間(claim_type_name)にあるので、Heap[h](ラベルの引数)と
+-                 WithPrint[E](エイリアスの適用)を取り違えない *)
+-              match Hashtbl.find_opt Decls.aliases (intern n) with
++                 WithPrint[E](エイリアスの適用)を取り違えない。修飾名(M.W)も同じ
++                 経路で引く。effect は module に宣言できないので、修飾名が指しうるのは
++                 エイリアスだけで、ほかは unknown_effect の診断になる *)
++              match find_alias n with
+               | Some info when info.Decls.al_kind = Some "EffectRow" ->
+                   splice_row n (expand_alias env level ~expanding info args) acc (* 行を splice する *)
+               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
+@@ -1060,18 +1162,17 @@
+                         | _ -> type_error "エフェクトラベルの引数は1個までです"),
+                         acc )
+                   else type_error (unknown_effect n))
+-          | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
+           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
+         elems tail
+   | _ ->
+-      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前とエフェクト名でない
+-         頭への適用と、文法が ty を取る 3 つの位置(extends の右、EffectRow エイリアスの本体、
+-         行カインドのパラメータへの型引数)から来る型式である。型引数の経路は
+-         ~check_row:false を渡すので照合しない。EffectRow エイリアスの適用(W[E] / M.W)は
+-         ここを通って正しく行になるので、落とすのではなく、読んだ結果のカインドを照合する。
+-         判定は kind_repr の構造の一致で行い、same_kind は使わない。カインドが未確定の
+-         まま届く経路があり(F[E] と、カインドが未推論のエイリアスの適用)、same_kind で
+-         調べると、検査ではなく Row への既定化になる(§11.6) *)
++      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前と、エフェクト名でも
++         EffectRow エイリアスでもない頭への適用と、文法が ty を取る 3 つの位置(extends の右、
++         EffectRow エイリアスの本体、行カインドのパラメータへの型引数)から来る型式である。
++         型引数の経路は ~check_row:false を渡すので照合しない。修飾した EffectRow エイリアス
++         (M.W / M.W[E])はここを通って正しく行になるので、落とすのではなく、読んだ結果の
++         カインドを照合する。判定は kind_repr の構造の一致で行い、same_kind は使わない。
++         カインドが未確定のまま届く経路があり(F[E] と、カインドが未推論のエイリアスの適用)、
++         same_kind で調べると、検査ではなく Row への既定化になる(§11.6) *)
+       let ty = elab_type env level ~expanding t in
+       if check_row && kind_repr (Unify.kind_of ty) <> KRow then kind_error "エフェクト位置の型" ~expected:"Row" ty;
+       ty
+@@ -1941,16 +2042,29 @@
+ 
+    そこで、次の 2 段で第二級性を守る。
+ 
+-   1. 静的な検査：`check_resume_static` が節の本体を走査し、ラムダの内側の `Resume` をエラーにする。
++   1. 静的な検査：`check_resume_static` が節の本体を走査し、
++      閉包の本体の中の `Resume` をエラーにする。
+    2. 動的な検査：節が終わるときに継続の生死のフラグ(第14章の `r_alive`)を下ろし、
+       その後の resume の呼び出しを実行時エラーにする。
+ 
+-   静的な検査がラムダとして扱うのは、ラムダ式(`Lambda` のノード)だけである。
+-   節の中のローカルな関数束縛(`let f() = resume(41)`)の本体は、
+-   `Let` / `LetRec` の分岐が外側と同じ `in_lambda` のまま走査するので、
+-   そこに書いた resume は静的な検査を通る。
+-   その関数を節の外へ持ち出して呼ぶと、
+-   動的な検査が「resume を節の外で呼び出しました(second-class)」で止める。
++   第14章が閉包を作るのは、ラムダ式(`Lambda` のノード)と関数束縛を評価するときである。
++   関数束縛は、`let` と `let rec` の束縛のうち `lb_params` が `Some` のもので、
++   `let f() = resume(41)` の形をしている。
++   静的な検査は、この 2 つの本体を閉包の本体として走査する。
++   `with` はパーサがラムダ式に脱糖する(§3.8)ので、ラムダ式として扱われる。
++   値束縛(`lb_params` が `None`)の右辺は束縛の時点で評価されるので、
++   外側と同じ `in_lambda` のまま走査する。
++   節の本体に `let {value, output} = resume()` と書けるのは、このためである。
++
++   関数束縛の本体の resume は、その関数を節の中で呼ぶだけであっても拒否する。
++   `fn() => resume(41)` を変数に束縛して節の中で呼ぶ形を拒否するのと、同じ扱いである。
++   閉包が節の外へ出るかどうかは、構文だけでは決まらない。
++
++   閉包の本体は定義時の環境で評価される(§14.5)ので、
++   閉包のうち節の継続を持ちうるのは、節の本体に字句的に書かれたものである。
++   静的な検査が閉包の本体として走査する構文は、第14章が閉包を作る構文と揃えておく必要がある。
++   動的な検査は、閉包を作る構文が増えて静的な検査が追いつかなくなった場合にも、
++   節の外での再開を実行時エラーにする。
+ 
+    走査の途中で内側の `Handle` に出会ったら、その本体は走査し、節には入らない。
+    内側のハンドラの節は、その節自身が検査を受けるときに、自分の文脈で調べられるからである。
+@@ -1964,6 +2078,12 @@
+ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+   at_node node @@ fun () ->
+   let go = check_resume_static ~in_lambda in
++  (* 関数束縛(lb_params が Some)の本体は、ラムダの本体と同じく閉包の中である *)
++  let go_binding ((_, b) : T.let_binding) =
++    match b.T.lb_params with
++    | Some _ -> check_resume_static ~in_lambda:true b.T.lb_body
++    | None -> go b.T.lb_body
++  in
+   match e with
+   | T.Resume arg ->
+       if in_lambda then type_error "resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)"
+@@ -1980,11 +2100,11 @@
+       go l;
+       go r
+   | T.Not v -> go v
+-  | T.Let ((_, b), rest) ->
+-      go b.T.lb_body;
++  | T.Let (b, rest) ->
++      go_binding b;
+       go rest
+   | T.LetRec (bs, rest) ->
+-      List.iter (fun ((_, b) : T.let_binding) -> go b.T.lb_body) bs;
++      List.iter go_binding bs;
+       go rest
+   | T.Seq es -> List.iter go es
+   | T.Match (scrut, cs) ->
+@@ -2031,8 +2151,8 @@
+    操作節は、同じ操作に対して複数書ける。
+    書き手は絞り込みパターンやガードで場合を分け、
+    評価器は実行時に match と同じフォールスルーで節を選ぶ。
+-   総和的な節(ガードが無く、引数パターンがすべて反駁不能な節)より後ろに同じ操作の節を書くと、
+-   その節には到達しないので、警告を出す(§11.24)。
++   総和的な節(ガードが無く、引数パターンの並びがどんな引数にも一致する節)より後ろに、
++   同じ操作の節を書くと、その節には到達しないので、警告を出す(§11.24)。
+ 
+    分類の結果は、`set_resolved` で木に書く。
+    評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。 *)
+@@ -2201,35 +2321,69 @@
+       if not (List.mem_assoc op target_info.Decls.ef_ops) then
+         type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
+     ops;
+-  (* 総和性の検査。各操作に、ガードが無く全引数パターンが反駁不能な節が
+-     1 つ以上要る。実行時の節の選択は match と同じフォールスルー(第14章)だが、
+-     ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形は
+-     ここで拒否する。実行時に取りこぼしうるプログラムを型検査で通さない *)
+-  (* 反駁不能の判定は、関数の引数や return 節の網羅性検査と同じ irrefutable_pat を使う *)
+-  let total (_, _, args, ((_, c) : T.clause)) =
+-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
++  (* 操作節の引数パターンを型付ける。
++     総和性の検査は引数の型を見て判定するので、パターンだけを先にここで型付ける。
++     本体、return 節、cancel 節、操作節のガードと本体は、この後で推論する(§11.24)。
++     操作の型には型パラメータも行変数も書けないので、引数の型はこの時点で決まっている *)
++  let op_clauses =
++    List.map
++      (fun ((op, _, args, ((_, c) as cnode)) as cl) ->
++        Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
++        let scheme = List.assoc op target_info.Decls.ef_ops in
++        let args_row, op_ret =
++          match repr (Unify.instantiate level scheme) with
++          | TArrow (a, r, _) -> (a, r)
++          | _ -> bug "操作スキーマが矢印型ではありません"
++        in
++        let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
++        if List.length args <> List.length param_tys then
++          type_error
++            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
++               (List.length args));
++        List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
++        let seen = ref [] in
++        let env2 =
++          List.fold_left2
++            (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
++            env args param_tys
++        in
++        (* 総和的な節かどうか。
++           ガードが無く、引数パターンの並びを 1 行の行列として第10章の missing に渡したとき、
++           反例が返らなければ総和的とする。
++           引数の並びを照合対象とし、この節だけを持つ match が網羅的かどうかと同じ判定である *)
++        let total =
++          c.T.cl_guard = None
++          && Exhaust.missing [ List.map (fun (a : T.ctor_arg_pat) -> Exhaust.convert a.T.cap_pat) args ] param_tys = None
++        in
++        (cl, env2, op_ret, total))
++      ops
+   in
++  (* 総和性の検査。各操作に、総和的な節が 1 つ以上要る。
++     実行時の節の選択は match と同じフォールスルー(第14章)だが、
++     ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形はここで拒否する。
++     実行時に取りこぼしうるプログラムを型検査で通さない。
++     絞り込みの節を複数合わせると網羅できる場合も、総和的な節が無ければ拒否する *)
+   List.iter
+     (fun (op, _) ->
+-      if not (List.exists (fun ((o, _, _, _) as cl) -> o = op && total cl) ops) then
++      if not (List.exists (fun ((o, _, _, _), _, _, total) -> o = op && total) op_clauses) then
+         type_error
+           ("操作 " ^ name_of op
+          ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
+          ^ name_of op ^ "(...) を最後に置いてください"))
+     target_info.Decls.ef_ops;
+   (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
+-     この検出は match の useful 判定(第10章)より弱く、絞り込みの節の集まりで
+-     網羅済みでも警告は出ない。第10章の検査につなぐには、操作節から合成の
+-     match のノードを作る必要があり、Diktor はそれをしない。健全性は総和性検査が
+-     守るので、弱いのは警告の網羅性だけである *)
++     この検出は match の useful 判定(第10章)より弱い。
++     前の節の集まりがある節に一致する値をすべて受け取っていても、
++     前に総和的な節が無ければ警告しない(case ask(1) を 2 回書いた場合など)。
++     健全性は総和性検査が守るので、弱いのは警告の網羅性だけである *)
+   let rec dead_scan seen_total = function
+     | [] -> ()
+-    | ((o, _, _, _) as cl) :: rest ->
++    | ((o, _, _, _), _, _, total) :: rest ->
+         if List.mem o seen_total then
+           warn ("操作 " ^ name_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
+-        dead_scan (if total cl && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
++        dead_scan (if total && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
+   in
+-  dead_scan [] ops;
++  dead_scan [] op_clauses;
+ (* ## 11.24 本体と各節の型付け
+ 
+    handle の型付けの規則は次のとおりである。
+@@ -2270,12 +2424,21 @@
+      型は付くのに実行時に落ちるプログラムを通してしまう。
+      §11.21 の静的な検査は節の本体しか走査しないので、ガードの resume はここで防ぐ。
+    - 操作節には総和性検査がある(§11.23 の網羅の検査の直後)。
+-     各操作に、ガードが無く全引数パターンが反駁不能な節が 1 つ以上要る。
++     各操作に、総和的な節が 1 つ以上要る。
++     総和的な節とは、ガードが無く、引数パターンの並びがどんな引数にも一致する節である。
++     判定には第10章の missing を使うので、変数や `_` のほか、
++     コンストラクタが 1 つしかない newtype の分解や、ラベルが 1 つの閉じたヴァリアントの分解も、
++     その引数がどの値にも一致すれば総和的になる。
+      実行時の節の選択はフォールスルーだが、ハンドラの外への後送り(re-perform)は無いので、
+      すべての節が外れうる形はここで拒否する。
+      総和的な節より後ろにある同じ操作の節は到達しないので、警告を出す。
+      `--strict-exhaustive` を付けると、この警告はエラーになる。
+ 
++   推論の順序は次のとおりである。
++   操作節の引数パターンは、総和性検査が型を見るので、§11.23 で先に型付ける。
++   その後で、本体、return 節、cancel 節、操作節のガードと本体の順に推論する。
++   そのため、操作節の引数パターンの誤りは、本体や各節の本体の誤りより先に報告される。
++
+    `check_resume_static` は、操作節の本体を推論する直前に呼ぶ(§11.21)。 *)
+ 
+   (* 本体は対象エフェクトを積んだ行で推論する *)
+@@ -2302,28 +2465,9 @@
+       (* cancel 節の値は捨てられるので、Unit と単一化する *)
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
+   | _ -> ());
+-  (* 操作節 *)
++  (* 操作節のガードと本体。引数パターンは §11.23 で型付けてある *)
+   List.iter
+-    (fun (op, _, args, ((_, c) as cnode)) ->
+-      Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
+-      let scheme = List.assoc op target_info.Decls.ef_ops in
+-      let args_row, op_ret =
+-        match repr (Unify.instantiate level scheme) with
+-        | TArrow (a, r, _) -> (a, r)
+-        | _ -> bug "操作スキーマが矢印型ではありません"
+-      in
+-      let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
+-      if List.length args <> List.length param_tys then
+-        type_error
+-          (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
+-             (List.length args));
+-      List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
+-      let seen = ref [] in
+-      let env2 =
+-        List.fold_left2
+-          (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
+-          env args param_tys
+-      in
++    (fun ((_, _, _, ((_, c) : T.clause)), env2, op_ret, _) ->
+       (* ガードは resume 無しで推論する。第14章はガードを resume = None で
+          評価するので、ここで Some にすると、型は付くのに実行時に落ちる
+          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
+@@ -2335,7 +2479,7 @@
+       let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
+       check_resume_static c.T.cl_body;
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
+-    ops;
++    op_clauses;
+   tres
+ 
+ and method_scheme cls m =
+@@ -2660,7 +2804,7 @@
+   let gen = is_fun || is_value b.T.lb_body in
+   if (not gen) && b.T.lb_tparams <> [] then
+     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
+-  let lvl = if gen then level + 1 else level in
++  let lvl = level + 1 in
+   let extra_rigids = ref [] in
+   let rigids = make_rigids lvl b.T.lb_tparams in
+   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
+@@ -2747,18 +2891,21 @@
+         (* 一般化の直前に曖昧性を調べる。generalize より前でなければならない。
+            後では Unbound が Generic に変わっていて判定できない *)
+         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+-        Unify.generalize level fn_ty);
++        Unify.generalize level fn_ty)
++      else Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       { env with values = SMap.add x fn_ty env.values }
+   | T.PWildcard ->
+       List.iter warn (Exhaust.drain ());
+       if gen then (
+         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+-        Unify.generalize level fn_ty);
++        Unify.generalize level fn_ty)
++      else Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       env
+   | _ ->
+       (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる *)
++      if not gen then Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       let seen = ref [] in
+       let env' = elab_pat env level seen fn_ty b.T.lb_name in
+@@ -4213,7 +4360,13 @@
+    平坦化ではなく、パス 1a で行う。
+    プレリュードの宣言表は、利用者の平坦化の時点ではまだ空なので、
+    平坦化の時点で登録すると既存の名前との照合が働かず、
+-   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す *)
++   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す。
++   プレリュードと組み込みのエフェクト名(Console や Heap)との衝突も、ここで拒否する。
++   エフェクト名は型名と 1 つの名前空間を共有し、大域の同義語はエフェクト位置のエイリアスの解決
++   (§11.6 の find_row_alias)でも、effect の宣言表より先に引かれる。
++   衝突を許すと、module Console を 1 行足すだけで、プログラムのすべての @ Console が
++   その module のエイリアスを指すようになる。
++   利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
+ let register_companion tyname =
+   match !Decls.current_module with
+   | Some m when tyname = m ^ "." ^ m ->
+@@ -4225,6 +4378,10 @@
+         type_error
+           ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存の型 " ^ m
+          ^ " と同名です(module 内の型とトップレベルの型は同名にできません)")
++      else if Hashtbl.mem Decls.effects (intern m) then
++        type_error
++          ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存のエフェクト " ^ m
++         ^ " と同名です(型とエフェクトは同名にできません)")
+       else Decls.add_con_synonym (intern m) (intern tyname)
+   | _ -> ()
+ 
+diff -ruN a/lib/interp.ml b/lib/interp.ml
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -805,7 +805,7 @@
+    OCaml も 2 度目の `continue` で `Continuation_already_resumed` を投げるが、
+    それでは Keleut のエラーとして説明にならないので、先に自前で検査して日本語のメッセージを出す。
+    second-class の検査は 2 段構えで、実行時の `r_alive` はその片方である。
+-   もう片方は、節本体のラムダの中に `resume` があれば拒否する構文検査で、elab にある。
++   もう片方は、節本体のラムダ式や関数束縛の本体に `resume` があれば拒否する構文検査で、elab にある。
+ 
+    ### cancel 節の実行文脈
+ 
+@@ -835,7 +835,8 @@
+    これは §14.2 の match とまったく同じ規則である。
+    ガードは resume の無い環境で評価する(ガードから継続は見えない。§11.24)。
+    すべての節が外れたときは、`discontinue` で実行時エラーにする。
+-   elab の総和性検査は、各操作について、ガードが無く反駁できない節を 1 つ要求する(§11.24)。
++   elab の総和性検査は、各操作について、
++   ガードが無く、引数パターンの並びがどんな引数にも一致する節を 1 つ要求する(§11.24)。
+    この検査を通っていれば、この分岐には到達しない。
+    この分岐は防御のために残してある。
+    素の raise にしないのは、3 つの経路の規約どおり、捨てた継続の cancel 節を走らせるためである。
+diff -ruN a/lib/syntax.ml b/lib/syntax.ml
+--- a/lib/syntax.ml
++++ b/lib/syntax.ml
+@@ -917,7 +917,7 @@
+    構文が保証できるのは、`resume` を値として名前に束縛できないことまでで、
+    `fn() => resume(x)` は書けてしまう。
+    そのため、second-class であることを 2 段で守る。
+-   第11章が節の本体を走査してラムダの内側の `Resume` を拒否し、
++   第11章が節の本体を走査して、ラムダ式と関数束縛の本体の中の `Resume` を拒否し、
+    第14章が実行時に継続の生存フラグを見る。
+ 
+    `Handle` の節は、`match` と共通の `clause` である。
+diff -ruN a/lib/unify.ml b/lib/unify.ml
+--- a/lib/unify.ml
++++ b/lib/unify.ml
+@@ -669,6 +669,35 @@
+       generalize level f;
+       generalize level rest
+ 
++(* 一般化しない束縛の終わりに、`level` より深い `Unbound` を `level` まで下げる。
++   値でない束縛も、一般化する束縛と同じく、本体を 1 つ深いレベルで推論する(第11章 §11.28)。
++   型に残った変数を深いまま環境に置くと、後に続く一般化する束縛の `generalize` が、
++   その変数を一般化してしまう。
++   台帳 `class_vars` の変数も下げる。
++   下げないと、曖昧な制約を報告する位置が、後に続く無関係な束縛に移る。
++   `Rigid` と `Generic` には触らない *)
++let lower_levels level t =
++  let lower v = match !v with Unbound i when i.vlevel > level -> v := Unbound { i with vlevel = level } | _ -> () in
++  let rec go t =
++    match repr t with
++    | TVar v -> lower v
++    | TCon (_, args) -> List.iter go args
++    | TApp (f, a) ->
++        go f;
++        go a
++    | TArrow (p, r, e) ->
++        go p;
++        go r;
++        go e
++    | TRecord row | TVariant row -> go row
++    | TRowEmpty -> ()
++    | TRowExtend (_, f, rest) ->
++        go f;
++        go rest
++  in
++  List.iter lower !class_vars;
++  go t
++
+ (* 宣言の終わりに、台帳に残った述語つきの弱い変数を既定の型に落とす。
+    述語のない変数はどちらの分岐にも当たらず素通りする *)
+ let default_numerics () =
+diff -ruN a/lib/value.ml b/lib/value.ml
+--- a/lib/value.ml
++++ b/lib/value.ml
+@@ -184,7 +184,8 @@
+    それでも、`fn() => resume(x)` は構文としては書ける。
+    そこで、second-class の制限を 2 段で守る。
+ 
+-   - **静的な検査**：第11章が操作節の本体を走査し、`Lambda` の内側の `Resume` をエラーにする
++   - **静的な検査**：第11章が操作節の本体を走査し、
++     `Lambda` と関数束縛の本体の中の `Resume` をエラーにする
+      (内側の `Handle` に出会ったら、本体だけを走査し、節には入らない)
+    - **動的な検査**：節が終わるときに `r_alive` を `false` にし、
+      持ち出された継続の呼び出しを実行時エラーにする
+diff -ruN a/test/eval.t b/test/eval.t
+--- a/test/eval.t
++++ b/test/eval.t
+@@ -392,6 +392,123 @@
+   ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
+   1
+ 
++コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの操作節は、
++取りこぼさない節に数える。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
++
++  $ cat > soleop.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = (perform ask(MkBox(0)) + perform ask(MkBox(5))) handle {
++  >   case ask(MkBox(0)) => resume(100)
++  >   case ask(MkBox(n)) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soleop.kel
++  105
++
++コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの節より後ろにある、
++同じ操作の節には到達不能警告:
++
++  $ cat > soledead.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = perform ask(MkBox(41)) handle {
++  >   case ask(MkBox(n)) => resume(n + 1)
++  >   case ask(b) => resume(0)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soledead.kel
++  ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
++  42
++
++単一コンストラクタの引数に、リテラルや、コンストラクタが 2 つ以上ある型のパターンを書いた節は、
++取りこぼす節とみなす:
++
++  $ cat > solelit.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = perform ask(MkBox(0)) handle {
++  >   case ask(MkBox(0)) => resume(1)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor solelit.kel
++  ! solelit.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++  $ cat > soleopt.kel <<'EOF2'
++  > newtype OBox = MkO(Option[Int32])
++  > effect Ask = { ask: (OBox) => Int32 }
++  > let r = perform ask(MkO(Some(1))) handle {
++  >   case ask(MkO(Some(n))) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soleopt.kel
++  ! soleopt.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++
++ラベルが 1 つの閉じた構造的ヴァリアントを分解し、引数が変数だけの節も、取りこぼさない節に数える。
++ラベルが 2 つある型では、1 つを選ぶ節だけでは取りこぼす:
++
++  $ cat > solevar.kel <<'EOF2'
++  > effect Ask = { ask: (#A(Int32)) => Int32 }
++  > let r = perform ask(#A(3)) handle {
++  >   case ask(#A(n)) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor solevar.kel
++  3
++  $ cat > solevar2.kel <<'EOF2'
++  > type AB = #A(Int32) | #B
++  > effect Ask = { ask: (AB) => Int32 }
++  > let r = perform ask(#A(3)) handle {
++  >   case ask(#A(n)) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor solevar2.kel
++  ! solevar2.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++
++絞り込みの節を複数合わせると引数を網羅できる場合も、取りこぼさない節が 1 つも無ければ拒否する:
++
++  $ cat > opcover.kel <<'EOF2'
++  > effect Ask = { ask: (Option[Int32]) => Int32 }
++  > let r = perform ask(Some(1)) handle {
++  >   case ask(Some(n)) => resume(n)
++  >   case ask(None) => resume(0)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor opcover.kel
++  ! opcover.kel:2:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++
++操作節の引数パターンの誤りは、取りこぼしより先に報告する:
++
++  $ cat > opunk.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = perform ask(MkBox(41)) handle {
++  >   case ask(Foo(n)) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor opunk.kel
++  ! opunk.kel:4:12: 型エラー: 未知のコンストラクタ: Foo
++  [1]
++
+ ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
+ 再入 API で番号が実行回数に依存する):
+ 
+diff -ruN a/test/typecheck_m7.t b/test/typecheck_m7.t
+--- a/test/typecheck_m7.t
++++ b/test/typecheck_m7.t
+@@ -416,3 +416,19 @@
+   f : (Opt2[Empt]) => Int32
+   ⚠ match が非網羅的です。例えば Nn が漏れています
+   ⚠ このパターンには一致する値がありません
++
++関数の引数とラムダの引数に書いたコンストラクタパターンは、
++コンストラクタが 1 つしかない型のものでも網羅性検査に掛ける。
++フィールドの型に値が無いので、一致する値が無いと警告する:
++
++  $ cat > v10h.kel <<'KEL'
++  > newtype Empt
++  > newtype Absurd = MkA(Empt)
++  > let f(MkA(n)) = 1
++  > let g = fn(MkA(n)) => 2
++  > KEL
++  $ diktor --type-check --no-prelude v10h.kel
++  f : (Absurd) => Int32
++  ⚠ このパターンには一致する値がありません
++  g : (Absurd) => Int32
++  ⚠ このパターンには一致する値がありません
+diff -ruN a/test/verify_fixes.t b/test/verify_fixes.t
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -21,7 +21,8 @@
+   even
+   unknown
+ 
+-注釈付き非値は値制限で一般化されない(run のリージョンから漏れない):
++Ref に入れて取り出した閉包を run の本体から返すと、閉包の型の行に Heap[h] が
++残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:664-665):
+ 
+   $ cat > vr.kel <<'EOF'
+   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+@@ -35,6 +36,152 @@
+   ! vr.kel:1:60: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+   [1]
+ 
++注釈の頭の矢印で @ を省略した値束縛 g は、本体が関数呼び出しなら、行の違う 2 つの
++文脈からは呼べない(値制限、LangSpec §6.2)。2 つ目の呼び出し g(2) で、注釈で固定された
++main の行に Ask を足せないという型エラーになる:
++
++  $ cat > vrgen.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen.kel
++  ! vrgen.kel:6:12: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Ask を足せません(注釈側に Ask を(必要なら引数つきで)書き足してください)
++  [1]
++
++同じプログラムで g の本体だけを無名関数(値)に替えると、2 つの文脈から呼べる:
++
++  $ cat > vrgenv.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = fn(x) => x + 1
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgenv.kel
++  15
++
++注釈の頭の矢印に閉じた空でない行を書いた g は、本体が関数呼び出しのままでも、行の違う
++2 つの文脈から呼べる。書いた行の尾部は、使うたびに開く(LangSpec §13.2、sample.kel:476-478)。
++vrgen の g の注釈に @ {Console} を足すと通る:
++
++  $ cat > vrgen2.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen2.kel
++  15
++
++本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いても、その注釈を経由して外側の
++Ref の中身の行を開くことはできない。g の束縛が型エラーになり、Heap[h] を読む閉包を
++run の外へ返せない(LangSpec §14.1):
++
++  $ cat > vrleak.kel <<'EOF'
++  > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
++  >   let slot = Ref.new(fn(x) => x)
++  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
++  >   let cell = Ref.new(41)
++  >   let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
++  >   Ref.get(slot)
++  > }
++  > echoln(show(escaped()(1)))
++  > EOF
++  $ diktor vrleak.kel
++  ! vrleak.kel:3:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++同じ形で Ask を起こす閉包を Ref に入れ、Ask の無い行の関数 bad から呼ぶプログラムも、
++g の束縛で型エラーになる:
++
++  $ cat > vrleak2.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let bad(): Int32 @ {Console} = run h {
++  >   let slot = Ref.new(fn(x) => x)
++  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
++  >   let _ = Ref.set(slot, fn(x) => perform ask() + x)
++  >   Ref.get(slot)(1)
++  > }
++  > echoln(show(bad()))
++  > EOF
++  $ diktor vrleak2.kel
++  ! vrleak2.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++Ref を使わない形でも、同じ束縛は型エラーになる。f の注釈の無い引数 z を、本体が値でない
++束縛 _ の注釈 @ {Console} に通すと、4 行目のその束縛で落ちる:
++
++  $ cat > vrleak3.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let f(z) = {
++  >   let _: (Int32) => Int32 @ {Console} = idf(z)
++  >   z(1)
++  > }
++  > let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
++  > main()
++  > EOF
++  $ diktor vrleak3.kel
++  ! vrleak3.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++先に f の本体で呼んだ単相の束縛 h を、本体が値でない束縛 g の注釈 @ {Console} に通す形も、
++5 行目の g の束縛で型エラーになる:
++
++  $ cat > vrleak4.kel <<'EOF'
++  > let idf[A](x: A): A = x
++  > let f() = {
++  >   let h = idf(fn() => echoln("x"))
++  >   h()
++  >   let g: () => Unit @ {Console} = idf(h)
++  >   g()
++  > }
++  > f()
++  > EOF
++  $ diktor vrleak4.kel
++  ! vrleak4.kel:5:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いた g は、同じ行の文脈から 2 回呼べる:
++
++  $ cat > vrok.kel <<'EOF'
++  > let idf[A](x: A): A = x
++  > let f(): Int32 @ {Console} = {
++  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("g"); x })
++  >   g(1) + g(2)
++  > }
++  > echoln(show(f()))
++  > EOF
++  $ diktor vrok.kel
++  g
++  g
++  3
++
+ 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
+ 
+   $ cat > pick.kel <<'EOF'
+@@ -313,6 +460,108 @@
+   ! gresume2.kel:3:33: 型エラー: resume は操作節の中でのみ使えます
+   [1]
+ 
++操作節の中の関数束縛の本体に書いた resume は、その関数を節の中で呼ぶだけでも
++型検査で拒否する。fn() => resume(41) を束縛する形と同じ文面で落ちる:
++
++  $ cat > lfresume.kel <<'KEL'
++  > effect Ask = { ask: () => Int32 }
++  > let r = (perform ask() + 1) handle {
++  >   case ask() => {
++  >     let f() = resume(41)
++  >     f()
++  >   }
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > KEL
++  $ diktor --type-check lfresume.kel
++  ! lfresume.kel:4:15: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/let f() = resume(41)/let f = fn() => resume(41)/' lfresume.kel > lflam.kel
++  $ diktor --type-check lflam.kel
++  ! lflam.kel:4:21: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
++let rec の関数束縛(and でつないだ 2 つ目の束縛を含む)と、型パラメータ付きの
++関数束縛も同じ文面で拒否する。関数でない右辺の let rec は、let rec の右辺の
++検査で落ちる:
++
++  $ sed 's/let f() = /let rec f() = /' lfresume.kel > lfrec.kel
++  $ diktor --type-check lfrec.kel
++  ! lfrec.kel:4:19: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/let f() = resume(41)/let rec f(): Int32 = g() and g(): Int32 = resume(41)/' lfresume.kel > lfand.kel
++  $ diktor --type-check lfand.kel
++  ! lfand.kel:4:47: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed -e 's/let f() = /let f[A](a: A): Int32 = /' -e 's/    f()/    f(0)/' lfresume.kel > lftp.kel
++  $ diktor --type-check lftp.kel
++  ! lftp.kel:4:29: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed -e 's/let f() = resume(41)/let rec x = resume(41)/' -e 's/    f()/    x/' lfresume.kel > lfrecval.kel
++  $ diktor --type-check lfrecval.kel
++  ! lfrecval.kel:4:5: 型エラー: let rec の右辺は関数でなければなりません
++  [1]
++
++関数束縛を Ref に入れて節の外で呼ぶプログラムは、型検査で止まり、実行を始めない
++(1 行目の echoln の start が出ない):
++
++  $ cat > lfleak.kel <<'KEL'
++  > echoln("start")
++  > effect Ask = { ask: () => Int32 }
++  > let main(): Int32 = run h {
++  >   let cell = Ref.new(fn() => 0)
++  >   let r = (perform ask() + 1) handle {
++  >     case ask() => {
++  >       let f() = resume(41)
++  >       Ref.set(cell, f)
++  >       0
++  >     }
++  >     case return(x) => x
++  >   }
++  >   r + Ref.get(cell)()
++  > }
++  > echoln(show(main()))
++  > KEL
++  $ diktor lfleak.kel
++  ! lfleak.kel:7:17: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
++resume を含まない関数束縛、値束縛の右辺の resume、関数束縛の本体にある内側の
++handle の操作節の resume は通る:
++
++  $ cat > lfok.kel <<'KEL'
++  > effect Ask = { ask: () => Int32 }
++  > effect Ask2 = { ask2: () => Int32 }
++  > let r = (perform ask() + 1) handle {
++  >   case ask() => {
++  >     let one() = 1
++  >     let g() = (perform ask2() + 1) handle {
++  >       case ask2() => resume(38)
++  >       case return(y) => y
++  >     }
++  >     let v = resume(g() + one() + 1)
++  >     v
++  >   }
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > KEL
++  $ diktor lfok.kel
++  42
++
++内側の handle の操作節の中の関数束縛に書いた resume と、関数束縛の本体にある
++内側の handle の本体に書いた外側の節の resume も拒否する:
++
++  $ sed 's/case ask2() => resume(38)/case ask2() => { let k() = resume(38); k() }/' lfok.kel > lfinner.kel
++  $ diktor --type-check lfinner.kel
++  ! lfinner.kel:7:34: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/(perform ask2() + 1) handle/(resume(perform ask2())) handle/' lfok.kel > lfinbody.kel
++  $ diktor --type-check lfinbody.kel
++  ! lfinbody.kel:6:16: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
+ 組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
+ 2 回目はコヒーレンス違反(「同じキーを 2 度登録したらエラー」を組み込み
+ キーでも守る):
+diff -ruN a/test/visibility.t b/test/visibility.t
+--- a/test/visibility.t
++++ b/test/visibility.t
+@@ -144,6 +144,192 @@
+   $ diktor --type-check vis10.kel
+   f : (M.Priv) => Int32
+ 
++module の中で宣言した EffectRow エイリアスは、同じ module の中から修飾せずに、
++@ の後ろ、行の要素、extends の右、行を取る型引数、EffectRow エイリアスの右辺に
++書ける。どの位置でも W は Print を含む行として読まれ、実行もできる:
++
++  $ cat > visrow1.kel <<'KEL'
++  > newtype Cb[E] = Cb(() => Unit @ E)
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   type V: EffectRow = W
++  >   let at(x: Int32): Int32 @ W = x
++  >   let elem(x: Int32): Int32 @ {W, Console} = x
++  >   let tail(x: Int32): Int32 @ {Console extends W} = x
++  >   let arg(c: Cb[W]): Int32 = 0
++  >   let rhs(x: Int32): Int32 @ V = x
++  >   pub let say(s: String): Unit @ W = perform print(s + "\n")
++  > }
++  > with_stdout(fn() => M.say("hi"))
++  > KEL
++  $ diktor --type-check visrow1.kel
++  M.at : (Int32) => Int32 @ {Print extends R1}
++  M.elem : (Int32) => Int32 @ {Print, Console extends R1}
++  M.tail : (Int32) => Int32 @ {Console, Print extends R1}
++  M.arg : (Cb[{Print}]) => Int32
++  M.rhs : (Int32) => Int32 @ {Print extends R1}
++  M.say : (String) => {} @ {Print extends R1}
++  _ : {}
++  $ diktor visrow1.kel
++  hi
++
++行の要素の位置にも、修飾名 M.W を書ける。module の外からは pub のエイリアスだけが
++書け、pub でなければ可視性の検査で落ちる:
++
++  $ cat > visrow2.kel <<'KEL'
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   let f(x: Int32): Int32 @ {M.W, Console} = x
++  > }
++  > let g(x: Int32): Int32 @ {M.W, Console} = x
++  > KEL
++  $ diktor --type-check visrow2.kel
++  M.f : (Int32) => Int32 @ {Print, Console extends R1}
++  g : (Int32) => Int32 @ {Print, Console extends R1}
++  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ {M.W, Console} = x\n' > visrow3.kel
++  $ diktor --type-check visrow3.kel
++  ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
++  [1]
++
++module の外から修飾せずに書くと、未知のエフェクトとして拒否する。pub の EffectRow
++エイリアスなら修飾を案内し、pub でなければ案内しない:
++
++  $ printf 'module M { pub type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow4.kel
++  $ diktor --type-check visrow4.kel
++  ! visrow4.kel:2:26: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
++  [1]
++  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow5.kel
++  $ diktor --type-check visrow5.kel
++  ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
++  [1]
++
++module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
++エフェクト位置のエイリアスも、型の位置の T と同じく module の W を指し、
++module の外では、トップレベルの W と T を指す:
++
++  $ cat > visrow6.kel <<'KEL'
++  > type W: EffectRow = {Console}
++  > type T = String
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   pub type T = Int32
++  >   let f(x: T): T @ W = x
++  > }
++  > let g(x: T): T @ W = x
++  > KEL
++  $ diktor --type-check visrow6.kel
++  M.f : (Int32) => Int32 @ {Print extends R1}
++  g : (String) => String @ {Console extends R1}
++
++プレリュードや組み込みのエフェクト(Console、Heap)と同名の EffectRow エイリアスを
++module に宣言すると、module の中では、引数の無い形も引数つきの形も、@ の後ろでも
++行の要素でも、そのエイリアスを指す。module の外では、Console も Heap[E] も
++元のエフェクトのままである。module の中からも、トップレベルのエイリアス Out を
++経由すれば、元の Console を書ける(Out の本体はトップレベルのスコープで読む):
++
++  $ cat > visrow7.kel <<'KEL'
++  > type Out: EffectRow = {Console}
++  > module M {
++  >   pub type Console: EffectRow = {Print}
++  >   pub type Heap[E]: EffectRow = {Print extends E}
++  >   let f(x: Int32): Int32 @ Console = x
++  >   let g(x: Int32): Int32 @ {Console} = x
++  >   let h[E](x: Int32): Int32 @ Heap[E] = x
++  >   let k[E](x: Int32): Int32 @ {Heap[E]} = x
++  >   let o(x: Int32): Int32 @ Out = x
++  > }
++  > let m(x: Int32): Int32 @ Console = x
++  > let n[E](x: Int32): Int32 @ Heap[E] = x
++  > KEL
++  $ diktor --type-check visrow7.kel
++  M.f : (Int32) => Int32 @ {Print extends R1}
++  M.g : (Int32) => Int32 @ {Print extends R1}
++  M.h : (Int32) => Int32 @ {Print extends R1}
++  M.k : (Int32) => Int32 @ {Print extends R1}
++  M.o : (Int32) => Int32 @ {Console extends R1}
++  m : (Int32) => Int32 @ {Console extends R1}
++  n : (Int32) => Int32 @ {Heap[A] extends R1}
++
++module の中でエフェクト名を EffectRow エイリアスで覆うと、エイリアスの本体に書いた
++同じ名前もエイリアス自身を指すので、使う箇所が無くても、宣言を再帰として拒否する。
++型の位置で、module の中に type T = (T, Int32) と書いたときと同じである:
++
++  $ printf 'module M { pub type Console: EffectRow = {Console, Print} }\n' > visrow8.kel
++  $ diktor --type-check visrow8.kel
++  ! visrow8.kel:1:42: 型エラー: 型エイリアス M.Console が再帰しています(エイリアスは非再帰)
++  [1]
++  $ printf 'type T = String\nmodule N { pub type T = (T, Int32) }\n' > visrow9.kel
++  $ diktor --type-check visrow9.kel
++  ! visrow9.kel:2:26: 型エラー: 型エイリアス N.T が再帰しています(エイリアスは非再帰)
++  [1]
++
++エフェクト位置で名前を覆うのは、module の EffectRow エイリアスだけである。
++module の newtype や Type エイリアスがエフェクトと同名でも、module の中の
++@ の後ろや行の要素のその名前は、引数の有無によらず、エフェクトを指す:
++
++  $ cat > visrow10.kel <<'KEL'
++  > module M {
++  >   pub newtype Console = MkC(Int32)
++  >   type Print = Int32
++  >   type Heap[A] = A
++  >   let f(x: Int32): Int32 @ Console = x
++  >   let g(x: Int32): Int32 @ {Print, Console} = x
++  >   let h[H](x: Int32): Int32 @ Heap[H] = x
++  >   let k[H](x: Int32): Int32 @ {Heap[H]} = x
++  > }
++  > KEL
++  $ diktor --type-check visrow10.kel
++  M.f : (Int32) => Int32 @ {Console extends R1}
++  M.g : (Int32) => Int32 @ {Print, Console extends R1}
++  M.h : (Int32) => Int32 @ {Heap[A] extends R1}
++  M.k : (Int32) => Int32 @ {Heap[A] extends R1}
++
++同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
++エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
++よらず、トップレベルのエイリアスを指す:
++
++  $ cat > visrow11.kel <<'KEL'
++  > type W: EffectRow = {Console}
++  > type V[E]: EffectRow = {Print extends E}
++  > module M {
++  >   pub newtype W = MkW(Int32)
++  >   type V[A] = A
++  >   let f(x: Int32): Int32 @ W = x
++  >   let g(x: Int32): Int32 @ {W, Print} = x
++  >   let h[E](x: Int32): Int32 @ V[E] = x
++  >   let k[E](x: Int32): Int32 @ {V[E], Console} = x
++  > }
++  > KEL
++  $ diktor --type-check visrow11.kel
++  M.f : (Int32) => Int32 @ {Console extends R1}
++  M.g : (Int32) => Int32 @ {Console, Print extends R1}
++  M.h : (Int32) => Int32 @ {Print extends R1}
++  M.k : (Int32) => Int32 @ {Print, Console extends R1}
++
++module の Type エイリアスと同名のエフェクトもトップレベルのエイリアスも無ければ、
++module の中で @ の後ろや行の要素に書いたその名前は、未知のエフェクトではなく、
++Type エイリアスとして引いたうえで拒否する:
++
++  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ T = x\n}\n' > visrow12.kel
++  $ diktor --type-check visrow12.kel
++  ! visrow12.kel:3:28: 型エラー: エフェクト位置に Type エイリアス T は使えません(: EffectRow を付けてください)
++  [1]
++  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ {T} = x\n}\n' > visrow13.kel
++  $ diktor --type-check visrow13.kel
++  ! visrow13.kel:3:28: 型エラー: エフェクト行に Type エイリアス T は置けません(: EffectRow を付けてください)
++  [1]
++
++EffectRow エイリアスのコンパニオンは、module の外から module 名だけで書ける。
++pub でなければ可視性の検査で落ちる:
++
++  $ printf 'module W { pub type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ {W, Console} = x\n' > visrow14.kel
++  $ diktor --type-check visrow14.kel
++  f : (Int32) => Int32 @ {Print, Console extends R1}
++  $ printf 'module W { type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ W = x\n' > visrow15.kel
++  $ diktor --type-check visrow15.kel
++  ! visrow15.kel:2:26: 型エラー: 型 W.W は module W の外からは参照できません(pub を付けてください)
++  [1]
++
+ 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
+ クラス M のメソッド f と値環境で区別できないため):
+ 
+@@ -201,6 +387,22 @@
+   ! visl.kel:1:15: 型エラー: module List のコンパニオン型 List は既存の型 List と同名です(module 内の型とトップレベルの型は同名にできません)
+   [1]
+ 
++コンパニオン型は、プレリュードのエフェクト名(Console、Print)も組み込みの
++エフェクト名(Heap)も奪えない。型エイリアスでも newtype でも拒否する:
++
++  $ printf 'module Console { pub type Console: EffectRow = {Print} }\n' > viske1.kel
++  $ diktor --type-check viske1.kel
++  ! viske1.kel:1:18: 型エラー: module Console のコンパニオン型 Console は既存のエフェクト Console と同名です(型とエフェクトは同名にできません)
++  [1]
++  $ printf 'module Print { pub newtype Print = P(Int32) }\n' > viske2.kel
++  $ diktor --type-check viske2.kel
++  ! viske2.kel:1:16: 型エラー: module Print のコンパニオン型 Print は既存のエフェクト Print と同名です(型とエフェクトは同名にできません)
++  [1]
++  $ printf 'module Heap { pub type Heap: EffectRow = {Print} }\n' > viske3.kel
++  $ diktor --type-check viske3.kel
++  ! viske3.kel:1:15: 型エラー: module Heap のコンパニオン型 Heap は既存のエフェクト Heap と同名です(型とエフェクトは同名にできません)
++  [1]
++
+ トップレベルのパターン束縛の束縛子も同名禁止の対象(M16 検証。
+ binding_name は PVar しか見ないので、let (a, b) = … の a がすり抜けて
+ 型検査と実行が別の実体を選んだ):

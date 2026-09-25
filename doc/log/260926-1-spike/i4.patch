@@ -1,0 +1,217 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -1941,16 +1941,29 @@
+ 
+    そこで、次の 2 段で第二級性を守る。
+ 
+-   1. 静的な検査：`check_resume_static` が節の本体を走査し、ラムダの内側の `Resume` をエラーにする。
++   1. 静的な検査：`check_resume_static` が節の本体を走査し、
++      閉包の本体の中の `Resume` をエラーにする。
+    2. 動的な検査：節が終わるときに継続の生死のフラグ(第14章の `r_alive`)を下ろし、
+       その後の resume の呼び出しを実行時エラーにする。
+ 
+-   静的な検査がラムダとして扱うのは、ラムダ式(`Lambda` のノード)だけである。
+-   節の中のローカルな関数束縛(`let f() = resume(41)`)の本体は、
+-   `Let` / `LetRec` の分岐が外側と同じ `in_lambda` のまま走査するので、
+-   そこに書いた resume は静的な検査を通る。
+-   その関数を節の外へ持ち出して呼ぶと、
+-   動的な検査が「resume を節の外で呼び出しました(second-class)」で止める。
++   第14章が閉包を作るのは、ラムダ式(`Lambda` のノード)と関数束縛を評価するときである。
++   関数束縛は、`let` と `let rec` の束縛のうち `lb_params` が `Some` のもので、
++   `let f() = resume(41)` の形をしている。
++   静的な検査は、この 2 つの本体を閉包の本体として走査する。
++   `with` はパーサがラムダ式に脱糖する(§3.8)ので、ラムダ式として扱われる。
++   値束縛(`lb_params` が `None`)の右辺は束縛の時点で評価されるので、
++   外側と同じ `in_lambda` のまま走査する。
++   節の本体に `let {value, output} = resume()` と書けるのは、このためである。
++
++   関数束縛の本体の resume は、その関数を節の中で呼ぶだけであっても拒否する。
++   `fn() => resume(41)` を変数に束縛して節の中で呼ぶ形を拒否するのと、同じ扱いである。
++   閉包が節の外へ出るかどうかは、構文だけでは決まらない。
++
++   閉包の本体は定義時の環境で評価される(§14.5)ので、
++   閉包のうち節の継続を持ちうるのは、節の本体に字句的に書かれたものである。
++   静的な検査が閉包の本体として走査する構文は、第14章が閉包を作る構文と揃えておく必要がある。
++   動的な検査は、閉包を作る構文が増えて静的な検査が追いつかなくなった場合にも、
++   節の外での再開を実行時エラーにする。
+ 
+    走査の途中で内側の `Handle` に出会ったら、その本体は走査し、節には入らない。
+    内側のハンドラの節は、その節自身が検査を受けるときに、自分の文脈で調べられるからである。
+@@ -1964,6 +1977,12 @@
+ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+   at_node node @@ fun () ->
+   let go = check_resume_static ~in_lambda in
++  (* 関数束縛(lb_params が Some)の本体は、ラムダの本体と同じく閉包の中である *)
++  let go_binding ((_, b) : T.let_binding) =
++    match b.T.lb_params with
++    | Some _ -> check_resume_static ~in_lambda:true b.T.lb_body
++    | None -> go b.T.lb_body
++  in
+   match e with
+   | T.Resume arg ->
+       if in_lambda then type_error "resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)"
+@@ -1980,11 +1999,11 @@
+       go l;
+       go r
+   | T.Not v -> go v
+-  | T.Let ((_, b), rest) ->
+-      go b.T.lb_body;
++  | T.Let (b, rest) ->
++      go_binding b;
+       go rest
+   | T.LetRec (bs, rest) ->
+-      List.iter (fun ((_, b) : T.let_binding) -> go b.T.lb_body) bs;
++      List.iter go_binding bs;
+       go rest
+   | T.Seq es -> List.iter go es
+   | T.Match (scrut, cs) ->
+diff -ruN a/lib/interp.ml b/lib/interp.ml
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -805,7 +805,7 @@
+    OCaml も 2 度目の `continue` で `Continuation_already_resumed` を投げるが、
+    それでは Keleut のエラーとして説明にならないので、先に自前で検査して日本語のメッセージを出す。
+    second-class の検査は 2 段構えで、実行時の `r_alive` はその片方である。
+-   もう片方は、節本体のラムダの中に `resume` があれば拒否する構文検査で、elab にある。
++   もう片方は、節本体のラムダ式や関数束縛の本体に `resume` があれば拒否する構文検査で、elab にある。
+ 
+    ### cancel 節の実行文脈
+ 
+diff -ruN a/lib/syntax.ml b/lib/syntax.ml
+--- a/lib/syntax.ml
++++ b/lib/syntax.ml
+@@ -917,7 +917,7 @@
+    構文が保証できるのは、`resume` を値として名前に束縛できないことまでで、
+    `fn() => resume(x)` は書けてしまう。
+    そのため、second-class であることを 2 段で守る。
+-   第11章が節の本体を走査してラムダの内側の `Resume` を拒否し、
++   第11章が節の本体を走査して、ラムダ式と関数束縛の本体の中の `Resume` を拒否し、
+    第14章が実行時に継続の生存フラグを見る。
+ 
+    `Handle` の節は、`match` と共通の `clause` である。
+diff -ruN a/lib/value.ml b/lib/value.ml
+--- a/lib/value.ml
++++ b/lib/value.ml
+@@ -184,7 +184,8 @@
+    それでも、`fn() => resume(x)` は構文としては書ける。
+    そこで、second-class の制限を 2 段で守る。
+ 
+-   - **静的な検査**：第11章が操作節の本体を走査し、`Lambda` の内側の `Resume` をエラーにする
++   - **静的な検査**：第11章が操作節の本体を走査し、
++     `Lambda` と関数束縛の本体の中の `Resume` をエラーにする
+      (内側の `Handle` に出会ったら、本体だけを走査し、節には入らない)
+    - **動的な検査**：節が終わるときに `r_alive` を `false` にし、
+      持ち出された継続の呼び出しを実行時エラーにする
+diff -ruN a/test/verify_fixes.t b/test/verify_fixes.t
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -313,6 +313,108 @@
+   ! gresume2.kel:3:33: 型エラー: resume は操作節の中でのみ使えます
+   [1]
+ 
++操作節の中の関数束縛の本体に書いた resume は、その関数を節の中で呼ぶだけでも
++型検査で拒否する。fn() => resume(41) を束縛する形と同じ文面で落ちる:
++
++  $ cat > lfresume.kel <<'KEL'
++  > effect Ask = { ask: () => Int32 }
++  > let r = (perform ask() + 1) handle {
++  >   case ask() => {
++  >     let f() = resume(41)
++  >     f()
++  >   }
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > KEL
++  $ diktor --type-check lfresume.kel
++  ! lfresume.kel:4:15: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/let f() = resume(41)/let f = fn() => resume(41)/' lfresume.kel > lflam.kel
++  $ diktor --type-check lflam.kel
++  ! lflam.kel:4:21: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
++let rec の関数束縛(and でつないだ 2 つ目の束縛を含む)と、型パラメータ付きの
++関数束縛も同じ文面で拒否する。関数でない右辺の let rec は、let rec の右辺の
++検査で落ちる:
++
++  $ sed 's/let f() = /let rec f() = /' lfresume.kel > lfrec.kel
++  $ diktor --type-check lfrec.kel
++  ! lfrec.kel:4:19: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/let f() = resume(41)/let rec f(): Int32 = g() and g(): Int32 = resume(41)/' lfresume.kel > lfand.kel
++  $ diktor --type-check lfand.kel
++  ! lfand.kel:4:47: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed -e 's/let f() = /let f[A](a: A): Int32 = /' -e 's/    f()/    f(0)/' lfresume.kel > lftp.kel
++  $ diktor --type-check lftp.kel
++  ! lftp.kel:4:29: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed -e 's/let f() = resume(41)/let rec x = resume(41)/' -e 's/    f()/    x/' lfresume.kel > lfrecval.kel
++  $ diktor --type-check lfrecval.kel
++  ! lfrecval.kel:4:5: 型エラー: let rec の右辺は関数でなければなりません
++  [1]
++
++関数束縛を Ref に入れて節の外で呼ぶプログラムは、型検査で止まり、実行を始めない
++(1 行目の echoln の start が出ない):
++
++  $ cat > lfleak.kel <<'KEL'
++  > echoln("start")
++  > effect Ask = { ask: () => Int32 }
++  > let main(): Int32 = run h {
++  >   let cell = Ref.new(fn() => 0)
++  >   let r = (perform ask() + 1) handle {
++  >     case ask() => {
++  >       let f() = resume(41)
++  >       Ref.set(cell, f)
++  >       0
++  >     }
++  >     case return(x) => x
++  >   }
++  >   r + Ref.get(cell)()
++  > }
++  > echoln(show(main()))
++  > KEL
++  $ diktor lfleak.kel
++  ! lfleak.kel:7:17: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
++resume を含まない関数束縛、値束縛の右辺の resume、関数束縛の本体にある内側の
++handle の操作節の resume は通る:
++
++  $ cat > lfok.kel <<'KEL'
++  > effect Ask = { ask: () => Int32 }
++  > effect Ask2 = { ask2: () => Int32 }
++  > let r = (perform ask() + 1) handle {
++  >   case ask() => {
++  >     let one() = 1
++  >     let g() = (perform ask2() + 1) handle {
++  >       case ask2() => resume(38)
++  >       case return(y) => y
++  >     }
++  >     let v = resume(g() + one() + 1)
++  >     v
++  >   }
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > KEL
++  $ diktor lfok.kel
++  42
++
++内側の handle の操作節の中の関数束縛に書いた resume と、関数束縛の本体にある
++内側の handle の本体に書いた外側の節の resume も拒否する:
++
++  $ sed 's/case ask2() => resume(38)/case ask2() => { let k() = resume(38); k() }/' lfok.kel > lfinner.kel
++  $ diktor --type-check lfinner.kel
++  ! lfinner.kel:7:34: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++  $ sed 's/(perform ask2() + 1) handle/(resume(perform ask2())) handle/' lfok.kel > lfinbody.kel
++  $ diktor --type-check lfinbody.kel
++  ! lfinbody.kel:6:16: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
++  [1]
++
+ 組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
+ 2 回目はコヒーレンス違反(「同じキーを 2 度登録したらエラー」を組み込み
+ キーでも守る):

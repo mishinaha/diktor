@@ -1,0 +1,12 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2660,7 +2660,7 @@
+   let gen = is_fun || is_value b.T.lb_body in
+   if (not gen) && b.T.lb_tparams <> [] then
+     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
+-  let lvl = if gen then level + 1 else level in
++  let lvl = level + 1 in
+   let extra_rigids = ref [] in
+   let rigids = make_rigids lvl b.T.lb_tparams in
+   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in

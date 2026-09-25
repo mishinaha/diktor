@@ -1,0 +1,731 @@
+==== 調査の行列/arg_S1_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(c: Cb[W]): Int32 = 0
+}
+
+==== 調査の行列/arg_S1_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(c: Cb[W]): Int32 = 0
+}
+
+==== 調査の行列/arg_S2_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(c: Cb[M.W]): Int32 = 0
+}
+
+==== 調査の行列/arg_S2_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(c: Cb[M.W]): Int32 = 0
+}
+
+==== 調査の行列/arg_S3_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(c: Cb[M.W]): Int32 = 0
+==== 調査の行列/arg_S3_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(c: Cb[M.W]): Int32 = 0
+==== 調査の行列/arg_S4_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(c: Cb[W]): Int32 = 0
+==== 調査の行列/arg_S4_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(c: Cb[W]): Int32 = 0
+==== 調査の行列/at_S1_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ W = x
+}
+
+==== 調査の行列/at_S1_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ W = x
+}
+
+==== 調査の行列/at_S2_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ M.W = x
+}
+
+==== 調査の行列/at_S2_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ M.W = x
+}
+
+==== 調査の行列/at_S3_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ M.W = x
+==== 調査の行列/at_S3_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ M.W = x
+==== 調査の行列/at_S4_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ W = x
+==== 調査の行列/at_S4_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ W = x
+==== 調査の行列/comp_arg.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module W {
+  pub type W: EffectRow = {Print}
+}
+let f(c: Cb[W]): Int32 = 0
+==== 調査の行列/comp_at.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ W = x
+==== 調査の行列/comp_at_q.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ W.W = x
+==== 調査の行列/comp_elem.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {W, Console} = x
+==== 調査の行列/comp_in.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ W = x
+}
+==== 調査の行列/comp_param_at.kel ====
+module W {
+  pub type W[E]: EffectRow = {Print extends E}
+}
+let f[E](x: Int32): Int32 @ W[E] = x
+==== 調査の行列/comp_priv_at.kel ====
+module W {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ W = x
+==== 調査の行列/comp_priv_elem.kel ====
+module W {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {W} = x
+==== 調査の行列/comp_priv_ty.kel ====
+module T {
+  type T = Int32
+}
+let f(x: T): T = x
+==== 調査の行列/comp_rhs.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+}
+type V: EffectRow = W
+let f(x: Int32): Int32 @ V = x
+==== 調査の行列/comp_tail.kel ====
+module W {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {Console extends W} = x
+==== 調査の行列/comp_ty.kel ====
+module T {
+  pub type T = Int32
+}
+let f(x: T): T = x
+==== 調査の行列/elem_S1_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {W, Console} = x
+}
+
+==== 調査の行列/elem_S1_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {W, Console} = x
+}
+
+==== 調査の行列/elem_S2_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {M.W, Console} = x
+}
+
+==== 調査の行列/elem_S2_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {M.W, Console} = x
+}
+
+==== 調査の行列/elem_S3_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {M.W, Console} = x
+==== 調査の行列/elem_S3_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {M.W, Console} = x
+==== 調査の行列/elem_S4_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {W, Console} = x
+==== 調査の行列/elem_S4_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {W, Console} = x
+==== 調査の行列/errata3.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub let f(x: Int32): Int32 @ W = x
+}
+==== 調査の行列/errata3q.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+}
+pub let f(x: Int32): Int32 @ M.W = x
+==== 調査の行列/in_nt_at.kel ====
+module M { pub newtype T = MkT(Int32)
+ let f(x: Int32): Int32 @ T = x }
+==== 調査の行列/in_ta_at.kel ====
+module M { pub type T = Int32
+ let f(x: Int32): Int32 @ T = x }
+==== 調査の行列/in_ta_elem.kel ====
+module M { pub type T = Int32
+ let f(x: Int32): Int32 @ {T} = x }
+==== 調査の行列/nope.kel ====
+let f(x: Int32): Int32 @ Nope = x
+==== 調査の行列/other_mod.kel ====
+module M { pub type W: EffectRow = {Print} }
+module N { let f(x: Int32): Int32 @ W = x }
+==== 調査の行列/p_arg_S1.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+  let f[E](c: Cb[W[E]]): Int32 = 0
+}
+==== 調査の行列/p_at_S1.kel ====
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+  let f[E](x: Int32): Int32 @ W[E] = x
+}
+==== 調査の行列/p_at_S4.kel ====
+module M { pub type W[E]: EffectRow = {Print extends E} }
+let f[E](x: Int32): Int32 @ W[E] = x
+==== 調査の行列/p_elem_S1.kel ====
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+  let f[E](x: Int32): Int32 @ {W[E], Console} = x
+}
+==== 調査の行列/p_elem_S3.kel ====
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+}
+let f[E](x: Int32): Int32 @ {M.W[E], Console} = x
+==== 調査の行列/p_rhs_S1.kel ====
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+  pub type V: EffectRow = W[{}]
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 調査の行列/p_tail_S1.kel ====
+module M {
+  pub type W[E]: EffectRow = {Print extends E}
+  let f[E](x: Int32): Int32 @ {Console extends W[E]} = x
+}
+==== 調査の行列/q_nope_at.kel ====
+module M { pub newtype T = MkT(Int32) }
+let f(x: Int32): Int32 @ M.Nope = x
+==== 調査の行列/q_nope_elem.kel ====
+module M { pub newtype T = MkT(Int32) }
+let f(x: Int32): Int32 @ {M.Nope} = x
+==== 調査の行列/q_nt_at.kel ====
+module M { pub newtype T = MkT(Int32) }
+let f(x: Int32): Int32 @ M.T = x
+==== 調査の行列/q_nt_elem.kel ====
+module M { pub newtype T = MkT(Int32) }
+let f(x: Int32): Int32 @ {M.T} = x
+==== 調査の行列/q_ta_elem.kel ====
+module M { pub type T = Int32 }
+let f(x: Int32): Int32 @ {M.T} = x
+==== 調査の行列/rhs_S1_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  pub type V: EffectRow = W
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 調査の行列/rhs_S1_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  pub type V: EffectRow = W
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 調査の行列/rhs_S2_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  pub type V: EffectRow = M.W
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 調査の行列/rhs_S2_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  pub type V: EffectRow = M.W
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 調査の行列/rhs_S3_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+type V: EffectRow = M.W
+let f(x: Int32): Int32 @ V = x
+==== 調査の行列/rhs_S3_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+type V: EffectRow = M.W
+let f(x: Int32): Int32 @ V = x
+==== 調査の行列/rhs_S4_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+type V: EffectRow = W
+let f(x: Int32): Int32 @ V = x
+==== 調査の行列/rhs_S4_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+type V: EffectRow = W
+let f(x: Int32): Int32 @ V = x
+==== 調査の行列/run_ok.kel ====
+module Log {
+  pub type Out: EffectRow = {Print}
+  pub let say(s: String): Unit @ Out = perform print(s + "\n")
+  pub let twice(s: String): Unit @ {Out, Console} = {
+    say(s)
+    perform write(s + "\n")
+  }
+}
+with_stdout(fn() => Log.twice("hi"))
+==== 調査の行列/sh_comp_heap.kel ====
+module Heap {
+  pub type Heap: EffectRow = {Print}
+}
+let h(x: Int32): Int32 = run r { x }
+==== 調査の行列/sh_comp_prel.kel ====
+module Console {
+  pub type Console: EffectRow = {Print}
+}
+let h(x: Int32): Int32 @ Console = x
+==== 調査の行列/sh_comp_prel2.kel ====
+module Print {
+  pub newtype Print = Print(Int32)
+}
+let h(x: Int32): Int32 @ Print = x
+==== 調査の行列/sh_comp_top_alias_body.kel ====
+type Out: EffectRow = {Console}
+module Console {
+  pub type Console: EffectRow = {Print}
+}
+let h(x: Int32): Int32 @ Out = x
+==== 調査の行列/sh_comp_user.kel ====
+effect Ask = { ask: () => Int32 }
+module Ask {
+  pub type Ask: EffectRow = {Print}
+}
+let h(x: Int32): Int32 @ Ask = x
+==== 調査の行列/sh_eff_prel.kel ====
+module M {
+  pub type Console: EffectRow = {Print}
+  let f(x: Int32): Int32 @ Console = x
+  let g(x: Int32): Int32 @ {Console} = x
+}
+let h(x: Int32): Int32 @ Console = x
+==== 調査の行列/sh_eff_top.kel ====
+type W: EffectRow = {Console}
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ W = x
+}
+let g(x: Int32): Int32 @ W = x
+==== 調査の行列/sh_heap_at.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Print extends E}
+  let f[E](x: Int32): Int32 @ Heap[E] = x
+}
+==== 調査の行列/sh_heap_elem.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Print extends E}
+  let f[E](x: Int32): Int32 @ {Heap[E]} = x
+}
+==== 調査の行列/sh_heap_use.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Print extends E}
+  let f(): Int32 = run h { let r = Ref.new(1)
+    Ref.get(r) }
+}
+==== 調査の行列/sh_mod_eff_user.kel ====
+effect Ask = { ask: () => Int32 }
+module M {
+  pub type Ask: EffectRow = {Print}
+  let f(x: Int32): Int32 @ Ask = x
+}
+==== 調査の行列/sh_mod_newtype_eff.kel ====
+module M {
+  pub newtype Console = MkC(Int32)
+  let f(x: Int32): Int32 @ Console = x
+}
+==== 調査の行列/sh_ty.kel ====
+type T = String
+module M {
+  pub type T = Int32
+  let f(x: T): T = x
+}
+let g(x: T): T = x
+==== 調査の行列/sh_ty_prel.kel ====
+module M {
+  pub type List = Int32
+  let f(x: List): List = x
+}
+let g(x: List[Int32]): Int32 = 0
+==== 調査の行列/tail_S1_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {Console extends W} = x
+}
+
+==== 調査の行列/tail_S1_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {Console extends W} = x
+}
+
+==== 調査の行列/tail_S2_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {Console extends M.W} = x
+}
+
+==== 調査の行列/tail_S2_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+  let f(x: Int32): Int32 @ {Console extends M.W} = x
+}
+
+==== 調査の行列/tail_S3_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {Console extends M.W} = x
+==== 調査の行列/tail_S3_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {Console extends M.W} = x
+==== 調査の行列/tail_S4_priv.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {Console extends W} = x
+==== 調査の行列/tail_S4_pub.kel ====
+newtype Cb[E] = Cb(() => Unit @ E)
+module M {
+  pub type W: EffectRow = {Print}
+}
+let f(x: Int32): Int32 @ {Console extends W} = x
+==== 調査の行列/ty_S1.kel ====
+module M {
+  pub type T = Int32
+  let f(x: T): T = x
+}
+==== 調査の行列/ty_S4.kel ====
+module M {
+  pub type T = Int32
+}
+let f(x: T): T = x
+==== 調査の行列/ty_S4_priv.kel ====
+module M {
+  type T = Int32
+}
+let f(x: T): T = x
+==== 調査の追加/n01_param_ta_vs_top.kel ====
+type W[E]: EffectRow = {Console extends E}
+module M {
+  type W[A] = A
+  let f[E](x: Int32): Int32 @ W[E] = x
+  let g[E](x: Int32): Int32 @ {W[E]} = x
+}
+==== 調査の追加/n02_ty_hint_param.kel ====
+module M { pub type T[A] = List[A] }
+let f(x: T): Int32 = 0
+==== 調査の追加/n03_ty_selfref_decl_only.kel ====
+type T = String
+module M { pub type T = (T, Int32) }
+let g(x: Int32): Int32 = x
+==== 調査の追加/n06_newtype_vs_companion.kel ====
+module W { pub type W: EffectRow = {Print} }
+module M {
+  pub newtype W = MkW(Int32)
+  let f(x: Int32): Int32 @ W = x
+}
+==== 調査の追加/n07_q_param_noargs.kel ====
+module M { pub type W[E]: EffectRow = {Print extends E} }
+let f(x: Int32): Int32 @ M.W = x
+==== 調査の追加/n08_nt_only.kel ====
+module M {
+  pub newtype W = MkW(Int32)
+  let f(x: Int32): Int32 @ W = x
+}
+==== 調査の追加/n09_heap_outside_after_shadow.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Print extends E}
+  let h[E](x: Int32): Int32 @ Heap[E] = x
+}
+let n[E](x: Int32): Int32 @ Heap[E] = x
+let k[E](x: Int32): Int32 @ {Heap[E]} = x
+==== 調査の追加/n10_ta_param_elem_vs_top.kel ====
+type V[E]: EffectRow = {Print extends E}
+module M {
+  type V[A] = A
+  let k[E](x: Int32): Int32 @ {V[E], Console} = x
+}
+==== 調査の追加/n11_ta_param_at_vs_top.kel ====
+type V[E]: EffectRow = {Print extends E}
+module M {
+  type V[A] = A
+  let h[E](x: Int32): Int32 @ V[E] = x
+}
+==== 調査の追加/n12_tparam_brace_mod.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  let f[W](x: Int32): Int32 @ {W} = x
+}
+==== 調査の追加/n13_tparam_brace_top.kel ====
+type W: EffectRow = {Print}
+let f[W](x: Int32): Int32 @ {W} = x
+==== 反証/b01_ta_effname_at.kel ====
+module M {
+  type Console = Int32
+  let f(x: Int32): Int32 @ Console = x
+}
+==== 反証/b02_ta_effname_elem.kel ====
+module M {
+  type Console = Int32
+  let f(x: Int32): Int32 @ {Console, Print} = x
+}
+==== 反証/b03_selfref_inside.kel ====
+module M {
+  pub type Console: EffectRow = {Console, Print}
+  let f(x: Int32): Int32 @ Console = x
+}
+==== 反証/b04_selfref_outside_q.kel ====
+module M {
+  pub type Console: EffectRow = {Console, Print}
+}
+let f(x: Int32): Int32 @ M.Console = x
+==== 反証/b05_ty_selfref.kel ====
+type T = String
+module M {
+  pub type T = (T, Int32)
+  let f(x: T): Int32 = 0
+}
+==== 反証/b06_top_alias_body_in_mod.kel ====
+type Out: EffectRow = {Console}
+module M {
+  pub type Console: EffectRow = {Print}
+  let f(x: Int32): Int32 @ Out = x
+}
+==== 反証/b07_mod_newtype_vs_top_alias.kel ====
+type W: EffectRow = {Console}
+module M {
+  pub newtype W = MkW(Int32)
+  let f(x: Int32): Int32 @ W = x
+}
+==== 反証/b08_mod_newtype_vs_top_alias_elem.kel ====
+type W: EffectRow = {Console}
+module M {
+  pub newtype W = MkW(Int32)
+  let f(x: Int32): Int32 @ {W, Print} = x
+}
+==== 反証/b09_mod_ta_vs_top_alias.kel ====
+type W: EffectRow = {Console}
+module M {
+  type W = Int32
+  let f(x: Int32): Int32 @ W = x
+}
+==== 反証/b10_ta_heap_param.kel ====
+module M {
+  type Heap[A] = A
+  let f[H](x: Int32): Int32 @ Heap[H] = x
+}
+==== 反証/b11_perform_under_shadow.kel ====
+module M {
+  pub type Print: EffectRow = {Console}
+  pub let f(s: String): Unit @ Print = perform print(s)
+}
+==== 反証/b12_tparam_shadow.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  let f[W](x: Int32): Int32 @ W = x
+}
+==== 反証/b13_alias_body_ref_sibling.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub type V: EffectRow = {W, Console}
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 反証/b14_hint_mixed.kel ====
+module A { pub type W = Int32 }
+module B { pub type W: EffectRow = {Print} }
+let f(x: Int32): Int32 @ W = x
+==== 反証/b15_hint_param_noargs.kel ====
+module M { pub type W[E]: EffectRow = {Print extends E} }
+let f(x: Int32): Int32 @ W = x
+==== 反証/b16_comp_type_alias_eff.kel ====
+module T { pub type T = Int32 }
+let f(x: Int32): Int32 @ T = x
+==== 反証/b17_q_param_elem.kel ====
+module M { pub type W[E]: EffectRow = {Print extends E} }
+let f[E](x: Int32): Int32 @ {M.W[E], Console} = x
+==== 反証/b18_q_heap_param_elem.kel ====
+module M { pub type Heap[E]: EffectRow = {Print extends E} }
+let f[E](x: Int32): Int32 @ {M.Heap[E]} = x
+let g[E](x: Int32): Int32 @ M.Heap[E] = x
+let h[E](x: Int32): Int32 @ Heap[E] = x
+==== 反証/c01_selfref_decl_only.kel ====
+module M {
+  pub type Console: EffectRow = {Console, Print}
+}
+let g(x: Int32): Int32 = x
+==== 反証/c02_selfref_param.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Heap[E], Print}
+}
+let g(x: Int32): Int32 = x
+==== 反証/c03_ta_effname_unused.kel ====
+module M {
+  pub type Console = Int32
+  pub let f(x: Console): Console = x
+}
+let g(x: Int32): Int32 @ Console = x
+==== 反証/c04_ta_effname_used_ty.kel ====
+module M {
+  pub type Console = Int32
+  pub let f(x: Console): Int32 @ Console = x
+}
+==== 反証/c05_newtype_heap_param.kel ====
+module M {
+  pub newtype Heap[A] = H(A)
+  let f[H](x: Int32): Int32 @ Heap[H] = x
+  let g[H](x: Int32): Int32 @ {Heap[H]} = x
+}
+==== 反証/c06_run_in_mod_shadow.kel ====
+module M {
+  pub type Heap[E]: EffectRow = {Print extends E}
+  pub let f(): Int32 = run h { let r = Ref.new(1); Ref.get(r) }
+}
+==== 反証/d01_priv_from_other_mod_alias.kel ====
+module M { type W: EffectRow = {Print} }
+module N { pub type V: EffectRow = {M.W} }
+let f(x: Int32): Int32 @ N.V = x
+==== 反証/d02_top_alias_to_priv.kel ====
+module M { type W: EffectRow = {Print} }
+type V: EffectRow = {M.W, Console}
+let f(x: Int32): Int32 @ V = x
+==== 反証/d03_pub_alias_body_priv.kel ====
+module M {
+  type W: EffectRow = {Print}
+  pub type V: EffectRow = {W, Console}
+}
+let f(x: Int32): Int32 @ M.V = x
+==== 反証/d04_newtype_field.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub newtype Cb = Cb(() => Unit @ W)
+  pub let mk(): Cb = Cb(fn() => perform print("x"))
+}
+==== 反証/d05_value_annot.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub let g: (String) => Unit @ W = fn(s) => perform print(s)
+}
+==== 反証/d06_nested_fn_row.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub let app(k: (String) => Unit @ W, s: String): Unit @ W = k(s)
+}
+==== 反証/d06b_top.kel ====
+type W: EffectRow = {Print}
+pub let app(k: (String) => Unit @ W, s: String): Unit @ W = k(s)
+==== 反証/d06c_direct.kel ====
+pub let app(k: (String) => Unit @ Print, s: String): Unit @ Print = k(s)
+==== 反証/d07_other_mod_pub_unqual_in_mod.kel ====
+module M { pub type W: EffectRow = {Print} }
+module N { let f(x: Int32): Int32 @ {W} = x }
+==== 反証/d08_eff_param_alias_arg.kel ====
+module M {
+  pub type W: EffectRow = {Print}
+  pub type X[E]: EffectRow = {Console extends E}
+  let f(x: Int32): Int32 @ X[W] = x
+  let g(x: Int32): Int32 @ {X[W]} = x
+}
+==== 反証/e01_two_hints.kel ====
+module A { pub type W: EffectRow = {Print} }
+module B { pub type W: EffectRow = {Console} }
+let f(x: Int32): Int32 @ {W} = x

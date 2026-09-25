@@ -1,0 +1,206 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -206,10 +206,11 @@
+    関数の引数と return 節の網羅性検査では、
+    警告が出ないと分かっている形を queue に積まないための節約に使う。
+    この用途では、判定が厳しすぎても安全側に倒れる(queue が正しく判定する)。
+-   操作節の総和性の検査(§11.23)も同じ判定を使い、そこでは厳しすぎる判定が、
+-   取りこぼさない節を拒否する側に倒れる。
+-   newtype Box = MkBox(Int32) と、引数が Box の操作 ask があるとき、
+-   ask の節が case ask(MkBox(n)) だけのハンドラは、コンストラクタが 1 つしかなくても拒否される *)
++   コンストラクタパターンは、コンストラクタが 1 つしかない型のものでも偽とし、queue に任せる。
++   queue は、Never のような値の無い型をフィールドに持つパターンに、
++   一致する値が無いことも警告する。
++   ここで真にして積むのを省くと、その警告が出なくなる。
++   操作節の総和性の検査(§11.23)は、この判定ではなく total_pat を使う *)
+ let rec irrefutable_pat ((_, p) : T.pat) =
+   match p with
+   | T.PVar _ | T.PWildcard -> true
+@@ -219,6 +220,39 @@
+       && (match rest with None -> true | Some rp -> irrefutable_pat rp)
+   | T.PCtor _ | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
+ 
++(* その型のどの値にも一致するパターンかどうか。操作節の総和性の検査(§11.23)が使う。
++   irrefutable_pat が真とする形に加えて、コンストラクタが 1 つしかない newtype の
++   コンストラクタパターンで、引数がすべてこの判定を満たすものを真とする。
++   そのような型の値はどれもそのコンストラクタで作られるので、
++   引数がどの値にも一致すれば、パターンもその型のどの値にも一致する。
++   コンストラクタが 1 つしかない型とは、第10章の complete_sig が
++   コンストラクタ 1 つの一覧を返す newtype のことである。
++   総和性の検査は節のパターンを精緻化する前に走るので、型ではなく宣言表を引いて判定する。
++   コンストラクタ名は大域で一意なので(第6章 §6.6)、elab_pat と同じく名前の最後の成分から型を引ける。
++   宣言表に無い名前は偽とする。
++   ラベルが 1 つの閉じたヴァリアントに対する #A(x) も、ここでは偽とする。
++   行が閉じているかどうかは、型を見なければ分からないからである *)
++let rec total_pat ((_, p) as node : T.pat) =
++  match p with
++  | T.PAnnot (q, _) -> total_pat q
++  | T.PRecord (fields, rest) ->
++      List.for_all (fun (_, q) -> total_pat q) fields
++      && (match rest with None -> true | Some rp -> total_pat rp)
++  | T.PCtor (LongId comps, args) -> (
++      let sole_ctor =
++        match List.rev comps with
++        | cname :: _ -> (
++            match Hashtbl.find_opt Decls.ctor_owner (intern cname) with
++            | Some dname -> (
++                match Hashtbl.find_opt Decls.datas dname with
++                | Some dd -> (not dd.Decls.dd_opaque) && List.length dd.Decls.dd_ctors = 1
++                | None -> false)
++            | None -> false)
++        | [] -> false
++      in
++      sole_ctor && List.for_all (fun (a : T.ctor_arg_pat) -> total_pat a.T.cap_pat) args)
++  | _ -> irrefutable_pat node
++
+ (* pub で @ を省略した宣言の、本体の行(Rigid)の vid。
+    perform や関数呼び出し(§11.12)がこの行と衝突したとき、単一化の一般的な文言ではなく、
+    pub の規則を名指しして案内するため *)
+@@ -2031,8 +2065,8 @@
+    操作節は、同じ操作に対して複数書ける。
+    書き手は絞り込みパターンやガードで場合を分け、
+    評価器は実行時に match と同じフォールスルーで節を選ぶ。
+-   総和的な節(ガードが無く、引数パターンがすべて反駁不能な節)より後ろに同じ操作の節を書くと、
+-   その節には到達しないので、警告を出す(§11.24)。
++   総和的な節(ガードが無く、引数パターンがすべてどの値にも一致する節)より後ろに、
++   同じ操作の節を書くと、その節には到達しないので、警告を出す(§11.24)。
+ 
+    分類の結果は、`set_resolved` で木に書く。
+    評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。 *)
+@@ -2201,13 +2235,16 @@
+       if not (List.mem_assoc op target_info.Decls.ef_ops) then
+         type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
+     ops;
+-  (* 総和性の検査。各操作に、ガードが無く全引数パターンが反駁不能な節が
++  (* 総和性の検査。各操作に、ガードが無く全引数パターンがどの値にも一致する節が
+      1 つ以上要る。実行時の節の選択は match と同じフォールスルー(第14章)だが、
+      ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形は
+      ここで拒否する。実行時に取りこぼしうるプログラムを型検査で通さない *)
+-  (* 反駁不能の判定は、関数の引数や return 節の網羅性検査と同じ irrefutable_pat を使う *)
++  (* どの値にも一致するかの判定は total_pat を使う。
++     変数、_、それらだけからなるレコードやタプルに加えて、
++     コンストラクタが 1 つしかない newtype を分解するパターンも、
++     引数がどの値にも一致するなら真になる *)
+   let total (_, _, args, ((_, c) : T.clause)) =
+-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
++    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> total_pat a.T.cap_pat) args
+   in
+   List.iter
+     (fun (op, _) ->
+@@ -2270,7 +2307,9 @@
+      型は付くのに実行時に落ちるプログラムを通してしまう。
+      §11.21 の静的な検査は節の本体しか走査しないので、ガードの resume はここで防ぐ。
+    - 操作節には総和性検査がある(§11.23 の網羅の検査の直後)。
+-     各操作に、ガードが無く全引数パターンが反駁不能な節が 1 つ以上要る。
++     各操作に、ガードが無く全引数パターンがどの値にも一致する節が 1 つ以上要る。
++     コンストラクタが 1 つしかない newtype を分解するパターンは、引数がどの値にも一致するなら、
++     どの値にも一致するとみなす。
+      実行時の節の選択はフォールスルーだが、ハンドラの外への後送り(re-perform)は無いので、
+      すべての節が外れうる形はここで拒否する。
+      総和的な節より後ろにある同じ操作の節は到達しないので、警告を出す。
+diff -ruN a/lib/interp.ml b/lib/interp.ml
+--- a/lib/interp.ml
++++ b/lib/interp.ml
+@@ -835,7 +835,8 @@
+    これは §14.2 の match とまったく同じ規則である。
+    ガードは resume の無い環境で評価する(ガードから継続は見えない。§11.24)。
+    すべての節が外れたときは、`discontinue` で実行時エラーにする。
+-   elab の総和性検査は、各操作について、ガードが無く反駁できない節を 1 つ要求する(§11.24)。
++   elab の総和性検査は、各操作について、
++   ガードが無く、全引数パターンがどの値にも一致する節を 1 つ要求する(§11.24)。
+    この検査を通っていれば、この分岐には到達しない。
+    この分岐は防御のために残してある。
+    素の raise にしないのは、3 つの経路の規約どおり、捨てた継続の cancel 節を走らせるためである。
+diff -ruN a/test/eval.t b/test/eval.t
+--- a/test/eval.t
++++ b/test/eval.t
+@@ -392,6 +392,66 @@
+   ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
+   1
+ 
++コンストラクタが 1 つしかない newtype を分解する操作節は、取りこぼさない節に数える。
++絞り込みの節が外れた値は、その節が受け取る:
++
++  $ cat > soleop.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = (perform ask(MkBox(0)) + perform ask(MkBox(5))) handle {
++  >   case ask(MkBox(0)) => resume(100)
++  >   case ask(MkBox(n)) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soleop.kel
++  105
++
++単一コンストラクタを分解する節より後ろの同じ操作の節には到達不能警告:
++
++  $ cat > soledead.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = perform ask(MkBox(41)) handle {
++  >   case ask(MkBox(n)) => resume(n + 1)
++  >   case ask(b) => resume(0)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soledead.kel
++  ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
++  42
++
++単一コンストラクタの引数に、リテラルや、コンストラクタが 2 つ以上ある型のパターンを書いた節は、
++取りこぼす節とみなす:
++
++  $ cat > solelit.kel <<'EOF2'
++  > newtype Box = MkBox(Int32)
++  > effect Ask = { ask: (Box) => Int32 }
++  > let r = perform ask(MkBox(0)) handle {
++  >   case ask(MkBox(0)) => resume(1)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor solelit.kel
++  ! solelit.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++  $ cat > soleopt.kel <<'EOF2'
++  > newtype OBox = MkO(Option[Int32])
++  > effect Ask = { ask: (OBox) => Int32 }
++  > let r = perform ask(MkO(Some(1))) handle {
++  >   case ask(MkO(Some(n))) => resume(n)
++  >   case return(x) => x
++  > }
++  > echoln(show(r))
++  > EOF2
++  $ diktor soleopt.kel
++  ! soleopt.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
++  [1]
++
+ ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
+ 再入 API で番号が実行回数に依存する):
+ 
+diff -ruN a/test/typecheck_m7.t b/test/typecheck_m7.t
+--- a/test/typecheck_m7.t
++++ b/test/typecheck_m7.t
+@@ -416,3 +416,18 @@
+   f : (Opt2[Empt]) => Int32
+   ⚠ match が非網羅的です。例えば Nn が漏れています
+   ⚠ このパターンには一致する値がありません
++
++関数の引数に書いた単一コンストラクタのパターンは、網羅性検査に掛ける。
++フィールドの型に値が無いので、一致する値が無いと警告する:
++
++  $ cat > v10h.kel <<'KEL'
++  > newtype Empt
++  > newtype Absurd = MkA(Empt)
++  > let f(MkA(n)) = 1
++  > let g = fn(MkA(n)) => 2
++  > KEL
++  $ diktor --type-check --no-prelude v10h.kel
++  f : (Absurd) => Int32
++  ⚠ このパターンには一致する値がありません
++  g : (Absurd) => Int32
++  ⚠ このパターンには一致する値がありません

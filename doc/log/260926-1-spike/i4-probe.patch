@@ -1,0 +1,49 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -1961,6 +1961,12 @@
+    cancel による自動の巻き戻しが成り立つ(sample.kel:542-545)。
+    継続がどこかの閉包に生き残っている可能性があると、巻き戻しの時点を決められない。 *)
+ 
++and probe_fn ((_, b) as bn : T.let_binding) =
++  match b.T.lb_params with
++  | Some _ ->
++      prerr_endline ("PROBE-LOCALFN " ^ (match Location.start_of (Tree.loc_of bn) with Some s -> s | None -> "?"))
++  | None -> ()
++
+ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
+   at_node node @@ fun () ->
+   let go = check_resume_static ~in_lambda in
+@@ -1980,11 +1986,12 @@
+       go l;
+       go r
+   | T.Not v -> go v
+-  | T.Let ((_, b), rest) ->
++  | T.Let (((_, b) as bn), rest) ->
++      probe_fn bn;
+       go b.T.lb_body;
+       go rest
+   | T.LetRec (bs, rest) ->
+-      List.iter (fun ((_, b) : T.let_binding) -> go b.T.lb_body) bs;
++      List.iter (fun (((_, b) as bn) : T.let_binding) -> probe_fn bn; go b.T.lb_body) bs;
+       go rest
+   | T.Seq es -> List.iter go es
+   | T.Match (scrut, cs) ->
+diff -ruN a/test/verify_fixes.t b/test/verify_fixes.t
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -502,3 +502,14 @@
+   $ diktor cacheinv.kel
+   7
+   5
++
++Probe sanity:
++
++  $ cat > probe.kel <<'KEL'
++  > effect Ask = { ask: () => Int32 }
++  > let r = (perform ask() + 1) handle {
++  >   case ask() => { let f() = resume(41); f() }
++  >   case return(x) => x
++  > }
++  > KEL
++  $ diktor --type-check probe.kel

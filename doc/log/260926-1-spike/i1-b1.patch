@@ -1,0 +1,22 @@
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -217,7 +217,18 @@
+   | T.PRecord (fields, rest) ->
+       List.for_all (fun (_, q) -> irrefutable_pat q) fields
+       && (match rest with None -> true | Some rp -> irrefutable_pat rp)
+-  | T.PCtor _ | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
++  | T.PCtor (LongId comps, args) -> (
++      match List.rev comps with
++      | cname :: _ -> (
++          match Hashtbl.find_opt Decls.ctor_owner (intern cname) with
++          | Some dname -> (
++              match Hashtbl.find_opt Decls.datas dname with
++              | Some { Decls.dd_ctors = [ _ ]; dd_opaque = false; _ } ->
++                  List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
++              | _ -> false)
++          | None -> false)
++      | [] -> false)
++  | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
+ 
+ (* pub で @ を省略した宣言の、本体の行(Rigid)の vid。
+    perform や関数呼び出し(§11.12)がこの行と衝突したとき、単一化の一般的な文言ではなく、

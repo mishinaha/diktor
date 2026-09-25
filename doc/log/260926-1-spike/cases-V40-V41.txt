@@ -1,0 +1,535 @@
+==== 調査/abi_c.kel ====
+extern "C" let __nosuch_prim_name(x: Int32): Int32
+echoln(show(__nosuch_prim_name(1)))
+==== 調査/abi_c2.kel ====
+extern "C" let __show_int32(x: Int32): String
+echoln(__show_int32(1))
+==== 調査/abi_c3.kel ====
+extern "C" let __int32_add(x: Int32, y: Int32): Int32
+echoln(show(__int32_add(1, 2)))
+==== 調査/abi_p.kel ====
+extern "prim" let __nosuch_prim_name(x: Int32): Int32
+echoln(show(__nosuch_prim_name(1)))
+==== 調査/amb1.kel ====
+let read_[A: Show](s: String): A = ???
+let f(): Int32 = {
+  let x: Int32 = { let v = read_("1"); 1 }
+  let k = fn() => 1
+  x + k()
+}
+==== 調査/amb2.kel ====
+let read_[A: Show](s: String): A = ???
+let f(): Int32 = {
+  let x = { let v = read_("1"); 1 }
+  let k = fn() => 1
+  x + k()
+}
+==== 調査/e_a.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("g"); x })
+  g(1) + g(2)
+}
+echoln(show(f()))
+==== 調査/e_b.kel ====
+let idf[A](x: A): A = x
+let r = idf(fn(x) => x)
+let a = r(1)
+let b = r("s")
+==== 調査/e_c.kel ====
+let idf[A](x: A): A = x
+let r = idf(fn(x) => x)
+let k = fn() => r
+let a = k()(1)
+let b = k()("s")
+==== 調査/e_d.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot = Ref.new(fn(x) => x)
+  let _: (Int32) => Int32 @ {Console} = Ref.get(slot)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+echoln(show(escaped()(1)))
+==== 調査/e_e.kel ====
+let f(): Int32 = run h {
+  let c = Ref.new(1)
+  let g: () => Int32 @ {Heap[h]} = { let d = 2; fn() => Ref.get(c) + d }
+  let _ = Ref.set(c, 10)
+  g()
+}
+echoln(show(f()))
+==== 調査/e_f.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let k = idf(fn(x) => { echoln("k"); x })
+  let g: (Int32) => Int32 @ {Console} = idf(k)
+  g(1) + k(2)
+}
+echoln(show(f()))
+==== 調査/e_f2.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let k = idf(fn(x) => { echoln("k"); x })
+  let g: (Int32) => Int32 @ {Console} = k
+  g(1) + k(2)
+}
+echoln(show(f()))
+==== 調査/fwd.kel ====
+let idf[A](x: A): A = x
+let use(): Int32 @ {Console} = k(1)
+let k: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("k"); x })
+with_stdout(fn() => echoln(show(use())))
+==== 調査/leak1.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot = Ref.new(fn(x) => x)
+  let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+echoln(show(escaped()(1)))
+==== 調査/leak2.kel ====
+effect Ask = { ask: () => Int32 }
+let bad(): Int32 @ {Console} = run h {
+  let slot = Ref.new(fn(x) => x)
+  let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
+  let _ = Ref.set(slot, fn(x) => perform ask() + x)
+  Ref.get(slot)(1)
+}
+echoln(show(bad()))
+==== 調査/leak2ok.kel ====
+effect Ask = { ask: () => Int32 }
+let bad(): Int32 @ {Console} = run h {
+  let slot = Ref.new(fn(x) => x)
+  let _ = Ref.set(slot, fn(x) => perform ask() + x)
+  Ref.get(slot)(1)
+}
+echoln(show(bad()))
+==== 調査/low1.kel ====
+let f(): Unit @ {Console} = run h {
+  let r = Ref.new(None)
+  let put = fn(v) => Ref.set(r, Some(v))
+  put(1)
+  Ref.get(r) match {
+    case Some(s) => echoln(s)
+    case None => echoln("none")
+  }
+}
+f()
+==== 調査/low2.kel ====
+let idf[A](x: A): A = x
+let f(): Unit @ {Console} = {
+  let x = idf(fn(y) => y)
+  let k = fn(u) => x(u)
+  echoln(k("s"))
+  echoln(show(k(1)))
+}
+f()
+==== 調査/nr1.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { Ref.get(r) }
+  x
+}
+echoln(show(f()))
+==== 調査/nr2.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); Ref.get(r) + Ref.get(s) }
+  x
+}
+echoln(show(f()))
+==== 調査/p01.kel ====
+let idf[A](x: A): A = x
+let f() = {
+  let h = idf(fn() => echoln("x"))
+  h()
+  let g: () => Unit @ {Console} = idf(h)
+  g()
+}
+f()
+==== 調査/p02.kel ====
+let idf[A](x: A): A = x
+let f() = {
+  let h = idf(fn() => echoln("x"))
+  h()
+  let g: () => Unit @ {Console} = idf(h)
+  1
+}
+echoln(show(f()))
+==== 調査/p03.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let f() = {
+  let h = idf(fn() => echoln("x"))
+  let g: () => Unit @ {Console} = idf(h)
+  let q = fn() => { h(); perform ask() }
+  g()
+  q
+}
+let r = (f()() + 0) handle { case ask() => resume(1)  case return(x) => x }
+echoln(show(r))
+==== 調査/p04.kel ====
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let (a, b) = idf((fn(x) => x, 1))
+  let k = fn() => a
+  let u = a(1)
+  let v = a("s")
+  echoln(v)
+}
+main()
+==== 調査/p05.kel ====
+effect Ask = { ask: () => Int32 }
+module M {
+  pub let g: (Int32) => Int32 @ {Console} = { echoln("init"); fn(x) => x + 1 }
+}
+let p(): Int32 @ {Console} = M.g(1)
+let q(): Int32 @ {Console, Ask} = M.g(2) + perform ask()
+let main(): Unit @ {Console} = {
+  let a = p()
+  let b = q() handle { case ask() => resume(10)  case return(x) => x }
+  echoln(show(a + b))
+}
+with_stdout(fn() => main())
+==== 調査/pg1.kel ====
+let f(): Unit @ {Console} = {
+  let (a) = fn(x) => x
+  let k = a
+  echoln(k("s"))
+  echoln(show(a(1)))
+}
+f()
+==== 調査/pg2.kel ====
+let f(): Unit @ {Console} = {
+  let (a) = fn(x) => x
+  echoln(a("s"))
+  echoln(show(a(1)))
+}
+f()
+==== 調査/pg3.kel ====
+let f(): Unit @ {Console} = {
+  let (a, b) = (fn(x) => x, 1)
+  echoln(a("s"))
+  echoln(show(a(b)))
+}
+f()
+==== 調査/pg4.kel ====
+let f(): Unit @ {Console} = {
+  let (a, b) = (fn(x) => x, 1)
+  let k = a
+  echoln(k("s"))
+  echoln(show(a(b)))
+}
+f()
+==== 調査/pg5.kel ====
+let (a) = 1
+==== 調査/pg6.kel ====
+let (a, b) = (1, 2)
+==== 調査/pubvalinit.kel ====
+module M {
+  pub let g: () => Int32 = { echoln("init"); fn() => 1 }
+}
+let use(): Int32 @ Console = M.g()
+with_stdout(fn() => use())
+==== 調査/rowpoly.kel ====
+effect Ask = { ask: () => Int32 }
+let main(): Unit @ {Console} = {
+  let g: (Int32) => Int32 = { let n = 1; fn(x) => x + n }
+  let a = g(1)
+  let b = (g(2) + perform ask()) handle {
+    case ask() => resume(10)
+    case return(x) => x
+  }
+  echoln(show(a + b))
+}
+main()
+==== 調査/t01.kel ====
+let idf[A](x: A): A = x
+let k = idf(fn(x) => { echoln("k"); x })
+let g: (Int32) => Int32 @ {Console} = idf(k)
+with_stdout(fn() => echoln(show(g(1))))
+==== 調査/t02.kel ====
+let idf[A](x: A): A = x
+module M {
+  let k = idf(fn(x) => { echoln("k"); x })
+  pub let g: (Int32) => Int32 @ {Console} = idf(k)
+}
+with_stdout(fn() => echoln(show(M.g(1))))
+==== 調査/t03.kel ====
+let idf[A](x: A): A = x
+type class C[A] { val cm: (A) => A }
+type instance C[Int32] { let cm = idf(fn(x: Int32) => x + 1) }
+echoln(show(cm(1)))
+==== 調査/t03b.kel ====
+let idf[A](x: A): A = x
+type class C[A] { val cm: (A) => A }
+type instance C[Int32] { let cm: (Int32) => Int32 = idf(fn(x: Int32) => x + 1) }
+echoln(show(cm(1)))
+==== 調査/t03c.kel ====
+let idf[A](x: A): A = x
+let k = idf(fn(x: Int32) => x + 1)
+type class C[A] { val cm: (A) => A }
+type instance C[Int32] { let cm = idf(k) }
+echoln(show(cm(1)))
+echoln(show(k(1)))
+==== 調査/t03d.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let k = idf(fn(x: Int32) => x + 1)
+type class C[A] { val cm: (A) => A }
+type instance C[Int32] { let cm = idf(k) }
+let q(): Int32 @ {Console, Ask} = cm(1) + perform ask()
+let p(): Int32 @ {Console} = k(1)
+==== 調査/t04.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let g: (Int32) => Int32 @ {Console} = {
+    let inner: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("in"); x })
+    inner
+  }
+  g(1) + g(2)
+}
+echoln(show(f()))
+==== 調査/t06.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let g: (Int32) => Int32 @ {Console} = { let r = idf(fn(x) => { echoln("r"); x }); r }
+  g(1) + g(2)
+}
+echoln(show(f()))
+==== 調査/t07.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 @ {Console} = {
+  let g: (Int32) => Int32 @ {Console} = { let r = { let q = idf(fn(x) => { echoln("q"); x }); q }; r }
+  g(1) + g(2)
+}
+echoln(show(f()))
+==== 調査/t08.kel ====
+let idf[A](x: A): A = x
+let f(): Float64 = {
+  let x = { let y = 1; y }
+  let z: Int32 = idf(2)
+  let w = idf(1.5)
+  let s = fn() => w
+  show(x + z)
+  s() + 1.0
+}
+echoln(show(f()))
+==== 調査/t09.kel ====
+let read_[A: Show](s: String): A = ???
+let v = { let u = read_("1"); 1 }
+let k = fn() => 2
+==== 調査/t15.kel ====
+let idf[A](x: A): A = x
+let f(z) = {
+  let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln(z); x })
+  g(1) + g(2)
+}
+with_stdout(fn() => echoln(show(f("z"))))
+==== 調査/t16.kel ====
+let idf[A](x: A): A = x
+let f(z) = {
+  let g: (Int32) => Int32 @ {Console} = idf(fn(x) => z(x))
+  g(1)
+}
+with_stdout(fn() => echoln(show(f(fn(x) => { echoln("z"); x + 1 }))))
+==== 調査/t16v.kel ====
+let idf[A](x: A): A = x
+let f(z) = {
+  let g: (Int32) => Int32 @ {Console} = fn(x) => z(x)
+  g(1)
+}
+with_stdout(fn() => echoln(show(f(fn(x) => { echoln("z"); x + 1 }))))
+==== 調査/t17.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let f(z) = {
+  let g: (Int32) => Int32 @ {Console} = idf(fn(x) => z(x))
+  g(1)
+}
+let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
+main()
+==== 調査/t18.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let f(z) = {
+  let _: (Int32) => Int32 @ {Console} = idf(z)
+  z(1)
+}
+let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
+main()
+==== 調査/t19.kel ====
+let idf[A](x: A): A = x
+module M {
+  let k = idf(fn(x) => x + 1)
+  pub let g: (Int32) => Int32 = idf(k)
+}
+let use(): Int32 @ {Console} = M.g(1)
+with_stdout(fn() => echoln(show(use())))
+==== 調査/t19b.kel ====
+let idf[A](x: A): A = x
+let k = idf(fn(x) => x + 1)
+module M {
+  pub let g: (Int32) => Int32 = idf(k)
+}
+let use(): Int32 @ {Console} = M.g(1)
+with_stdout(fn() => echoln(show(use())))
+==== 調査/t19e.kel ====
+let idf[A](x: A): A = x
+module M {
+  let k = idf(fn(x) => x + 1)
+  pub let g: (Int32) => Int32 @ {} = idf(k)
+}
+let use(): Int32 @ {Console} = M.g(1)
+with_stdout(fn() => echoln(show(use())))
+==== 調査/t19f.kel ====
+let idf[A](x: A): A = x
+module M {
+  let k = idf(fn(x) => x + 1)
+  pub let g(x: Int32): Int32 = k(x)
+}
+let use(): Int32 @ {Console} = M.g(1)
+with_stdout(fn() => echoln(show(use())))
+==== 調査/t19v.kel ====
+let idf[A](x: A): A = x
+module M {
+  let k = idf(fn(x) => x + 1)
+  pub let g: (Int32) => Int32 = k
+}
+let use(): Int32 @ {Console} = M.g(1)
+with_stdout(fn() => echoln(show(use())))
+==== 調査/t22.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let r = (perform ask() + 1) handle {
+    case ask() => {
+      let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("h"); x })
+      resume(g(1) + g(2))
+    }
+    case return(x) => x
+  }
+  echoln(show(r))
+}
+main()
+==== 調査/t23.kel ====
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let g: (Int32) => Int32 = idf(fn(x) => { echoln("a"); x })
+  echoln(show(g(1) + g(2)))
+}
+main()
+==== 調査/t24.kel ====
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let (g): (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("p"); x })
+  echoln(show(g(1) + g(2)))
+}
+main()
+==== 調査/t25.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let f(z) = {
+  let (h): (Int32) => Int32 @ {Console} = idf(z)
+  z(1)
+}
+let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
+main()
+==== 調査/topg.kel ====
+let g: (Int32) => Int32 = { let n = 1; fn(x) => x + n }
+let h: (Int32) => Int32 = fn(x) => x + 1
+==== 調査/vr.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot: Ref[h, (Int32) => Int32 @ {Heap[h]}] = Ref.new(fn(x) => x)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+==== 調査/vr_noannot.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot = Ref.new(fn(x) => x)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+==== 調査/vr_noslot.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let cell = Ref.new(41)
+  fn(x) => Ref.get(cell) + x
+}
+==== 調査/vr_orig.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot: Ref[h, (Int32) => Int32] = Ref.new(fn(x) => x)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+==== 調査/vr_slotonly.kel ====
+let f(): Int32 = run h {
+  let slot: Ref[h, (Int32) => Int32 @ {Heap[h]}] = Ref.new(fn(x) => x)
+  1
+}
+==== 調査/vr_tp.kel ====
+let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  let slot[R]: Ref[h, (Int32) => Int32 @ R] = Ref.new(fn(x) => x)
+  let cell = Ref.new(41)
+  let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  Ref.get(slot)
+}
+echoln(show(escaped()(1)))
+==== 調査/vrgen.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let g: (Int32) => Int32 = idf(fn(x) => x + 1)
+  let a = g(1)
+  let b = (g(2) + perform ask()) handle {
+    case ask() => resume(10)
+    case return(x) => x
+  }
+  echoln(show(a + b))
+}
+main()
+==== 調査/vrgen2.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let main(): Unit @ {Console} = {
+  let g: (Int32) => Int32 @ {Console} = idf(fn(x) => x + 1)
+  let a = g(1)
+  let b = (g(2) + perform ask()) handle {
+    case ask() => resume(10)
+    case return(x) => x
+  }
+  echoln(show(a + b))
+}
+main()
+==== 調査/vrgen3.kel ====
+effect Ask = { ask: () => Int32 }
+let idf[A](x: A): A = x
+let g: (Int32) => Int32 @ {Console} = idf(fn(x) => x + 1)
+let p(): Int32 @ {Console} = g(1)
+let q(): Int32 @ {Console, Ask} = g(2) + perform ask()
+==== 調査/vrgenv.kel ====
+effect Ask = { ask: () => Int32 }
+let main(): Unit @ {Console} = {
+  let g: (Int32) => Int32 = fn(x) => x + 1
+  let a = g(1)
+  let b = (g(2) + perform ask()) handle {
+    case ask() => resume(10)
+    case return(x) => x
+  }
+  echoln(show(a + b))
+}
+main()
+==== 調査/vrmono.kel ====
+effect Ask = { ask: () => Int32 }
+let g: (Int32) => Int32 = { let n = 1; fn(x) => x + n }
+let p(): Int32 = g(1)
+let q(): Int32 = perform ask() + g(2)
+==== 調査/vrmono_val.kel ====
+effect Ask = { ask: () => Int32 }
+let g: (Int32) => Int32 = fn(x) => x + 1
+let p(): Int32 = g(1)
+let q(): Int32 = perform ask() + g(2)

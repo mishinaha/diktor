@@ -1,0 +1,13 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2657,7 +2657,8 @@
+   (if b.T.lb_pub then check_pub_annots ~value_head_outer:true ~params:b.T.lb_params ~ret:b.T.lb_ret);
+   let is_fun = b.T.lb_params <> None in
+   (* 値制限。一般化してよいのは関数定義か値だけ(§11.28) *)
+-  let gen = is_fun || is_value b.T.lb_body in
++  let annotated = b.T.lb_tparams <> [] || b.T.lb_ret <> None || b.T.lb_eff <> None in
++  let gen = is_fun || annotated || is_value b.T.lb_body in
+   if (not gen) && b.T.lb_tparams <> [] then
+     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
+   let lvl = if gen then level + 1 else level in

@@ -1,0 +1,82 @@
+diff -ruN a/test/verify_fixes.t b/test/verify_fixes.t
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -21,7 +21,8 @@
+   even
+   unknown
+ 
+-注釈付き非値は値制限で一般化されない(run のリージョンから漏れない):
++Ref に入れて取り出した閉包を run の本体から返すと、閉包の型の行に Heap[h] が
++残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:664-665):
+ 
+   $ cat > vr.kel <<'EOF'
+   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+@@ -35,6 +36,68 @@
+   ! vr.kel:1:60: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+   [1]
+ 
++注釈の頭の矢印で @ を省略した値束縛 g は、本体が関数呼び出しなら、行の違う 2 つの
++文脈からは呼べない(値制限、LangSpec §6.2)。2 つ目の呼び出し g(2) で、注釈で固定された
++main の行に Ask を足せないという型エラーになる:
++
++  $ cat > vrgen.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen.kel
++  ! vrgen.kel:6:12: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Ask を足せません(注釈側に Ask を(必要なら引数つきで)書き足してください)
++  [1]
++
++同じプログラムで g の本体だけを無名関数(値)に替えると、2 つの文脈から呼べる:
++
++  $ cat > vrgenv.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = fn(x) => x + 1
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgenv.kel
++  15
++
++注釈の頭の矢印に閉じた空でない行を書いた g は、本体が関数呼び出しのままでも、行の違う
++2 つの文脈から呼べる。書いた行の尾部は、使うたびに開く(LangSpec §13.2、sample.kel:476-478)。
++vrgen の g の注釈に @ {Console} を足すと通る:
++
++  $ cat > vrgen2.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen2.kel
++  15
++
+ 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
+ 
+   $ cat > pick.kel <<'EOF'

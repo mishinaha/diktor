@@ -1,0 +1,32 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2552,6 +2552,16 @@
+    `[E]` と書かれたきりどこにも使われなかった型パラメータは、カインドが `KVar` のまま残る。
+    `release_rigids` は、それを `KStar` に既定化する。 *)
+ 
++and demote_rigids rigids =
++  List.iter
++    (fun (_, _, r) ->
++      match !r with
++      | Rigid i ->
++          default_kind i.vkind;
++          r := Unbound i
++      | _ -> ())
++    rigids
++
+ and release_rigids rigids =
+   List.iter
+     (fun (_, _, r) ->
+@@ -2739,6 +2749,11 @@
+   let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
+   Tree.set_ty node fn_ty;
+   let rigids = rigids @ !extra_rigids in
++  (* 一般化しない束縛では、剛定数を Generic に解放しない。
++     剛定数は束縛と同じレベルに作られているので、外側の未定変数に入り込んでも脱出検査に掛からない。
++     Generic にすると、入り込んだ先の単相の型が使うたびに具体化され、多相になる。
++     かわりに同じレベルの未定変数に戻し、単相のまま残す *)
++  let release_rigids rigids = if gen then release_rigids rigids else demote_rigids rigids in
+   (* 網羅性の遅延キューは generalize の直前に drain する *)
+   match snd b.T.lb_name with
+   | T.PVar x ->

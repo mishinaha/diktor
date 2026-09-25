@@ -1,0 +1,80 @@
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2206,9 +2206,36 @@
+      ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形は
+      ここで拒否する。実行時に取りこぼしうるプログラムを型検査で通さない *)
+   (* 反駁不能の判定は、関数の引数や return 節の網羅性検査と同じ irrefutable_pat を使う *)
+-  let total (_, _, args, ((_, c) : T.clause)) =
+-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
++  let pat_envs =
++    List.map
++      (fun (op, _, args, ((_, _) as cnode)) ->
++        Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
++        let scheme = List.assoc op target_info.Decls.ef_ops in
++        let args_row, op_ret =
++          match repr (Unify.instantiate level scheme) with
++          | TArrow (a, r, _) -> (a, r)
++          | _ -> bug "操作スキーマが矢印型ではありません"
++        in
++        let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
++        if List.length args <> List.length param_tys then
++          type_error
++            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
++               (List.length args));
++        List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
++        let seen = ref [] in
++        let env2 =
++          List.fold_left2
++            (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
++            env args param_tys
++        in
++        (env2, param_tys, op_ret))
++      ops
+   in
++  let total_tbl = List.map2 (fun (_, _, args, ((_, c) : T.clause)) (_, tys, _) ->
++      c.T.cl_guard = None
++      && List.for_all2 (fun (a : T.ctor_arg_pat) t -> Exhaust.missing [ [ Exhaust.convert a.T.cap_pat ] ] [ t ] = None) args tys) ops pat_envs in
++  let totals = List.combine ops total_tbl in
++  let total cl = List.assq cl totals in
+   List.iter
+     (fun (op, _) ->
+       if not (List.exists (fun ((o, _, _, _) as cl) -> o = op && total cl) ops) then
+@@ -2303,27 +2330,8 @@
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
+   | _ -> ());
+   (* 操作節 *)
+-  List.iter
+-    (fun (op, _, args, ((_, c) as cnode)) ->
+-      Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
+-      let scheme = List.assoc op target_info.Decls.ef_ops in
+-      let args_row, op_ret =
+-        match repr (Unify.instantiate level scheme) with
+-        | TArrow (a, r, _) -> (a, r)
+-        | _ -> bug "操作スキーマが矢印型ではありません"
+-      in
+-      let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
+-      if List.length args <> List.length param_tys then
+-        type_error
+-          (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
+-             (List.length args));
+-      List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
+-      let seen = ref [] in
+-      let env2 =
+-        List.fold_left2
+-          (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
+-          env args param_tys
+-      in
++  List.iter2
++    (fun (_, _, _, ((_, c) : T.clause)) (env2, _, op_ret) ->
+       (* ガードは resume 無しで推論する。第14章はガードを resume = None で
+          評価するので、ここで Some にすると、型は付くのに実行時に落ちる
+          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
+@@ -2335,7 +2343,7 @@
+       let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
+       check_resume_static c.T.cl_body;
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
+-    ops;
++    ops pat_envs;
+   tres
+ 
+ and method_scheme cls m =

@@ -1,0 +1,364 @@
+diff -ruN a/lib/decls.ml b/lib/decls.ml
+--- a/lib/decls.ml
++++ b/lib/decls.ml
+@@ -255,6 +255,7 @@
+    たとえば module 内の `let parse(...): BigInt` の `BigInt` は、
+    改名された `newtype BigInt` を指せなくなる。
+    そこで同義語表を張り、型の名前は `resolve_con` を通して引く。
++   エフェクト行の位置に書いたエイリアスの名前も、同じ `resolve_con` を通して引く(第11章 §11.6)。
+ 
+    module の内部の名前は module の中でだけ意味を持つので、同義語も module ごとのスコープを持つ。
+    `module_con_synonyms` の鍵は `(module 名, 非修飾名)` で、
+@@ -284,7 +285,7 @@
+    `module BigInt` の中の `newtype BigInt` は `BigInt.BigInt` へ改名され、
+    大域の同義語 `BigInt` → `BigInt.BigInt` が張られる。
+    module の外から非修飾で見えてよい型名は、コンパニオンだけである。
+-   ただし、コンパニオンは既存の型名とは衝突できない。
++   ただし、コンパニオンは既存の型名とも、エフェクト名とも衝突できない。
+    黙って同義語を張ると、`module Foo` を 1 行足すだけでトップレベルやプレリュードの型 `Foo` が乗っ取られ、
+    名目型の抽象が破れる。
+    プレリュードの名前が乗っ取られると、処理系そのものが正しく動かなくなる。
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -366,6 +366,7 @@
+    module の平坦化(§11.42)の同義語表を引くためである。
+    `module Parser` の中で `Parser` と書いても、外から `Parser.Parser` と書いても、
+    同じ oid に行き着く。
++   §11.6 の `elab_eff` も、エイリアスの名前を同じ `Decls.resolve_con` を通して引く。
+ 
+    `EApply` の頭が型パラメータのときだけは扱いが違う。
+    `tapp` で適用を組み立て、カインドは使用時に `kind_of` と `drop_arrows` が決める。
+@@ -800,15 +801,43 @@
+ and check_no_hole ((_, te) as t : T.type_exp) =
+   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
+ 
++(* エフェクト位置に書いた名前 n を、エイリアスとして引く。
++   §11.3 の elab_type と同じく、Decls.resolve_con で module の同義語とコンパニオンをたどってから、
++   エイリアスの表を引く。
++   module の中で非修飾で書いた W も、module の外で修飾して書いた M.W も、同じエイリアスに行き着く。
++   見つかったエイリアスには、elab_type と同じ可視性の検査を課す。
++   effect の宣言表はこの関数を通さず、書かれた名前のまま引く。
++   effect は module の中に宣言できない(§11.42)ので、
++   同義語をたどって行き着く先が effect であることは無いからである *)
++and find_alias n =
++  let oid = Decls.resolve_con (intern n) in
++  match Hashtbl.find_opt Decls.aliases oid with
++  | Some info ->
++      Decls.check_con_visible oid;
++      Some info
++  | None -> None
++
+ (* 「未知のエフェクト」の言い分け。名前が型として登録されていれば、
+    綴りの誤りではなく位置の誤りなので、そう報告する。
+    resolve_con は module の同義語をたどるので、
+    スコープ外の内部型名にもこちらの文言が出ることがあるが、
+-   受理と拒否は変わらない *)
++   受理と拒否は変わらない。
++   型でもなければ、スコープの外の module にある同名の EffectRow エイリアスを探し、
++   §11.3 の未知の型と同じく、修飾名を案内する。
++   案内するのは pub の EffectRow エイリアスだけである。
++   非 pub の名前は、修飾しても可視性の検査で落ちる。
++   Type エイリアスや newtype は、修飾しても行にならない *)
+ and unknown_effect n =
+   if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
+     "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
+-  else "未知のエフェクト: " ^ n
++  else
++    let row_alias q =
++      (match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
++      && match Hashtbl.find_opt Decls.aliases q with Some info -> info.Decls.al_kind = Some "EffectRow" | None -> false
++    in
++    match List.filter row_alias (Decls.con_synonym_candidates (intern n)) with
++    | [] -> "未知のエフェクト: " ^ n
++    | cands -> "未知のエフェクト: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)"
+ 
+ (* エイリアスが開いた行に展開されたときの splice。
+    row_append は左が閉じていることを要求するので、展開結果の閉じた前置部分をなぞり、
+@@ -890,7 +919,20 @@
+    1. `env.types` にあり、カインドが行なら、行変数である。
+    2. `EffectRow` と注記されたエイリアスなら、展開して splice する。
+       波括弧の中の要素では、引数があってもなくても、エイリアスを effect の宣言表より先に調べる。
++      エイリアスの名前は `find_alias` が `Decls.resolve_con` を通して引く。
++      そのため module の中では、同じ module のエイリアスを修飾せずに書ける。
+    3. effect の宣言表にあれば、`@ Print` は `@ {Print}` の略記なので、ラベル 1 つの閉じた行にする。
++      effect の宣言表は、書かれた名前のまま引く。
++
++   2 を 3 より先に調べるので、module の中にエフェクトと同名のエイリアスを宣言すると、
++   その module の中では、その名前はエイリアスを指す。
++   型の位置で module の型が同名のトップレベルの型を覆うのと同じ規則である。
++   引数つきの形(`@ Heap[E]`)も、同名のエイリアスがあれば略記として読まず、
++   最後の分岐で `elab_type` がエイリアスとして展開する。
++   `@ Heap[E]` と `@ {Heap[E]}` で指すものが変わらないようにするためである。
++   module の newtype は、エフェクト位置のエフェクト名を覆わない。
++   `find_alias` が引くのはエイリアスだけで、newtype の名前は 3 の後の診断でしか引かないからである
++   (`test/visibility.t` の visrow7 と visrow8)。
+ 
+    1 の判定に `same_kind` を使うのは、arity 0 の型パラメータのカインドが、
+    宣言時には未定(`KVar`)だからである。
+@@ -929,6 +971,7 @@
+    `@` の後(文法の `eff` / `eff_name`)に書いた型式のうち、ここへ届く形は 2 つある。
+    module 修飾の名前(`M.T` / `M.W`)と、
+    エフェクト名でない頭への適用(`W[E]` / `MutableArray[Int32, Int32]`)である。
++   エフェクト名の頭への適用も、同名のエイリアスが module にあればここへ届く。
+    このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
+    `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
+    EffectRow エイリアスの本体(`type` 宣言の右辺)、
+@@ -1006,17 +1049,20 @@
+   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
+       let tv = SMap.find n env.types in
+       if same_kind (Unify.kind_of tv) KRow then tv else type_error ("行カインドではない型パラメータです: " ^ n)
+-  | T.EIdent (LongId [ n ]) when Hashtbl.mem Decls.aliases (intern n) ->
+-      let info = Hashtbl.find Decls.aliases (intern n) in
+-      if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
+-      else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
+-  | T.EIdent (LongId [ n ]) ->
+-      (* @ Print = @ {Print} の略記 *)
+-      if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
+-      else type_error (unknown_effect n)
+-  | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
++  | T.EIdent (LongId [ n ]) -> (
++      match find_alias n with
++      | Some info ->
++          if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
++          else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
++      | None ->
++          (* @ Print = @ {Print} の略記 *)
++          if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
++          else type_error (unknown_effect n))
++  | T.EApply ((_, T.EIdent (LongId [ n ])), args)
++    when Hashtbl.mem Decls.effects (intern n) && not (Hashtbl.mem Decls.aliases (Decls.resolve_con (intern n))) ->
+       (* @ Heap[h] = @ {Heap[h]} の略記。sample.kel:467 の略記の規則は、
+-         引数つきのラベルを除外していない *)
++         引数つきのラベルを除外していない。module に同名のエイリアスがあれば、
++         波括弧の中の要素と同じくエイリアスを先に取るので、この分岐に入れない *)
+       TRowExtend
+         ( intern n,
+           (match args with
+@@ -1037,11 +1083,14 @@
+       List.fold_right
+         (fun elem acc ->
+           match elem with
+-          | T.BLabel (LongId [ n ], args) -> (
++          | T.BLabel (li, args) -> (
++              let n = show_long_id li in
+               (* エイリアスを先に調べ、引数の有無で経路を分けない。エフェクト名と型名は
+                  同じ名前空間(claim_type_name)にあるので、Heap[h](ラベルの引数)と
+-                 WithPrint[E](エイリアスの適用)を取り違えない *)
+-              match Hashtbl.find_opt Decls.aliases (intern n) with
++                 WithPrint[E](エイリアスの適用)を取り違えない。修飾名(M.W)も同じ
++                 経路で引く。effect は module に宣言できないので、修飾名が指しうるのは
++                 エイリアスだけで、ほかは unknown_effect の診断になる *)
++              match find_alias n with
+               | Some info when info.Decls.al_kind = Some "EffectRow" ->
+                   splice_row n (expand_alias env level ~expanding info args) acc (* 行を splice する *)
+               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
+@@ -1060,12 +1109,12 @@
+                         | _ -> type_error "エフェクトラベルの引数は1個までです"),
+                         acc )
+                   else type_error (unknown_effect n))
+-          | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
+           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
+         elems tail
+   | _ ->
+-      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前とエフェクト名でない
+-         頭への適用と、文法が ty を取る 3 つの位置(extends の右、EffectRow エイリアスの本体、
++      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前と、エフェクト名でない
++         頭への適用(module のエイリアスが覆うエフェクト名の頭を含む)と、文法が ty を取る
++         3 つの位置(extends の右、EffectRow エイリアスの本体、
+          行カインドのパラメータへの型引数)から来る型式である。型引数の経路は
+          ~check_row:false を渡すので照合しない。EffectRow エイリアスの適用(W[E] / M.W)は
+          ここを通って正しく行になるので、落とすのではなく、読んだ結果のカインドを照合する。
+@@ -4213,7 +4262,13 @@
+    平坦化ではなく、パス 1a で行う。
+    プレリュードの宣言表は、利用者の平坦化の時点ではまだ空なので、
+    平坦化の時点で登録すると既存の名前との照合が働かず、
+-   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す *)
++   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す。
++   プレリュードと組み込みのエフェクト名(Console や Heap)との衝突も、ここで拒否する。
++   エフェクト名は型名と 1 つの名前空間を共有し、大域の同義語はエフェクト位置のエイリアスの解決
++   (§11.6 の find_alias)でも引かれる。
++   衝突を許すと、module Console を 1 行足すだけで、プログラムのすべての @ Console が
++   その module のエイリアスを指すようになる。
++   利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
+ let register_companion tyname =
+   match !Decls.current_module with
+   | Some m when tyname = m ^ "." ^ m ->
+@@ -4225,6 +4280,10 @@
+         type_error
+           ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存の型 " ^ m
+          ^ " と同名です(module 内の型とトップレベルの型は同名にできません)")
++      else if Hashtbl.mem Decls.effects (intern m) then
++        type_error
++          ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存のエフェクト " ^ m
++         ^ " と同名です(型とエフェクトは同名にできません)")
+       else Decls.add_con_synonym (intern m) (intern tyname)
+   | _ -> ()
+ 
+diff -ruN a/test/visibility.t b/test/visibility.t
+--- a/test/visibility.t
++++ b/test/visibility.t
+@@ -144,6 +144,140 @@
+   $ diktor --type-check vis10.kel
+   f : (M.Priv) => Int32
+ 
++module の中で宣言した EffectRow エイリアスは、同じ module の中から修飾せずに、
++@ の後ろ、行の要素、extends の右、行を取る型引数、EffectRow エイリアスの右辺に
++書ける。どの位置でも W は Print を含む行として読まれ、実行もできる:
++
++  $ cat > visrow1.kel <<'KEL'
++  > newtype Cb[E] = Cb(() => Unit @ E)
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   type V: EffectRow = W
++  >   let at(x: Int32): Int32 @ W = x
++  >   let elem(x: Int32): Int32 @ {W, Console} = x
++  >   let tail(x: Int32): Int32 @ {Console extends W} = x
++  >   let arg(c: Cb[W]): Int32 = 0
++  >   let rhs(x: Int32): Int32 @ V = x
++  >   pub let say(s: String): Unit @ W = perform print(s + "\n")
++  > }
++  > with_stdout(fn() => M.say("hi"))
++  > KEL
++  $ diktor --type-check visrow1.kel
++  M.at : (Int32) => Int32 @ {Print extends R1}
++  M.elem : (Int32) => Int32 @ {Print, Console extends R1}
++  M.tail : (Int32) => Int32 @ {Console, Print extends R1}
++  M.arg : (Cb[{Print}]) => Int32
++  M.rhs : (Int32) => Int32 @ {Print extends R1}
++  M.say : (String) => {} @ {Print extends R1}
++  _ : {}
++  $ diktor visrow1.kel
++  hi
++
++行の要素の位置にも、修飾名 M.W を書ける。module の外からは pub のエイリアスだけが
++書け、pub でなければ可視性の検査で落ちる:
++
++  $ cat > visrow2.kel <<'KEL'
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   let f(x: Int32): Int32 @ {M.W, Console} = x
++  > }
++  > let g(x: Int32): Int32 @ {M.W, Console} = x
++  > KEL
++  $ diktor --type-check visrow2.kel
++  M.f : (Int32) => Int32 @ {Print, Console extends R1}
++  g : (Int32) => Int32 @ {Print, Console extends R1}
++  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ {M.W, Console} = x\n' > visrow3.kel
++  $ diktor --type-check visrow3.kel
++  ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
++  [1]
++
++module の外から修飾せずに書くと、未知のエフェクトとして拒否する。pub の EffectRow
++エイリアスなら修飾を案内し、pub でなければ案内しない:
++
++  $ printf 'module M { pub type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow4.kel
++  $ diktor --type-check visrow4.kel
++  ! visrow4.kel:2:26: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
++  [1]
++  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow5.kel
++  $ diktor --type-check visrow5.kel
++  ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
++  [1]
++
++module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
++エフェクト位置のエイリアスも、型の位置の T と同じく module の W を指し、
++module の外では、トップレベルの W と T を指す:
++
++  $ cat > visrow6.kel <<'KEL'
++  > type W: EffectRow = {Console}
++  > type T = String
++  > module M {
++  >   pub type W: EffectRow = {Print}
++  >   pub type T = Int32
++  >   let f(x: T): T @ W = x
++  > }
++  > let g(x: T): T @ W = x
++  > KEL
++  $ diktor --type-check visrow6.kel
++  M.f : (Int32) => Int32 @ {Print extends R1}
++  g : (String) => String @ {Console extends R1}
++
++プレリュードのエフェクトと同名の EffectRow エイリアスを module に宣言すると、
++module の中では、引数の無い形も引数つきの形も、@ の後ろでも行の要素でも、
++そのエイリアスを指す。module の外では、プレリュードのエフェクトのままである:
++
++  $ cat > visrow7.kel <<'KEL'
++  > module M {
++  >   pub type Console: EffectRow = {Print}
++  >   pub type Heap[E]: EffectRow = {Print extends E}
++  >   let f(x: Int32): Int32 @ Console = x
++  >   let g(x: Int32): Int32 @ {Console} = x
++  >   let h[E](x: Int32): Int32 @ Heap[E] = x
++  >   let k[E](x: Int32): Int32 @ {Heap[E]} = x
++  > }
++  > let m(x: Int32): Int32 @ Console = x
++  > KEL
++  $ diktor --type-check visrow7.kel
++  M.f : (Int32) => Int32 @ {Print extends R1}
++  M.g : (Int32) => Int32 @ {Print extends R1}
++  M.h : (Int32) => Int32 @ {Print extends R1}
++  M.k : (Int32) => Int32 @ {Print extends R1}
++  m : (Int32) => Int32 @ {Console extends R1}
++
++エフェクト位置でエフェクト名を覆うのはエイリアスだけで、module の newtype は
++覆わない。module の中の @ Console は、同名の newtype があってもエフェクトを指す:
++
++  $ cat > visrow8.kel <<'KEL'
++  > module M {
++  >   pub newtype Console = MkC(Int32)
++  >   let f(x: Int32): Int32 @ Console = x
++  > }
++  > KEL
++  $ diktor --type-check visrow8.kel
++  M.f : (Int32) => Int32 @ {Console extends R1}
++
++module の中の Type エイリアスを @ の後ろや行の要素に書くと、未知のエフェクト
++ではなく、Type エイリアスとして引いたうえで拒否する:
++
++  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ T = x\n}\n' > visrow9.kel
++  $ diktor --type-check visrow9.kel
++  ! visrow9.kel:3:28: 型エラー: エフェクト位置に Type エイリアス T は使えません(: EffectRow を付けてください)
++  [1]
++  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ {T} = x\n}\n' > visrow10.kel
++  $ diktor --type-check visrow10.kel
++  ! visrow10.kel:3:28: 型エラー: エフェクト行に Type エイリアス T は置けません(: EffectRow を付けてください)
++  [1]
++
++EffectRow エイリアスのコンパニオンは、module の外から module 名だけで書ける。
++pub でなければ可視性の検査で落ちる:
++
++  $ printf 'module W { pub type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ {W, Console} = x\n' > visrow11.kel
++  $ diktor --type-check visrow11.kel
++  f : (Int32) => Int32 @ {Print, Console extends R1}
++  $ printf 'module W { type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ W = x\n' > visrow12.kel
++  $ diktor --type-check visrow12.kel
++  ! visrow12.kel:2:26: 型エラー: 型 W.W は module W の外からは参照できません(pub を付けてください)
++  [1]
++
+ 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
+ クラス M のメソッド f と値環境で区別できないため):
+ 
+@@ -201,6 +335,22 @@
+   ! visl.kel:1:15: 型エラー: module List のコンパニオン型 List は既存の型 List と同名です(module 内の型とトップレベルの型は同名にできません)
+   [1]
+ 
++コンパニオン型は、プレリュードのエフェクト名(Console、Print)も組み込みの
++エフェクト名(Heap)も奪えない。型エイリアスでも newtype でも拒否する:
++
++  $ printf 'module Console { pub type Console: EffectRow = {Print} }\n' > viske1.kel
++  $ diktor --type-check viske1.kel
++  ! viske1.kel:1:18: 型エラー: module Console のコンパニオン型 Console は既存のエフェクト Console と同名です(型とエフェクトは同名にできません)
++  [1]
++  $ printf 'module Print { pub newtype Print = P(Int32) }\n' > viske2.kel
++  $ diktor --type-check viske2.kel
++  ! viske2.kel:1:16: 型エラー: module Print のコンパニオン型 Print は既存のエフェクト Print と同名です(型とエフェクトは同名にできません)
++  [1]
++  $ printf 'module Heap { pub type Heap: EffectRow = {Print} }\n' > viske3.kel
++  $ diktor --type-check viske3.kel
++  ! viske3.kel:1:15: 型エラー: module Heap のコンパニオン型 Heap は既存のエフェクト Heap と同名です(型とエフェクトは同名にできません)
++  [1]
++
+ トップレベルのパターン束縛の束縛子も同名禁止の対象(M16 検証。
+ binding_name は PVar しか見ないので、let (a, b) = … の a がすり抜けて
+ 型検査と実行が別の実体を選んだ):

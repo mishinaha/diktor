@@ -1,0 +1,101 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2206,30 +2206,6 @@
+      ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形は
+      ここで拒否する。実行時に取りこぼしうるプログラムを型検査で通さない *)
+   (* 反駁不能の判定は、関数の引数や return 節の網羅性検査と同じ irrefutable_pat を使う *)
+-  let total (_, _, args, ((_, c) : T.clause)) =
+-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
+-  in
+-  List.iter
+-    (fun (op, _) ->
+-      if not (List.exists (fun ((o, _, _, _) as cl) -> o = op && total cl) ops) then
+-        type_error
+-          ("操作 " ^ name_of op
+-         ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
+-         ^ name_of op ^ "(...) を最後に置いてください"))
+-    target_info.Decls.ef_ops;
+-  (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
+-     この検出は match の useful 判定(第10章)より弱く、絞り込みの節の集まりで
+-     網羅済みでも警告は出ない。第10章の検査につなぐには、操作節から合成の
+-     match のノードを作る必要があり、Diktor はそれをしない。健全性は総和性検査が
+-     守るので、弱いのは警告の網羅性だけである *)
+-  let rec dead_scan seen_total = function
+-    | [] -> ()
+-    | ((o, _, _, _) as cl) :: rest ->
+-        if List.mem o seen_total then
+-          warn ("操作 " ^ name_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
+-        dead_scan (if total cl && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
+-  in
+-  dead_scan [] ops;
+ (* ## 11.24 本体と各節の型付け
+ 
+    handle の型付けの規則は次のとおりである。
+@@ -2303,6 +2279,7 @@
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
+   | _ -> ());
+   (* 操作節 *)
++  let op_rows = ref [] in
+   List.iter
+     (fun (op, _, args, ((_, c) as cnode)) ->
+       Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
+@@ -2324,6 +2301,7 @@
+           (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
+           env args param_tys
+       in
++      op_rows := (op, List.map (fun (a : T.ctor_arg_pat) -> a.T.cap_pat) args, c.T.cl_guard <> None, param_tys) :: !op_rows;
+       (* ガードは resume 無しで推論する。第14章はガードを resume = None で
+          評価するので、ここで Some にすると、型は付くのに実行時に落ちる
+          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
+@@ -2336,6 +2314,23 @@
+       check_resume_static c.T.cl_body;
+       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
+     ops;
++  let op_rows = List.rev !op_rows in
++  List.iter
++    (fun (op, _) ->
++      let mine = List.filter (fun (o, _, _, _) -> o = op) op_rows in
++      match mine with
++      | [] -> ()
++      | (_, _, _, tys) :: _ ->
++          let miss, dead = Exhaust.check_op_clauses (List.map (fun (_, ps, g, _) -> (ps, g)) mine) tys in
++          (match miss with
++          | Some _ ->
++              type_error
++                ("操作 " ^ name_of op
++               ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
++               ^ name_of op ^ "(...) を最後に置いてください")
++          | None -> ());
++          List.iter (fun _ -> warn ("操作 " ^ name_of op ^ " の節は到達しません(前の節が既に取りこぼしません)")) dead)
++    target_info.Decls.ef_ops;
+   tres
+ 
+ and method_scheme cls m =
+diff -ruN a/lib/exhaust.ml b/lib/exhaust.ml
+--- a/lib/exhaust.ml
++++ b/lib/exhaust.ml
+@@ -915,6 +915,23 @@
+     all;
+   !out
+ 
++(* 操作節の総和性の検査(第11章 §11.23)。rows は節ごとの引数パターンの列とガードの有無、
++   tys は操作の引数の型の列。行を閉じる操作はしない。
++   返り値は、ガードの無い節で覆えない値の例と、到達しない節の番号(0 始まり)*)
++let check_op_clauses (rows : (T.pat list * bool) list) (tys : ty list) =
++  let all = List.map (fun (ps, g) -> (List.map convert ps, g)) rows in
++  let unguarded_of l = List.filter_map (fun (r, g) -> if g then None else Some r) l in
++  let miss = missing (unguarded_of all) tys in
++  let dead =
++    List.concat
++      (List.mapi
++         (fun i (row, _) ->
++           let prior = List.filteri (fun j _ -> j < i) all in
++           if useful (unguarded_of prior) row tys then [] else [ i ])
++         all)
++  in
++  (miss, dead)
++
+ let drain () =
+   let entries = List.rev !pending in
+   pending := [];

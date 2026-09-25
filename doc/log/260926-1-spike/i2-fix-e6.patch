@@ -1,0 +1,19 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2708,13 +2708,13 @@
+               let ty = elab_value_type_outer env_ty lvl "型注釈" t in
+               match (snd t, repr ty) with
+               | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
+-                  let e', eff_rigids = open_explicit_eff lvl e in
++                  let e', eff_rigids = open_explicit_eff (level + 1) e in
+                   extra_rigids := eff_rigids @ !extra_rigids;
+                   TArrow (a, r, e')
+               | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
+                   (* pub の省略 @ は、本体は純粋、公開は行多相と読む(仕様 §13。
+                      関数束縛の lb_eff = None と同じ扱い) *)
+-                  let rr = new_rigid_ref ~kind:KRow lvl in
++                  let rr = new_rigid_ref ~kind:KRow (level + 1) in
+                   (match !rr with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
+                   extra_rigids := ("", TVar rr, rr) :: !extra_rigids;
+                   TArrow (a, r, TVar rr)

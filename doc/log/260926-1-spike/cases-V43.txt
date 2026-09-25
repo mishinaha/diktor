@@ -1,0 +1,457 @@
+==== 調査/e10_lamlocal.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let add = fn(a: Int32) => { let inc(b: Int32) = b + 1; inc(a) }
+    resume(add(40))
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e1_nores.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = 40
+    let rec g(n: Int32): Int32 = n match {
+      case 0 => 1
+      case _ => g(n - 1)
+    }
+    resume(f() + g(3))
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e2_inner.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = (perform ask2() + 1) handle {
+      case ask2() => resume(39)
+      case return(y) => y
+    }
+    resume(f() + 1)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e3_runhandle.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => run h {
+    let c = Ref.new(41)
+    resume(Ref.get(c))
+  }
+  case return(x) => x
+}
+echoln(show(r))
+let s = (perform ask() + 1) handle {
+  case ask() => (resume(perform ask2())) handle {
+    case ask2() => resume(41)
+    case return(y) => y
+  }
+  case return(x) => x
+}
+echoln(show(s))
+==== 調査/e4_value.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let v = resume(41)
+    v * 2
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e5_guard.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() if { let g() = resume(7); g() > 0 } => resume(1)
+  case ask() => resume(2)
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e6_matchguard.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => 1 match {
+    case n if resume(n + 40) > 0 => 100
+    case _ => 0
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e7_innerlocal.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = (perform ask2() + 1) handle {
+      case ask2() => { let k() = resume(39); k() }
+      case return(y) => y
+    }
+    resume(f() + 1)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e8_nested.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = {
+      let g() = resume(41)
+      g()
+    }
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/e9_tparam_nores.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let id[A](a: A): A = a
+    resume(id(41))
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/lam.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f = fn() => resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/leak.kel ====
+effect Ask = { ask: () => Int32 }
+let main(): Int32 = run h {
+  let cell = Ref.new(fn() => 0)
+  let r = (perform ask() + 1) handle {
+    case ask() => {
+      let f() = resume(41)
+      Ref.set(cell, f)
+      0
+    }
+    case return(x) => x
+  }
+  let g = Ref.get(cell)
+  r + g()
+}
+echoln(show(main()))
+==== 調査/local.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/rec.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let rec f() = resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/recleak.kel ====
+effect Ask = { ask: () => Int32 }
+let main(): Int32 = run h {
+  let cell = Ref.new(fn() => 0)
+  let r = (perform ask() + 1) handle {
+    case ask() => {
+      let rec f() = resume(41)
+      Ref.set(cell, f)
+      0
+    }
+    case return(x) => x
+  }
+  r + Ref.get(cell)()
+}
+echoln(show(main()))
+==== 調査/recval.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let rec x = resume(41)
+    x
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 調査/tparam.kel ====
+effect Ask = { ask: () => Int32 }
+let main(): Int32 = run h {
+  let cell = Ref.new(fn() => 0)
+  let r = (perform ask() + 1) handle {
+    case ask() => {
+      let f[A](a: A): Int32 = resume(41)
+      Ref.set(cell, fn() => f(1))
+      0
+    }
+    case return(x) => x
+  }
+  r + Ref.get(cell)()
+}
+echoln(show(main()))
+==== 調査/withr.kel ====
+effect Ask = { ask: () => Int32 }
+let call0(body: () => Int32): Int32 = body()
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    with _ = call0()
+    resume(41)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b1_innerbody.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = (resume(perform ask2())) handle {
+      case ask2() => resume(41)
+      case return(y) => y
+    }
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b2_valblock.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let v = { let f() = resume(41); f() }
+    v
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b3_tuple.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let (a, b) = (resume(41), 1)
+    a + b
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b4_toplevelfn.kel ====
+effect Ask = { ask: () => Int32 }
+let f(): Int32 = {
+  let g(n: Int32): Int32 = n + 1
+  (perform ask() + 1) handle {
+    case ask() => resume(g(40))
+    case return(x) => x
+  }
+}
+echoln(show(f()))
+==== 反証/b5_matcharm.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => 1 match {
+    case 1 => { let f() = resume(41); f() }
+    case _ => 0
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b6_run.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => run h {
+    let f() = resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b7_mutual.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let rec f(): Int32 = g()
+    and g(): Int32 = resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/b7ok_mutual.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let rec ev(n: Int32): Boolean = (n == 0) match { case true => true  case false => od(n - 1) }
+    and od(n: Int32): Boolean = (n == 0) match { case true => false  case false => ev(n - 1) }
+    resume(ev(4) match { case true => 41  case false => 0 })
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c1_tailarg_ok.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => resume({ let f() = 41; f() })
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c2_tailarg_bad.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => resume({ let f() = resume(1); 41 })
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c3_laminnerok.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let g = fn() => (perform ask2() + 1) handle {
+      case ask2() => resume(38)
+      case return(y) => y
+    }
+    resume(g() + 2)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c4_unused.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = resume(1)
+    resume(41)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c5_innerret.kel ====
+effect Ask = { ask: () => Int32 }
+effect Ask2 = { ask2: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = (perform ask2()) handle {
+      case ask2() => resume(1)
+      case return(y) => resume(y + 40)
+    }
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c6_withinfn.kel ====
+effect Ask = { ask: () => Int32 }
+let call0(body: () => Int32): Int32 = body()
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f(): Int32 = {
+      with _ = call0()
+      40
+    }
+    resume(f() + 1)
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c7_recval_lam.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let rec f = fn() => resume(41)
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/c8_pubfn.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f(n: Int32): Int32 @ {} = n + 1
+    resume(f(40))
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/d1_fnguard.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => {
+    let f() = 1 match {
+      case n if resume(n + 40) > 0 => 100
+      case _ => 0
+    }
+    f()
+  }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/d2_order.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => { let f() = resume(41); f() }
+  case return(x) => x + "s"
+}
+echoln(show(r))
+==== 反証/d3_order_body.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => { let bad = 1 + true; let f() = resume(41); f() }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/d4_order_later.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => { let f() = resume(41); f() }
+  case return(x) => x
+}
+let bad = 1 + true
+echoln(show(r))
+==== 反証/d5_order_clause2.kel ====
+effect Ask = { ask: () => Int32, ask3: () => Int32 }
+let r = (perform ask() + 1) handle {
+  case ask() => { let f() = resume(41); f() }
+  case ask3() => resume(1 + true)
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/d6_order_body.kel ====
+effect Ask = { ask: () => Int32 }
+let r = (perform ask() + (1 + true)) handle {
+  case ask() => { let f() = resume(41); f() }
+  case return(x) => x
+}
+echoln(show(r))
+==== 反証/lfleak_start.kel ====
+echoln("start")
+effect Ask = { ask: () => Int32 }
+let main(): Int32 = run h {
+  let cell = Ref.new(fn() => 0)
+  let r = (perform ask() + 1) handle {
+    case ask() => {
+      let f() = resume(41)
+      Ref.set(cell, f)
+      0
+    }
+    case return(x) => x
+  }
+  r + Ref.get(cell)()
+}
+echoln(show(main()))

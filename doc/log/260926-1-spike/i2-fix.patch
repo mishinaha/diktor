@@ -1,0 +1,241 @@
+diff -ruN a/lib/elab.ml b/lib/elab.ml
+--- a/lib/elab.ml
++++ b/lib/elab.ml
+@@ -2660,7 +2660,7 @@
+   let gen = is_fun || is_value b.T.lb_body in
+   if (not gen) && b.T.lb_tparams <> [] then
+     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
+-  let lvl = if gen then level + 1 else level in
++  let lvl = level + 1 in
+   let extra_rigids = ref [] in
+   let rigids = make_rigids lvl b.T.lb_tparams in
+   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
+@@ -2747,18 +2747,21 @@
+         (* 一般化の直前に曖昧性を調べる。generalize より前でなければならない。
+            後では Unbound が Generic に変わっていて判定できない *)
+         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+-        Unify.generalize level fn_ty);
++        Unify.generalize level fn_ty)
++      else Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       { env with values = SMap.add x fn_ty env.values }
+   | T.PWildcard ->
+       List.iter warn (Exhaust.drain ());
+       if gen then (
+         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
+-        Unify.generalize level fn_ty);
++        Unify.generalize level fn_ty)
++      else Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       env
+   | _ ->
+       (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる *)
++      if not gen then Unify.lower_levels level fn_ty;
+       release_rigids rigids;
+       let seen = ref [] in
+       let env' = elab_pat env level seen fn_ty b.T.lb_name in
+diff -ruN a/lib/unify.ml b/lib/unify.ml
+--- a/lib/unify.ml
++++ b/lib/unify.ml
+@@ -669,6 +669,35 @@
+       generalize level f;
+       generalize level rest
+ 
++(* 一般化しない束縛の終わりに、`level` より深い `Unbound` を `level` まで下げる。
++   値でない束縛も、一般化する束縛と同じく、本体を 1 つ深いレベルで推論する(第11章 §11.28)。
++   型に残った変数を深いまま環境に置くと、後に続く一般化する束縛の `generalize` が、
++   その変数を一般化してしまう。
++   台帳 `class_vars` の変数も下げる。
++   下げないと、曖昧な制約を報告する位置が、後に続く無関係な束縛に移る。
++   `Rigid` と `Generic` には触らない *)
++let lower_levels level t =
++  let lower v = match !v with Unbound i when i.vlevel > level -> v := Unbound { i with vlevel = level } | _ -> () in
++  let rec go t =
++    match repr t with
++    | TVar v -> lower v
++    | TCon (_, args) -> List.iter go args
++    | TApp (f, a) ->
++        go f;
++        go a
++    | TArrow (p, r, e) ->
++        go p;
++        go r;
++        go e
++    | TRecord row | TVariant row -> go row
++    | TRowEmpty -> ()
++    | TRowExtend (_, f, rest) ->
++        go f;
++        go rest
++  in
++  List.iter lower !class_vars;
++  go t
++
+ (* 宣言の終わりに、台帳に残った述語つきの弱い変数を既定の型に落とす。
+    述語のない変数はどちらの分岐にも当たらず素通りする *)
+ let default_numerics () =
+diff -ruN a/test/verify_fixes.t b/test/verify_fixes.t
+--- a/test/verify_fixes.t
++++ b/test/verify_fixes.t
+@@ -21,7 +21,8 @@
+   even
+   unknown
+ 
+-注釈付き非値は値制限で一般化されない(run のリージョンから漏れない):
++Ref に入れて取り出した閉包を run の本体から返すと、閉包の型の行に Heap[h] が
++残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:664-665):
+ 
+   $ cat > vr.kel <<'EOF'
+   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+@@ -35,6 +36,152 @@
+   ! vr.kel:1:60: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+   [1]
+ 
++注釈の頭の矢印で @ を省略した値束縛 g は、本体が関数呼び出しなら、行の違う 2 つの
++文脈からは呼べない(値制限、LangSpec §6.2)。2 つ目の呼び出し g(2) で、注釈で固定された
++main の行に Ask を足せないという型エラーになる:
++
++  $ cat > vrgen.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen.kel
++  ! vrgen.kel:6:12: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Ask を足せません(注釈側に Ask を(必要なら引数つきで)書き足してください)
++  [1]
++
++同じプログラムで g の本体だけを無名関数(値)に替えると、2 つの文脈から呼べる:
++
++  $ cat > vrgenv.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 = fn(x) => x + 1
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgenv.kel
++  15
++
++注釈の頭の矢印に閉じた空でない行を書いた g は、本体が関数呼び出しのままでも、行の違う
++2 つの文脈から呼べる。書いた行の尾部は、使うたびに開く(LangSpec §13.2、sample.kel:476-478)。
++vrgen の g の注釈に @ {Console} を足すと通る:
++
++  $ cat > vrgen2.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let main(): Unit @ {Console} = {
++  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => x + 1)
++  >   let a = g(1)
++  >   let b = (g(2) + perform ask()) handle {
++  >     case ask() => resume(10)
++  >     case return(x) => x
++  >   }
++  >   echoln(show(a + b))
++  > }
++  > main()
++  > EOF
++  $ diktor vrgen2.kel
++  15
++
++本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いても、その注釈を経由して外側の
++Ref の中身の行を開くことはできない。g の束縛が型エラーになり、Heap[h] を読む閉包を
++run の外へ返せない(LangSpec §14.1):
++
++  $ cat > vrleak.kel <<'EOF'
++  > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
++  >   let slot = Ref.new(fn(x) => x)
++  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
++  >   let cell = Ref.new(41)
++  >   let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
++  >   Ref.get(slot)
++  > }
++  > echoln(show(escaped()(1)))
++  > EOF
++  $ diktor vrleak.kel
++  ! vrleak.kel:3:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++同じ形で Ask を起こす閉包を Ref に入れ、Ask の無い行の関数 bad から呼ぶプログラムも、
++g の束縛で型エラーになる:
++
++  $ cat > vrleak2.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let bad(): Int32 @ {Console} = run h {
++  >   let slot = Ref.new(fn(x) => x)
++  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
++  >   let _ = Ref.set(slot, fn(x) => perform ask() + x)
++  >   Ref.get(slot)(1)
++  > }
++  > echoln(show(bad()))
++  > EOF
++  $ diktor vrleak2.kel
++  ! vrleak2.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++Ref を使わない形でも、同じ束縛は型エラーになる。f の注釈の無い引数 z を、本体が値でない
++束縛 _ の注釈 @ {Console} に通すと、4 行目のその束縛で落ちる:
++
++  $ cat > vrleak3.kel <<'EOF'
++  > effect Ask = { ask: () => Int32 }
++  > let idf[A](x: A): A = x
++  > let f(z) = {
++  >   let _: (Int32) => Int32 @ {Console} = idf(z)
++  >   z(1)
++  > }
++  > let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
++  > main()
++  > EOF
++  $ diktor vrleak3.kel
++  ! vrleak3.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++先に f の本体で呼んだ単相の束縛 h を、本体が値でない束縛 g の注釈 @ {Console} に通す形も、
++5 行目の g の束縛で型エラーになる:
++
++  $ cat > vrleak4.kel <<'EOF'
++  > let idf[A](x: A): A = x
++  > let f() = {
++  >   let h = idf(fn() => echoln("x"))
++  >   h()
++  >   let g: () => Unit @ {Console} = idf(h)
++  >   g()
++  > }
++  > f()
++  > EOF
++  $ diktor vrleak4.kel
++  ! vrleak4.kel:5:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
++  [1]
++
++本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いた g は、同じ行の文脈から 2 回呼べる:
++
++  $ cat > vrok.kel <<'EOF'
++  > let idf[A](x: A): A = x
++  > let f(): Int32 @ {Console} = {
++  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("g"); x })
++  >   g(1) + g(2)
++  > }
++  > echoln(show(f()))
++  > EOF
++  $ diktor vrok.kel
++  g
++  g
++  3
++
+ 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
+ 
+   $ cat > pick.kel <<'EOF'
