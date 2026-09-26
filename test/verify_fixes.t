@@ -183,6 +183,18 @@ Ref を使わない形でも、同じ束縛は型エラーになる。f の注�
   g
   3
 
+パターン束縛の注釈の頭の矢印に閉じた行を書くか、pub で頭の @ を省略すると、
+内部エラーではなく型エラーになる:
+
+  $ printf 'let (5): (Int32) => Int32 @ {Console} = fn(x) => x\necholn("ok")\n' > patrigid.kel
+  $ diktor patrigid.kel
+  ! patrigid.kel:1:6: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+  $ printf 'pub let (5): (Int32) => Int32 = fn(x) => x\necholn("ok")\n' > patrigid2.kel
+  $ diktor patrigid2.kel
+  ! patrigid2.kel:1:10: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+
 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
 
   $ cat > pick.kel <<'EOF'
