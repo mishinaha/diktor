@@ -255,6 +255,9 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
    たとえば module 内の `let parse(...): BigInt` の `BigInt` は、
    改名された `newtype BigInt` を指せなくなる。
    そこで同義語表を張り、型の名前は `resolve_con` を通して引く。
+   エフェクト行の位置に書いた EffectRow エイリアスの名前も、`resolve_con` を通して引く。
+   ただし、module の宣言が行にならないときは、
+   `resolve_con_global` で大域の名前を引き直す(第11章 §11.6)。
 
    module の内部の名前は module の中でだけ意味を持つので、同義語も module ごとのスコープを持つ。
    `module_con_synonyms` の鍵は `(module 名, 非修飾名)` で、
@@ -329,11 +332,14 @@ let module_con_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 
 let module_val_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 
+(* module スコープを飛ばし、大域の同義語(コンパニオン)だけをたどる。
+   エフェクト位置の名前の解決(第11章 §11.6)が、module の名前が行にならないときに引き直すのに使う *)
+let resolve_con_global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
+
 let resolve_con c =
-  let global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c in
   match !current_module with
-  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> global c)
-  | None -> global c
+  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> resolve_con_global c)
+  | None -> resolve_con_global c
 
 (* 診断専用の候補列。解決には使わない *)
 let con_hints : (oid, oid list) Hashtbl.t = Hashtbl.create 16

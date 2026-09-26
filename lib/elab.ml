@@ -366,6 +366,8 @@ let check_pub_annots ~value_head_outer ~params ~ret =
    module の平坦化(§11.42)の同義語表を引くためである。
    `module Parser` の中で `Parser` と書いても、外から `Parser.Parser` と書いても、
    同じ oid に行き着く。
+   §11.6 の `elab_eff` も、EffectRow エイリアスの名前を `Decls.resolve_con` を通して引く。
+   ただし、module の宣言が行にならないときに大域の名前を引き直す点が、型の位置と違う。
 
    `EApply` の頭が型パラメータのときだけは扱いが違う。
    `tapp` で適用を組み立て、カインドは使用時に `kind_of` と `drop_arrows` が決める。
@@ -800,6 +802,51 @@ and elab_con_args env level ~expanding cname k args =
 and check_no_hole ((_, te) as t : T.type_exp) =
   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
 
+(* エフェクト位置に書いた名前 n を、EffectRow エイリアスとして引く。
+   探す場所は 2 つあり、この順に引く。
+   1 つ目は、§11.3 の elab_type と同じく Decls.resolve_con で解決した先である。
+   module の中では同じ module の宣言が先に当たるので、
+   module の中で非修飾で書いた W も、module の外で修飾して書いた M.W も、同じエイリアスに行き着く。
+   2 つ目は、module スコープを飛ばして大域の同義語だけをたどった先(Decls.resolve_con_global)で、
+   トップレベルのエイリアスとコンパニオンが当たる。
+   module の中の同名の宣言が行にならない Type エイリアスや newtype のときは、
+   1 つ目で見つからず、ここで大域の名前を引き直す。
+   見つかったエイリアスとその修飾名を返す。
+   可視性は検査しないので、パターンの when の中からも呼べる *)
+and find_row_alias n =
+  let c = intern n in
+  List.find_map
+    (fun oid ->
+      match Hashtbl.find_opt Decls.aliases oid with
+      | Some info when info.Decls.al_kind = Some "EffectRow" -> Some (oid, info)
+      | _ -> None)
+    [ Decls.resolve_con c; Decls.resolve_con_global c ]
+
+(* エフェクト位置に書いた名前 n を、エイリアスとして引く。
+   EffectRow エイリアスが見つかれば、それを返す。
+   見つからず、effect の宣言表に n があれば、None を返して effect として読ませる。
+   effect の宣言表は、書かれた名前のまま引く。
+   effect は module の中に宣言できない(§11.42)ので、同義語をたどる必要が無い。
+   どちらでもなければ、行にならないエイリアスを同じ 2 つの場所で探して返す。
+   呼び出し側はそれを、エフェクト位置に置いた Type エイリアスの誤りとして報告する。
+   返すエイリアスには、elab_type と同じ可視性の検査を課す *)
+and find_alias n =
+  let c = intern n in
+  let found =
+    match find_row_alias n with
+    | Some _ as r -> r
+    | None when Hashtbl.mem Decls.effects c -> None
+    | None ->
+        List.find_map
+          (fun oid -> Option.map (fun info -> (oid, info)) (Hashtbl.find_opt Decls.aliases oid))
+          [ Decls.resolve_con c; Decls.resolve_con_global c ]
+  in
+  Option.map
+    (fun (oid, info) ->
+      Decls.check_con_visible oid;
+      info)
+    found
+
 (* 「未知のエフェクト」の言い分け。名前が型として登録されていれば、
    綴りの誤りではなく位置の誤りなので、そう報告する。
    resolve_con は module の同義語をたどるので、
@@ -889,8 +936,33 @@ and expand_alias env level ~expanding info args =
 
    1. `env.types` にあり、カインドが行なら、行変数である。
    2. `EffectRow` と注記されたエイリアスなら、展開して splice する。
-      波括弧の中の要素では、引数があってもなくても、エイリアスを effect の宣言表より先に調べる。
+      `@` の後でも波括弧の中でも、引数があってもなくても、
+      エイリアスを effect の宣言表より先に調べる。
+      エイリアスは `find_row_alias` が 2 つの場所で探す。
+      1 つ目は `Decls.resolve_con` で解決した先で、module の中では同じ module の宣言が先に当たる。
+      そのため module の中では、同じ module のエイリアスを修飾せずに書ける。
+      2 つ目は大域の名前で、トップレベルのエイリアスとコンパニオンが当たる。
    3. effect の宣言表にあれば、`@ Print` は `@ {Print}` の略記なので、ラベル 1 つの閉じた行にする。
+      effect の宣言表は、書かれた名前のまま引く。
+
+   エフェクト位置で、module の宣言が同名の大域の名前を覆うのは、
+   その宣言が EffectRow エイリアスのときだけである。
+   2 を 3 より先に調べるので、module の中に、エフェクトやトップレベルのエイリアスと同名の
+   EffectRow エイリアスを宣言すると、その module の中では、その名前は module のエイリアスを指す。
+   `@ Heap[E]` と `@ {Heap[E]}` も、どちらも module のエイリアスを指す。
+   その module の中から、覆われたエフェクトを直接名指す書き方は無い。
+   エイリアスの本体は、宣言したスコープで読む(§11.5)。
+   そのため、トップレベルに置いたエイリアスを経由すれば、覆われたエフェクトを書ける。
+   逆に、module のエイリアスの本体に同じ名前を書くと、エイリアス自身を指して再帰として落ちる。
+   module の中に型の位置の `type T = (T, Int32)` を書いたときと同じである。
+   一方、module の Type エイリアスと newtype は、エフェクト位置では何も覆わない。
+   `find_row_alias` の 1 つ目の場所でエイリアスが見つからないので、
+   2 つ目の場所と effect の宣言表を引くからである。
+   型の位置では、module の型は種類を問わず同名のトップレベルの型を覆うので、ここは規則が違う。
+   行にならない宣言はエフェクト位置では使えず、覆わせても型エラーになるだけなので、覆わせない。
+   こうしておくと、module に `type Console = Int32` を足しても、
+   その module の中の `@ Console` の意味は変わらない
+   (`test/visibility.t` の visrow6 から visrow11)。
 
    1 の判定に `same_kind` を使うのは、arity 0 の型パラメータのカインドが、
    宣言時には未定(`KVar`)だからである。
@@ -927,8 +999,9 @@ and expand_alias env level ~expanding info args =
 
    上の分岐のどれにも当たらなかった型式は、最後の分岐に進む。
    `@` の後(文法の `eff` / `eff_name`)に書いた型式のうち、ここへ届く形は 2 つある。
-   module 修飾の名前(`M.T` / `M.W`)と、
-   エフェクト名でない頭への適用(`W[E]` / `MutableArray[Int32, Int32]`)である。
+   module 修飾の名前とその適用(`M.T` / `M.W` / `M.W[E]`)と、
+   エフェクト名でも EffectRow エイリアスでもない頭への適用
+   (型パラメータへの適用 `F[E]`、`MutableArray[Int32, Int32]`、Type エイリアスの適用)である。
    このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
    `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
    EffectRow エイリアスの本体(`type` 宣言の右辺)、
@@ -936,7 +1009,7 @@ and expand_alias env level ~expanding info args =
    extends の右は、`EBraceRow` の分岐がその `ty` をそのまま `elab_eff` へ再帰で渡す。
    これらの位置からは、`@ {extends #Tag}` や `type W: EffectRow = #Tag` のように、
    `eff` では書けない型式もここへ届く。
-   EffectRow エイリアスの適用はここを通って正しく行になるので、
+   修飾した EffectRow エイリアス(`M.W` / `M.W[E]`)はここを通って正しく行になるので、
    この分岐に届いたものを一律に型エラーにするわけにはいかない。
    そこで最後の分岐は、`elab_type` で読んだ結果のカインドを照合し、行でなければ型エラーにする。
    文面は「エフェクト位置の型のカインドが Row ではありません: <型> :: <カインド>」で、
@@ -1006,14 +1079,23 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
   | T.EIdent (LongId [ n ]) when SMap.mem n env.types ->
       let tv = SMap.find n env.types in
       if same_kind (Unify.kind_of tv) KRow then tv else type_error ("行カインドではない型パラメータです: " ^ n)
-  | T.EIdent (LongId [ n ]) when Hashtbl.mem Decls.aliases (intern n) ->
-      let info = Hashtbl.find Decls.aliases (intern n) in
-      if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
-      else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
-  | T.EIdent (LongId [ n ]) ->
-      (* @ Print = @ {Print} の略記 *)
-      if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
-      else type_error (unknown_effect n)
+  | T.EIdent (LongId [ n ]) -> (
+      match find_alias n with
+      | Some info ->
+          if info.Decls.al_kind = Some "EffectRow" then expand_alias env level ~expanding info []
+          else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
+      | None ->
+          (* @ Print = @ {Print} の略記 *)
+          if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
+          else type_error (unknown_effect n))
+  | T.EApply ((_, T.EIdent (LongId [ n ])), args)
+    when (not (SMap.mem n env.types)) && Option.is_some (find_row_alias n) ->
+      (* EffectRow エイリアスの適用(@ W[E])。波括弧の中の要素と同じく find_row_alias で引き、
+         effect の宣言表より先に調べる。module のエイリアスが同名の effect を覆うときも、
+         @ Heap[E] と @ {Heap[E]} は同じエイリアスを指す *)
+      let oid, info = Option.get (find_row_alias n) in
+      Decls.check_con_visible oid;
+      expand_alias env level ~expanding info args
   | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
       (* @ Heap[h] = @ {Heap[h]} の略記。sample.kel:467 の略記の規則は、
          引数つきのラベルを除外していない *)
@@ -1037,11 +1119,14 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
       List.fold_right
         (fun elem acc ->
           match elem with
-          | T.BLabel (LongId [ n ], args) -> (
+          | T.BLabel (li, args) -> (
+              let n = show_long_id li in
               (* エイリアスを先に調べ、引数の有無で経路を分けない。エフェクト名と型名は
                  同じ名前空間(claim_type_name)にあるので、Heap[h](ラベルの引数)と
-                 WithPrint[E](エイリアスの適用)を取り違えない *)
-              match Hashtbl.find_opt Decls.aliases (intern n) with
+                 WithPrint[E](エイリアスの適用)を取り違えない。修飾名(M.W)も同じ
+                 経路で引く。effect は module に宣言できないので、修飾名が指しうるのは
+                 エイリアスだけで、ほかは unknown_effect の診断になる *)
+              match find_alias n with
               | Some info when info.Decls.al_kind = Some "EffectRow" ->
                   splice_row n (expand_alias env level ~expanding info args) acc (* 行を splice する *)
               | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
@@ -1060,18 +1145,17 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
                         | _ -> type_error "エフェクトラベルの引数は1個までです"),
                         acc )
                   else type_error (unknown_effect n))
-          | T.BLabel (li, _) -> noimpl ("モジュール修飾のエフェクト(M10): " ^ show_long_id li)
           | T.BField (l, _) -> type_error ("エフェクト行にフィールド " ^ l ^ " は書けません"))
         elems tail
   | _ ->
-      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前とエフェクト名でない
-         頭への適用と、文法が ty を取る 3 つの位置(extends の右、EffectRow エイリアスの本体、
-         行カインドのパラメータへの型引数)から来る型式である。型引数の経路は
-         ~check_row:false を渡すので照合しない。EffectRow エイリアスの適用(W[E] / M.W)は
-         ここを通って正しく行になるので、落とすのではなく、読んだ結果のカインドを照合する。
-         判定は kind_repr の構造の一致で行い、same_kind は使わない。カインドが未確定の
-         まま届く経路があり(F[E] と、カインドが未推論のエイリアスの適用)、same_kind で
-         調べると、検査ではなく Row への既定化になる(§11.6) *)
+      (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前と、エフェクト名でも
+         EffectRow エイリアスでもない頭への適用と、文法が ty を取る 3 つの位置(extends の右、
+         EffectRow エイリアスの本体、行カインドのパラメータへの型引数)から来る型式である。
+         型引数の経路は ~check_row:false を渡すので照合しない。修飾した EffectRow エイリアス
+         (M.W / M.W[E])はここを通って正しく行になるので、落とすのではなく、読んだ結果の
+         カインドを照合する。判定は kind_repr の構造の一致で行い、same_kind は使わない。
+         カインドが未確定のまま届く経路があり(F[E] と、カインドが未推論のエイリアスの適用)、
+         same_kind で調べると、検査ではなく Row への既定化になる(§11.6) *)
       let ty = elab_type env level ~expanding t in
       if check_row && kind_repr (Unify.kind_of ty) <> KRow then kind_error "エフェクト位置の型" ~expected:"Row" ty;
       ty
@@ -4266,6 +4350,10 @@ let check_instance_bodies env (i : T.instance_decl') =
    平坦化の時点で登録すると既存の名前との照合が働かず、
    module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す。
    プレリュードと組み込みのエフェクト名(Console や Heap)との衝突も、ここで拒否する。
+   エフェクト名は型名と 1 つの名前空間を共有し、大域の同義語はエフェクト位置のエイリアスの解決
+   (§11.6 の find_row_alias)でも、effect の宣言表より先に引かれる。
+   衝突を許すと、module Console を 1 行足すだけで、プログラムのすべての @ Console が
+   その module のエイリアスを指すようになる。
    利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
 let register_companion tyname =
   match !Decls.current_module with
