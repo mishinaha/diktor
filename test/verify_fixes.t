@@ -21,8 +21,9 @@
   even
   unknown
 
-Ref に入れて取り出した閉包を run の本体から返すと、閉包の型の行に Heap[h] が
-残り、h がスコープの外に漏れるので型エラーになる(LangSpec §14.1、sample.kel:664-665):
+run の本体が返す閉包の型の行に Heap[h] が残ると、h がスコープの外に漏れるので
+型エラーになる(LangSpec §14.1、sample.kel:664-665)。vr は、行に Heap[h] を持つ
+閉包を Ref に入れて取り出し、run の本体から返す:
 
   $ cat > vr.kel <<'EOF'
   > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
@@ -242,8 +243,9 @@ extern の再宣言を拒否:
   ! exr3.kel:1:1: 型エラー: プレリュードの extern __int64_ge は再宣言できません
   [1]
 
-どの表にも無い名前は、C リンケージで宣言しても、呼んだ時点で未実装のプリミティブになる。
-C の表にある cos を prim リンケージで宣言しても、C の実装には届かない:
+どの表にも無い名前は、C リンケージで宣言しても、呼ぶと未実装のプリミティブになる。
+cos は、prim リンケージで宣言すると、呼ぶと未実装のプリミティブになり、
+C リンケージで宣言すれば C の実装を呼べる:
 
   $ cat > abi.kel <<'KEL'
   > extern "C" let __nosuch_prim_name(x: Int32): Int32
@@ -260,6 +262,13 @@ C の表にある cos を prim リンケージで宣言しても、C の実装�
   $ diktor abi2.kel
   実行時エラー: 未実装のプリミティブ: cos
   [3]
+
+  $ cat > abic.kel <<'KEL'
+  > extern "C" let cos(x: Float64): Float64
+  > echoln(show(cos(0.0)))
+  > KEL
+  $ diktor abic.kel
+  1.0
 
 ABI 文字列そのものも検査する:
 
@@ -484,8 +493,8 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   [1]
 
 let rec の関数束縛(and でつないだ 2 つ目の束縛を含む)と、型パラメータ付きの
-関数束縛も同じ文面で拒否する。関数でない右辺の let rec は、let rec の右辺の
-検査で落ちる:
+関数束縛も同じ文面で拒否する。右辺に resume(41) だけを書いた let rec の値束縛は、
+let rec の右辺の検査で落ちる:
 
   $ sed 's/let f() = /let rec f() = /' lfresume.kel > lfrec.kel
   $ diktor --type-check lfrec.kel
