@@ -144,6 +144,180 @@ pub エイリアスは、その型の素性を作者の選択として外へ見�
   $ diktor --type-check vis10.kel
   f : (M.Priv) => Int32
 
+module の中で宣言した EffectRow エイリアスは、同じ module の中から修飾せずに、
+@ の後ろ、行の要素、extends の右、行を取る型引数、EffectRow エイリアスの右辺に
+書ける。どの位置でも W は Print を含む行として読まれ、実行もできる:
+
+  $ cat > visrow1.kel <<'KEL'
+  > newtype Cb[E] = Cb(() => Unit @ E)
+  > module M {
+  >   pub type W: EffectRow = {Print}
+  >   type V: EffectRow = W
+  >   let at(x: Int32): Int32 @ W = x
+  >   let elem(x: Int32): Int32 @ {W, Console} = x
+  >   let tail(x: Int32): Int32 @ {Console extends W} = x
+  >   let arg(c: Cb[W]): Int32 = 0
+  >   let rhs(x: Int32): Int32 @ V = x
+  >   pub let say(s: String): Unit @ W = perform print(s + "\n")
+  > }
+  > with_stdout(fn() => M.say("hi"))
+  > KEL
+  $ diktor --type-check visrow1.kel
+  M.at : (Int32) => Int32 @ {Print extends R1}
+  M.elem : (Int32) => Int32 @ {Print, Console extends R1}
+  M.tail : (Int32) => Int32 @ {Console, Print extends R1}
+  M.arg : (Cb[{Print}]) => Int32
+  M.rhs : (Int32) => Int32 @ {Print extends R1}
+  M.say : (String) => {} @ {Print extends R1}
+  _ : {}
+  $ diktor visrow1.kel
+  hi
+
+行の要素の位置にも、修飾名 M.W を書ける。module の外からは pub のエイリアスだけが
+書け、pub でなければ可視性の検査で落ちる:
+
+  $ cat > visrow2.kel <<'KEL'
+  > module M {
+  >   pub type W: EffectRow = {Print}
+  >   let f(x: Int32): Int32 @ {M.W, Console} = x
+  > }
+  > let g(x: Int32): Int32 @ {M.W, Console} = x
+  > KEL
+  $ diktor --type-check visrow2.kel
+  M.f : (Int32) => Int32 @ {Print, Console extends R1}
+  g : (Int32) => Int32 @ {Print, Console extends R1}
+  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ {M.W, Console} = x\n' > visrow3.kel
+  $ diktor --type-check visrow3.kel
+  ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
+  [1]
+
+module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
+エフェクト位置のエイリアスも、型の位置の T と同じく module の W を指し、
+module の外では、トップレベルの W と T を指す:
+
+  $ cat > visrow6.kel <<'KEL'
+  > type W: EffectRow = {Console}
+  > type T = String
+  > module M {
+  >   pub type W: EffectRow = {Print}
+  >   pub type T = Int32
+  >   let f(x: T): T @ W = x
+  > }
+  > let g(x: T): T @ W = x
+  > KEL
+  $ diktor --type-check visrow6.kel
+  M.f : (Int32) => Int32 @ {Print extends R1}
+  g : (String) => String @ {Console extends R1}
+
+プレリュードや組み込みのエフェクト(Console、Heap)と同名の EffectRow エイリアスを
+module に宣言すると、module の中では、引数の無い形も引数つきの形も、@ の後ろでも
+行の要素でも、そのエイリアスを指す。module の外では、Console も Heap[E] も
+元のエフェクトのままである。module の中からも、トップレベルのエイリアス Out を
+経由すれば、元の Console を書ける(Out の本体はトップレベルのスコープで読む):
+
+  $ cat > visrow7.kel <<'KEL'
+  > type Out: EffectRow = {Console}
+  > module M {
+  >   pub type Console: EffectRow = {Print}
+  >   pub type Heap[E]: EffectRow = {Print extends E}
+  >   let f(x: Int32): Int32 @ Console = x
+  >   let g(x: Int32): Int32 @ {Console} = x
+  >   let h[E](x: Int32): Int32 @ Heap[E] = x
+  >   let k[E](x: Int32): Int32 @ {Heap[E]} = x
+  >   let o(x: Int32): Int32 @ Out = x
+  > }
+  > let m(x: Int32): Int32 @ Console = x
+  > let n[E](x: Int32): Int32 @ Heap[E] = x
+  > KEL
+  $ diktor --type-check visrow7.kel
+  M.f : (Int32) => Int32 @ {Print extends R1}
+  M.g : (Int32) => Int32 @ {Print extends R1}
+  M.h : (Int32) => Int32 @ {Print extends R1}
+  M.k : (Int32) => Int32 @ {Print extends R1}
+  M.o : (Int32) => Int32 @ {Console extends R1}
+  m : (Int32) => Int32 @ {Console extends R1}
+  n : (Int32) => Int32 @ {Heap[A] extends R1}
+
+module の中でエフェクト名を EffectRow エイリアスで覆うと、エイリアスの本体に書いた
+同じ名前もエイリアス自身を指すので、使う箇所が無くても、宣言を再帰として拒否する。
+型の位置で、module の中に type T = (T, Int32) と書いたときと同じである:
+
+  $ printf 'module M { pub type Console: EffectRow = {Console, Print} }\n' > visrow8.kel
+  $ diktor --type-check visrow8.kel
+  ! visrow8.kel:1:42: 型エラー: 型エイリアス M.Console が再帰しています(エイリアスは非再帰)
+  [1]
+  $ printf 'type T = String\nmodule N { pub type T = (T, Int32) }\n' > visrow9.kel
+  $ diktor --type-check visrow9.kel
+  ! visrow9.kel:2:26: 型エラー: 型エイリアス N.T が再帰しています(エイリアスは非再帰)
+  [1]
+
+エフェクト位置で名前を覆うのは、module の EffectRow エイリアスだけである。
+module の newtype や Type エイリアスがエフェクトと同名でも、module の中の
+@ の後ろや行の要素のその名前は、引数の有無によらず、エフェクトを指す:
+
+  $ cat > visrow10.kel <<'KEL'
+  > module M {
+  >   pub newtype Console = MkC(Int32)
+  >   type Print = Int32
+  >   type Heap[A] = A
+  >   let f(x: Int32): Int32 @ Console = x
+  >   let g(x: Int32): Int32 @ {Print, Console} = x
+  >   let h[H](x: Int32): Int32 @ Heap[H] = x
+  >   let k[H](x: Int32): Int32 @ {Heap[H]} = x
+  > }
+  > KEL
+  $ diktor --type-check visrow10.kel
+  M.f : (Int32) => Int32 @ {Console extends R1}
+  M.g : (Int32) => Int32 @ {Print, Console extends R1}
+  M.h : (Int32) => Int32 @ {Heap[A] extends R1}
+  M.k : (Int32) => Int32 @ {Heap[A] extends R1}
+
+同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
+エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
+よらず、トップレベルのエイリアスを指す:
+
+  $ cat > visrow11.kel <<'KEL'
+  > type W: EffectRow = {Console}
+  > type V[E]: EffectRow = {Print extends E}
+  > module M {
+  >   pub newtype W = MkW(Int32)
+  >   type V[A] = A
+  >   let f(x: Int32): Int32 @ W = x
+  >   let g(x: Int32): Int32 @ {W, Print} = x
+  >   let h[E](x: Int32): Int32 @ V[E] = x
+  >   let k[E](x: Int32): Int32 @ {V[E], Console} = x
+  > }
+  > KEL
+  $ diktor --type-check visrow11.kel
+  M.f : (Int32) => Int32 @ {Console extends R1}
+  M.g : (Int32) => Int32 @ {Console, Print extends R1}
+  M.h : (Int32) => Int32 @ {Print extends R1}
+  M.k : (Int32) => Int32 @ {Print, Console extends R1}
+
+module の Type エイリアスと同名のエフェクトもトップレベルのエイリアスも無ければ、
+module の中で @ の後ろや行の要素に書いたその名前は、未知のエフェクトではなく、
+Type エイリアスとして引いたうえで拒否する:
+
+  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ T = x\n}\n' > visrow12.kel
+  $ diktor --type-check visrow12.kel
+  ! visrow12.kel:3:28: 型エラー: エフェクト位置に Type エイリアス T は使えません(: EffectRow を付けてください)
+  [1]
+  $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ {T} = x\n}\n' > visrow13.kel
+  $ diktor --type-check visrow13.kel
+  ! visrow13.kel:3:28: 型エラー: エフェクト行に Type エイリアス T は置けません(: EffectRow を付けてください)
+  [1]
+
+EffectRow エイリアスのコンパニオンは、module の外から module 名だけで書ける。
+pub でなければ可視性の検査で落ちる:
+
+  $ printf 'module W { pub type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ {W, Console} = x\n' > visrow14.kel
+  $ diktor --type-check visrow14.kel
+  f : (Int32) => Int32 @ {Print, Console extends R1}
+  $ printf 'module W { type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ W = x\n' > visrow15.kel
+  $ diktor --type-check visrow15.kel
+  ! visrow15.kel:2:26: 型エラー: 型 W.W は module W の外からは参照できません(pub を付けてください)
+  [1]
+
 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
 クラス M のメソッド f と値環境で区別できないため):
 
