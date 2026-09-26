@@ -201,6 +201,22 @@ instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証�
   ! visl.kel:1:15: 型エラー: module List のコンパニオン型 List は既存の型 List と同名です(module 内の型とトップレベルの型は同名にできません)
   [1]
 
+コンパニオン型は、プレリュードのエフェクト名(Console、Print)も組み込みの
+エフェクト名(Heap)も奪えない。型エイリアスでも newtype でも拒否する:
+
+  $ printf 'module Console { pub type Console: EffectRow = {Print} }\n' > viske1.kel
+  $ diktor --type-check viske1.kel
+  ! viske1.kel:1:18: 型エラー: module Console のコンパニオン型 Console は既存のエフェクト Console と同名です(型とエフェクトは同名にできません)
+  [1]
+  $ printf 'module Print { pub newtype Print = P(Int32) }\n' > viske2.kel
+  $ diktor --type-check viske2.kel
+  ! viske2.kel:1:16: 型エラー: module Print のコンパニオン型 Print は既存のエフェクト Print と同名です(型とエフェクトは同名にできません)
+  [1]
+  $ printf 'module Heap { pub type Heap: EffectRow = {Print} }\n' > viske3.kel
+  $ diktor --type-check viske3.kel
+  ! viske3.kel:1:15: 型エラー: module Heap のコンパニオン型 Heap は既存のエフェクト Heap と同名です(型とエフェクトは同名にできません)
+  [1]
+
 トップレベルのパターン束縛の束縛子も同名禁止の対象(M16 検証。
 binding_name は PVar しか見ないので、let (a, b) = … の a がすり抜けて
 型検査と実行が別の実体を選んだ):
