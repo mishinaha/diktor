@@ -191,6 +191,18 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
   [1]
 
+module の外から修飾せずに書くと、未知のエフェクトとして拒否する。pub の EffectRow
+エイリアスなら修飾を案内し、pub でなければ案内しない:
+
+  $ printf 'module M { pub type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow4.kel
+  $ diktor --type-check visrow4.kel
+  ! visrow4.kel:2:26: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
+  [1]
+  $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow5.kel
+  $ diktor --type-check visrow5.kel
+  ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
+  [1]
+
 module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
 エフェクト位置のエイリアスも、型の位置の T と同じく module の W を指し、
 module の外では、トップレベルの W と T を指す:
