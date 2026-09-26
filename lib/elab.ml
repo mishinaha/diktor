@@ -284,15 +284,15 @@ let rec fully_effected ((_, te) : T.type_exp) =
 
 (* pub の完全注釈検査。引数と返り値に注釈があるだけでなく、注釈の中の矢印にも @ が要る。
    入れ子の矢印の省略 @ は @ {} と読むので、この規則は健全性のためのものではない。
-   仕様 §13(sample.kel:815-821)が可読性のために定めた規則で、
+   仕様 §13(sample.kel:817-823)が可読性のために定めた規則で、
    公開 API では、純粋を意図したのか書き忘れたのかを読み手が区別できなければならない。
-   pub newtype のフィールド(§11.31)にも同じ規則が掛かる(sample.kel:818-819)。
+   pub newtype のフィールド(§11.31)にも同じ規則が掛かる(sample.kel:820-821)。
 
    値束縛(引数リストを持たない `let`)の注釈の頭の矢印は、この「中の矢印」に入らない。
    頭は束縛の最外だからである。
    仕様 §9 は、「最外の矢印」の指す先を関数束縛と値束縛で書き分けている(sample.kel:484-485)。
-   仕様 §13 は入れ子の矢印の `@` も省略できないと定め(sample.kel:815)、
-   最外の省略には別の意味を与えている(sample.kel:820-821)。
+   仕様 §13 は入れ子の矢印の `@` も省略できないと定め(sample.kel:817)、
+   最外の省略には別の意味を与えている(sample.kel:822-823)。
    本体に純粋を要求し、公開する型を行多相にするという意味である。
    値束縛の頭の矢印も同じ扱いであることは、仕様 §9 の表が定めている(:492)。
 
@@ -1484,7 +1484,7 @@ and elab_exp' env level eff node e =
    引数を先に推論すると、ラムダの行はまだ何も決まっていない新しい行変数で、ラベルが 1 つも見えない。
    そのため解決が間に合わない。
 
-   この順序が必要になる例が、sample.kel:616-621 の `copy` である。
+   この順序が必要になる例が、sample.kel:618-623 の `copy` である。
 
    ```
    let copy(src: String, dst: String): Unit @ {Console, Fs} = {
@@ -1726,7 +1726,7 @@ and elab_exp' env level eff node e =
    resume を呼ぶと残りの計算が同じハンドラの下で最後まで走り、その最終結果が返ってくることを、
    この型が表している。
 
-   引数の省略は、操作の返り値型が Unit のときだけ許す(sample.kel:545)。
+   引数の省略は、操作の返り値型が Unit のときだけ許す(sample.kel:547)。
    `Unit` と単一化するだけなので、規則は 1 行で済む。
 
    resume を値の環境に入れず `env` のフィールドにするのは、
@@ -1743,7 +1743,7 @@ and elab_exp' env level eff node e =
           (match arg with
           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
           | None ->
-              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:545) *)
+              (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:547) *)
               Unify.unify t_unit op_ret);
           tres)
 (* ## 11.17 run
@@ -1950,7 +1950,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 (* ## 11.20 操作名の解決
 
    Keleut は操作名の重複を許す。
-   仕様の sample.kel 自身が `Console.write`(:464)と `File.write`(:590)を両方宣言しているので、
+   仕様の sample.kel 自身が `Console.write`(:464)と `File.write`(:592)を両方宣言しているので、
    操作名が大域で一意だとは仮定できない。
 
    修飾された操作名は、宣言表を直接引く。
@@ -2078,7 +2078,7 @@ and resolve_perform eff li =
 
    2 段の検査により、継続は節の外で呼べない。
    そのため、節を抜ける時点で継続の生死が確定し、
-   cancel による自動の巻き戻しが成り立つ(sample.kel:542-545)。
+   cancel による自動の巻き戻しが成り立つ(sample.kel:544-547)。
    継続がどこかの閉包に生き残っている可能性があると、巻き戻しの時点を決められない。 *)
 
 and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
@@ -2144,7 +2144,7 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
    操作節は 1 つ以上必要である。
    操作を 1 つも扱わない handle は、書き手の誤りとみなす。
 
-   修飾できるのは操作節だけである(sample.kel:514-515)。
+   修飾できるのは操作節だけである(sample.kel:516-517)。
    `return` と `cancel` は操作名ではなく handle の節の名前なので、修飾先を書いても、
    対象エフェクトの決定には何も寄与しない(§11.23)。
    分類器は `List.rev comps` の先頭、つまり修飾名の末尾の部分で節を分類する。
@@ -2196,12 +2196,12 @@ and elab_handle env level eff clauses body =
 
    節は操作名で書くので、このハンドラがどのエフェクトを消すのかを決める必要がある。
    規則は 2 段である。
-   仕様 §9 は、修飾のない操作名の解決規則を perform と handle で書き分けている(sample.kel:517-527)。
+   仕様 §9 は、修飾のない操作名の解決規則を perform と handle で書き分けている(sample.kel:519-529)。
    この 2 段は、そのうち handle の側にあたる。
 
    操作節が 1 つでも修飾されていれば、その修飾先が対象である。
    修飾されていない節は、そのエフェクトの操作として読む。
-   修飾先が 2 つ以上に割れていれば、エラーにする(sample.kel:526-527)。
+   修飾先が 2 つ以上に割れていれば、エラーにする(sample.kel:528-529)。
    実装は下の `List.sort_uniq compare quals` の 1 行である。
    要素が 1 つなら対象が決まり、2 つ以上ならエラーになり、空なら次の段へ進む。
    材料は操作節の修飾だけである。
@@ -2252,8 +2252,8 @@ and elab_handle env level eff clauses body =
   (* 対象エフェクトは、全節が属し全操作が網羅される候補として一意に決まらなければならない *)
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
-  (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:534 が
-     Console / Async / Fs の 3 つを名指しで定める(Async については :724 にも
+  (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:536 が
+     Console / Async / Fs の 3 つを名指しで定める(Async については :726 にも
      「スケジューラを利用者に書かせない」とある)。許すと、出力を黙って消す
      恒等ハンドラが書け、File.write のつもりの case write(s) が Console を
      消すことも起きる。判定は、ランタイムの名簿に名前があり、かつプレリュードが
@@ -2566,7 +2566,7 @@ and make_rigids ?kinds level tparams =
 
 (* ## 11.26 明示的なエフェクト注釈を開く
 
-   `@ Print` をラベル 1 つの閉じた行と読むと、sample.kel:546 が型付かない。
+   `@ Print` をラベル 1 つの閉じた行と読むと、sample.kel:548 が型付かない。
 
    ```
    println(msg) handle {
@@ -2593,7 +2593,7 @@ and make_rigids ?kinds level tparams =
 
    4 行目は、1 行目と同じ非対称(本体には剛く、公開には寛く)を、空の行にも当てはめたものである。
    仕様 §13 も、この省略では本体が純粋でなければならず、
-   公開される型は行多相になると定める(sample.kel:815-821)。
+   公開される型は行多相になると定める(sample.kel:817-823)。
    省略を閉じた空の行と読むと、sample.kel 自身が型付かない。
    `Db.query` が `handle_request` から呼べなくなる。
    4 行目の読みでは、`pub let f(): Unit`(省略)と `pub let f(): Unit @ {}`(明示)は別の型になる。
@@ -3184,7 +3184,7 @@ and elab_rec_bindings env level eff bs : env =
 
    - `Console`：出力の最終的な行き先である。
      ランタイムが実装を持ち、利用者はハンドルできない(§11.23)。
-   - `Async`：sample.kel:772 の `crunch` が、
+   - `Async`：sample.kel:774 の `crunch` が、
      `@ Async` を持ったままトップレベルから呼ばれるからである。
      `yield_` は型検査を通り、実行時には何もしない。
      Diktor はこの振る舞いを、`Async` をランタイムが提供するエフェクトとして行に置くことで表している。
@@ -3196,7 +3196,7 @@ and elab_rec_bindings env level eff bs : env =
      ハンドル禁止の名簿(`runtime_effects`)には入れない。
      操作が無いので禁じる場面が無く、入れると診断が変わる(第7章 §7.3)。
 
-   `Heap` がこの名簿に無いのは、引数を取るラベルだからである(sample.kel:656-657)。
+   `Heap` がこの名簿に無いのは、引数を取るラベルだからである(sample.kel:658-659)。
    下の `toplevel_eff` はラベルの引数に `t_unit` を置くので、`Heap` を名簿に足しても、
    行に載るのは `Heap[Unit]` である。
    これは、`run h` が導入する剛定数 `h` を持つ `Heap[h]` とは単一化しない。
@@ -3475,7 +3475,7 @@ let register_newtype env (n : T.newtype') =
                     (* pub の完全注釈検査(仕様 §13)は、フィールドの矢印にも及ぶ。
                        省略の意味は @ {} に決まっているが、公開 API では、純粋を
                        意図したのか書き忘れたのかを読み手が区別できなければならない
-                       (sample.kel:815-821。フィールドへの適用は :818-819 に
+                       (sample.kel:817-823。フィールドへの適用は :820-821 に
                        明記されている) *)
                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
                        type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
@@ -4400,7 +4400,7 @@ let check_instance_bodies env (i : T.instance_decl') =
    違いは、何もしない `emit` を渡して出力を捨てることと、
    `Decls.in_prelude` を立てて処理すること(§11.41)である。 *)
 
-(* コンパニオン型の大域の同義語を登録する(sample.kel:838)。
+(* コンパニオン型の大域の同義語を登録する(sample.kel:840)。
    平坦化ではなく、パス 1a で行う。
    プレリュードの宣言表は、利用者の平坦化の時点ではまだ空なので、
    平坦化の時点で登録すると既存の名前との照合が働かず、
@@ -4728,7 +4728,7 @@ let process_decls env ~emit decls =
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
           (* C の既知名は、型の契約を照合する(第6章 §6.2b)。行は照合しない。
-             @ Blocking を付けるかは、バインディングを書く側の判断である(sample.kel:794) *)
+             @ Blocking を付けるかは、バインディングを書く側の判断である(sample.kel:796) *)
           (if ex.T.ex_abi = "C" then
              match Decls.c_known_signature ex.T.ex_prim with
              | None -> ()
@@ -4825,7 +4825,7 @@ let type_check_decls ?(prelude = []) decls =
 
    - `newtype` / `type`：`M.名前` に改名して登録し、
      module スコープの同義語 `(M, 非修飾名) → M.名前` を張る。
-     大域に張るのは、コンパニオン(module 名と同名の型。sample.kel:838)だけである。
+     大域に張るのは、コンパニオン(module 名と同名の型。sample.kel:840)だけである。
      すべての同義語を大域に張ると、`module M { newtype List[A] = … }` と書くだけで、
      プレリュード自身の型検査が壊れる。
    - `let`：`M.名前` に改名し、module スコープの値の同義語を張る。
@@ -4839,7 +4839,7 @@ let type_check_decls ?(prelude = []) decls =
      検査は使用点(§11.3 / §11.11 / §11.8)で行い、可視性の境界は module だけである。
      コンストラクタは、所属する newtype の `pub` に従う。
    - `instance`：そのまま大域に出す。
-     インスタンスは常に大域から見え、import で見え方が変わるものではない(sample.kel:833)。
+     インスタンスは常に大域から見え、import で見え方が変わるものではない(sample.kel:835)。
    - `extern`：`ex_name` を `M.f` に修飾するが、実装名 `ex_prim` は元のままにする(第1章)。
      実装は処理系の側の表にあり、module はその表を切り分けない。
      第6章の登録簿は、プレリュード保護を `ex_prim` で、二重宣言の検査を修飾名で見る(§6.2)。

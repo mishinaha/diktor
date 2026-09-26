@@ -22,7 +22,7 @@
   unknown
 
 run の本体が返す閉包の型の行に Heap[h] が残ると、h がスコープの外に漏れるので
-型エラーになる(LangSpec §14.1、sample.kel:664-665)。vr は、行に Heap[h] を持つ
+型エラーになる(LangSpec §14.1、sample.kel:666-667)。vr は、行に Heap[h] を持つ
 閉包を Ref に入れて取り出し、run の本体から返す:
 
   $ cat > vr.kel <<'EOF'

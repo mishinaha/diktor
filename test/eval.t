@@ -170,7 +170,7 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
 
 cancel 節の中で例外が起きると、その cancel 節は打ち切る(後ろの文は実行しない)。
 脱出は外へ伝えずログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
-(仕様 sample.kel:581、LangSpec.md §13.6):
+(仕様 sample.kel:583、LangSpec.md §13.6):
 
   $ cat > cancelabort.kel <<'EOF2'
   > effect A = { a: () => Unit }

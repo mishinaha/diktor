@@ -70,7 +70,7 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   BigInt.normalize : (BigInt.BigInt) => BigInt.BigInt
   big_sum : () => BigInt.BigInt
 
-実行(トップレベル式文: sample.kel:546 の handle と :658 の capture):
+実行(トップレベル式文: sample.kel:548 の handle と :660 の capture):
 
   $ diktor sample/stubs.kel sample/sample.kel
   test

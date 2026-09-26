@@ -328,8 +328,8 @@ let rec block_of_items sloc items =
    - `pat` が `_` なら **0 引数**の継続 `fn() => 残り`
    - それ以外なら **1 引数**の継続 `fn(pat) => 残り`
 
-   この分岐は、`with _ = with_file(src)`(sample.kel:617, :619)が要求する `body: () => A` と、
-   `with x = Parser.bind(...)`(:632)が要求する `(A) => ...` の両方を、同じ糖衣で満たすためにある。
+   この分岐は、`with _ = with_file(src)`(sample.kel:619, :621)が要求する `body: () => A` と、
+   `with x = Parser.bind(...)`(:634)が要求する `(A) => ...` の両方を、同じ糖衣で満たすためにある。
    `_` のときも値を捨てる 1 引数の継続にすると、前者に型が付かない。
 
    右辺が呼び出しでなければエラーにする。
@@ -663,7 +663,7 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
    対象は引数、パラメータ、型引数、型パラメータ、レコード、タプル、パターン、エフェクト行、
    effect の操作、コンストラクタのフィールド、`F[_, _]` の穴である。
    区切りが `|` の `ctors` と、区切りが `+` の `cls_list` は、カンマ区切りではないので対象外である。
-   sample.kel:590 の effect 本体や :755-758 のパラメータリストに実例がある。
+   sample.kel:592 の effect 本体や :757-760 のパラメータリストに実例がある。
 
    `...rest` と `extends T` は要素ではなくリストの**終端子**なので、その後にはカンマを書けない。
    `{x, ...r,}` や `{x: T extends R,}` は構文エラーになる。
@@ -1071,7 +1071,7 @@ pp_items:
    1 つは `l: T`(レコード型のフィールド)、
    もう 1 つは `Name[args]`(エフェクトのラベル、または展開される行エイリアス)である。
    **どちらの意味なのかは、第11章が要素の形から判定する**。
-   このおかげで、`@ {}`、`@ {Print extends E}`、`{ReqId, Logger, Tracer}`(sample.kel:648)が、
+   このおかげで、`@ {}`、`@ {Print extends E}`、`{ReqId, Logger, Tracer}`(sample.kel:650)が、
    すべて同じ規則に乗る。
    `effect` 宣言の本体はこの規則ではなく、`op: ty` だけを受ける専用の `eff_decl_body`(§3.17)で読む。
 

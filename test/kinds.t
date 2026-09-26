@@ -862,7 +862,7 @@ ty を取る)。この経路ができたぶん、EBraceRow の枝の「extends �
   [1]
 
 run が導入するリージョン変数 h のカインドは Type(D130。仕様 §10、
-sample.kel:666)。行の位置(@ h)には書けない:
+sample.kel:668)。行の位置(@ h)には書けない:
 
   $ cat > regionkind.kel <<'EOF'
   > let f(): Int32 = run h {

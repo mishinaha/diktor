@@ -110,12 +110,12 @@ let tycon_of_value = function
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
 (* `cancel_log` は、cancel 節で抑制した例外の行き先である。
-   仕様 sample.kel:581 は、cancel 節について次のように定めている。
+   仕様 sample.kel:583 は、cancel 節について次のように定めている。
    「cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、
    脱出は抑制してログに記録し、外側の後始末を続ける」。
    ライブラリが stderr に直接書かないよう、関数を 1 段はさみ、driver(第16章)がそれを差し替える。 *)
 
-(* cancel 節の中の例外を記録する関数(sample.kel:581)。driver が差し替える *)
+(* cancel 節の中の例外を記録する関数(sample.kel:583)。driver が差し替える *)
 let cancel_log : (string -> unit) ref = ref (fun _ -> ())
 
 (* ## 14.2 パターン照合
@@ -733,7 +733,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからである。
    評価器には、順序を管理するコードが無い。
-   仕様(sample.kel:568-581)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
+   仕様(sample.kel:570-583)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
    実装では、その規則がこの 4 段階に対応する。
 
    ### 3 つの経路
@@ -823,7 +823,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    ログに記録するだけで外へは出さない。
    回帰テストは `test/eval.t` の cancelouter と cancelnores である。
 
-   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:581)の規則である。
+   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:583)の規則である。
    既知の例外(`Runtime_error`、`Unwind`、`Sys_error`)は日本語のメッセージにし、
    それ以外の例外は `Printexc.to_string` で文字列にしてからログに渡す。
 
@@ -868,7 +868,7 @@ and eval_handle env body clauses =
     match cancel_clause with
     | None -> ()
     | Some (_, c) -> (
-        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:581) *)
+        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:583) *)
         try ignore (eval { env with resume = None } c.T.cl_body)
         with
         | Runtime_error msg -> !cancel_log msg

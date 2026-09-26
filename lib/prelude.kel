@@ -56,7 +56,7 @@
 // そのため、処理系は、利用者の宣言を型検査する前に、
 // `newtype`、`effect`、`extern`、`handle`、`resume`、行多相を一度は処理する。
 // ここで誤りが出れば、diktor は利用者のプログラムを型検査も実行もせずに終わる。
-// とくに §15.7 の `with_stdout` は、仕様 sample.kel:546-549 のハンドラをそのまま関数にしたもので、
+// とくに §15.7 の `with_stdout` は、仕様 sample.kel:548-551 のハンドラをそのまま関数にしたもので、
 // エフェクト機構のテストも兼ねる。
 //
 // ## 15.2 埋め込みと、プレリュード所有の印
@@ -151,14 +151,14 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 // | エフェクト | 出所 | 最後に受け取るもの |
 // |---|---|---|
 // | `Console` | ランタイム(仕様 sample.kel:464) | 第13章の最外周のハンドラ `with_runtime` |
-// | `Async` | ランタイム(仕様 sample.kel:729) | 同上。受け取って何もしない |
+// | `Async` | ランタイム(仕様 sample.kel:731) | 同上。受け取って何もしない |
 // | `Fs` | ランタイム(仕様 sample.kel:465) | 誰も受け取らない。操作を持たない |
 // | `Print` | ユーザ層 | 利用者の `handle`。§15.7 の `with_stdout` が `Console` へ翻訳する |
 //
 // `Console` / `Async` / `Fs` は、利用者にハンドルさせないエフェクトである。
-// 仕様 sample.kel:534 は、利用者が `handle` で処理できないエフェクトとして、
+// 仕様 sample.kel:536 は、利用者が `handle` で処理できないエフェクトとして、
 // 特別な印を設けずに Console / Async / Fs の 3 つを名前で定める。
-// `Async` については、:724 にもスケジューラを利用者に書かせないという記述がある。
+// `Async` については、:726 にもスケジューラを利用者に書かせないという記述がある。
 // 利用者にハンドルさせないのは、標準出力の実体やスケジューラを Keleut の側に書かせないためである。
 // 実装では、第13章の `with_runtime` のハンドラが評価のいちばん外側に 1 枚だけあり、
 // そこまで上がってきた `Console.write` を受けて、実際に出力先(sink)へ書き出す。
@@ -186,7 +186,7 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 //
 // `Print` を別に立てるのは、出力の意図と出力の実体を分けるためである。
 // プログラムは `println`、すなわち `@ Print` で書き、ハンドラを取り替えるだけで出力先を変えられる。
-// 文字列にためて返す `capture`(仕様 sample.kel:553)も、ファイルへの書き出しも、
+// 文字列にためて返す `capture`(仕様 sample.kel:555)も、ファイルへの書き出しも、
 // テストでのバッファへの収集も、本体を書き換えずに実現できる。
 //
 // `Fs` だけは操作を 1 つも持たない。
@@ -197,15 +197,15 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 // その点で `Console` / `Async` とは役割が違う。
 //
 // ファイルプリミティブが行を持たなければ、`@ {}` と明示した閉じた行の下からファイルを開けてしまう。
-// 仕様 sample.kel:720 は、`par` / `par_map` のコールバックの純粋性を決定性の根拠にしている。
+// 仕様 sample.kel:722 は、`par` / `par_map` のコールバックの純粋性を決定性の根拠にしている。
 // ファイルを操作できるコールバックを許すと、この根拠が崩れる。
-// 仕様 sample.kel:594-597 が 4 本に `@ Fs` を課すのは、これを型で防ぐためである。
+// 仕様 sample.kel:596-599 が 4 本に `@ Fs` を課すのは、これを型で防ぐためである。
 //
 // `Fs` は、OCaml 側の組み込みラベル(`Heap` / `Blocking`)にせず、本章で宣言する。
 // 仕様 sample.kel:465 の `effect Fs = {}` は、
 // プレリュードと同じ宣言として構造照合で受理される(test/fs_effect.t の fsdecl)。
 // 仕様も、操作を持たないラベル(`Heap` / `Blocking` / `Fs`)について、どれも宣言が要らず、
-// 標準ライブラリと同じ宣言を利用者がもう一度書いてもよいと定めている(仕様 sample.kel:802-804)。
+// 標準ライブラリと同じ宣言を利用者がもう一度書いてもよいと定めている(仕様 sample.kel:804-806)。
 // 組み込みの `Heap` / `Blocking` と同じ宣言も、同じく照合の上で受理される。
 // 置き場所の違いが表に出るのは、`--no-prelude` を渡したときである。
 // `Fs` はプレリュードとともにトップレベルの行から外れ、
@@ -216,12 +216,12 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 // 仕様の字面が変わるたびにプレリュードを追随させる二重管理になる。
 //
 // `Async.yield_` の末尾のアンダースコアは、仕様の綴りをそのまま採ったものである。
-// この操作は、キャンセルの配送点という意味を持つ(仕様 sample.kel:726-729)。
+// この操作は、キャンセルの配送点という意味を持つ(仕様 sample.kel:728-731)。
 // キャンセルは協調的で、中断点でしか届かない。
 // Diktor では `yield_` は実行時に何もしないが、型として存在することには意味がある。
 // `@ Async` の付いた関数を純粋な位置に渡そうとすると、行の単一化がその場で拒否するからである。
 
-// ランタイムが提供する Console / Async / Fs(仕様 sample.kel:464, :465, :729)と、ユーザ層の Print
+// ランタイムが提供する Console / Async / Fs(仕様 sample.kel:464, :465, :731)と、ユーザ層の Print
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
 effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
@@ -262,7 +262,7 @@ effect Fs      = {}
 // - `__panic`
 // - ファイルの 4 本
 //
-// ファイルの 4 本は仕様 sample.kel:600-608 の `with_file` が使い、
+// ファイルの 4 本は仕様 sample.kel:602-610 の `with_file` が使い、
 // Diktor では第13章のメモリ上のダミー実装が受ける(実際のファイルには触れない)。
 // この 4 本だけが行(`@ Fs`)を持つ(§15.4)。
 // 変換 6 本のうち、Float64 から整数への 2 本だけは部分関数で、
@@ -389,7 +389,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 
 // ## 15.7 with_stdout
 //
-// 仕様 sample.kel:546-549 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
+// 仕様 sample.kel:548-551 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
 // `with_stdout` は、この例の式を再利用できる関数にしたものである。
 // この定義では、本体よりも型のほうに多くの情報がある。
 //
@@ -445,7 +445,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 // 一方、ハンドラの張り直しと `resume` のアフィン検査は実行時の処理なので、
 // `with_stdout` を呼んだときにはじめて働く(第14章)。
 
-// 仕様 sample.kel:546-549 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
+// 仕様 sample.kel:548-551 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
 let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console extends E} =
   body() handle {
     case print(message) => resume(perform write(message))
