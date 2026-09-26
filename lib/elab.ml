@@ -206,10 +206,13 @@ let unbound_value name scoped =
    関数の引数と return 節の網羅性検査では、
    警告が出ないと分かっている形を queue に積まないための節約に使う。
    この用途では、判定が厳しすぎても安全側に倒れる(queue が正しく判定する)。
-   操作節の総和性の検査(§11.23)も同じ判定を使い、そこでは厳しすぎる判定が、
-   取りこぼさない節を拒否する側に倒れる。
-   newtype Box = MkBox(Int32) と、引数が Box の操作 ask があるとき、
-   ask の節が case ask(MkBox(n)) だけのハンドラは、コンストラクタが 1 つしかなくても拒否される *)
+   コンストラクタパターンは、コンストラクタが 1 つしかない型のものでも偽とし、queue に任せる。
+   queue は、値の無い型をフィールドに持つコンストラクタパターンに、
+   一致する値が無いことも警告する(newtype Absurd = MkA(Never) に対する MkA(n) など)。
+   ここで真にして積むのを省くと、その警告が出なくなる。
+   この警告は、コンストラクタパターンを queue に積んだときにしか出ない。
+   変数やレコードのパターンで値の無い型を受けても、ここで真になって積まれないので、警告は出ない。
+   操作節の総和性の検査(§11.23)はこの判定を使わず、第10章の missing で型を見て判定する *)
 let rec irrefutable_pat ((_, p) : T.pat) =
   match p with
   | T.PVar _ | T.PWildcard -> true
@@ -2149,8 +2152,8 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
    操作節は、同じ操作に対して複数書ける。
    書き手は絞り込みパターンやガードで場合を分け、
    評価器は実行時に match と同じフォールスルーで節を選ぶ。
-   総和的な節(ガードが無く、引数パターンがすべて反駁不能な節)より後ろに同じ操作の節を書くと、
-   その節には到達しないので、警告を出す(§11.24)。
+   総和的な節(ガードが無く、引数パターンの並びがどんな引数にも一致する節)より後ろに、
+   同じ操作の節を書くと、その節には到達しないので、警告を出す(§11.24)。
 
    分類の結果は、`set_resolved` で木に書く。
    評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。 *)
@@ -2319,35 +2322,69 @@ and elab_handle env level eff clauses body =
       if not (List.mem_assoc op target_info.Decls.ef_ops) then
         type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
     ops;
-  (* 総和性の検査。各操作に、ガードが無く全引数パターンが反駁不能な節が
-     1 つ以上要る。実行時の節の選択は match と同じフォールスルー(第14章)だが、
-     ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形は
-     ここで拒否する。実行時に取りこぼしうるプログラムを型検査で通さない *)
-  (* 反駁不能の判定は、関数の引数や return 節の網羅性検査と同じ irrefutable_pat を使う *)
-  let total (_, _, args, ((_, c) : T.clause)) =
-    c.T.cl_guard = None && List.for_all (fun (a : T.ctor_arg_pat) -> irrefutable_pat a.T.cap_pat) args
+  (* 操作節の引数パターンを型付ける。
+     総和性の検査は引数の型を見て判定するので、パターンだけを先にここで型付ける。
+     本体、return 節、cancel 節、操作節のガードと本体は、この後で推論する(§11.24)。
+     操作の型には型パラメータも行変数も書けないので、引数の型はこの時点で決まっている *)
+  let op_clauses =
+    List.map
+      (fun ((op, _, args, ((_, c) as cnode)) as cl) ->
+        Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
+        let scheme = List.assoc op target_info.Decls.ef_ops in
+        let args_row, op_ret =
+          match repr (Unify.instantiate level scheme) with
+          | TArrow (a, r, _) -> (a, r)
+          | _ -> bug "操作スキーマが矢印型ではありません"
+        in
+        let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
+        if List.length args <> List.length param_tys then
+          type_error
+            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
+               (List.length args));
+        List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
+        let seen = ref [] in
+        let env2 =
+          List.fold_left2
+            (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
+            env args param_tys
+        in
+        (* 総和的な節かどうか。
+           ガードが無く、引数パターンの並びを 1 行の行列として第10章の missing に渡したとき、
+           反例が返らなければ総和的とする。
+           引数の並びを照合対象とし、この節だけを持つ match が網羅的かどうかと同じ判定である *)
+        let total =
+          c.T.cl_guard = None
+          && Exhaust.missing [ List.map (fun (a : T.ctor_arg_pat) -> Exhaust.convert a.T.cap_pat) args ] param_tys = None
+        in
+        (cl, env2, op_ret, total))
+      ops
   in
+  (* 総和性の検査。各操作に、総和的な節が 1 つ以上要る。
+     実行時の節の選択は match と同じフォールスルー(第14章)だが、
+     ハンドラの外への後送り(re-perform)は無いので、すべての節が外れうる形はここで拒否する。
+     実行時に取りこぼしうるプログラムを型検査で通さない。
+     絞り込みの節を複数合わせると網羅できる場合も、総和的な節が無ければ拒否する *)
   List.iter
     (fun (op, _) ->
-      if not (List.exists (fun ((o, _, _, _) as cl) -> o = op && total cl) ops) then
+      if not (List.exists (fun ((o, _, _, _), _, _, total) -> o = op && total) op_clauses) then
         type_error
           ("操作 " ^ name_of op
          ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
          ^ name_of op ^ "(...) を最後に置いてください"))
     target_info.Decls.ef_ops;
   (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
-     この検出は match の useful 判定(第10章)より弱く、絞り込みの節の集まりで
-     網羅済みでも警告は出ない。第10章の検査につなぐには、操作節から合成の
-     match のノードを作る必要があり、Diktor はそれをしない。健全性は総和性検査が
-     守るので、弱いのは警告の網羅性だけである *)
+     この検出は match の useful 判定(第10章)より弱い。
+     前の節の集まりがある節に一致する値をすべて受け取っていても、
+     前に総和的な節が無ければ警告しない(case ask(1) を 2 回書いた場合など)。
+     健全性は総和性検査が守るので、弱いのは警告の網羅性だけである *)
   let rec dead_scan seen_total = function
     | [] -> ()
-    | ((o, _, _, _) as cl) :: rest ->
+    | ((o, _, _, _), _, _, total) :: rest ->
         if List.mem o seen_total then
           warn ("操作 " ^ name_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
-        dead_scan (if total cl && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
+        dead_scan (if total && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
   in
-  dead_scan [] ops;
+  dead_scan [] op_clauses;
 (* ## 11.24 本体と各節の型付け
 
    handle の型付けの規則は次のとおりである。
@@ -2388,11 +2425,20 @@ and elab_handle env level eff clauses body =
      型は付くのに実行時に落ちるプログラムを通してしまう。
      §11.21 の静的な検査は節の本体しか走査しないので、ガードの resume はここで防ぐ。
    - 操作節には総和性検査がある(§11.23 の網羅の検査の直後)。
-     各操作に、ガードが無く全引数パターンが反駁不能な節が 1 つ以上要る。
+     各操作に、総和的な節が 1 つ以上要る。
+     総和的な節とは、ガードが無く、引数パターンの並びがどんな引数にも一致する節である。
+     判定には第10章の missing を使うので、変数や `_` のほか、
+     コンストラクタが 1 つしかない newtype の分解や、ラベルが 1 つの閉じたヴァリアントの分解も、
+     その引数がどの値にも一致すれば総和的になる。
      実行時の節の選択はフォールスルーだが、ハンドラの外への後送り(re-perform)は無いので、
      すべての節が外れうる形はここで拒否する。
      総和的な節より後ろにある同じ操作の節は到達しないので、警告を出す。
      `--strict-exhaustive` を付けると、この警告はエラーになる。
+
+   推論の順序は次のとおりである。
+   操作節の引数パターンは、総和性検査が型を見るので、§11.23 で先に型付ける。
+   その後で、本体、return 節、cancel 節、操作節のガードと本体の順に推論する。
+   そのため、操作節の引数パターンの誤りは、本体や各節の本体の誤りより先に報告される。
 
    `check_resume_static` は、操作節の本体を推論する直前に呼ぶ(§11.21)。 *)
 
@@ -2420,28 +2466,9 @@ and elab_handle env level eff clauses body =
       (* cancel 節の値は捨てられるので、Unit と単一化する *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
   | _ -> ());
-  (* 操作節 *)
+  (* 操作節のガードと本体。引数パターンは §11.23 で型付けてある *)
   List.iter
-    (fun (op, _, args, ((_, c) as cnode)) ->
-      Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
-      let scheme = List.assoc op target_info.Decls.ef_ops in
-      let args_row, op_ret =
-        match repr (Unify.instantiate level scheme) with
-        | TArrow (a, r, _) -> (a, r)
-        | _ -> bug "操作スキーマが矢印型ではありません"
-      in
-      let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
-      if List.length args <> List.length param_tys then
-        type_error
-          (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
-             (List.length args));
-      List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
-      let seen = ref [] in
-      let env2 =
-        List.fold_left2
-          (fun env (a : T.ctor_arg_pat) t -> elab_pat env level seen t a.T.cap_pat)
-          env args param_tys
-      in
+    (fun ((_, _, _, ((_, c) : T.clause)), env2, op_ret, _) ->
       (* ガードは resume 無しで推論する。第14章はガードを resume = None で
          評価するので、ここで Some にすると、型は付くのに実行時に落ちる
          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
@@ -2453,7 +2480,7 @@ and elab_handle env level eff clauses body =
       let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
       check_resume_static c.T.cl_body;
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
-    ops;
+    op_clauses;
   tres
 
 and method_scheme cls m =
