@@ -1942,16 +1942,29 @@ and resolve_perform eff li =
 
    そこで、次の 2 段で第二級性を守る。
 
-   1. 静的な検査：`check_resume_static` が節の本体を走査し、ラムダの内側の `Resume` をエラーにする。
+   1. 静的な検査：`check_resume_static` が節の本体を走査し、
+      閉包の本体の中の `Resume` をエラーにする。
    2. 動的な検査：節が終わるときに継続の生死のフラグ(第14章の `r_alive`)を下ろし、
       その後の resume の呼び出しを実行時エラーにする。
 
-   静的な検査がラムダとして扱うのは、ラムダ式(`Lambda` のノード)だけである。
-   節の中のローカルな関数束縛(`let f() = resume(41)`)の本体は、
-   `Let` / `LetRec` の分岐が外側と同じ `in_lambda` のまま走査するので、
-   そこに書いた resume は静的な検査を通る。
-   その関数を節の外へ持ち出して呼ぶと、
-   動的な検査が「resume を節の外で呼び出しました(second-class)」で止める。
+   第14章が閉包を作るのは、ラムダ式(`Lambda` のノード)と関数束縛を評価するときである。
+   関数束縛は、`let` と `let rec` の束縛のうち `lb_params` が `Some` のもので、
+   `let f() = resume(41)` の形をしている。
+   静的な検査は、この 2 つの本体を閉包の本体として走査する。
+   `with` はパーサがラムダ式に脱糖する(§3.8)ので、ラムダ式として扱われる。
+   値束縛(`lb_params` が `None`)の右辺は束縛の時点で評価されるので、
+   外側と同じ `in_lambda` のまま走査する。
+   節の本体に `let {value, output} = resume()` と書けるのは、このためである。
+
+   関数束縛の本体の resume は、その関数を節の中で呼ぶだけであっても拒否する。
+   `fn() => resume(41)` を変数に束縛して節の中で呼ぶ形を拒否するのと、同じ扱いである。
+   閉包が節の外へ出るかどうかは、構文だけでは決まらない。
+
+   閉包の本体は定義時の環境で評価される(§14.5)ので、
+   閉包のうち節の継続を持ちうるのは、節の本体に字句的に書かれたものである。
+   静的な検査が閉包の本体として走査する構文は、第14章が閉包を作る構文と揃えておく必要がある。
+   動的な検査は、閉包を作る構文が増えて静的な検査が追いつかなくなった場合にも、
+   節の外での再開を実行時エラーにする。
 
    走査の途中で内側の `Handle` に出会ったら、その本体は走査し、節には入らない。
    内側のハンドラの節は、その節自身が検査を受けるときに、自分の文脈で調べられるからである。
@@ -1965,6 +1978,12 @@ and resolve_perform eff li =
 and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
   at_node node @@ fun () ->
   let go = check_resume_static ~in_lambda in
+  (* 関数束縛(lb_params が Some)の本体は、ラムダの本体と同じく閉包の中である *)
+  let go_binding ((_, b) : T.let_binding) =
+    match b.T.lb_params with
+    | Some _ -> check_resume_static ~in_lambda:true b.T.lb_body
+    | None -> go b.T.lb_body
+  in
   match e with
   | T.Resume arg ->
       if in_lambda then type_error "resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)"
@@ -1981,11 +2000,11 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
       go l;
       go r
   | T.Not v -> go v
-  | T.Let ((_, b), rest) ->
-      go b.T.lb_body;
+  | T.Let (b, rest) ->
+      go_binding b;
       go rest
   | T.LetRec (bs, rest) ->
-      List.iter (fun ((_, b) : T.let_binding) -> go b.T.lb_body) bs;
+      List.iter go_binding bs;
       go rest
   | T.Seq es -> List.iter go es
   | T.Match (scrut, cs) ->
