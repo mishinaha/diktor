@@ -851,11 +851,25 @@ and find_alias n =
    綴りの誤りではなく位置の誤りなので、そう報告する。
    resolve_con は module の同義語をたどるので、
    スコープ外の内部型名にもこちらの文言が出ることがあるが、
-   受理と拒否は変わらない *)
+   受理と拒否は変わらない。
+   型でもなければ、スコープの外の module にある同名の EffectRow エイリアスを探し、
+   §11.3 の未知の型と同じく、修飾名を案内する。
+   案内するのは pub の EffectRow エイリアスだけである。
+   非 pub の名前は、修飾しても可視性の検査で落ちる。
+   Type エイリアスや newtype は、修飾しても行にならない。
+   引数の個数は見ない。
+   §11.3 の型の位置の案内と同じく、修飾した後の個数の誤りは expand_alias が報告する *)
 and unknown_effect n =
   if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
     "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
-  else "未知のエフェクト: " ^ n
+  else
+    let pub_row_alias q =
+      (match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
+      && match Hashtbl.find_opt Decls.aliases q with Some info -> info.Decls.al_kind = Some "EffectRow" | None -> false
+    in
+    match List.filter pub_row_alias (Decls.con_synonym_candidates (intern n)) with
+    | [] -> "未知のエフェクト: " ^ n
+    | cands -> "未知のエフェクト: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)"
 
 (* エイリアスが開いた行に展開されたときの splice。
    row_append は左が閉じていることを要求するので、展開結果の閉じた前置部分をなぞり、
