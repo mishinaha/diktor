@@ -392,6 +392,123 @@ Run モードでも網羅性警告は stderr に出る:
   ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
   1
 
+コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの操作節は、
+取りこぼさない節に数える。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
+
+  $ cat > soleop.kel <<'EOF2'
+  > newtype Box = MkBox(Int32)
+  > effect Ask = { ask: (Box) => Int32 }
+  > let r = (perform ask(MkBox(0)) + perform ask(MkBox(5))) handle {
+  >   case ask(MkBox(0)) => resume(100)
+  >   case ask(MkBox(n)) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor soleop.kel
+  105
+
+コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの節より後ろにある、
+同じ操作の節には到達不能警告:
+
+  $ cat > soledead.kel <<'EOF2'
+  > newtype Box = MkBox(Int32)
+  > effect Ask = { ask: (Box) => Int32 }
+  > let r = perform ask(MkBox(41)) handle {
+  >   case ask(MkBox(n)) => resume(n + 1)
+  >   case ask(b) => resume(0)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor soledead.kel
+  ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
+  42
+
+単一コンストラクタの引数に、リテラルや、コンストラクタが 2 つ以上ある型のパターンを書いた節は、
+取りこぼす節とみなす:
+
+  $ cat > solelit.kel <<'EOF2'
+  > newtype Box = MkBox(Int32)
+  > effect Ask = { ask: (Box) => Int32 }
+  > let r = perform ask(MkBox(0)) handle {
+  >   case ask(MkBox(0)) => resume(1)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor solelit.kel
+  ! solelit.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  [1]
+  $ cat > soleopt.kel <<'EOF2'
+  > newtype OBox = MkO(Option[Int32])
+  > effect Ask = { ask: (OBox) => Int32 }
+  > let r = perform ask(MkO(Some(1))) handle {
+  >   case ask(MkO(Some(n))) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor soleopt.kel
+  ! soleopt.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  [1]
+
+ラベルが 1 つの閉じた構造的ヴァリアントを分解し、引数が変数だけの節も、取りこぼさない節に数える。
+ラベルが 2 つある型では、1 つを選ぶ節だけでは取りこぼす:
+
+  $ cat > solevar.kel <<'EOF2'
+  > effect Ask = { ask: (#A(Int32)) => Int32 }
+  > let r = perform ask(#A(3)) handle {
+  >   case ask(#A(n)) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor solevar.kel
+  3
+  $ cat > solevar2.kel <<'EOF2'
+  > type AB = #A(Int32) | #B
+  > effect Ask = { ask: (AB) => Int32 }
+  > let r = perform ask(#A(3)) handle {
+  >   case ask(#A(n)) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor solevar2.kel
+  ! solevar2.kel:3:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  [1]
+
+絞り込みの節を複数合わせると引数を網羅できる場合も、取りこぼさない節が 1 つも無ければ拒否する:
+
+  $ cat > opcover.kel <<'EOF2'
+  > effect Ask = { ask: (Option[Int32]) => Int32 }
+  > let r = perform ask(Some(1)) handle {
+  >   case ask(Some(n)) => resume(n)
+  >   case ask(None) => resume(0)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor opcover.kel
+  ! opcover.kel:2:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
+  [1]
+
+操作節の引数パターンの誤りは、取りこぼしより先に報告する:
+
+  $ cat > opunk.kel <<'EOF2'
+  > newtype Box = MkBox(Int32)
+  > effect Ask = { ask: (Box) => Int32 }
+  > let r = perform ask(MkBox(41)) handle {
+  >   case ask(Foo(n)) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor opunk.kel
+  ! opunk.kel:4:12: 型エラー: 未知のコンストラクタ: Foo
+  [1]
+
 ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
 再入 API で番号が実行回数に依存する):
 

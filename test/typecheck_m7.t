@@ -416,3 +416,19 @@ M19 / G3c / G3d / G7c):
   f : (Opt2[Empt]) => Int32
   ⚠ match が非網羅的です。例えば Nn が漏れています
   ⚠ このパターンには一致する値がありません
+
+関数の引数とラムダの引数に書いたコンストラクタパターンは、
+コンストラクタが 1 つしかない型のものでも網羅性検査に掛ける。
+フィールドの型に値が無いので、一致する値が無いと警告する:
+
+  $ cat > v10h.kel <<'KEL'
+  > newtype Empt
+  > newtype Absurd = MkA(Empt)
+  > let f(MkA(n)) = 1
+  > let g = fn(MkA(n)) => 2
+  > KEL
+  $ diktor --type-check --no-prelude v10h.kel
+  f : (Absurd) => Int32
+  ⚠ このパターンには一致する値がありません
+  g : (Absurd) => Int32
+  ⚠ このパターンには一致する値がありません
