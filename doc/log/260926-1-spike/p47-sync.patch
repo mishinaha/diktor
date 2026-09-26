@@ -1,24 +1,24 @@
 diff --git a/test/sample/README.md b/test/sample/README.md
-index 7ec7c1f..341466a 100644
+index 5452959..1f96e71 100644
 --- a/test/sample/README.md
 +++ b/test/sample/README.md
 @@ -2,10 +2,11 @@
  
  - コピー元: 親リポジトリ `keleut` の `doc/sample.kel`(2026-09-12 に旧 `reference/` から `doc/` へ移動し、
    追跡対象になった。移動コミットは親の 2fd2d2e)
--- コピー元リビジョン: 1cf5791(親の `spec: cancel 節の中で起きた脱出の扱いを実装に合わせて明確にする(§9 / §13.6)`。
+-- コピー元リビジョン: f4314a1(親の `spec: 入れ子の run と引数の可変配列の扱いを実装に合わせる(§10 / §14.1)`。
 +- コピー元リビジョン: <REV>(親の `spec: 操作節の総和性の規則を書き、判定を実装に合わせる(§9 / §13.4)`。
-   その前の e2ed841 でコメントを平易な日本語に書き直して 846 行から 874 行になり、3f0d904 と 1cf5791 はコメントを
--  数行書き換えただけで行数は変わらない。どれもコメントだけの変更で、コメントを除いたコードは 1 行も変わっていない)
--- コピー元 blob: feed15f52f8b81eb8d91703952c6bb6082ab53be(md5: 0a508ce6ec99921c975a6e10c77e53a2)
-+  数行書き換えただけで行数は変わらない。<REV> は 512 行の後にコメントを 2 行足し、876 行になった。
+   その前の e2ed841 でコメントを平易な日本語に書き直して 846 行から 874 行になり、3f0d904、1cf5791、f4314a1 は
+-  コメントを数行書き換えただけで行数は変わらない。どれもコメントだけの変更で、コメントを除いたコードは 1 行も変わっていない)
+-- コピー元 blob: 20d31e9613f71815c5e85687673080ec017e35e4(md5: ebb9d04d8accdf95aa6bb5ef1820e644)
++  コメントを数行書き換えただけで行数は変わらない。<REV> は 512 行の後にコメントを 2 行足し、876 行になった。
 +  どれもコメントだけの変更で、コメントを除いたコードは 1 行も変わっていない)
-+- コピー元 blob: 38e5de762998375681e07f470963925a73591590(md5: d616d53d7dcadb15f9d70f97311755df)
++- コピー元 blob: 88f72519887b699c1574297a41e7fc7e06b8b33d(md5: c69c13452cf99466a1db304dddfdf6c9)
  - 同期手順:
  
        git -C .. show <親のリビジョン>:doc/sample.kel > test/sample/sample.kel
 diff --git a/test/sample/sample.kel b/test/sample/sample.kel
-index feed15f..38e5de7 100755
+index 20d31e9..88f7251 100755
 --- a/test/sample/sample.kel
 +++ b/test/sample/sample.kel
 @@ -510,6 +510,8 @@ let println(message: String): Unit @ Print = perform print(message + "\n")

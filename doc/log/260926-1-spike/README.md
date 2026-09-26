@@ -3,8 +3,8 @@
 計画 `doc/log/260926-1-plan.md` の設計のときに、diktor(HEAD cb13a13)の写しの上で取った差分と、実測に使ったプログラムである。
 答え合わせに使い、そのまま適用しない(計画 §9、§10)。
 差分の見出しは `a/` と `b/` の形で、diktor の写しの中で `patch -p1` を使って当てる。
-`langspec.patch` と `p47-sample-spec.patch` は親リポジトリ keleut の b4ddf6a に当てる。
-`p47-sync.patch`、`p47-remap.patch`(または `p47-remap-doc.patch` と `p47-remap-diag.patch`)、`p47-promote.patch`、`p47-cite.patch` は、cb13a13 の写しに `combined.patch` を当てた統合スパイクの木に、この順で当てる。
+`langspec.patch` と `p47-sample-spec.patch` は親リポジトリ keleut の b4ddf6a に当てる(D154 の後の f4314a1 にも当たる)。
+`p47-sync.patch`、`p47-remap.patch`(または `p47-remap-doc.patch` と `p47-remap-diag.patch`)、`p47-promote.patch`、`p47-cite.patch` は、cb13a13 の写しに `combined.patch` と diktor の e90b8db の同期を当てた統合スパイクの木に、この順で当てる。
 
 ## 差分
 
@@ -24,9 +24,9 @@
 | `i4.patch` | V43 の推奨案 A。`lib/elab.ml` の `check_resume_static`、コメント 4 ファイル、`test/verify_fixes.t` | cb13a13 の写しで緑 |
 | `i4-probe.patch` | 操作節の本体の中の関数束縛を数える計測用のビルド | 検証用 |
 | `combined.patch` | `i2-fix.patch`、`i4.patch`、`i3.patch`、`i1.patch` を積んだ統合スパイク | cb13a13 の写しで緑。sample の型検査は 64 行で不変 |
-| `langspec.patch` | 親の `doc/LangSpec.md` への §7 の改訂(6 か所。2026-09-26 に所有者がすべて入れると決めた) | 親の b4ddf6a に `git apply --check` で当たる。1274 行が 1292 行になる |
-| `p47-sample-spec.patch` | 親の `doc/sample.kel` の 512 行の直後への 2 行の追記(P47) | 親の b4ddf6a に当たる。874 行が 876 行になる |
-| `p47-sync.patch` | 統合スパイクの木への写しの同期(`test/sample/sample.kel` と `test/sample/README.md`。親のリビジョンは `<REV>` と仮に書いた) | 統合スパイクの木に当たる。`test/tokens.t` の 6 行だけが落ちる |
+| `langspec.patch` | 親の `doc/LangSpec.md` への §7 の改訂(6 か所。2026-09-26 に所有者がすべて入れると決めた) | 親の b4ddf6a に `git apply --check` で当たり、1274 行が 1292 行になる。f4314a1 にも当たり、1291 行が 1309 行になる |
+| `p47-sample-spec.patch` | 親の `doc/sample.kel` の 512 行の直後への 2 行の追記(P47) | 親の b4ddf6a にも f4314a1 にも当たる。874 行が 876 行になる |
+| `p47-sync.patch` | 統合スパイクの木への写しの同期(`test/sample/sample.kel` と `test/sample/README.md`。親のリビジョンは `<REV>` と仮に書いた。D154 の同期(e90b8db)の後の写しに合わせて作り直した) | e90b8db の同期を足した統合スパイクの木に当たる。`test/tokens.t` の 6 行だけが落ちる |
 | `p47-remap.patch` | 513 行以降を引く行番号を 2 つずつずらす差分の全体(本文 103 行の 110 か所、README の 2 行、診断文字列 3 行) | 次の 2 つを合わせたもの |
 | `p47-remap-doc.patch` | コメント、cram の前書き、README の付け替え(本文 103 行の 110 か所と README の 2 行。README の親のリビジョンは `<REV>` と仮に書いた。計画 §8.8 の 2 の 3) | 同期の後の木に当たる。`test/tokens.t` の 6 行のほかに落ちるものは無い |
 | `p47-remap-diag.patch` | `lib/elab.ml` の診断文字列 3 行 4 か所の付け替え(計画 §8.8 の 2 の 4) | `p47-remap-doc.patch` の後の木に当たる。新たに `test/runtime_effects.t` の 3 行と `test/fs_effect.t` の 1 行が落ちる |
@@ -44,6 +44,7 @@
 | `cases-V42.txt` | V42 の行列(位置 × 書き方 × pub の有無)、追加の調査、反証に使ったプログラム |
 | `cases-V43.txt` | V43 の調査と反証に使ったプログラム |
 | `cases-P48.txt` | P48 の調査に使った入れ子の `run` と、2 つのリージョンを操作する関数のプログラム(「P48/」は調査、「反証/」は反証者、「棚卸し/」は判断事項の棚卸しで書いたもの) |
+| `cases-D154.txt` | D154(P48 と P52 の仕様の書き直し)の文面の起草、反証、確認に使ったプログラム(見出しの前半は段階の名前) |
 
 各プログラムは `==== 調査/e14.kel ====` のような見出しの行で区切ってある。
 見出しの前半は、調査で書いたか反証で書いたかを表す。

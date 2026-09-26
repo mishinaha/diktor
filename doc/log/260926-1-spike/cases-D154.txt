@@ -1,0 +1,1347 @@
+==== 起草48/t01_closed_param_print.kel ====
+effect P = { pp: (String) => Unit }
+let call(go: () => Unit @ {P}): Unit @ {P} = go()
+echoln("ok")
+==== 起草48/t02_local_annot_call.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let rd(): Int32 @ {Heap[h1]} = Ref.get(r)
+    rd()
+  }
+  x
+}
+echoln(show(f()))
+==== 起草48/t03_local_annot_nocall.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let rd(): Int32 @ {Heap[h1]} = Ref.get(r)
+    7
+  }
+  x
+}
+echoln(show(f()))
+==== 起草48/t04_pass_to_one.kel ====
+let one[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[h]} = Ref.get(a)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); one(s, r) }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 起草48/t05_twoheap_same_region.kel ====
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let s = Ref.new(2)
+  g(s, r)
+}
+echoln(show(f()))
+==== 起草48/t06_threeheap_order.kel ====
+let g3[a, b, c](x: Ref[a, Int32], y: Ref[b, Int32], z: Ref[c, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c]} = Ref.get(x)
+let f(): Int32 = run h1 {
+  let r1 = Ref.new(1)
+  run h2 {
+    let r2 = Ref.new(2)
+    run h3 { let r3 = Ref.new(3); g3(r3, r2, r1) }
+  }
+}
+echoln(show(f()))
+==== 起草48/t07_threeheap_swap.kel ====
+let g3[a, b, c](x: Ref[a, Int32], y: Ref[b, Int32], z: Ref[c, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c]} = Ref.get(x)
+let f(): Int32 = run h1 {
+  let r1 = Ref.new(1)
+  run h2 {
+    let r2 = Ref.new(2)
+    run h3 { let r3 = Ref.new(3); g3(r3, r1, r2) }
+  }
+}
+echoln(show(f()))
+==== 起草48/t08_each_own.kel ====
+let f(xs: Array[Int32]): Int32 = run h1 {
+  let r = Ref.new(100)
+  let n = run h2 { let s = Ref.new(0); Array.each(xs, fn(x) => Ref.set(s, Ref.get(s) + x)); Ref.get(s) }
+  Ref.get(r) + n
+}
+let g(): Int32 = run h { let a = MutableArray.new(2, 1); f(MutableArray.freeze(a)) }
+echoln(show(g()))
+==== 起草48/t09_pinned.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { pinned(fn() => Ref.get(r)) }
+  x
+}
+echoln(show(f()))
+==== 起草48/t10_p6_extends.kel ====
+let call2[h, k, E](s: Ref[h, Int32], go: () => Int32 @ {Heap[h], Heap[k] extends E}): Int32 @ {Heap[h], Heap[k] extends E} = go()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(5); call2(s, fn() => Ref.get(s)) }
+  x
+}
+echoln(show(f()))
+==== 起草48/t11_interleave.kel ====
+effect P = { pp: (String) => Unit }
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], P, Heap[k]} = { perform P.pp("x"); Ref.get(s) }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); g(s, r) } handle {
+    case P.pp(m) => resume()
+  }
+}
+echoln(show(f()))
+==== 起草48/t11b_interleave_swap.kel ====
+effect P = { pp: (String) => Unit }
+let g[h, k](s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], P, Heap[k]} = { perform P.pp("x"); Ref.get(s) }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); g(r, s) } handle {
+    case P.pp(m) => resume()
+  }
+}
+echoln(show(f()))
+==== 起草48/t12_annot_order_call.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let two_rev2[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[k], Heap[h]} = g(b, a)
+echoln("ok")
+==== 起草48/t12b_annot_order_call_bad.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let two_rev2[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Int32 @ {Heap[k], Heap[h]} = g(a, b)
+echoln("ok")
+==== 起草48/t13_record_fn.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let ops = { rd = fn() => Ref.get(r) }
+  let x = run h2 { ops.rd() }
+  x
+}
+echoln(show(f()))
+==== 起草48/t14_marray_new_annot.kel ====
+let f(): Int32 = run h1 {
+  let x = run h2 { let a: MutableArray[h1, Int32] = MutableArray.new(1, 0); 3 }
+  x
+}
+echoln(show(f()))
+==== 起草48/t15_second_free.kel ====
+let g2[h, k](s: Ref[h, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let w() = run h2 { let s = Ref.new(1); g2(s) }
+let f(): Int32 = run h1 { w() }
+echoln(show(f()))
+==== 起草48/t15b_second_free_top.kel ====
+let g2[h, k](s: Ref[h, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let w() = run h2 { let s = Ref.new(1); g2(s) }
+echoln(show(w()))
+==== 起草48/t16_second_not_leftmost_outer.kel ====
+let g[x, y](s: Ref[x, Int32], t: MutableArray[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let bump[j, k, E](b: MutableArray[j, Int32], a: MutableArray[k, Int32]): Int32 @ {Heap[j], Heap[k] extends E} = run h2 { let s = Ref.new(3); g(s, a) }
+echoln("ok")
+==== 起草48/t16b_second_leftmost_outer.kel ====
+let g[x, y](s: Ref[x, Int32], t: MutableArray[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let bump[j, k, E](b: MutableArray[j, Int32], a: MutableArray[k, Int32]): Int32 @ {Heap[j], Heap[k] extends E} = run h2 { let s = Ref.new(3); g(s, b) }
+echoln("ok")
+==== 起草48/t17_run_returns_creator.kel ====
+let f(): Int32 = run h1 {
+  let mk = run h2 { fn() => Ref.new(4) }
+  let r = mk()
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 起草48/t18_pass_lambda_nonrow.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 { idf(fn() => Ref.get(r)) }
+  k()
+}
+echoln(show(f()))
+==== 起草52/x01_norun_infer.kel ====
+let setz(a) = MutableArray.set(a, 0, 42)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 起草52/x02_norun_pure_annot.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {} = MutableArray.set(a, 0, 42)
+echoln("ok")
+==== 起草52/x03_same_name_run_h.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 起草52/x04_freeze_arg_in_run.kel ====
+let snap[h](a: MutableArray[h, Int32]): Array[Int32] = run h2 { MutableArray.freeze(a) }
+echoln("ok")
+==== 起草52/x05_get_arg_in_run_heap.kel ====
+let first[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = run h2 { MutableArray.get(a, 0) }
+echoln("ok")
+==== 起草52/x06_length_arg_in_run.kel ====
+let len[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = run h2 { MutableArray.length(a) }
+echoln("ok")
+==== 起草52/x07_handler_outside_run.kel ====
+effect W = { w: () => Unit }
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} =
+  run h2 { perform W.w() } handle {
+    case W.w() => { MutableArray.set(a, 0, 42); resume(()) }
+  }
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 起草52/x08_lambda_called_in_run.kel ====
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = run h2 {
+  let k = fn() => MutableArray.set(a, 0, 42)
+  k()
+}
+echoln("ok")
+==== 起草52/x09_callee_in_run.kel ====
+let put[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = MutableArray.set(a, 0, 42)
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = run h2 { put(a) }
+echoln("ok")
+==== 起草52/x10_param_fn_in_run.kel ====
+let app[h, E](a: MutableArray[h, Int32], k: (MutableArray[h, Int32]) => Unit @ {Heap[h] extends E}): Unit @ {Heap[h] extends E} = run h2 { k(a) }
+echoln("ok")
+==== 起草52/x11_m7_pure_annot.kel ====
+let bump[h](a: MutableArray[h, Int32]): Int32 @ {} = {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  k()
+  0
+}
+echoln("ok")
+==== 起草52/x12_new_in_run_from_arg.kel ====
+let copy[h, E](a: MutableArray[h, Int32]): Array[Int32] @ {Heap[h] extends E} = {
+  let n = MutableArray.length(a)
+  let x = MutableArray.get(a, 0)
+  run h2 {
+    let out = MutableArray.new(n, x)
+    MutableArray.freeze(out)
+  }
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(2, 5)
+  Array.get(copy(a), 1)
+}
+echoln(show(f()))
+==== 起草52/x13_m6_infer.kel ====
+let keep(a) = run h2 { a }
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 3)
+  MutableArray.set(keep(a), 0, 4)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 反証1/r01_touch_decl_only.kel ====
+let touch[h](x: Ref[h, Int32]): Unit @ {Heap[h]} = ()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { touch(r) }
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/r02_touch_decl_only_outside.kel ====
+let touch[h](x: Ref[h, Int32]): Unit @ {Heap[h]} = ()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  touch(r)
+  run h2 { let s = Ref.new(2); touch(s) }
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/r03_sibling_run_call.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 { fn() => Ref.get(r) }
+  let x = run h3 { k() }
+  x
+}
+echoln(show(f()))
+==== 反証1/r04_marray_new_in_lambda.kel ====
+let f(): Int32 = run h1 {
+  let mk = run h2 { fn() => MutableArray.new(1, 7) }
+  let a = mk()
+  MutableArray.set(a, 0, 8)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 反証1/r05_doubled_nested.kel ====
+let doubled2(xs: Array[Int32]): Array[Int32] = run h {
+  let out = MutableArray.new(Array.length(xs), 0)
+  let i = Ref.new(0)
+  Array.each(xs, fn(x) => {
+    let y = run h2 { let t = Ref.new(x); Ref.set(t, Ref.get(t) * 2); Ref.get(t) }
+    MutableArray.set(out, Ref.get(i), y)
+    Ref.set(i, Ref.get(i) + 1)
+  })
+  MutableArray.freeze(out)
+}
+let g(): Int32 = run h { let a = MutableArray.new(2, 3); Array.get(doubled2(MutableArray.freeze(a)), 1) }
+echoln(show(g()))
+==== 反証1/r06_closed_outer_three.kel ====
+let g3[a, b, c](x: Ref[a, Int32], y: MutableArray[b, Int32], z: MutableArray[c, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c]} = Ref.get(x)
+let bump[k](p: MutableArray[k, Int32], q: MutableArray[k, Int32]): Int32 @ {Heap[k]} = run h2 { let s = Ref.new(3); g3(s, p, q) }
+echoln("ok")
+==== 反証1/r07_closed_outer_two.kel ====
+let g[x, y](s: Ref[x, Int32], t: MutableArray[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let bump[k](a: MutableArray[k, Int32]): Int32 @ {Heap[k]} = run h2 { let s = Ref.new(3); g(s, a) }
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 反証1/r08_infer_outer_three.kel ====
+let g3[a, b, c](x: Ref[a, Int32], y: MutableArray[b, Int32], z: MutableArray[c, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c]} = Ref.get(x)
+let bump(p, q) = run h2 { let s = Ref.new(3); g3(s, p, q) }
+let f(): Int32 = run h1 { let p = MutableArray.new(1, 0); let q = MutableArray.new(1, 0); bump(p, q) }
+echoln(show(f()))
+==== 反証1/r09_cancel_inside.kel ====
+effect Fl = { fl: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    (perform Fl.fl()) handle {
+      case Fl.fl() => resume(3)
+      case cancel => Ref.set(r, 9)
+    }
+  }
+  x
+}
+echoln(show(f()))
+==== 反証1/r10_cancel_outside.kel ====
+effect Fl = { fl: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); Ref.get(s) + perform Fl.fl() } handle {
+    case Fl.fl() => resume(3)
+    case cancel => Ref.set(r, 9)
+  }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/r11_frozen_refs_out.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let arr = run h2 { let m = MutableArray.new(2, r); MutableArray.freeze(m) }
+  Ref.set(Array.get(arr, 0), 5)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/r12_frozen_refs_in.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let m = MutableArray.new(2, r); let arr = MutableArray.freeze(m); Ref.get(Array.get(arr, 0)) }
+  x
+}
+echoln(show(f()))
+==== 反証1/r13_four_level_ok.kel ====
+let g4[a, b, c, d](w: Ref[a, Int32], x: Ref[b, Int32], y: Ref[c, Int32], z: Ref[d, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c], Heap[d]} = Ref.get(w)
+let f(): Int32 = run h1 {
+  let r1 = Ref.new(1)
+  run h2 { let r2 = Ref.new(2)
+    run h3 { let r3 = Ref.new(3)
+      run h4 { let r4 = Ref.new(4); g4(r4, r3, r2, r1) } } }
+}
+echoln(show(f()))
+==== 反証1/r14_four_level_swap.kel ====
+let g4[a, b, c, d](w: Ref[a, Int32], x: Ref[b, Int32], y: Ref[c, Int32], z: Ref[d, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c], Heap[d]} = Ref.get(w)
+let f(): Int32 = run h1 {
+  let r1 = Ref.new(1)
+  run h2 { let r2 = Ref.new(2)
+    run h3 { let r3 = Ref.new(3)
+      run h4 { let r4 = Ref.new(4); g4(r4, r2, r3, r1) } } }
+}
+echoln(show(f()))
+==== 反証1/r15_pub_nested.kel ====
+pub let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { Ref.get(r) }
+  x
+}
+echoln(show(f()))
+==== 反証1/r16_pub_pass.kel ====
+pub let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let r2 = run h2 { r }
+  Ref.set(r2, 6)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/r17_top_pass.kel ====
+let v = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 { let s = Ref.new(r); fn() => Ref.get(r) }
+  Ref.set(r, 5)
+  k()
+}
+echoln(show(v))
+==== 反証1/r18_mixed_labels_outer.kel ====
+let f[k, E](a: MutableArray[k, Int32]): Int32 @ {Console, Heap[k] extends E} = {
+  echoln("x")
+  let n = run h2 { let s = Ref.new(4); Ref.set(s, Ref.get(s) + 1); Ref.get(s) }
+  MutableArray.set(a, 0, n)
+  MutableArray.get(a, 0)
+}
+let g(): Int32 @ Console = run h1 { let a = MutableArray.new(1, 0); f(a) }
+echoln(show(g()))
+==== 反証1/r19_two_arrays_second.kel ====
+let cp[h, k, E](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[h], Heap[k] extends E} = MutableArray.set(b, 0, 1)
+echoln("ok")
+==== 反証1/r20_two_arrays_infer.kel ====
+let cp(a, b) = MutableArray.set(b, 0, MutableArray.get(a, 0))
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 7)
+  let x = run h2 { let b = MutableArray.new(1, 0); cp(a, b); MutableArray.get(b, 0) }
+  x
+}
+echoln(show(f()))
+==== 反証1/r21_pub_arg_op.kel ====
+pub let setz[h](a: MutableArray[h, Int32]): Unit = MutableArray.set(a, 0, 42)
+echoln("ok")
+==== 反証1/r22_arg_other_run.kel ====
+let setz[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  run h3 { k(); 0 }
+}
+echoln("ok")
+==== 反証1/s23_param_order_bad.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let callp[h, k, E](go: () => Int32 @ {Heap[h], Heap[k] extends E}, s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k] extends E} = go()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); callp(fn() => g(r, s), s, r) }
+}
+echoln(show(f()))
+==== 反証1/s23b_param_order_ok.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let callp[h, k, E](go: () => Int32 @ {Heap[h], Heap[k] extends E}, s: Ref[h, Int32], t: Ref[k, Int32]): Int32 @ {Heap[h], Heap[k] extends E} = go()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); callp(fn() => g(s, r), s, r) }
+}
+echoln(show(f()))
+==== 反証1/s23c_param_order_nocall.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let keepp[h, k, E](go: () => Int32 @ {Heap[h], Heap[k] extends E}, s: Ref[h, Int32], t: Ref[k, Int32]): Int32 = 0
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); keepp(fn() => g(r, s), s, r) }
+}
+echoln(show(f()))
+==== 反証1/s23d_param_order_nocall_ok.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let keepp[h, k, E](go: () => Int32 @ {Heap[h], Heap[k] extends E}, s: Ref[h, Int32], t: Ref[k, Int32]): Int32 = 0
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); keepp(fn() => g(s, r), s, r) }
+}
+echoln(show(f()))
+==== 反証1/s24_mono_maker.kel ====
+let idf[A](x: A): A = x
+let v = run h1 {
+  let mk = idf(fn() => MutableArray.new(1, 0))
+  run h2 { let a = mk(); MutableArray.set(a, 0, 5); MutableArray.get(a, 0) }
+}
+echoln(show(v))
+==== 反証1/s25_local_annot_value.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 {
+    let rd: () => Int32 @ {Heap[h1]} = fn() => Ref.get(r)
+    rd
+  }
+  Ref.set(r, 3)
+  k()
+}
+echoln(show(f()))
+==== 反証1/s26_handler_in_lambda_bridge.kel ====
+effect Rd = { rd: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let go = fn() => run h2 { let s = Ref.new(10); Ref.get(s) + perform Rd.rd() } handle {
+    case Rd.rd() => resume(Ref.get(r))
+  }
+  Ref.set(r, 2)
+  go()
+}
+echoln(show(f()))
+==== 反証1/s27_second_heap_same_region_nested.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); let s2 = Ref.new(6); g(s, s2) }
+}
+echoln(show(f()))
+==== 反証1/s28_twoheap_order_then_op.kel ====
+let g[x, y](s: Ref[x, Int32], t: MutableArray[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w(a, r) = {
+  let x = run h2 { let s = Ref.new(3); g(s, a) }
+  x + Ref.get(r)
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); let r = Ref.new(4); w(a, r) }
+echoln(show(f()))
+==== 反証1/s29_closure_in_outer_ref.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let cell = run h2 { let s = Ref.new(fn() => Ref.get(r)); Ref.get(s) }
+  Ref.set(r, 7)
+  cell()
+}
+echoln(show(f()))
+==== 反証1/s30_region_via_record_param.kel ====
+type Box[h] = { cell: Ref[h, Int32] }
+let rd[h, E](b: Box[h]): Int32 @ {Heap[h] extends E} = run h2 { Ref.get(b.cell) }
+echoln("ok")
+==== 反証1/s31_same_leftmost_param_twoheap_first.kel ====
+let use1[h, k, E](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k] extends E} = {
+  let n = run h2 { let s = Ref.new(1); Ref.get(s) }
+  MutableArray.set(a, 0, n)
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  run h2 { let b = MutableArray.new(1, 0); use1(b, a) }
+}
+echoln(show(f()))
+==== 反証1/s32_pinned_own.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(2); pinned(fn() => Ref.get(s)) }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/u33_extends_outer_three.kel ====
+let g3[a, b, c](x: Ref[a, Int32], y: MutableArray[b, Int32], z: MutableArray[c, Int32]): Int32 @ {Heap[a], Heap[b], Heap[c]} = Ref.get(x)
+let bump[k, E](p: MutableArray[k, Int32], q: MutableArray[k, Int32]): Int32 @ {Heap[k] extends E} = run h2 { let s = Ref.new(3); g3(s, p, q) }
+echoln("ok")
+==== 反証1/u34_idf_pass_other.kel ====
+let idf[A](x: A): A = x
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let r2 = run h2 { let s = Ref.new(0); Ref.set(s, 2); idf(r) }
+  Ref.set(r2, 9)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 反証1/u35_arg_region_leftmost_ok.kel ====
+let cp[h, k, E](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[h], Heap[k] extends E} = MutableArray.set(a, 0, 1)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  run h2 { let b = MutableArray.new(1, 0); cp(b, a); MutableArray.get(b, 0) }
+}
+echoln(show(f()))
+==== 反証1/u36_each_outside_run_closure.kel ====
+let bump[h, E](a: MutableArray[h, Int32], xs: Array[Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h2 { fn(x) => MutableArray.set(a, 0, MutableArray.get(a, 0) + x) }
+  Array.each(xs, k)
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  let b = MutableArray.new(2, 5)
+  bump(a, MutableArray.freeze(b))
+}
+echoln(show(f()))
+==== 反証2/c1_s10_triple.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 {
+    let k = run h3 { fn() => Ref.get(r) }
+    k()
+  }
+}
+echoln(show(f()))
+==== 反証2/c1b_s10_triple_ok.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 {
+    run h3 { fn() => Ref.get(r) }
+  }
+  k()
+}
+echoln(show(f()))
+==== 反証2/c2_p52_nested.kel ====
+let bump[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = run h3 {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  k()
+  0
+}
+echoln("ok")
+==== 反証2/c2b_p52_outside_but_in_other_run.kel ====
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = {
+  let n = run h3 { let s = Ref.new(0); Ref.get(s) }
+  run h4 { MutableArray.set(a, n, 42) }
+}
+echoln("ok")
+==== 反証2/c3_call_rowvar_in_run.kel ====
+let call[E](g: () => Unit @ E): Unit @ E = run h2 { g() }
+echoln("ok")
+==== 反証2/c3b_call_rowvar_in_run_print.kel ====
+let call[E](g: () => Unit @ {Console extends E}): Unit @ {Console extends E} = run h2 { g() }
+echoln("ok")
+==== 反証2/c3c_call_infer.kel ====
+let call(g) = run h2 { g() }
+let v = call(fn() => 3)
+echoln(show(v))
+==== 反証2/c3d_each_rowvar.kel ====
+let each_count[E](xs: Array[Int32], g: (Int32) => Unit @ E): Int32 @ E = run h2 {
+  let n = Ref.new(0)
+  Array.each(xs, fn(x) => { g(x); Ref.set(n, Ref.get(n) + 1) })
+  Ref.get(n)
+}
+echoln("ok")
+==== 反証2/c3e_call_outside_run.kel ====
+let call[E](g: () => Int32 @ E): Int32 @ E = {
+  let x = g()
+  let y = run h2 { let s = Ref.new(x); Ref.get(s) }
+  y
+}
+echoln(show(call(fn() => 5)))
+==== 反証2/c4_p52_outside_two_heap_annot.kel ====
+let setz[h, k](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[k], Heap[h]} = MutableArray.set(a, 0, 42)
+echoln("ok")
+==== 反証2/c5_s9_outer_noheap_closed.kel ====
+let g[h, k](s: Ref[h, Int32], t: MutableArray[k, Int32]): Int32 @ {Heap[h], Heap[k]} = Ref.get(s)
+let bump[k](a: MutableArray[k, Int32]): Int32 @ {Console} = run h2 { let s = Ref.new(3); g(s, a) }
+echoln("ok")
+==== 反証2/c6_s6_outer_body_ops_inner_state.kel ====
+let f(): Int32 = run h1 {
+  run h2 { let s = Ref.new(10); Ref.set(s, 11); Ref.get(s) }
+}
+echoln(show(f()))
+==== 改訂/v01_store_by_set.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let q = Ref.new(2)
+  let r2 = run h2 { let s = Ref.new(r); Ref.set(s, q); Ref.get(s) }
+  Ref.set(r2, 7)
+  Ref.get(q)
+}
+echoln(show(f()))
+==== 改訂/v02_store_in_record.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let r2 = run h2 { let s = Ref.new({c = r}); (Ref.get(s)).c }
+  Ref.set(r2, 8)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 改訂/v03_lambda_inner_run_called_in_other_run.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let g = fn() => run h3 { let t = Ref.new(5); Ref.get(t) }
+  let x = run h2 { g() }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 改訂/v04_annot_order_outside_run.kel ====
+let setz[h, k, E](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[k], Heap[h] extends E} = MutableArray.set(b, 0, 42)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  let x = run h2 { let b = MutableArray.new(1, 0); setz(a, b); MutableArray.get(b, 0) }
+  x
+}
+echoln(show(f()))
+==== 改訂/v05_touch_same_region.kel ====
+let touch[h](x: Ref[h, Int32]): Unit @ {Heap[h]} = ()
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 { let s = Ref.new(3); touch(s); Ref.get(s) }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 改訂/v06_closure_returned_called_in_handler_clause.kel ====
+effect W = { w: () => Unit }
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  run h3 { perform W.w() } handle {
+    case W.w() => { k(); resume(()) }
+  }
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 改訂/v07_infer_order_then_twoheap.kel ====
+let g[x, y](s: Ref[x, Int32], t: MutableArray[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w(a, r) = {
+  let y = Ref.get(r)
+  let x = run h2 { let s = Ref.new(3); g(s, a) }
+  x + y
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); let r = Ref.new(4); w(a, r) }
+echoln(show(f()))
+==== 改訂/v08_write_arg_in_lambda_passed_in_run.kel ====
+let app[A, E](k: () => A @ E): A @ E = k()
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = run h2 { app(fn() => MutableArray.set(a, 0, 42)) }
+echoln("ok")
+==== 改訂/v09_arg_write_inferred_twice.kel ====
+let setz(a) = {
+  let k = run h2 { fn() => MutableArray.set(a, 0, 42) }
+  k()
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); setz(a); MutableArray.get(a, 0) }
+echoln(show(f()))
+==== 改訂/v10_region_h_same_twice_annot.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f[k](r: Ref[k, Int32]): Int32 @ {Heap[k]} = run h2 { let s = Ref.new(5); g(s, r) }
+let v = run h1 { let r = Ref.new(1); f(r) }
+echoln(show(v))
+==== 改訂/v11_lambda_both_regions.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 { let s = Ref.new(2); let g = fn() => Ref.get(r) + Ref.get(s); Ref.get(s) }
+  k
+}
+echoln(show(f()))
+==== 再反証/q01_builtin_value_get.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  let rd = run h2 { Ref.get }
+  rd(r)
+}
+echoln(show(f()))
+==== 再反証/q02_builtin_value_new.kel ====
+let f(): Int32 = run h1 {
+  let mk = run h2 { Ref.new }
+  let r = mk(5)
+  Ref.set(r, 6)
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 再反証/q03_builtin_passed_in_run.kel ====
+let app1[A, B, E](k: (A) => B @ E, x: A): B @ E = k(x)
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  run h2 { app1(Ref.get, r) }
+}
+echoln(show(f()))
+==== 再反証/q04_annot_rev_nocall.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let s = Ref.new(2)
+    let k: () => Int32 @ {Heap[h1], Heap[h2]} = fn() => Ref.get(r)
+    Ref.get(s)
+  }
+  x
+}
+echoln(show(f()))
+==== 再反証/q05_annot_rev_call.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let s = Ref.new(2)
+    let k: () => Int32 @ {Heap[h1], Heap[h2]} = fn() => Ref.get(r)
+    k() + Ref.get(s)
+  }
+  x
+}
+echoln(show(f()))
+==== 再反証/q06_annot_fwd_read_outer.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let s = Ref.new(2)
+    let k: () => Int32 @ {Heap[h2], Heap[h1]} = fn() => Ref.get(r)
+    Ref.get(s)
+  }
+  x
+}
+echoln(show(f()))
+==== 再反証/q07_annot_fwd_call.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let x = run h2 {
+    let s = Ref.new(2)
+    let k: () => Int32 @ {Heap[h2], Heap[h1]} = fn() => Ref.get(s)
+    k() + 10
+  }
+  x + Ref.get(r)
+}
+echoln(show(f()))
+==== 再反証/q08_second_h_flexible_outer.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w(a) = {
+  MutableArray.set(a, 0, 1)
+  run h2 { let s = Ref.new(5); let t = Ref.new(6); g(s, t) }
+}
+echoln("ok")
+==== 再反証/q09_second_h_rigid_tail.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w[E](u: Int32): Int32 @ E = run h2 { let s = Ref.new(u); let t = Ref.new(6); g(s, t) }
+echoln("ok")
+==== 再反証/q10_second_h_outer_param_heap.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w[k, E](a: MutableArray[k, Int32]): Int32 @ {Heap[k] extends E} = run h2 { let s = Ref.new(5); let t = Ref.new(6); g(s, t) }
+echoln("ok")
+==== 再反証/q11_plain_let_maker.kel ====
+let f(): Int32 = run h1 {
+  let mk = fn() => Ref.new(0)
+  let r = mk()
+  let x = run h2 { let s = mk(); Ref.set(s, 4); Ref.get(s) }
+  Ref.get(r) + x
+}
+echoln(show(f()))
+==== 再反証/q12_show_instance_reads.kel ====
+type instance[H, A: Show] Show[MutableArray[_, _]] {
+  let show(a) = "arr:" + Show.show(MutableArray.get(a, 0))
+}
+let f(): String = run h1 {
+  let a = MutableArray.new(1, 7)
+  run h2 { show(a) }
+}
+echoln(f())
+==== 再反証/q12b_show_instance_noread.kel ====
+type instance[H, A: Show] Show[MutableArray[_, _]] {
+  let show(a) = "arr"
+}
+let f(): String = run h1 {
+  let a = MutableArray.new(1, 7)
+  run h2 { show(a) }
+}
+echoln(f())
+==== 再反証/q13_rowalias_param.kel ====
+type TwoH[a, b]: EffectRow = {Heap[a], Heap[b]}
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ TwoH[y, x] = Ref.get(t)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); g(r, s) }
+}
+echoln(show(f()))
+==== 再反証/q14_letrec_local.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  let rec loop(n: Int32): Int32 = n match {
+    case 0 => Ref.get(r)
+    case _ => loop(n - 1)
+  }
+  let x = run h2 { loop(2) }
+  x
+}
+echoln(show(f()))
+==== 再反証/q14b_letrec_local_outer.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  let rec loop(n: Int32): Int32 = n match {
+    case 0 => Ref.get(r)
+    case _ => loop(n - 1)
+  }
+  let x = run h2 { let s = Ref.new(4); Ref.get(s) }
+  loop(2) + x
+}
+echoln(show(f()))
+==== 再反証/q16_call_inside_annot_lambda.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let k = run h2 {
+    let rd = fn() => Ref.get(r)
+    let wrap: () => Int32 @ {Heap[h1]} = fn() => rd() + 1
+    wrap
+  }
+  Ref.set(r, 10)
+  k()
+}
+echoln(show(f()))
+==== 再反証/q17_value_swap_heaps.kel ====
+let conv[a, b](k: () => Int32 @ {Heap[a], Heap[b]}): () => Int32 @ {Heap[b], Heap[a]} = k
+echoln("ok")
+==== 再反証/q17b_value_same_heaps.kel ====
+let conv[a, b](k: () => Int32 @ {Heap[a], Heap[b]}): () => Int32 @ {Heap[a], Heap[b]} = k
+echoln("ok")
+==== 再反証/q18_value_mixed_labels.kel ====
+let conv[a](k: () => Int32 @ {Heap[a], Console}): () => Int32 @ {Console, Heap[a]} = k
+echoln("ok")
+==== 再反証/q19_new_second_region.kel ====
+let mk2[a, b](u: Int32): Ref[b, Int32] @ {Heap[a], Heap[b]} = Ref.new(u)
+echoln("ok")
+==== 再反証/q19b_new_first_region.kel ====
+let mk1[a, b](u: Int32): Ref[a, Int32] @ {Heap[a], Heap[b]} = Ref.new(u)
+echoln("ok")
+==== 再反証/q20_swapcall.kel ====
+let swapcall[a, b, A](k: () => A @ {Heap[b], Heap[a]}): A @ {Heap[a], Heap[b]} = k()
+echoln("ok")
+==== 再反証/q21_clause_nested_run.kel ====
+effect W = { w: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  (perform W.w()) handle {
+    case W.w() => resume(run h2 { Ref.get(r) })
+  }
+}
+echoln(show(f()))
+==== 再反証/q22_iife_in_run.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  run h2 { (fn() => Ref.get(r))() }
+}
+echoln(show(f()))
+==== 再反証/q23_with_continuation.kel ====
+let later[k, A](r: Ref[k, Int32], body: (Ref[k, Int32]) => A @ {Heap[k]}): () => A @ {Heap[k]} = fn() => body(r)
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  let k = run h2 {
+    let s = Ref.new(10)
+    Ref.set(s, 11)
+    with x = later(r)
+    Ref.set(x, Ref.get(x) + 1)
+    Ref.get(x)
+  }
+  k()
+}
+echoln(show(f()))
+==== 再反証/q23b_with_plain_hof.kel ====
+let with_value[A, B, E](x: A, body: (A) => B @ E): B @ E = body(x)
+let f(): Int32 = run h1 {
+  let r = Ref.new(3)
+  run h2 {
+    with x = with_value(r)
+    Ref.get(x)
+  }
+}
+echoln(show(f()))
+==== 再反証/q24_second_h_closed_outer.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w(u: Int32): Int32 @ {} = run h2 { let s = Ref.new(u); let t = Ref.new(6); g(s, t) }
+echoln("ok")
+==== 再反証/q25_second_h_toplevel_value.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let v = run h2 { let s = Ref.new(5); let t = Ref.new(6); g(s, t) }
+echoln(show(v))
+==== 確認1/b01_pub_return.kel ====
+pub let keep[h](a: MutableArray[h, Int32]): MutableArray[h, Int32] = a
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 3)
+  MutableArray.get(keep(a), 0)
+}
+echoln(show(f()))
+==== 確認1/b02_pub_write_annot.kel ====
+pub let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = MutableArray.set(a, 0, 42)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b03_open_annot_write.kel ====
+let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = MutableArray.set(a, 0, 42)
+let f(): Int32 @ Console = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  echoln("set")
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b04_local_fn_outer_region.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  let setz(b: MutableArray[h1, Int32]) = MutableArray.set(b, 0, 42)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b05_local_fn_outer_region_run.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  let setz(b: MutableArray[h1, Int32]): Unit @ {Heap[h1]} = run h1 { MutableArray.set(b, 0, 42) }
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b06_lambda_param_run_nocall.kel ====
+let f(): Int32 = {
+  let setz = fn(a) => run h { MutableArray.set(a, 0, 42) }
+  3
+}
+echoln(show(f()))
+==== 確認1/b07_with_drop_in_run.kel ====
+let drop[F](k: () => Unit @ F): Unit = ()
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  with _ = drop()
+  MutableArray.set(a, 0, 42)
+}
+echoln("ok")
+==== 確認1/b08_with_later_in_run.kel ====
+let later[F](k: () => Unit @ F): () => Unit @ F = k
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  let k = run h {
+    with _ = later()
+    MutableArray.set(a, 0, 42)
+  }
+  k()
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b09_ref_holding_arg.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  let r = Ref.new(a)
+  MutableArray.set(Ref.get(r), 0, 42)
+}
+echoln("ok")
+==== 確認1/b10_handler_clause_in_run.kel ====
+effect W = { w: () => Unit }
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  (perform W.w()) handle {
+    case W.w() => { MutableArray.set(a, 0, 42); resume() }
+  }
+}
+echoln("ok")
+==== 確認1/b11_handler_around_run.kel ====
+effect W = { w: () => Unit }
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  let s = Ref.new(1)
+  perform W.w()
+} handle {
+  case W.w() => { MutableArray.set(a, 0, 42); resume() }
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b12_annot_h_inside_run.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  run h {
+    let b: MutableArray[h, Int32] = MutableArray.new(1, 0)
+    MutableArray.set(b, 0, 1)
+  }
+  MutableArray.set(a, 0, 42)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b13_annot_h_inside_run_alias.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  let b: MutableArray[h, Int32] = a
+  MutableArray.set(b, 0, 42)
+}
+echoln("ok")
+==== 確認1/b14_infer_row_param_run.kel ====
+let setz[h](a: MutableArray[h, Int32]) = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 確認1/b15_pub_run_heap.kel ====
+pub let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 確認1/b16_two_arrays_write_both.kel ====
+let cp[h, k](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[h], Heap[k]} = {
+  MutableArray.set(a, 0, 1)
+  MutableArray.set(b, 0, 2)
+}
+echoln("ok")
+==== 確認1/b17_write_second_param.kel ====
+let setb[h, k](a: MutableArray[h, Int32], b: MutableArray[k, Int32]): Unit @ {Heap[h], Heap[k]} = MutableArray.set(b, 0, 2)
+echoln("ok")
+==== 確認1/b18_lambda_param_in_run_row_annot.kel ====
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  let setz = fn(b: MutableArray[h1, Int32]) => run h2 { MutableArray.set(b, 0, 42) }
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b19_write_and_print.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Console, Heap[h]} = {
+  echoln("writing")
+  MutableArray.set(a, 0, 42)
+}
+let f(): Int32 @ Console = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b20_letrec_write.kel ====
+let rec fill[h](a: MutableArray[h, Int32], i: Int32): Unit @ {Heap[h]} = i match {
+  case 0 => ()
+  case _ => { MutableArray.set(a, i - 1, i); fill(a, i - 1) }
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(3, 0)
+  fill(a, 3)
+  MutableArray.get(a, 2)
+}
+echoln(show(f()))
+==== 確認1/b21_inner_local_same_param.kel ====
+let outer[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  let inner(b: MutableArray[h, Int32]) = MutableArray.set(b, 0, 7)
+  inner(a)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  outer(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b22_run_for_temp_then_write.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  let x = run h { let t = Ref.new(40); Ref.set(t, Ref.get(t) + 2); Ref.get(t) }
+  MutableArray.set(a, 0, x)
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b23_undeclared_h_param.kel ====
+let setz(a: MutableArray[h, Int32]) = run h2 { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 確認1/b24_undeclared_h_param_same_name.kel ====
+let setz(a: MutableArray[h, Int32]) = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 確認1/b25_ref_holding_array_param_same_region.kel ====
+let setr[h](r: Ref[h, MutableArray[h, Int32]]): Unit @ {Heap[h]} = MutableArray.set(Ref.get(r), 0, 42)
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setr(Ref.new(a))
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b26_lambda_capture_arg_run_called.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  let k = fn() => run h2 { MutableArray.set(a, 0, 42) }
+  k()
+}
+echoln("ok")
+==== 確認1/b27_return_from_run_then_write.kel ====
+let setz[h](a: MutableArray[h, Int32]): MutableArray[h, Int32] @ {Heap[h]} = {
+  let b = run h { a }
+  MutableArray.set(b, 0, 42)
+  b
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  MutableArray.get(setz(a), 0)
+}
+echoln(show(f()))
+==== 確認1/b28_closure_in_run_called_outside.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = {
+  let k = run h { fn() => MutableArray.set(a, 0, 42) }
+  k()
+}
+let f(): Int32 = run h1 {
+  let a = MutableArray.new(1, 0)
+  setz(a)
+  MutableArray.get(a, 0)
+}
+echoln(show(f()))
+==== 確認1/b29_with_passthrough_in_run.kel ====
+let with_value[A, B, E](x: A, body: (A) => B @ E): B @ E = body(x)
+let setz[h](a: MutableArray[h, Int32]): Unit @ {Heap[h]} = run h {
+  with b = with_value(a)
+  MutableArray.set(b, 0, 42)
+}
+echoln("ok")
+==== 確認1/b30_pub_param_named_h_row_order.kel ====
+pub let setz[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} = run h {
+  let t = Ref.new(0)
+  MutableArray.length(a)
+  ()
+}
+echoln("ok")
+==== 確認1/p01_second_h_uncalled_lambda.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let w(): Int32 = {
+  let k = fn() => run h { let s = Ref.new(1); g(s, s) }
+  3
+}
+echoln(show(w()))
+==== 確認1/p02_second_h_uncalled_local_in_run.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  let k() = run h { let s = Ref.new(1); g(s, s) }
+  Ref.get(r)
+}
+echoln(show(f()))
+==== 確認1/p03_second_h_late_unify.kel ====
+let g[x, y](s: Ref[x, Int32]): Ref[y, Int32] @ {Heap[x], Heap[y]} = ???
+let w() = run h {
+  let s = Ref.new(1)
+  let t = g(s)
+  Ref.set(t, 5)
+  Ref.get(s)
+}
+echoln("ok")
+==== 確認1/p03b_second_h_late_unify_lambda.kel ====
+let g[x, y](s: Ref[x, Int32]): Ref[y, Int32] @ {Heap[x], Heap[y]} = ???
+let w(): Int32 = {
+  let k = fn() => run h {
+    let s = Ref.new(1)
+    let t = g(s)
+    Ref.set(t, 5)
+    Ref.get(s)
+  }
+  3
+}
+echoln(show(w()))
+==== 確認1/p03c_second_region_outer_hole.kel ====
+let mk2[a, b](u: Int32): Ref[b, Int32] @ {Heap[a], Heap[b]} = ???
+let f(): Int32 = run h1 {
+  let r = run h2 { let t = mk2(5); t }
+  7
+}
+echoln(show(f()))
+==== 確認1/p04_generalized_local_two_runs.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let rd(x) = Ref.get(x)
+  let y = run h2 { let s = Ref.new(2); rd(s) }
+  rd(r) + y
+}
+echoln(show(f()))
+==== 確認1/p04b_generalized_local_lambda_two_runs.kel ====
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  let rd = fn(x) => Ref.get(x)
+  let y = run h2 { let s = Ref.new(2); rd(s) }
+  rd(r) + y
+}
+echoln(show(f()))
+==== 確認1/p05_handled_expr_in_run.kel ====
+effect W = { w: () => Int32 }
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 {
+    (Ref.get(r) + perform W.w()) handle {
+      case W.w() => resume(1)
+    }
+  }
+}
+echoln(show(f()))
+==== 確認1/p06_par_map_in_run.kel ====
+let f(xs: Array[Int32]): Int32 = run h1 {
+  let s = Ref.new(1)
+  let ys = par_map(xs, fn(x) => x + Ref.get(s))
+  Array.get(ys, 0)
+}
+echoln("ok")
+==== 確認1/p07_second_h_in_lambda_called.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  run h {
+    let s = Ref.new(1)
+    let k = fn() => g(s, s)
+    k()
+  }
+}
+echoln(show(f()))
+==== 確認1/p08_second_h_with_cont.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let later[F](k: () => Int32 @ F): () => Int32 @ F = k
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  let k = run h {
+    let s = Ref.new(1)
+    with _ = later()
+    g(r, s)
+  }
+  3
+}
+echoln(show(f()))
+==== 確認1/p09_second_h_is_h_first_other.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  run h { let s = Ref.new(1); g(r, s) }
+}
+echoln(show(f()))
+==== 確認1/p10_second_h_passed_hof.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let app[A, E](k: () => A @ E): A @ E = k()
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  run h { let s = Ref.new(1); app(fn() => g(s, s)) }
+}
+echoln(show(f()))
+==== 確認1/p11_third_heap_is_h.kel ====
+let g3[x, y, z](s: Ref[x, Int32], t: Ref[y, Int32], u: Ref[z, Int32]): Int32 @ {Heap[x], Heap[y], Heap[z]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  run h2 { let s = Ref.new(1); g3(s, r, s) }
+}
+echoln(show(f()))
+==== 確認1/p12_second_third_heap_h.kel ====
+let g3[x, y, z](s: Ref[x, Int32], t: Ref[y, Int32], u: Ref[z, Int32]): Int32 @ {Heap[x], Heap[y], Heap[z]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(2)
+  run h2 { let s = Ref.new(1); g3(s, s, s) }
+}
+echoln(show(f()))
+==== 確認1/p13_third_heap_ok.kel ====
+let g3[x, y, z](s: Ref[x, Int32], t: Ref[y, Int32], u: Ref[z, Int32]): Int32 @ {Heap[x], Heap[y], Heap[z]} = Ref.get(s)
+let f(): Int32 = run h0 {
+  let q = Ref.new(3)
+  run h1 {
+    let r = Ref.new(2)
+    run h2 { let s = Ref.new(1); g3(s, r, q) }
+  }
+}
+echoln(show(f()))
+==== 確認1/p14_third_heap_h_infer_outer.kel ====
+let g3[x, y, z](s: Ref[x, Int32], t: Ref[y, Int32], u: Ref[z, Int32]): Int32 @ {Heap[x], Heap[y], Heap[z]} = Ref.get(s)
+let w(r) = run h2 { let s = Ref.new(1); g3(s, r, s) }
+echoln("ok")
+==== 確認2/t1_p52_closure_in_same_name_run.kel ====
+let bump[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h { fn() => MutableArray.set(a, 0, 42) }
+  k()
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 確認2/t2_p52_with_defer.kel ====
+let defer[k, A](body: () => A @ {Heap[k]}): () => A @ {Heap[k]} = body
+let bump[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h {
+    with _ = defer()
+    MutableArray.set(a, 0, 42)
+  }
+  k()
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 確認2/t2b_p52_with_defer_open.kel ====
+let defer[k, A, E](body: () => A @ {Heap[k] extends E}): () => A @ {Heap[k] extends E} = body
+let bump[h, E](a: MutableArray[h, Int32]): Int32 @ {Heap[h] extends E} = {
+  let k = run h {
+    with _ = defer()
+    MutableArray.set(a, 0, 42)
+  }
+  k()
+  MutableArray.get(a, 0)
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); bump(a) }
+echoln(show(f()))
+==== 確認2/t3_p52_return_and_write_norun.kel ====
+let setz[h](a: MutableArray[h, Int32]) = {
+  MutableArray.set(a, 0, 42)
+  a
+}
+let f(): Int32 = run h1 { let a = MutableArray.new(1, 0); MutableArray.get(setz(a), 0) }
+echoln(show(f()))
+==== 確認2/t4_p52_same_name_closed_heap.kel ====
+let setz[h](a: MutableArray[h, Int32]): Unit @ Heap[h] = run h { MutableArray.set(a, 0, 42) }
+echoln("ok")
+==== 確認2/t5_p52_same_name_get.kel ====
+let first[h](a: MutableArray[h, Int32]): Int32 @ Heap[h] = run h { MutableArray.get(a, 0) }
+echoln("ok")
+==== 確認2/t6_p48_l14_second_is_h_in_fn.kel ====
+let g[x, y](s: Ref[x, Int32], t: Ref[y, Int32]): Int32 @ {Heap[x], Heap[y]} = Ref.get(s)
+let f(): Int32 = run h1 {
+  let r = Ref.new(1)
+  run h2 { let s = Ref.new(5); g(s, s) }
+}
+echoln(show(f()))
+==== 確認2/t7_pub_omitted_write.kel ====
+pub let setz[h](a: MutableArray[h, Int32]): Unit = MutableArray.set(a, 0, 42)
+echoln("ok")
