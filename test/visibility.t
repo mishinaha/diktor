@@ -146,7 +146,8 @@ pub エイリアスは、その型の素性を作者の選択として外へ見�
 
 module の中で宣言した EffectRow エイリアスは、同じ module の中から修飾せずに、
 @ の後ろ、行の要素、extends の右、行を取る型引数、EffectRow エイリアスの右辺に
-書ける。どの位置でも W は Print を含む行として読まれ、実行もできる:
+書ける。どの位置でも W は Print を含む行として読まれ、@ の後ろに W を書いた関数は
+実行もできる:
 
   $ cat > visrow1.kel <<'KEL'
   > newtype Cb[E] = Cb(() => Unit @ E)
@@ -191,8 +192,8 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
   [1]
 
-module の外から修飾せずに書くと、未知のエフェクトとして拒否する。pub の EffectRow
-エイリアスなら修飾を案内し、pub でなければ案内しない:
+module の外から、引数の無い W を修飾せずに @ の後ろに書くと、未知のエフェクトとして
+拒否する。pub の EffectRow エイリアスなら修飾を案内し、pub でなければ案内しない:
 
   $ printf 'module M { pub type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow4.kel
   $ diktor --type-check visrow4.kel
@@ -203,8 +204,8 @@ module の外から修飾せずに書くと、未知のエフェクトとして�
   ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
   [1]
 
-module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
-エフェクト位置のエイリアスも、型の位置の T と同じく module の W を指し、
+型の位置では、module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
+エフェクト位置の EffectRow エイリアスも、型の位置の T と同じく module の W を指し、
 module の外では、トップレベルの W と T を指す:
 
   $ cat > visrow6.kel <<'KEL'
@@ -263,8 +264,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   ! visrow9.kel:2:26: 型エラー: 型エイリアス N.T が再帰しています(エイリアスは非再帰)
   [1]
 
-エフェクト位置で名前を覆うのは、module の EffectRow エイリアスだけである。
-module の newtype や Type エイリアスがエフェクトと同名でも、module の中の
+エフェクト位置で、module の宣言が同名の名前を覆うのは、EffectRow エイリアスのときだけ
+である。module の newtype や Type エイリアスがエフェクトと同名でも、module の中の
 @ の後ろや行の要素のその名前は、引数の有無によらず、エフェクトを指す:
 
   $ cat > visrow10.kel <<'KEL'
@@ -283,6 +284,21 @@ module の newtype や Type エイリアスがエフェクトと同名でも、m
   M.g : (Int32) => Int32 @ {Print, Console extends R1}
   M.h : (Int32) => Int32 @ {Heap[A] extends R1}
   M.k : (Int32) => Int32 @ {Heap[A] extends R1}
+  $ cat > visrow10b.kel <<'KEL'
+  > module N {
+  >   pub newtype Heap[A] = MkH(A)
+  >   type Console = Int32
+  >   let f(x: Int32): Int32 @ Console = x
+  >   let g(x: Int32): Int32 @ {Console, Print} = x
+  >   let h[H](x: Int32): Int32 @ Heap[H] = x
+  >   let k[H](x: Int32): Int32 @ {Heap[H]} = x
+  > }
+  > KEL
+  $ diktor --type-check visrow10b.kel
+  N.f : (Int32) => Int32 @ {Console extends R1}
+  N.g : (Int32) => Int32 @ {Console, Print extends R1}
+  N.h : (Int32) => Int32 @ {Heap[A] extends R1}
+  N.k : (Int32) => Int32 @ {Heap[A] extends R1}
 
 同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
 エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
@@ -305,6 +321,23 @@ module の newtype や Type エイリアスがエフェクトと同名でも、m
   M.g : (Int32) => Int32 @ {Console, Print extends R1}
   M.h : (Int32) => Int32 @ {Print extends R1}
   M.k : (Int32) => Int32 @ {Print, Console extends R1}
+  $ cat > visrow11b.kel <<'KEL'
+  > type W: EffectRow = {Console}
+  > type V[E]: EffectRow = {Print extends E}
+  > module N {
+  >   pub newtype V[A] = MkV(A)
+  >   type W = Int32
+  >   let f(x: Int32): Int32 @ W = x
+  >   let g(x: Int32): Int32 @ {W, Print} = x
+  >   let h[E](x: Int32): Int32 @ V[E] = x
+  >   let k[E](x: Int32): Int32 @ {V[E], Console} = x
+  > }
+  > KEL
+  $ diktor --type-check visrow11b.kel
+  N.f : (Int32) => Int32 @ {Console extends R1}
+  N.g : (Int32) => Int32 @ {Console, Print extends R1}
+  N.h : (Int32) => Int32 @ {Print extends R1}
+  N.k : (Int32) => Int32 @ {Print, Console extends R1}
 
 module の Type エイリアスと同名のエフェクトもトップレベルのエイリアスも無ければ、
 module の中で @ の後ろや行の要素に書いたその名前は、未知のエフェクトではなく、
