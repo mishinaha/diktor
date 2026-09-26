@@ -425,8 +425,8 @@ Run モードでも網羅性警告は stderr に出る:
   ⚠ 操作 ask の節は到達しません(前の節が既に取りこぼしません)
   42
 
-単一コンストラクタの引数に、リテラルや、コンストラクタが 2 つ以上ある型のパターンを書いた節は、
-取りこぼす節とみなす:
+Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Option を 1 つ持つ newtype の
+引数に Some(n) を書いた節は、取りこぼす節とみなす:
 
   $ cat > solelit.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -494,19 +494,37 @@ Run モードでも網羅性警告は stderr に出る:
   ! opcover.kel:2:9: 型エラー: 操作 ask の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case ask(...) を最後に置いてください
   [1]
 
-操作節の引数パターンの誤りは、取りこぼしより先に報告する:
+操作節の引数パターンの誤りは、取りこぼしより先に報告する。tell には絞り込みの節
+tell(0) しか無いが、報告するのは、その後ろにある ask の節の未知のコンストラクタである:
 
   $ cat > opunk.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
-  > effect Ask = { ask: (Box) => Int32 }
+  > effect Ask = { tell: (Int32) => Unit, ask: (Box) => Int32 }
   > let r = perform ask(MkBox(41)) handle {
+  >   case tell(0) => resume(())
   >   case ask(Foo(n)) => resume(n)
   >   case return(x) => x
   > }
   > echoln(show(r))
   > EOF2
   $ diktor opunk.kel
-  ! opunk.kel:4:12: 型エラー: 未知のコンストラクタ: Foo
+  ! opunk.kel:5:12: 型エラー: 未知のコンストラクタ: Foo
+  [1]
+
+操作節の引数パターンの誤りは、handle の本体の誤りより先に報告する。本体の + "x" より
+後ろの行にある、節のパターンのフィールドの個数の誤りを報告する:
+
+  $ cat > oporder.kel <<'EOF2'
+  > newtype Box = MkBox(Int32)
+  > effect Ask = { ask: (Box) => Int32 }
+  > let r = (perform ask(MkBox(41)) + "x") handle {
+  >   case ask(MkBox(n, m)) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor oporder.kel
+  ! oporder.kel:4:12: 型エラー: コンストラクタ MkBox のパターンは 1 個のフィールドを取ります(2 個与えられました)
   [1]
 
 ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
