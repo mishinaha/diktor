@@ -2768,7 +2768,9 @@ and release_rigids rigids =
    脱出検査が剛定数の入り込みを捕まえない(§11.27)。
 
    一般化しない束縛の終わりには、`generalize` の代わりに `Unify.lower_levels` を呼び、
-   型と台帳 `class_vars` に残った深い未定変数を束縛のレベルまで下げる。
+   型に残った深い未定変数と、本体を推論する間に台帳 `class_vars` に載った深い未定変数を、
+   束縛のレベルまで下げる。
+   台帳の範囲は、束縛の冒頭で `Unify.class_mark` が返した番号で区切る(第8章 §8.4)。
    下げずに環境へ置くと、後に続く一般化する束縛の `generalize` が、その変数を一般化してしまう。
 
    ### 注釈の精緻化は 1 回で済む
@@ -2834,6 +2836,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   if (not gen) && b.T.lb_tparams <> [] then
     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
   let lvl = level + 1 in
+  let mark = Unify.class_mark () in
   let extra_rigids = ref [] in
   let rigids = make_rigids lvl b.T.lb_tparams in
   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
@@ -2921,7 +2924,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
            後では Unbound が Generic に変わっていて判定できない *)
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty)
-      else Unify.lower_levels level fn_ty;
+      else Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
       { env with values = SMap.add x fn_ty env.values }
   | T.PWildcard ->
@@ -2929,12 +2932,12 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       if gen then (
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty)
-      else Unify.lower_levels level fn_ty;
+      else Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
       env
   | _ ->
       (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる *)
-      if not gen then Unify.lower_levels level fn_ty;
+      if not gen then Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in

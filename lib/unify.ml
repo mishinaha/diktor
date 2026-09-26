@@ -19,6 +19,7 @@
    | `unify` / `add_class` | 第11章(elab.ml)の全規則、第10章(exhaust.ml)の 1 か所 |
    | `generalize` | 第11章の let 束縛と、宣言から作るスキーマ |
    | `check_ambiguity` / `default_numerics` | 第11章の let 束縛と宣言の終わり |
+   | `lower_levels` / `class_mark` | 第11章の一般化しない let 束縛 |
    | `reset` | 第11章の検査の開始時と、パス 2 の直前 |
    | `instantiate` / `skolemize` | 第11章のスキーマの使用点(変数参照、演算子、操作)と、インスタンス本体の包摂検査 |
    | `subst_params` | 第10章と第11章でのコンストラクタのフィールドの展開 |
@@ -251,18 +252,36 @@ let rec occurs_adjust tv lvl t =
    ### 台帳 class_vars
 
    `class_vars` は、制約が付いた変数を記録する台帳である。
-   台帳は 2 つの処理が使う。
-   1 つは、予約述語つきの変数を宣言の終わりに既定の型へ落とす処理(§8.9 の `default_numerics`)で、
-   もう 1 つは、型から到達できない制約つき変数を報告する曖昧性検査(§8.9 の `check_ambiguity`)である。
-   どちらも、一般化や宣言の終わりまで決まらなかった制約つき変数を扱うので、同じ台帳を使う。
+   台帳は 3 つの処理が使う。
+   1 つ目は、予約述語つきの変数を宣言の終わりに既定の型へ落とす処理(§8.9 の `default_numerics`)、
+   2 つ目は、型から到達できない制約つき変数を報告する曖昧性検査(§8.9 の `check_ambiguity`)、
+   3 つ目は、一般化しない束縛の終わりに深い変数のレベルを下げる処理(§8.9 の `lower_levels`)である。
+   どれも、型がまだ決まっていない制約つき変数を扱うので、同じ台帳を使う。
    既定化は台帳を掃き出すだけで、型から到達できるかどうかは調べない。
-   到達を調べるのは曖昧性検査だけである。 *)
+   到達を調べるのは曖昧性検査だけである。
+
+   台帳の項目には、載せた順に通し番号を付ける。
+   新しい項目は先頭に積み、曖昧性検査が台帳を作り直すときも順序を保つので、
+   台帳は番号の大きい順に並ぶ。
+   `lower_levels` は、束縛の本体を推論する前に `class_mark` で覚えた番号より大きい項目、
+   つまりその本体を推論する間に載った項目だけをたどる。 *)
 
 let is_predicate c = c = cls_integral || c = cls_fractional
 
-(* 制約つき変数の台帳(宣言終了時の default_numerics が掃き、
-   check_ambiguity が到達不能な制約を報告する) *)
-let class_vars : tvar ref list ref = ref []
+(* 制約つき変数の台帳。項目は (通し番号, 変数) で、番号の大きい順に並ぶ。
+   宣言の終わりに default_numerics が掃き、check_ambiguity が到達不能な制約を報告し、
+   lower_levels が束縛の本体を推論する間に載った変数のレベルを下げる *)
+let class_vars : (int * tvar ref) list ref = ref []
+
+(* 最後に振った通し番号。reset でも戻さないので、番号は台帳を空にしても重ならない *)
+let class_seq = ref 0
+
+let note_class_var v =
+  incr class_seq;
+  class_vars := (!class_seq, v) :: !class_vars
+
+(* いまの番号。これより後に台帳へ載る項目は、これより大きい番号を持つ *)
+let class_mark () = !class_seq
 
 (* 制約つきの新変数はここで作り、作った時点で台帳に載せる。
    instantiate、subst_params、第11章のコンストラクタの具体化(dd_params の展開)もここを通る。
@@ -272,7 +291,7 @@ let class_vars : tvar ref list ref = ref []
    別の経路で作ると、その変数の制約は曖昧性検査に届かない *)
 let new_class_var ~kind ~classes level =
   let v = new_var ~kind ~classes level in
-  (match v with TVar r when classes <> [] -> class_vars := r :: !class_vars | _ -> ());
+  (match v with TVar r when classes <> [] -> note_class_var r | _ -> ());
   v
 
 let rec add_class t c =
@@ -288,7 +307,7 @@ let rec add_class t c =
       | Unbound i ->
           if not (List.mem c i.vcls) then (
             v := Unbound { i with vcls = c :: i.vcls };
-            class_vars := v :: !class_vars)
+            note_class_var v)
       | Rigid i | Generic i ->
           (* Generic に届くのは、宣言のスキーマの中(newtype のフィールドや
              クラスメソッドの型)で制約つきエイリアスを展開したとき。規則は
@@ -675,10 +694,15 @@ let rec generalize level t =
    値でない束縛も、一般化する束縛と同じく、本体を 1 つ深いレベルで推論する(第11章 §11.28)。
    型に残った変数を深いまま環境に置くと、後に続く一般化する束縛の `generalize` が、
    その変数を一般化してしまう。
-   台帳 `class_vars` の変数も下げる。
-   下げないと、曖昧な制約を報告する位置が、後に続く無関係な束縛に移る。
+   台帳 `class_vars` のうち番号が `since` より大きい項目、
+   つまり束縛の本体を推論する間に載った変数も下げる。
+   下げないと、その本体で生じた曖昧な制約を報告する位置が、後に続く無関係な束縛に移る。
+   束縛より前に載った項目には触らない。
+   台帳の全体をたどると、値でない束縛を並べた本体で、束縛の数の二乗の時間がかかる。
+   束縛の外で生じた深い変数まで下げるので、無関係な値でない束縛を挟むだけで、
+   曖昧な制約を報告する位置も変わる。
    `Rigid` と `Generic` には触らない *)
-let lower_levels level t =
+let lower_levels ~since level t =
   let lower v = match !v with Unbound i when i.vlevel > level -> v := Unbound { i with vlevel = level } | _ -> () in
   let rec go t =
     match repr t with
@@ -697,14 +721,15 @@ let lower_levels level t =
         go f;
         go rest
   in
-  List.iter lower !class_vars;
+  let rec walk = function (n, v) :: rest when n > since -> lower v; walk rest | _ -> () in
+  walk !class_vars;
   go t
 
 (* 宣言の終わりに、台帳に残った述語つきの弱い変数を既定の型に落とす。
    述語のない変数はどちらの分岐にも当たらず素通りする *)
 let default_numerics () =
   List.iter
-    (fun v ->
+    (fun (_, v) ->
       match !v with
       | Unbound { vcls; _ } ->
           if List.mem cls_integral vcls then bind v t_int32
@@ -746,10 +771,10 @@ let check_ambiguity ~all ~level tys =
   List.iter (fun t -> collect_vars t reach) tys;
   let kept = ref [] in
   List.iter
-    (fun v ->
+    (fun ((_, v) as e) ->
       match !v with
       | Unbound i ->
-          kept := v :: !kept;
+          kept := e :: !kept;
           if
             (all || i.vlevel > level)
             && i.vcls <> []
