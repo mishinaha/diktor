@@ -805,7 +805,8 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    OCaml も 2 度目の `continue` で `Continuation_already_resumed` を投げるが、
    それでは Keleut のエラーとして説明にならないので、先に自前で検査して日本語のメッセージを出す。
    second-class の検査は 2 段構えで、実行時の `r_alive` はその片方である。
-   もう片方は、節本体のラムダ式や関数束縛の本体に `resume` があれば拒否する構文検査で、elab にある。
+   もう片方は、節本体のラムダ式や関数束縛の本体に、その節の `resume` があれば拒否する構文検査で、
+   elab にある。
 
    ### cancel 節の実行文脈
 
