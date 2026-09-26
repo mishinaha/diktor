@@ -2936,13 +2936,16 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       release_rigids rigids;
       env
   | _ ->
-      (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる *)
+      (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる。
+         剛定数の解放は elab_pat の後に置く。elab_pat は fn_ty を単一化に使うので、
+         先に Generic へ書き換えると、単一化が Generic に出会って内部エラーになる
+         (頭の矢印に閉じた行を注釈した let (5) など) *)
       if not gen then Unify.lower_levels ~since:mark level fn_ty;
-      release_rigids rigids;
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in
       Exhaust.queue [ (b.T.lb_name, false) ] fn_ty;
       List.iter warn (Exhaust.drain ());
+      release_rigids rigids;
       env'
 
 (* ## 11.29 let rec
