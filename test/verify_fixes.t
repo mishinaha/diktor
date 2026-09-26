@@ -98,6 +98,90 @@ vrgen の g の注釈に @ {Console} を足すと通る:
   $ diktor vrgen2.kel
   15
 
+本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いても、その注釈を経由して外側の
+Ref の中身の行を開くことはできない。g の束縛が型エラーになり、Heap[h] を読む閉包を
+run の外へ返せない(LangSpec §14.1):
+
+  $ cat > vrleak.kel <<'EOF'
+  > let escaped[E](): (Int32) => Int32 @ {Console extends E} = run h {
+  >   let slot = Ref.new(fn(x) => x)
+  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
+  >   let cell = Ref.new(41)
+  >   let _ = Ref.set(slot, fn(x) => Ref.get(cell) + x)
+  >   Ref.get(slot)
+  > }
+  > echoln(show(escaped()(1)))
+  > EOF
+  $ diktor vrleak.kel
+  ! vrleak.kel:3:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
+  [1]
+
+同じ形で Ask を起こす閉包を Ref に入れ、Ask の無い行の関数 bad から呼ぶプログラムも、
+g の束縛で型エラーになる:
+
+  $ cat > vrleak2.kel <<'EOF'
+  > effect Ask = { ask: () => Int32 }
+  > let bad(): Int32 @ {Console} = run h {
+  >   let slot = Ref.new(fn(x) => x)
+  >   let g: (Int32) => Int32 @ {Console} = Ref.get(slot)
+  >   let _ = Ref.set(slot, fn(x) => perform ask() + x)
+  >   Ref.get(slot)(1)
+  > }
+  > echoln(show(bad()))
+  > EOF
+  $ diktor vrleak2.kel
+  ! vrleak2.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
+  [1]
+
+Ref を使わない形でも、同じ束縛は型エラーになる。f の注釈の無い引数 z を、本体が値でない
+束縛 _ の注釈 @ {Console} に通すと、4 行目のその束縛で落ちる:
+
+  $ cat > vrleak3.kel <<'EOF'
+  > effect Ask = { ask: () => Int32 }
+  > let idf[A](x: A): A = x
+  > let f(z) = {
+  >   let _: (Int32) => Int32 @ {Console} = idf(z)
+  >   z(1)
+  > }
+  > let main(): Unit @ {Console} = echoln(show(f(fn(x) => perform ask() + x)))
+  > main()
+  > EOF
+  $ diktor vrleak3.kel
+  ! vrleak3.kel:4:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
+  [1]
+
+先に f の本体で呼んだ単相の束縛 h を、本体が値でない束縛 g の注釈 @ {Console} に通す形も、
+5 行目の g の束縛で型エラーになる:
+
+  $ cat > vrleak4.kel <<'EOF'
+  > let idf[A](x: A): A = x
+  > let f() = {
+  >   let h = idf(fn() => echoln("x"))
+  >   h()
+  >   let g: () => Unit @ {Console} = idf(h)
+  >   g()
+  > }
+  > f()
+  > EOF
+  $ diktor vrleak4.kel
+  ! vrleak4.kel:5:7: 型エラー: 注釈された型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています)
+  [1]
+
+本体が値でない値束縛の注釈の頭の矢印に閉じた行を書いた g は、同じ行の文脈から 2 回呼べる:
+
+  $ cat > vrok.kel <<'EOF'
+  > let idf[A](x: A): A = x
+  > let f(): Int32 @ {Console} = {
+  >   let g: (Int32) => Int32 @ {Console} = idf(fn(x) => { echoln("g"); x })
+  >   g(1) + g(2)
+  > }
+  > echoln(show(f()))
+  > EOF
+  $ diktor vrok.kel
+  g
+  g
+  3
+
 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
 
   $ cat > pick.kel <<'EOF'
