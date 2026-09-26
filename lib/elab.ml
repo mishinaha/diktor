@@ -4264,7 +4264,9 @@ let check_instance_bodies env (i : T.instance_decl') =
    平坦化ではなく、パス 1a で行う。
    プレリュードの宣言表は、利用者の平坦化の時点ではまだ空なので、
    平坦化の時点で登録すると既存の名前との照合が働かず、
-   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す *)
+   module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す。
+   プレリュードと組み込みのエフェクト名(Console や Heap)との衝突も、ここで拒否する。
+   利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
 let register_companion tyname =
   match !Decls.current_module with
   | Some m when tyname = m ^ "." ^ m ->
@@ -4276,6 +4278,10 @@ let register_companion tyname =
         type_error
           ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存の型 " ^ m
          ^ " と同名です(module 内の型とトップレベルの型は同名にできません)")
+      else if Hashtbl.mem Decls.effects (intern m) then
+        type_error
+          ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存のエフェクト " ^ m
+         ^ " と同名です(型とエフェクトは同名にできません)")
       else Decls.add_con_synonym (intern m) (intern tyname)
   | _ -> ()
 

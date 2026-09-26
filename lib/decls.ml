@@ -284,7 +284,7 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
    `module BigInt` の中の `newtype BigInt` は `BigInt.BigInt` へ改名され、
    大域の同義語 `BigInt` → `BigInt.BigInt` が張られる。
    module の外から非修飾で見えてよい型名は、コンパニオンだけである。
-   ただし、コンパニオンは既存の型名とは衝突できない。
+   ただし、コンパニオンは既存の型名とも、エフェクト名とも衝突できない。
    黙って同義語を張ると、`module Foo` を 1 行足すだけでトップレベルやプレリュードの型 `Foo` が乗っ取られ、
    名目型の抽象が破れる。
    プレリュードの名前が乗っ取られると、処理系そのものが正しく動かなくなる。
