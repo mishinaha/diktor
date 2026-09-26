@@ -195,6 +195,21 @@ Ref を使わない形でも、同じ束縛は型エラーになる。f の注�
   ! patrigid2.kel:1:10: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
+前提つきインスタンスの、本体が値でないメソッドも、注釈にインスタンスの頭の型パラメータ
+A を使える:
+
+  $ cat > instnv.kel <<'EOF'
+  > let idf[A](x: A): A = x
+  > type class Sz[T] { val sz: (T) => Int32 }
+  > newtype Box[A] = Box(A)
+  > type instance[A] Sz[Box[_]] {
+  >   let sz: (Box[A]) => Int32 @ {} = idf(fn(b) => 1)
+  > }
+  > echoln(show(sz(Box("x"))))
+  > EOF
+  $ diktor instnv.kel
+  1
+
 型クラスディスパッチはクラスパラメータ位置で選ぶ(第1引数の別の型に釣られない):
 
   $ cat > pick.kel <<'EOF'
