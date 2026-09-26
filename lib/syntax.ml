@@ -34,7 +34,7 @@
    |---|---|
    | HM 多相・let 一般化 | 型変数の `vlevel` |
    | ランク 1 多相 | 量化子を型に持たず、`Generic` マークで表す |
-   | 値制限 | レベルを上げるかどうかを構文で決めるだけ(第11章) |
+   | 値制限 | 一般化するかどうかを構文で決めるだけ(第11章) |
    | レコード・タプル | 行と Scoped Labels。タプルは `_item` ラベルの行 |
    | 多引数関数 | `TArrow` の引数成分が閉じた `_item` 行 |
    | 構造的ヴァリアント | `TVariant`。中身は行 1 個 |
@@ -979,7 +979,7 @@ module Make (Data : Data) = struct
   and let_binding' = {
     lb_pub : bool;
     lb_name : pat; (* 関数定義なら PVar。値束縛はパターン可(match に脱糖) *)
-    lb_tparams : type_param list; (* let f[A, E] の [A, E]。値束縛にも付けられる *)
+    lb_tparams : type_param list; (* let f[A, E] の [A, E]。パーサが付けるのは関数束縛だけで、値束縛では常に空 *)
     lb_params : pat list option; (* None = 値束縛。Some ps = 関数定義 *)
     lb_ret : type_exp option; (* : T *)
     lb_eff : type_exp option; (* @ E *)

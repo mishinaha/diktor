@@ -612,6 +612,8 @@ and unify_row label field rest row2 =
    `Rigid` は一般化しない。
    剛定数はスコープの中で共有される定数で、「どんな型でもよい」とは逆の意味を持つ。
    一般化すると、`run` のリージョンの安全性も、注釈の検査も成り立たなくなる。
+   剛定数を Generic に書き換えるのは、
+   束縛のスコープを出るときの第11章の `release_rigids` である(§11.27)。
 
    ### 既定化は一般化より先に
 
@@ -668,6 +670,35 @@ let rec generalize level t =
   | TRowExtend (_, f, rest) ->
       generalize level f;
       generalize level rest
+
+(* 一般化しない束縛の終わりに、`level` より深い `Unbound` を `level` まで下げる。
+   値でない束縛も、一般化する束縛と同じく、本体を 1 つ深いレベルで推論する(第11章 §11.28)。
+   型に残った変数を深いまま環境に置くと、後に続く一般化する束縛の `generalize` が、
+   その変数を一般化してしまう。
+   台帳 `class_vars` の変数も下げる。
+   下げないと、曖昧な制約を報告する位置が、後に続く無関係な束縛に移る。
+   `Rigid` と `Generic` には触らない *)
+let lower_levels level t =
+  let lower v = match !v with Unbound i when i.vlevel > level -> v := Unbound { i with vlevel = level } | _ -> () in
+  let rec go t =
+    match repr t with
+    | TVar v -> lower v
+    | TCon (_, args) -> List.iter go args
+    | TApp (f, a) ->
+        go f;
+        go a
+    | TArrow (p, r, e) ->
+        go p;
+        go r;
+        go e
+    | TRecord row | TVariant row -> go row
+    | TRowEmpty -> ()
+    | TRowExtend (_, f, rest) ->
+        go f;
+        go rest
+  in
+  List.iter lower !class_vars;
+  go t
 
 (* 宣言の終わりに、台帳に残った述語つきの弱い変数を既定の型に落とす。
    述語のない変数はどちらの分岐にも当たらず素通りする *)

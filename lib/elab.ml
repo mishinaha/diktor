@@ -1256,9 +1256,10 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
    可変参照がある言語で一般化を無条件に許すと不健全になるので、どこかで線を引く必要がある。
    その線を構文で引くのが、最も安上がりである。
 
-   実装は、値でないときはレベルを上げない、というだけである。
-   レベルを上げなければ、その束縛では一般化されない。
-   専用のフラグも後処理もない。
+   実装は、値でない束縛の終わりに、`generalize` の代わりに `Unify.lower_levels` を呼ぶ。
+   本体は、値かどうかにかかわらず 1 つ深いレベルで推論する。
+   `lower_levels` が深いレベルに残った未定変数を束縛のレベルまで下げるので、
+   その束縛の型は単相のまま環境に入る(§11.28)。
 
    ブロック(`Seq` や `Let` の連鎖)は、保守的に非値とする。
    中身を見れば値と分かるブロックもあるが、中身を見ないと決めておくほうが規則が短く、
@@ -2369,6 +2370,11 @@ and method_scheme cls m =
    2. 本体の検査の間、代入されないことと外へ漏れないことを、単一化が見張る
    3. スコープを出たら、`release_rigids` が Generic に書き換える(§11.27)
 
+   値束縛の注釈の頭の矢印に書いた閉じた行の尾部と、`pub` の省略 `@` の行に置く剛定数も(§11.26)、
+   本体が値かどうかにかかわらず、束縛のレベル + 1 で作る。
+   束縛と同じレベルで作ると、剛定数が外側の単相の型変数に入り込んでも、
+   `occurs_adjust` はそれを漏れとみなさず、2 段目の見張りが働かない(§11.17)。
+
    この 3 段により、注釈つきの束縛の型は、本体の検査では剛定数を含む型として、
    環境の中では多相な型として働く。
    そのため、型スキーマ専用のデータ型は 1 つも要らない。
@@ -2543,8 +2549,16 @@ and open_explicit_eff lvl eff =
    木にはすでに `set_ty` 済みの型が入っていて、それとの共有を切らないためである。
 
    安全性の根拠は、書き換える側ではなく検査する側にある。
-   剛定数が外へ漏れていれば、ここに至るまでに `unify` と `occurs_adjust` が捕まえている(第8章)。
-   ここまで来たなら剛定数は漏れていないので、無条件に Generic にしてよい。
+   剛定数は束縛のレベル + 1 で作る(§11.25)。
+   そのため、剛定数が外へ漏れていれば、
+   ここに至るまでに `unify` と `occurs_adjust` が捕まえている(第8章)。
+   ここまで来たなら剛定数は漏れていないので、束縛を一般化するかどうかにかかわらず、
+   無条件に Generic にしてよい。
+   剛定数を外側の単相の型変数と同じレベルで作ると、この前提が崩れる。
+   剛定数はその型変数に入り込んでも捕まらず、ここで Generic に変わる。
+   その型変数を型に含む変数は、参照するたびに、その行が別の行へ具体化される。
+   `run` の中の `Ref` なら、`Ref.set` で `Heap[h]` を足した行と `Ref.get` で取り出した行が別になり、
+   `Heap[h]` を読む閉包が `run` の外へ出る。
    ただし `let rec` の群では、相手の束縛をまだ検査していない時点でここへ来る経路があるので、
    相手に入り込んだ剛定数の解放を群の終わりまで遅らせる(§11.29)。
 
@@ -2574,7 +2588,7 @@ and release_rigids rigids =
    let gen = is_fun || is_value b.T.lb_body
    ```
 
-   この 1 行が値制限のすべてである。
+   本体の推論で生じた未定変数を一般化するかどうかは、この 1 行で決まる。
    注釈が書いてあることは、一般化の条件に含めない。
    次の束縛は注釈を持つが、右辺の `Ref.new(...)` は関数の適用で値ではないので、一般化しない。
 
@@ -2582,21 +2596,36 @@ and release_rigids rigids =
    let slot: Ref[h, T] = Ref.new(...)
    ```
 
-   注釈は、多相にしてよいことの証明にならない。
-   多相にしてよいことを示すのは、値であることだけである。
+   注釈は、未定変数を多相にしてよいことの証明にならない。
+   未定変数を多相にしてよいことを示すのは、値であることだけである。
    一般に、非値の束縛の型に残った未定変数を一般化すると、可変参照を通じて不健全になる。
+
+   例外は、値束縛の注釈の頭の矢印に書いた閉じた空でない行の尾部である。
+   この尾部は注釈から作った剛定数なので、
+   束縛を一般化しなくても `release_rigids` が Generic にする(§11.27)。
+   本体はこの尾部を抽象的な行のまま検査を通っているので、使うたびに別の行へ具体化しても健全である。
+   本体の型の行が外側の単相の型変数と共有されていれば、
+   剛定数の漏れとして本体の検査で落ちる(§11.25)。
 
    同じ理由で、非値の束縛に型パラメータを書くことも拒否する。
    型パラメータを書くことは多相化の要求であり、値制限に反する。
+   ただし、パーサが型パラメータを付けるのは関数束縛だけなので、この拒否に至るプログラムは無い。
+   値束縛に型パラメータを書けるように文法を広げたときの防御である。
 
    一方、本体が純粋であることは、行を多相にしてよいことの証明になる(§11.26 の `reopen_pure_row`)。
    値であることが型の多相の根拠であるのに対し、こちらは行の多相の根拠である。
    ただし、行を開き直すのも一般化する束縛に限る(§11.26 の 1 つ目のガード)。
 
-   ### 一般化しないときはレベルを上げない
+   ### 一般化しないときは、レベルを下げて単相に戻す
 
-   `lvl = if gen then level + 1 else level` の 1 行で済む。
-   レベルを上げなければ `generalize` は何も一般化しないので、フラグも後処理も要らない。
+   本体は、一般化するかどうかにかかわらず、レベルを 1 つ上げて推論する(`lvl = level + 1`)。
+   注釈の頭の行の尾部と `pub` の省略 `@` の剛定数も、このレベルで作る。
+   一般化しない束縛でレベルを上げないと、剛定数が外側の単相の型変数と同じレベルになり、
+   脱出検査が剛定数の入り込みを捕まえない(§11.27)。
+
+   一般化しない束縛の終わりには、`generalize` の代わりに `Unify.lower_levels` を呼び、
+   型と台帳 `class_vars` に残った深い未定変数を束縛のレベルまで下げる。
+   下げずに環境へ置くと、後に続く一般化する束縛の `generalize` が、その変数を一般化してしまう。
 
    ### 注釈の精緻化は 1 回で済む
 
@@ -2660,7 +2689,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   let gen = is_fun || is_value b.T.lb_body in
   if (not gen) && b.T.lb_tparams <> [] then
     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
-  let lvl = if gen then level + 1 else level in
+  let lvl = level + 1 in
   let extra_rigids = ref [] in
   let rigids = make_rigids lvl b.T.lb_tparams in
   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
@@ -2747,18 +2776,21 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         (* 一般化の直前に曖昧性を調べる。generalize より前でなければならない。
            後では Unbound が Generic に変わっていて判定できない *)
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
-        Unify.generalize level fn_ty);
+        Unify.generalize level fn_ty)
+      else Unify.lower_levels level fn_ty;
       release_rigids rigids;
       { env with values = SMap.add x fn_ty env.values }
   | T.PWildcard ->
       List.iter warn (Exhaust.drain ());
       if gen then (
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
-        Unify.generalize level fn_ty);
+        Unify.generalize level fn_ty)
+      else Unify.lower_levels level fn_ty;
       release_rigids rigids;
       env
   | _ ->
       (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる *)
+      if not gen then Unify.lower_levels level fn_ty;
       release_rigids rigids;
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in
