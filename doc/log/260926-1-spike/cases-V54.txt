@@ -1,0 +1,735 @@
+==== 統括者/c01_nested_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call(f: () => Unit @ A): Unit @ A = f()
+==== 統括者/c02_nested_closed_brace.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call(f: () => Unit @ {A}): Unit @ {A} = f()
+==== 統括者/c03_extends.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = f()
+==== 統括者/c04_call_toplevel_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r(): Unit @ A = q()
+==== 統括者/c05_call_explicit_pure.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let p(): Unit @ {} = {}
+let r(): Unit @ A = p()
+==== 統括者/c06_param_omitted.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit): Unit @ A = f()
+==== 統括者/c07_pure_body_pure_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit): Unit @ {} = f()
+==== 統括者/c08_value_binding.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let k: (() => Unit @ A) => Unit @ A = fn(f) => f()
+==== 統括者/c09_local_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let g(): Unit @ A = perform opa()
+  g()
+}
+==== 統括者/c10_more_labels.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ {A, B}): Unit @ A = f()
+==== 統括者/c11_record_field.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(p: {f: () => Unit @ A}): Unit @ A = p.f()
+==== 統括者/c12_via_hof.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let app[E](k: () => Unit @ E): Unit @ E = k()
+let r(f: () => Unit @ A): Unit @ A = app(f)
+==== 統括者/c13_inline_lambda.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = (fn() => perform opa())()
+==== 統括者/c14_pub.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let r(f: () => Unit @ A): Unit @ A = f()
+==== 統括者/c15_two_labels.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ {A, B}): Unit @ {A, B} = f()
+==== 統括者/c16_open_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ E): Unit @ A = f()
+==== 統括者/c17_param_extends_only.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ {A extends E}): Unit @ A = f()
+==== 統括者/c18_local_lambda_closed_annot.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let g: () => Unit @ A = fn() => perform opa()
+  g()
+}
+==== 統括者/c19_value_binding_closed_call.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let k: () => Unit @ A = fn() => q()
+==== 統括者/c20_return_closed_fn.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let mk(): () => Unit @ A = fn() => perform opa()
+let r(): Unit @ A = mk()()
+==== 統括者/c21_generic_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[T](f: (T) => Unit @ A, x: T): Unit @ A = f(x)
+==== 統括者/c22_handler_inside.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ {A, B}): Unit @ A = f() handle { case opb() => resume(()) }
+==== 統括者/c23_empty_row_brace_pure_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ {}): Unit @ {A} = f()
+==== 統括者/c24_unannot_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f): Unit @ A = f()
+==== 統括者/c25_extends_body_closed_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ {A}): Unit @ {A extends E} = f()
+==== 統括者/c26_pure_body_typeparam.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ E): Unit @ {} = f()
+==== 統括者/c27_generalized_local.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let g() = perform opa()
+  g()
+}
+==== 統括者/c28_perform_only.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = perform opa()
+==== 統括者/c29_closed_body_calls_pure_toplevel_inferred.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let p() = 1
+let r(): Int32 @ A = p()
+==== 統括者/c30_closed_body_calls_open_poly_hof.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let app[E](k: () => Unit @ E): Unit @ E = k()
+let r(): Unit @ A = app(fn() => perform opa())
+==== 統括者/c31_closed_body_calls_each.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(xs: Array[Int32]): Unit @ A = Array.each(xs, fn(x) => perform opa())
+==== 統括者/c32_value_bind_closed_param_lambda.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let k: (() => Unit @ {A}) => Unit @ {A} = fn(f) => f()
+==== 統括者/c33_typeparam_row_closed_body.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = f()
+let s(): Unit @ A = r(fn() => perform opa())
+==== 統括者/c34_closed_body_param_closed_record_tuple.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(p: (() => Unit @ A, Int32)): Unit @ A = p._1()
+==== 統括者/d01_valbind_closed_fn_value.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type F = () => Unit @ A
+let g: F = fn() => perform opa()
+let k: () => Unit @ A = g
+==== 統括者/d02_valbind_opened_binding.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let k: () => Unit @ A = q
+==== 統括者/d03_valbind_lambda_ok.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let k: () => Unit @ A = fn() => perform opa()
+==== 統括者/d04_label_subset.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r(): Unit @ {A, B} = q()
+==== 統括者/d05_both_E.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ E): Unit @ E = f()
+let s(): Unit @ A = call(fn() => perform opa())
+==== 統括者/d06_inferred_closed_binding.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r0(f: () => Unit @ A) = f()
+let r(): Unit @ A = r0(fn() => perform opa())
+==== 統括者/d07_enclosing_typeparam.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let outer[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = {
+  let inner(): Unit @ A = f()
+  f()
+}
+==== 反証1/b01_pub_calls_toplevel_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+pub let r(): Unit @ A = q()
+==== 反証1/b02_pub_calls_explicit_pure.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let p(): Unit @ {} = {}
+pub let r(): Unit @ A = p()
+==== 反証1/b03a_class_method_param_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type class C[T] { val m: (T, () => Unit @ A) => Unit @ A }
+type instance C[Int32] { let m(x, f) = f() }
+==== 反証1/b03b_class_method_calls_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+type class C[T] { val m: (T) => Unit @ A }
+type instance C[Int32] { let m(x) = q() }
+==== 反証1/b03c_class_method_param_closed_annot.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type class C[T] { val m: (T, () => Unit @ A) => Unit @ A }
+type instance C[Int32] { let m(x: Int32, f: () => Unit @ A): Unit @ A = f() }
+==== 反証1/b04_extern_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+extern "prim" let e_a(x: Int32): Unit @ A
+let r(): Unit @ A = e_a(1)
+==== 反証1/b05a_valbind_nonvalue_calls_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let k: () => Unit @ A = { let z = 1; fn() => q() }
+==== 反証1/b05b_valbind_nonvalue_calls_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let mk(): () => Unit @ A = fn() => perform opa()
+let k: () => Unit @ A = { let g = mk(); fn() => g() }
+==== 反証1/b06_alias_head_valbind.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type Th = () => Unit @ A
+let g: Th = fn() => perform opa()
+let r(): Unit @ A = g()
+==== 反証1/b07_local_calls_outer_typeparam_ext.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let outer[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = {
+  let inner(): Unit @ A = f()
+  f()
+}
+==== 反証1/b08_letrec_self.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec loop(n: Int32): Unit @ A = n match { case 0 => () case m => { perform opa(); loop(m - 1) } }
+==== 反証1/b09_letrec_param_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec r(f: () => Unit @ A, n: Int32): Unit @ A = n match { case 0 => f() case m => r(f, m - 1) }
+==== 反証1/b10_letrec_group_both_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec a(n: Int32): Unit @ A = b(n)
+and b(n: Int32): Unit @ A = perform opa()
+==== 反証1/b11_module.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+module M {
+  pub let q(): Unit @ A = perform opa()
+  pub let r(f: () => Unit @ A): Unit @ A = f()
+}
+==== 反証1/b11b_module_ok.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+module M {
+  pub let q(): Unit @ A = perform opa()
+  pub let r(): Unit @ A = q()
+}
+let s(): Unit @ A = M.q()
+==== 反証1/b12a_handler_clause_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = perform opb() handle { case opb() => { f(); resume(()) } }
+==== 反証1/b12b_handler_clause_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r(): Unit @ A = perform opb() handle { case opb() => { q(); resume(()) } }
+==== 反証1/b13a_with_lambda.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let around[E](k: () => Unit @ E): Unit @ E = k()
+let r(): Unit @ A = {
+  with _ = around()
+  perform opa()
+}
+==== 反証1/b13b_with_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let around[E](k: () => Unit @ E): Unit @ E = k()
+let r(f: () => Unit @ A): Unit @ A = {
+  with _ = around()
+  f()
+}
+==== 反証1/b14a_pass_no_call.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let store[E](g: () => Unit @ E): Int32 = 1
+let r(f: () => Unit @ A): Unit @ A = { let n = store(f); perform opa() }
+==== 反証1/b14b_bind_no_call.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = { let g = f; perform opa() }
+==== 反証1/b15_each_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(xs: Array[Int32], f: (Int32) => Unit @ A): Unit @ A = Array.each(xs, f)
+==== 反証1/b16a_rowalias_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type AB: EffectRow = {A, B}
+let r(f: () => Unit @ AB): Unit @ AB = f()
+==== 反証1/b16b_rowalias_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type AB: EffectRow = {A, B}
+let q(): Unit @ AB = { perform opa(); perform opb() }
+let r(): Unit @ AB = q()
+==== 反証1/b17a_heap_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[h](m: MutableArray[h, Int32], f: () => Unit @ Heap[h]): Unit @ Heap[h] = f()
+==== 反証1/b17b_heap_builtin.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[h](m: MutableArray[h, Int32]): Unit @ Heap[h] = MutableArray.set(m, 0, 1)
+==== 反証1/b17c_heap_toplevel_poly.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let w[h](m: MutableArray[h, Int32]): Unit @ Heap[h] = MutableArray.set(m, 0, 1)
+let r[h](m: MutableArray[h, Int32]): Unit @ Heap[h] = w(m)
+==== 反証1/b18a_pure_passed_nocall.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let p(): Unit @ {} = {}
+let store[E](g: () => Unit @ E): Int32 = 1
+let r(): Unit @ A = { let n = store(p); perform opa() }
+==== 反証1/b18b_pure_passed_hof.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let p(): Unit @ {} = {}
+let app[E](k: () => Unit @ E): Unit @ E = k()
+let r(): Unit @ A = app(p)
+==== 反証1/b19_local_calls_outer_typeparam_bare.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let outer[E](f: () => Unit @ E): Unit @ E = {
+  let inner(): Unit @ A = { f(); perform opa() }
+  f()
+}
+==== 反証1/b20a_nongen_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let id[T](x: T): T = x
+let h = id(fn() => perform opa())
+let r(): Unit @ A = h()
+==== 反証1/b20b_nongen_local.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let id[T](x: T): T = x
+let r(): Unit @ A = {
+  let h = id(fn() => perform opa())
+  h()
+}
+==== 反証1/b21_s5_arg_bare_E.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ E): Unit @ {A extends E} = f()
+==== 反証1/b22_s5_no_tparam.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call(f: () => Unit @ {A extends E}): Unit @ {A extends E} = f()
+==== 反証1/b23_s5_two_labels_swapped.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ {B, A extends E}): Unit @ {A, B extends E} = f()
+let use(): Unit @ {A, B} = call(fn() => { perform opb(); perform opa() })
+==== 反証1/b24_s5_use_wider.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = f()
+let use(): Unit @ {A, B} = call(fn() => { perform opb(); perform opa() })
+==== 反証1/b25_lambda_typed_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = (fn(x: Int32) => perform opa())(1)
+==== 反証1/b27_local_explicit_pure.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let p(): Unit @ {} = {}
+  p()
+}
+==== 反証1/b28_local_alias_head.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type Th = () => Unit @ A
+let r(): Unit @ A = {
+  let g: Th = fn() => perform opa()
+  g()
+}
+==== 反証1/b29_newtype_callback_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+newtype Callback[E] = Callback(() => Unit @ E)
+let fire[E](c: Callback[E]): Unit @ E = c match { case Callback(f) => f() }
+let r(c: Callback[A]): Unit @ A = fire(c)
+==== 反証1/b30_toplevel_explicit_ext.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q[E](): Unit @ {A extends E} = perform opa()
+let r(): Unit @ A = q()
+==== 反証1/b31_toplevel_other_label.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ B = perform opb()
+let r(): Unit @ A = q()
+==== 反証1/b32_toplevel_fewer_labels.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r(): Unit @ {A, B} = { q(); perform opb() }
+==== 反証1/b33_pub_valbind_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let k: (() => Unit @ A) => Unit @ A = fn(f) => f()
+==== 反証1/b34_newtype_field_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+newtype Cb = Cb(() => Unit @ A)
+let r(c: Cb): Unit @ A = c match { case Cb(f) => f() }
+==== 反証1/b35_explicit_pure_unannot_body.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let p(): Unit @ {} = {}
+let r() = { perform opa(); p() }
+==== 反証1/b36_closed_unannot_body.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A) = { perform opb(); f() }
+==== 反証1/b36b_closed_unannot_body_same.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A) = f()
+let s(): Unit @ {A, B} = r(fn() => perform opa())
+==== 反証1/b37_s5_arg_fewer_labels.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ {A extends E}): Unit @ {A, B extends E} = f()
+==== 反証1/b39_class_s5_form.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type class C[T] { val m[E]: (T, () => Unit @ {A extends E}) => Unit @ {A extends E} }
+type instance C[Int32] { let m(x, f) = f() }
+let use(): Unit @ {A, B} = m(1, fn() => { perform opb(); perform opa() })
+==== 反証1/b41_local_gen_lambda.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let g = fn() => perform opa()
+  g()
+}
+==== 反証1/b43_pub_calls_pub_omitted.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let pp(x: Int32): Int32 = x + 1
+pub let r(): Int32 @ A = { perform opa(); pp(1) }
+==== 反証1/b45_inferred_closed_outer.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r0(f: () => Unit @ A) = f()
+let r(): Unit @ A = r0(fn() => perform opa())
+==== 反証1/b45b_inferred_closed_outer_unannot_caller.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r0(f: () => Unit @ A) = f()
+let r() = r0(fn() => perform opa())
+==== 反証1/b47_record_inferred_field.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let rc = {go = fn() => perform opa()}
+  rc.go()
+}
+==== 反証1/b48_valbind_eq_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let h(): Unit @ A = perform opa()
+let k: () => Unit @ A = h
+==== 反証1/b53_run_inside.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Int32 @ A = run h {
+  let c = Ref.new(0)
+  f()
+  Ref.get(c)
+}
+==== 反証1/b53b_run_inside_ok.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r(): Int32 @ A = run h {
+  let c = Ref.new(0)
+  q()
+  Ref.get(c)
+}
+==== 反証1/b55_lambda_not_run.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let store[E](g: () => Unit @ E): Int32 = 1
+let r(f: () => Unit @ A): Unit @ A = { let n = store(fn() => f()); perform opa() }
+==== 反証1/b56_nongen_valbind_nonvalue.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let id[T](x: T): T = x
+let h = id(fn() => perform opa())
+let k: () => Unit @ A = { let z = 1; fn() => h() }
+==== 反証1/b57_local_rec_group.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let rec a(n: Int32): Unit @ A = b(n)
+  and b(n: Int32): Unit @ A = perform opa()
+  a(1)
+}
+==== 反証1/b58_letrec_back_call.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec a(n: Int32): Unit @ A = perform opa()
+and b(n: Int32): Unit @ A = a(n)
+==== 反証1/b59_call_param_of_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(g: (() => Unit @ A) => Unit @ A): Unit @ A = g(fn() => perform opa())
+==== 反証1/b60_s5_unused_E_use.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = { perform opa(); f() }
+let s(g: () => Unit @ A): Unit @ A = call(g)
+==== 反証1/b61_explicit_ext_other_E.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q[E](): Unit @ {A extends E} = perform opa()
+let r[F](f: () => Unit @ {A extends F}): Unit @ {A extends F} = { q(); f() }
+==== 反証1/b62_generic_fn_value_arg.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[T](f: (T) => Unit @ A, x: T): Unit @ A = { let g = f; g(x) }
+==== 反証1/b63_nonvalue_valbind_use_twice.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let k: () => Unit @ A = { let z = 1; fn() => q() }
+let s1(): Unit @ {A, B} = { perform opb(); k() }
+let s2(): Unit @ A = k()
+==== 反証1/b64_nongen_after_valbind.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let id[T](x: T): T = x
+let h = id(fn() => perform opa())
+let k: () => Unit @ A = { let z = 1; fn() => h() }
+let s1(): Unit @ {A, B} = { perform opb(); h() }
+let s2() = { perform opb(); h() }
+==== 反証1/b65_s4_explicit_ext_same_E_wrong.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = {
+  let g(): Unit @ A = perform opa()
+  g()
+  f()
+}
+==== 反証1/b66_s3_closed_subset_labels.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ {A, B} = f()
+==== 反証1/b67_annot_lambda_param_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = {
+  let g = fn(f: () => Unit @ A) => f()
+  g(fn() => perform opa())
+}
+==== 反証1/b68_lambda_param_closed_inline.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = (fn(f: () => Unit @ A) => f())(fn() => perform opa())
+==== 反証1/b69_valclosed_init.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type F = () => Unit @ A
+let g: F = fn() => perform opa()
+let k: () => Unit @ A = g
+==== 反証1/b70_valclosed_param_init.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = { let k: () => Unit @ A = f; perform opa() }
+==== 反証2/x01_rec.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec r(n: Int32): Unit @ A = n match { case 0 => perform opa() case _ => r(n - 1) }
+==== 反証2/x02_mutual_fwd.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec p(n: Int32): Unit @ A = n match { case 0 => perform opa() case _ => q(n - 1) }
+and q(n: Int32): Unit @ A = perform opa()
+==== 反証2/x02b_mutual_back.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let rec p(n: Int32): Unit @ A = perform opa()
+and q(n: Int32): Unit @ A = n match { case 0 => perform opa() case _ => p(n - 1) }
+==== 反証2/x03_alias_call.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type T = () => Unit @ A
+let t: T = fn() => perform opa()
+let r(): Unit @ A = t()
+==== 反証2/x04_local_outer_tparam.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](x: Int32): Unit @ A = {
+  let g(): Unit @ {A extends E} = perform opa()
+  g()
+}
+==== 反証2/x05_local_own_tparam.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(x: Int32): Unit @ A = {
+  let g[F](): Unit @ {A extends F} = perform opa()
+  g()
+}
+==== 反証2/x06_lambda_in_body_calls_f.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = {
+  let g = fn() => f()
+  g()
+}
+==== 反証2/x07_rowvar_body_closed_fn.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r[E](f: () => Unit @ A): Unit @ E = f()
+==== 反証2/x08_E_body_calls_toplevel_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q(): Unit @ A = perform opa()
+let r[E](): Unit @ {A extends E} = q()
+==== 反証2/x09_value_binding_closed_init.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let g: () => Unit @ A = fn() => perform opa()
+let k: () => Unit @ A = g
+==== 反証2/x10_extern.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+extern "C" let ex(): Unit @ A
+let r(): Unit @ A = ex()
+==== 反証2/x11_pub_omitted_calls_closed_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let r(f: () => Unit @ A): Unit = f()
+==== 反証2/x12_E_only.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ E): Unit @ E = f()
+let s(): Unit @ A = call(fn() => perform opa())
+==== 反証2/x13_closed_param_unannot_body.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A) = f()
+let s(): Unit @ {A, B} = r(fn() => perform opa())
+==== 反証2/x14_forward_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(): Unit @ A = q()
+let q(): Unit @ A = perform opa()
+==== 反証2/x15_lambda_local_closed_body.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = {
+  let h: () => Unit @ A = fn() => f()
+  h()
+}
+==== 反証2/x16_row_alias_closed_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+type R: EffectRow = {A}
+let r(f: () => Unit @ R): Unit @ R = f()
+==== 反証2/x17_handler_closed_fn_in_handle.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ {B}): Unit @ A = f() handle { case opb() => resume(()) }
+==== 反証2/x18_typeclass.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ {A, B} = f()
+==== 反証2/x19_inferred_closed_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A) = f()
+let s(): Unit @ A = r(fn() => perform opa())
+==== 反証2/x20_inferred_open_toplevel.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let q() = perform opa()
+let s(): Unit @ A = q()
+==== 反証2/x21_inferred_local_closed.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let s(f: () => Unit @ A): Unit @ A = {
+  let g = f
+  g()
+}
+==== 反証2/x22_call_inside_uncalled_lambda.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): Unit @ A = {
+  let g = fn() => f()
+  perform opa()
+}
+==== 反証2/x23_return_closure.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let r(f: () => Unit @ A): (() => Unit @ A) @ A = fn() => f()
+==== 反証2/x24_E_body_with_E_param.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+let call[E](f: () => Unit @ E): Unit @ {A extends E} = { perform opa(); f() }
+==== 反証2/x25_pub_extends.kel ====
+effect A = { opa: () => Unit }
+effect B = { opb: () => Unit }
+pub let call[E](f: () => Unit @ {A extends E}): Unit @ {A extends E} = f()
+let s(): Unit @ {A, B} = call(fn() => { perform opa(); perform opb() })
