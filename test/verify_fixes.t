@@ -461,6 +461,108 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   ! gresume2.kel:3:33: 型エラー: resume は操作節の中でのみ使えます
   [1]
 
+操作節の中の関数束縛の本体に書いた resume は、その関数を節の中で呼ぶだけでも
+型検査で拒否する。fn() => resume(41) を束縛する形と同じ文面で落ちる:
+
+  $ cat > lfresume.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => {
+  >     let f() = resume(41)
+  >     f()
+  >   }
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check lfresume.kel
+  ! lfresume.kel:4:15: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+  $ sed 's/let f() = resume(41)/let f = fn() => resume(41)/' lfresume.kel > lflam.kel
+  $ diktor --type-check lflam.kel
+  ! lflam.kel:4:21: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+
+let rec の関数束縛(and でつないだ 2 つ目の束縛を含む)と、型パラメータ付きの
+関数束縛も同じ文面で拒否する。関数でない右辺の let rec は、let rec の右辺の
+検査で落ちる:
+
+  $ sed 's/let f() = /let rec f() = /' lfresume.kel > lfrec.kel
+  $ diktor --type-check lfrec.kel
+  ! lfrec.kel:4:19: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+  $ sed 's/let f() = resume(41)/let rec f(): Int32 = g() and g(): Int32 = resume(41)/' lfresume.kel > lfand.kel
+  $ diktor --type-check lfand.kel
+  ! lfand.kel:4:47: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+  $ sed -e 's/let f() = /let f[A](a: A): Int32 = /' -e 's/    f()/    f(0)/' lfresume.kel > lftp.kel
+  $ diktor --type-check lftp.kel
+  ! lftp.kel:4:29: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+  $ sed -e 's/let f() = resume(41)/let rec x = resume(41)/' -e 's/    f()/    x/' lfresume.kel > lfrecval.kel
+  $ diktor --type-check lfrecval.kel
+  ! lfrecval.kel:4:5: 型エラー: let rec の右辺は関数でなければなりません
+  [1]
+
+関数束縛を Ref に入れて節の外で呼ぶプログラムは、型検査で止まり、実行を始めない
+(1 行目の echoln の start が出ない):
+
+  $ cat > lfleak.kel <<'KEL'
+  > echoln("start")
+  > effect Ask = { ask: () => Int32 }
+  > let main(): Int32 = run h {
+  >   let cell = Ref.new(fn() => 0)
+  >   let r = (perform ask() + 1) handle {
+  >     case ask() => {
+  >       let f() = resume(41)
+  >       Ref.set(cell, f)
+  >       0
+  >     }
+  >     case return(x) => x
+  >   }
+  >   r + Ref.get(cell)()
+  > }
+  > echoln(show(main()))
+  > KEL
+  $ diktor lfleak.kel
+  ! lfleak.kel:7:17: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+
+resume を含まない関数束縛、値束縛の右辺の resume、関数束縛の本体にある内側の
+handle の操作節の resume は通る:
+
+  $ cat > lfok.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > effect Ask2 = { ask2: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => {
+  >     let one() = 1
+  >     let g() = (perform ask2() + 1) handle {
+  >       case ask2() => resume(38)
+  >       case return(y) => y
+  >     }
+  >     let v = resume(g() + one() + 1)
+  >     v
+  >   }
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor lfok.kel
+  42
+
+内側の handle の操作節の中の関数束縛に書いた resume と、関数束縛の本体にある
+内側の handle の本体に書いた外側の節の resume も拒否する:
+
+  $ sed 's/case ask2() => resume(38)/case ask2() => { let k() = resume(38); k() }/' lfok.kel > lfinner.kel
+  $ diktor --type-check lfinner.kel
+  ! lfinner.kel:7:34: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+  $ sed 's/(perform ask2() + 1) handle/(resume(perform ask2())) handle/' lfok.kel > lfinbody.kel
+  $ diktor --type-check lfinbody.kel
+  ! lfinbody.kel:6:16: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
+  [1]
+
 組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
 2 回目はコヒーレンス違反(「同じキーを 2 度登録したらエラー」を組み込み
 キーでも守る):
