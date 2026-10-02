@@ -257,10 +257,13 @@ g(1, fn() => k) にもならず、パースエラーになる:
   $ cat > resume2.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }
   > let call0[R, E](f: () => R @ E): R @ E = f()
-  > echoln(show(call0 { perform ask() + 1 } handle { case ask() => resume(41) }))
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => resume(call0 { (perform ask() * 2) handle { case ask() => resume(20) } })
+  > }
+  > echoln(show(r))
   > EOF
   $ diktor resume2.kel
-  42
+  41
 
 末尾ブロックの本体は run の本体に含めない(LangSpec §14.1)。run の本体の
 末尾ブロックで、そのリージョンの参照を読み書きできる。入れ子の run の
