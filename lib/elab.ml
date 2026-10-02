@@ -2270,7 +2270,7 @@ and elab_handle env level eff clauses body =
         "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :536)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
     | "Fs" ->
         "エフェクト Fs はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:465, :536)。ファイル操作を差し替えたいときは File のような自前のエフェクトをハンドルしてください(仕様 sample.kel:602 の with_file が見本)"
-    | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:726。スケジューラは書けません)"
+    | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません"
   in
   let target =
     match List.sort_uniq compare quals with

@@ -224,7 +224,6 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 // ランタイムが提供する Console / Async / Fs(仕様 sample.kel:464, :465, :731)と、ユーザ層の Print
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
-effect Async   = { yield_: () => Unit, sleep: (Int64) => Unit }
 effect Fs      = {}
 
 // ## 15.5 extern の型と実装

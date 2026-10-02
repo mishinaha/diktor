@@ -549,6 +549,10 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
 
 let op_console_write = Type.intern "Console.write"
 
+let op_async_yield = Type.intern "Async.yield_"
+
+let op_async_sleep = Type.intern "Async.sleep"
+
 let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
   Effect.Deep.match_with f ()
     {
@@ -566,5 +570,8 @@ let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
                   match sink (as_text (arg1 args)) with
                   | () -> Effect.Deep.continue k unit
                   | exception ex -> Effect.Deep.discontinue k ex)
+          | Op (op, _) when op = op_async_yield || op = op_async_sleep ->
+              (* 型は本物で、実行時には何もしない *)
+              Some (fun k -> Effect.Deep.continue k unit)
           | _ -> None);
     }
