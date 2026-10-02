@@ -128,6 +128,11 @@ type long_id = LongId of string list
 
 exception Syntax_error of string
 
+(* import 文 1 個。im_names の各要素は [A] か [A; b] の 2 段まで *)
+type import_name = { in_path : string list; in_loc : Location.span }
+
+type import_decl = { im_source : string; im_names : import_name list; im_loc : Location.span }
+
 exception Syntax_error_at of Lexing.position * string
 
 let long_id components = LongId components

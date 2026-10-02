@@ -459,11 +459,13 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 %token LBRACE_BLOCK LBRACE_RECORD LBRACE_TYPE RBRACE
 %token BACKSLASH DOTDOTDOT LESS_EQ GREATER_EQ HOLE
 %token CLASS INSTANCE EXTENDS EXTERN NEWTYPE PERFORM PUB RESUME RUN
+%token FROM IMPORT
 %token <string> HASH_IDENT
 
 (* ## 3.12 開始記号の型と、`Error` という名前の衝突
 
-   開始記号の型は、`Syntax.Make(Data).decl list` と**完全なパスで**書く。
+   開始記号の型は、import 文の列と宣言の列の組で、
+   宣言の列は `Syntax.Make(Data).decl list` と**完全なパスで**書く。
    menhir はこの型注釈を、生成する `.mli` のシグネチャにそのまま書き出す。
    冒頭の `open` はファンクタ本体の中でしか効かないので、
    シグネチャに現れる型はファンクタの外から辿れるパスでなければならない。
@@ -482,7 +484,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
    そのため、字句エラーは `Lex_error` という別の名前にしてある。
    第16章(driver.ml)はこの 2 つと、意味アクションが投げる `Syntax_error` の 3 種類を別々に捕まえ、
    字句エラーと構文エラーを区別して報告したうえで、どちらも終了コード 2 にそろえる。 *)
-%start <Syntax.Make(Data).decl list> program
+%start <Syntax.import_decl list * Syntax.Make(Data).decl list> program
 
 (* ## 3.13 `--strict` で conflict 0 を保つ
 
@@ -573,9 +575,57 @@ long_id:
    `pub` は `decl` の階層で被せる(§3.10)。
    `decl_body` の中で、`let rec` の `and` の前に `semi` を挟んでいないのは意図的である。
    ASI が `and` の前の改行を落とすので、そのまま並べるだけで足りる。
-   `semi?` を足すと shift/reduce になる。 *)
+   `semi?` を足すと shift/reduce になる。
 
-program: items EOF { $1 }
+   import 文はファイルの先頭にだけ書ける。
+   `items` はブロックや module の本体と共有しているので、先頭の並びは `program` の階層の
+   別の非終端 `header` で受ける。
+   import の後ろの区切りは `semis` がまとめて読み、その後の宣言の列は `items_head` で読む。
+   `items_head` は `items` から先頭の `semi items` を除いたものである。
+   `header` に `semi header` を足す形では、`items` の `semi items` と同じ区切りを
+   2 通りに読むことになり、reduce/reduce の衝突が出る。
+   ファイルの先頭に `;` を書いた後の import は、
+   `items` の `semi items` に入るのでパースエラーになる。
+   改行だけでは先頭の区切りは生じない(直前のトークンが無いので、最初の改行は捨てられる)。
+   import の名前は 2 段まで(`M.f`)で、`D.E.f` は 2 個目の `.` でパースエラーになる。 *)
+
+program: header EOF { $1 }
+
+header:
+  | items                          { ([], $1) }
+  | import_decl                    { ([ $1 ], []) }
+  | import_decl semis header_after { let is, ds = $3 in ($1 :: is, ds) }
+
+header_after:
+  | items_head                     { ([], $1) }
+  | import_decl                    { ([ $1 ], []) }
+  | import_decl semis header_after { let is, ds = $3 in ($1 :: is, ds) }
+
+semis: semi { () } | semi semis { () }
+
+items_head:
+  |                            { [] }
+  | item                       { [ $1 ] }
+  | item semi items            { $1 :: $3 }
+  | WITH pat EQ exp            { [ mk $sloc (DExp (with_splice $sloc $2 $4 (mk $sloc RecordEmpty))) ] }
+  | WITH pat EQ exp semi items { [ mk $sloc (DExp (with_splice $sloc $2 $4 (block_of_items $sloc $6))) ] }
+
+import_decl:
+  | FROM TEXT IMPORT import_name
+      { { im_source = $2; im_names = [ $4 ]; im_loc = { Location.start = $startpos; Location.finish = $endpos } } }
+  | FROM TEXT IMPORT LBRACE_RECORD import_name_list RBRACE
+      { { im_source = $2; im_names = $5; im_loc = { Location.start = $startpos; Location.finish = $endpos } } }
+
+import_name_list:
+  | import_name                        { [ $1 ] }
+  | import_name COMMA                  { [ $1 ] }
+  | import_name COMMA import_name_list { $1 :: $3 }
+
+import_name:
+  | import_head              { { in_path = [ $1 ]; in_loc = { Location.start = $startpos; Location.finish = $endpos } } }
+  | upper_id DOT import_head { { in_path = [ $1; $3 ]; in_loc = { Location.start = $startpos; Location.finish = $endpos } } }
+
+import_head: upper_id { $1 } | lower_id { $1 }
 
 items:
   |                            { [] }

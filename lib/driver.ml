@@ -249,7 +249,7 @@ let dump_tokens_file file =
    字句解析器の `Lexer.Lex_error` はここでは受けず、§16.8 の受け皿がそのまま受ける。
    種類ごとに区別して報告したくなったときは、この関数で分ければよい。
    分岐点を 1 か所に集めてあるのはそのためである。 *)
-let parse_with lexer =
+let parse_unit_with lexer =
   try Lexer'.parse Parser'.program lexer with
   | Sedlexing.MalFormed ->
       (* 位置は失われているが、ファイル名は分かる。複数のファイルを渡したときに
@@ -261,10 +261,21 @@ let parse_with lexer =
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
   | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
 
+(* import はコマンド行で渡したファイルにだけ書ける。プレリュードと文字列の API は、
+   相対パスの基準になるファイルを持たないので、import があれば構文エラーにする *)
+let parse_with lexer =
+  match parse_unit_with lexer with
+  | [], ds -> ds
+  | im :: _, _ ->
+      raise
+        (Parse_error
+           (Printf.sprintf "%s: 構文エラー: import はコマンド行で渡したファイルにだけ書けます"
+              (show_pos im.Syntax.im_loc.Location.start)))
+
 (* パースの駆動全体を with_input で包む。
    ディレクトリを渡したときの EISDIR などの読み取りエラーは、
    open ではなく読み取りの段で起きるからである *)
-let parse_file file = with_input (fun () -> parse_with (Lexer'.from_filename file))
+let parse_file file = with_input (fun () -> parse_unit_with (Lexer'.from_filename file))
 
 (* `parse_string` は、エラー行に表示するファイル名を引数で受け取る。
    山括弧つきの名前(`<prelude>` や `<string>`)は、実在のファイルではないことを示す印で、
@@ -452,7 +463,11 @@ let type_check_files ?(quiet = false) options =
     | NotImplemented feat -> report { Elab.e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
   in
   let prelude = flatten ~unit:Decls.std_unit (load_prelude options) in
-  let decls = flatten (List.concat_map parse_file options.o_files) in
+  let units = List.map parse_file options.o_files in
+  (match List.concat_map fst units with
+  | im :: _ -> report { Elab.e_loc = Some im.Syntax.im_loc; e_word = "未実装"; e_exit = 4; e_msg = "import(ファイルの名前空間)" }
+  | [] -> ());
+  let decls = flatten (List.concat_map snd units) in
   let put l =
     if quiet then (
       match l with
@@ -551,7 +566,9 @@ let try_parse ~line ?(col = 0) source =
   Sedlexing.set_filename lexbuf "<stdin>";
   let lx = Lexer'.from_sedlex lexbuf in
   match Lexer'.parse Parser'.program lx with
-  | ds -> Complete ds
+  | [], ds -> Complete ds
+  | im :: _, _ ->
+      Failed (Printf.sprintf "%s: 構文エラー: import は対話的な実行では書けません" (show_pos im.Syntax.im_loc.Location.start))
   | exception Parser'.Error ->
       if lx.Lexer'.prev = Some Lexer'.Parser.EOF then Incomplete
       else Failed (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lx.Lexer'.last_sp))
@@ -795,7 +812,13 @@ let repl options =
 let run_with options =
   (match options.o_mode with
   | DumpTokens -> List.iter dump_tokens_file options.o_files
-  | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
+  | DumpAst ->
+      List.iter
+        (fun file ->
+          let imports, decls = parse_file file in
+          Dump.dump_imports stdout imports;
+          Dump.dump_decls stdout decls)
+        options.o_files
   | TypeCheck -> ignore (type_check_files options)
   | Repl ->
       Interp.cancel_log :=

@@ -400,6 +400,14 @@ let rec sexp_of_decl (_, d) =
    最後の `pp_print_flush` は、このバッファに残った分を出し切る。
    各宣言の `@.` もフラッシュし、`dump_decls` は最後の宣言の後に何も書かないので、
    この呼び出しは保険である。 *)
+(* import 文は、import とパスの文字列と名前の列を並べた形で、宣言の前に出す *)
+let dump_imports out (imports : Syntax.import_decl list) =
+  List.iter
+    (fun (im : Syntax.import_decl) ->
+      Printf.fprintf out "(import \"%s\" %s)\n" im.Syntax.im_source
+        (String.concat " " (List.map (fun (n : Syntax.import_name) -> "(" ^ String.concat " " n.Syntax.in_path ^ ")") im.Syntax.im_names)))
+    imports
+
 let dump_decls out decls =
   let fmt = Format.formatter_of_out_channel out in
   List.iter (fun d -> Format.fprintf fmt "%a@." pp (sexp_of_decl d)) decls;

@@ -239,8 +239,10 @@ module Make (Data : Syntax.Data) = struct
     | "extern" -> EXTERN
     | "false" -> BOOL false
     | "fn" -> FN
+    | "from" -> FROM
     | "handle" -> HANDLE
     | "if" -> IF
+    | "import" -> IMPORT
     | "instance" -> INSTANCE
     | "let" -> LET
     | "match" -> MATCH
@@ -699,11 +701,21 @@ module Make (Data : Syntax.Data) = struct
    型、パターン、instance の本体、クラスの本体、module の本体、effect 宣言の本体、`run` の本体、
    match と handle の本体がそうした位置である。
    分類を使い分けるのは式の位置だけである。
-   3 種に分けても、Menhir の conflict は 0 のままである(第3章 §3.13)。 *)
+   3 種に分けても、Menhir の conflict は 0 のままである(第3章 §3.13)。
+
+   `import` の直後の `{` は、表を引かずに `LBRACE_RECORD` にする。
+   import 文が `import { A }` のように名前 1 個で閉じると、表ではブロックに分類され、
+   文法が受けられないからである。
+   文法はこの位置で `LBRACE_RECORD` だけを受けるので、ここでの分類の意味は
+   「改行を区切りにしない括弧」に限られる。
+   `LBRACE_RECORD` は改行を捨てる region を積むので、波括弧の中で改行して名前を並べられる
+   (名前の区切りにはカンマが要る)。 *)
 
   (* §2.9 の表。t1 は `{` の次、t2 はその次の有意トークン(NL は飛ばす) *)
   let classify_brace t =
     let t1 = (peek_sig t 0).tok in
+    if t.prev = Some IMPORT then LBRACE_RECORD
+    else
     match t1 with
     | RBRACE | EXTENDS -> LBRACE_RECORD
     | _ when is_ident_tok t1 -> (
@@ -733,11 +745,13 @@ module Make (Data : Syntax.Data) = struct
    閉じ括弧、識別子、リテラル、`???` がこれにあたる。
    二項演算子はこの集合に入っていないので、`1 + ⏎ 2` のように演算子で終わる行は次の行につながる。
    `can_begin_statement` は、宣言のキーワードと、式を始められるトークンの集合である。
+   import 文を始める `FROM` も含む。
 
    `can_begin_statement` から除いたトークンは、前の行の続きとして扱われる。
    除いたトークンと、除いた目的は次のとおりである。
 
    - `AND`：`let rec f(x) = ... ⏎ and g(x) = ...` を 1 つの宣言につなぐ
+   - `IMPORT`：`from` とパスの文字列の行と、次の行の `import x` を 1 つの import 文につなぐ
    - `CASE`：節の並びを改行で区切らない(節の区切りは `case` 自身)
    - `MATCH` / `HANDLE`：後置なので、改行してから書ける
    - `DOT` / `BACKSLASH`：メソッドチェーンとレコードの制限を行の途中で折り返す
@@ -838,7 +852,7 @@ module Make (Data : Syntax.Data) = struct
   (* NL の後で文を始められるトークン。AND / CASE / MATCH / HANDLE / DOT / BACKSLASH /
      EXTENDS / VERTICAL / 二項演算子は、前の行の続きにするために除いている *)
   let can_begin_statement = function
-    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | WITH | PERFORM | RESUME | RUN | FN
+    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | WITH | PERFORM | RESUME | RUN | FN | FROM
     | LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ | HASH_IDENT _ | NUMBER _ | TEXT _ | BOOL _ | HOLE | EXCLAMATION
     | LBRACE_BLOCK | LBRACE_RECORD | LBRACE_TYPE | LPAREN ->
         true
@@ -955,6 +969,7 @@ module Make (Data : Syntax.Data) = struct
     | EXTENDS -> "extends"
     | EXTERN -> "extern"
     | FN -> "fn"
+    | FROM -> "from"
     | GREATER -> ">"
     | GREATER_EQ -> ">="
     | HANDLE -> "handle"
@@ -962,6 +977,7 @@ module Make (Data : Syntax.Data) = struct
     | HOLE -> "???"
     | HYPHEN -> "-"
     | IF -> "if"
+    | IMPORT -> "import"
     | INSTANCE -> "instance"
     | LBRACE_BLOCK -> "{blk"
     | LBRACE_RECORD -> "{rec"
