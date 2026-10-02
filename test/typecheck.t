@@ -246,21 +246,6 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! dup1.kel:1:1: 型エラー: newtype Foo が二重に宣言されています
   [1]
 
-derive structural はユーザ宣言のクラスには書けない(sample.kel §7 の
-「組み込みの自動導出だけがインスタンスを与える」。受理すると実行時の構造的
-フォールバックが Eq 決め打ちのため必ず実行時に落ちる):
-
-  $ cat > ds1.kel <<'EOF2'
-  > type class MyEq[A] {
-  >   val myeq: (A, A) => Boolean
-  >   derive structural
-  > }
-  > echoln(show(myeq({}, {})))
-  > EOF2
-  $ diktor --type-check ds1.kel
-  ! ds1.kel:1:1: 型エラー: derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)
-  [1]
-
 型名の名前空間は newtype / 型エイリアス / effect で 1 つ(M15 検証。
 かつて種別を替えた再宣言が種別ごとの検査をすり抜け、type List[A] =
 Int32 がプレリュードの List を黙って奪った):

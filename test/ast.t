@@ -125,7 +125,6 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   > effect Console = { read: () => String, write: (String) => Unit }
   > type class Eq[A] {
   >   val eq: (A, A) => Boolean
-  >   derive structural
   > }
   > type instance Eq[Point] {
   >   let eq(a, b) = true
@@ -139,7 +138,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   (newtype UserId (UserId Int32))
   (newtype List (A) (Nil) (Cons A (tail: (tapp List A))))
   (effect Console (read: (=> () String)) (write: (=> (String) Unit)))
-  (class Eq (A) (val eq : (=> (A A) Boolean)) (derive structural))
+  (class Eq (A) (val eq : (=> (A A) Boolean)))
   (instance Eq (Point) (dlet (binding eq (params a b) = true)))
   (extern "prim" __int32_add (params (pannot x Int32) (pannot y Int32)) :
    Int32)

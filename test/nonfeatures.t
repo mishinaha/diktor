@@ -129,3 +129,21 @@ test/parallel.t が固定している):
   $ diktor --type-check fs.kel
   ! fs.kel:1:17: 型エラー: 未知のエフェクト: Fs
   [1]
+
+derive structural は無い(LangSpec §12.5。構造的な比較は Eq に組み込み):
+
+  $ cat > derive.kel <<'KEL'
+  > type class C[A] {
+  >   val c: (A) => Int32
+  >   derive structural
+  > }
+  > KEL
+  $ diktor --type-check derive.kel
+  derive.kel:3:3: パースエラー(付近のトークンを確認してください)
+  [2]
+
+derive は予約語ではない:
+
+  $ printf 'let derive = 1\necholn(show(derive))\n' > deriveid.kel
+  $ diktor deriveid.kel
+  1

@@ -1,5 +1,5 @@
 型クラスの検査(M17)。曖昧性検査(D2 / D48)、エイリアスの
-パラメータ制約(D5 / D51)、derive structural のカインド(D9)。
+パラメータ制約(D5 / D51)。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -90,30 +90,6 @@ MiniLang より厳しくなる点):
   > KEL
   $ diktor --type-check --no-prelude alc2.kel
   ! alc2.kel:3:10: 型エラー: NoShow は Show のインスタンスではありません
-  [1]
-
-derive structural はユーザの新クラスでは全面拒否(M15)。カインド検査
-(D9 — sample.kel §14 の TODO への回答: 弾ける)が単独で効くのは
-組み込みと同名のクラスの再宣言だけ。案内が行動可能なほう(全面拒否)を
-先に出す:
-
-  $ cat > c14.kel <<'KEL'
-  > type class MyF[F[_]] {
-  >   val mymap[A, B, E]: (F[A], (A) => B @ E) => F[B] @ E
-  >   derive structural
-  > }
-  > KEL
-  $ diktor --type-check --no-prelude c14.kel
-  ! c14.kel:1:1: 型エラー: derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)
-  [1]
-  $ cat > c14b.kel <<'KEL'
-  > type class Eq[F[_]] {
-  >   val eq[A]: (F[A], F[A]) => Boolean
-  >   derive structural
-  > }
-  > KEL
-  $ diktor --type-check c14b.kel
-  ! c14b.kel:1:1: 型エラー: derive structural は Type のクラスにしか付けられません(Eq のパラメータは [_] Type です)
   [1]
 
 コンストラクタ由来の制約つき変数も台帳に載る(M17 検証。かつて
