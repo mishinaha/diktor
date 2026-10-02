@@ -5022,8 +5022,8 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    例外を型付きの返り値に変えるのは、下の `type_check` の 1 か所だけである。
    受けるのは 2 系統だけで、`Type_error` / `Type_error_at` は終了コード 1、
    `NotImplemented` / `NotImplemented_at` は終了コード 4 になる。
-   `Syntax_error` の節は置かない。
-   `Syntax_error` と `Syntax_error_at` を投げるのは parser.mly だけで、
+   `Syntax_error` と `Syntax_error_at` の節は置かない。
+   この 2 つを投げるのは parser.mly だけで、
    第16章の `parse_with` がそれをすべて `Parse_error` に包み直してから型検査に入るからである。
    診断は `error` レコード(位置、種別の語、終了コード、本文)として返す。
    そこから先の整形と印字は、第16章(driver.ml)が行う。
