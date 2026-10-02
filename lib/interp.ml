@@ -1473,7 +1473,7 @@ let rec pat_names ((_, p) : T.pat) =
   | T.PVariant (_, q) -> pat_names q
   | T.PWildcard | T.PBool _ | T.PNumber _ | T.PText _ -> []
 
-let start_session ~sink prelude =
+let start_session ?(print = false) ~sink prelude =
   Hashtbl.reset user_instances;
   Hashtbl.reset resolution_cache;
   Hashtbl.reset positions_cache;
@@ -1482,12 +1482,12 @@ let start_session ~sink prelude =
   register_class_methods globals;
   let s = { s_env = { globals; locals = SMap.empty; resume = None } } in
   ignore
-    (Builtin.with_runtime ~sink (fun () ->
+    (Builtin.with_runtime ~print ~sink (fun () ->
          s.s_env <- List.fold_left exec_decl s.s_env prelude;
          unit));
   s
 
-let exec_input s ~sink decls =
+let exec_input ?(print = false) s ~sink decls =
   journaling := true;
   journal := [];
   let saved_env = s.s_env in
@@ -1533,7 +1533,7 @@ let exec_input s ~sink decls =
     | _ -> exec_decl env node
   in
   match
-    Builtin.with_runtime ~sink (fun () ->
+    Builtin.with_runtime ~print ~sink (fun () ->
         s.s_env <- List.fold_left step s.s_env decls;
         unit)
   with

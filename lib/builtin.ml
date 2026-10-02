@@ -456,6 +456,10 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
      そのため、プレリュードが所有する `Console.write` は必ずこのハンドラまで上ってくる。
      出力先をプログラムの側で差し替えたいときは、利用者の層の `Print` にハンドラを書く。
      プレリュードの `with_stdout` が `Print.print` を `Console.write` へ翻訳する
+   - 対話的な実行(第16章 §16.6b)では、引数 `print` を真にして、
+     `Print.print` の文字列も `sink` へ送る。
+     トップレベルの `println` をハンドラなしで印字するためである。
+     利用者の `handle` と `with_stdout` は内側で先に `Print` を捕まえるので、意味は変わらない
 
    本章は操作名を `Type.intern` した `oid` で持つので、`effc` の中では整数の比較しかしない。
    非修飾の `write` を `Console.write` へ解決するのは第11章なので、ここで名前を解決する必要はない。
@@ -469,7 +473,10 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
 
 let op_console_write = Type.intern "Console.write"
 
-let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
+let op_print_print = Type.intern "Print.print"
+
+(* print が真なら、Print.print も Console.write と同じく sink へ送る(対話的な実行。第16章) *)
+let with_runtime ?(print = false) ~(sink : string -> unit) (f : unit -> t) : t =
   Effect.Deep.match_with f ()
     {
       retc = Fun.id;
@@ -477,7 +484,7 @@ let with_runtime ~(sink : string -> unit) (f : unit -> t) : t =
       effc =
         (fun (type a) (eff : a Effect.t) ->
           match eff with
-          | Op (op, args) when op = op_console_write ->
+          | Op (op, args) when op = op_console_write || (print && op = op_print_print) ->
               Some
                 (fun (k : (a, _) Effect.Deep.continuation) ->
                   (* 第14章 §14.10 の 3 つの経路と同じ規約。sink が落ちても、

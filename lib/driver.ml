@@ -47,7 +47,7 @@ open Aux
 
 (* ## 16.1 旗とモード
 
-   旗は 6 つ、モードは 4 つある。
+   旗は 7 つ、モードは 5 つある。
 
    | 旗 | 効き先 | 働き |
    |---|---|---|
@@ -55,6 +55,7 @@ open Aux
    | `--type-check` | `TypeCheck` | 型検査だけを行い、束縛の型を宣言順に印字する |
    | `--dump-tokens` | `DumpTokens` | ASI 適用後のトークン列を印字する |
    | `--dump-ast` | `DumpAst` | 脱糖後の AST を S 式で印字する |
+   | `--repl` | `Repl` | 標準入力から入力を読み、入力ごとに型検査して実行する(§16.6b) |
    | `--no-prelude` | `o_no_prelude` | プレリュードを空にする |
    | `--prelude PATH` | `o_prelude` | 埋め込みのプレリュードの代わりに PATH を読む |
    | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする |
@@ -81,10 +82,11 @@ let usage =
    \  --type-check         型検査のみ。トップレベル束縛の型を \"name : type\" で出力\n\
    \  --dump-tokens        ASI 適用後のトークン列を出力\n\
    \  --dump-ast           脱糖後の AST を S 式で出力\n\
+   \  --repl               対話的に実行する(FILE は不要)\n\
    \  --no-prelude / --prelude PATH\n\
    \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n"
 
-type mode = Run | TypeCheck | DumpTokens | DumpAst
+type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl
 
 type options = {
   o_mode : mode;
@@ -126,8 +128,11 @@ let default_options = { o_mode = Run; o_prelude = None; o_no_prelude = false; o_
    仕様 sample.kel の回帰テストは、この順序を使ってスタブを sample.kel の前に置く。 *)
 let parse_args args =
   let rec go opts = function
-    | [] -> if opts.o_files = [] then Error "no input files" else Ok { opts with o_files = List.rev opts.o_files }
+    | [] ->
+        if opts.o_files = [] && opts.o_mode <> Repl then Error "no input files"
+        else Ok { opts with o_files = List.rev opts.o_files }
     | "--type-check" :: rest -> go { opts with o_mode = TypeCheck } rest
+    | "--repl" :: rest -> go { opts with o_mode = Repl } rest
     | "--dump-tokens" :: rest -> go { opts with o_mode = DumpTokens } rest
     | "--dump-ast" :: rest -> go { opts with o_mode = DumpAst } rest
     | "--no-prelude" :: rest -> go { opts with o_no_prelude = true } rest
@@ -480,6 +485,269 @@ let type_check_files ?(quiet = false) options =
       flush_stdout_or_die ();
       safe_exit err.Elab.e_exit
 
+(* ## 16.6b 対話的な実行
+
+   `--repl` は、標準入力から宣言と式文を読み、入力ごとに型検査して実行し、結果を表示する。
+   プレリュードは起動時に 1 回だけ処理し、前の入力の束縛を後の入力から使える。
+
+   ### 入力の終わり
+
+   行を読むたびに、まだ確定していない行をつないだ文字列を、ファイルと同じ開始記号でパースする。
+   通れば、その入力を確定する。
+   構文エラーの位置のトークンが `EOF` なら、続きの行を待つ。
+   字句解析器は最後に渡したトークンを `prev` に持つので、`Parser'.Error` を受けた時点の
+   `prev = Some EOF` で判定できる。
+   閉じていない文字列リテラルとブロックコメントの字句エラーも、続きの行を待つ。
+   それ以外の構文エラーは、その入力を捨てて報告する。
+   この規則では、次の行で始まる継続(`let rec … and`、行頭の二項演算子、行頭の `.` や `match`)は、
+   前の行で入力が確定するので続きにならない。
+
+   ### 失敗した入力の取り消し
+
+   型エラー(平坦化の型エラーを含む)の入力は、宣言表(第6章 §6.14 の写し)、
+   単一化のセルの書き換え(第1章 §1.5 の記録)、型の環境を、入力の前に戻す。
+   実行時エラーの入力は、さらに評価器の書き込みを入力の単位で戻す(第14章 §14.16)。
+   型の側も入力の前に戻すのは、途中まで実行した環境と型の環境が食い違わないようにするためである。
+   出力は戻さない。
+
+   ### 結果の表示
+
+   束縛した名前ごとに `名前 : 型 = 値` を出し、式文は名前の代わりに `_` を書く。
+   型が `{}` の式文は何も出さない(`echoln(...)` のたびに `_ : {} = ()` が出るのを避ける)。
+   値は、型の頭が newtype で、その型が `Show` を満たすときだけ `Show.show` で表示する。
+   満たすかどうかは、型検査器に `Show` の制約を足して確かめ、足した書き換えはすぐ戻す。
+   それ以外は `Value.show` で表示する。
+   組み込みの `Show[String]` は引用符を付けないので、
+   文字列を `Show.show` で出すと識別子と区別できない。
+
+   ### Print とトップレベル
+
+   対話的な実行だけ、トップレベルの行に `Print` を足し、最も外側のハンドラが `Print.print` を
+   出力先へ送る(第13章 §13.6)。
+   トップレベルの `println` の呼び出しが、ハンドラなしでそのまま印字される。
+   `Print` を行に足すのも送るのも、`Print` をプレリュードが所有するときだけである。
+
+   ### コマンドと出力先
+
+   入力の途中でない行が `:` で始まれば、コマンドとして扱う。
+   `:quit`(`:q`)は終了し、`:reset` はプレリュードだけを処理した状態に戻し、
+   `:type 式` は式を型検査して一般化した型を表示する(評価せず、型検査の書き換えは必ず戻す)。
+
+   結果、診断、プログラムの出力は、すべて標準出力に出す。
+   入力と応答の対が単位なので、1 本の流れにする。
+   プロンプトは、標準入力が端末のときだけ出す(`In_channel.isatty` は Stdlib にあり、
+   `unix` を要さない)。
+   入力の終わりか `:quit` で終了コード 0 で終わり、
+   型エラーや実行時エラーではセッションを終えない。 *)
+
+type parse_result = Complete of Tree.Tree.decl list | Incomplete | Failed of string
+
+let try_parse ~line source =
+  let lexbuf = Sedlexing.Utf8.from_string source in
+  Sedlexing.set_position lexbuf { Lexing.pos_fname = "<stdin>"; pos_lnum = line; pos_bol = 0; pos_cnum = 0 };
+  Sedlexing.set_filename lexbuf "<stdin>";
+  let lx = Lexer'.from_sedlex lexbuf in
+  match Lexer'.parse Parser'.program lx with
+  | ds -> Complete ds
+  | exception Parser'.Error ->
+      if lx.Lexer'.prev = Some Lexer'.Parser.EOF then Incomplete
+      else Failed (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lx.Lexer'.last_sp))
+  | exception Lexer.Lex_error (("unterminated string literal" | "unterminated block comment"), _) -> Incomplete
+  | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
+  | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
+  | exception Syntax.Syntax_error_at (pos, msg) -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg)
+  | exception Sedlexing.MalFormed -> Failed "<stdin>: 字句エラー: 不正な UTF-8 バイト列です"
+
+(* 実行時エラーの文言。§16.8 の受け皿と同じ文言にそろえる *)
+let runtime_message = function
+  | Value.Runtime_error msg -> "実行時エラー: " ^ msg
+  | Effect.Unhandled (Value.Op (op, _)) -> "未処理のエフェクト操作: " ^ Syntax.Type.name_of op
+  | Stack_overflow -> "実行時エラー: スタックオーバーフロー(再帰が深すぎます)"
+  | Out_of_memory -> "実行時エラー: メモリ不足です"
+  | Panic msg -> msg
+  | ex -> "内部エラー: 予期しない例外です: " ^ Printexc.to_string ex
+
+(* 単一化の記録を有効にして f を呼び、f が積んだ書き換えをすぐ戻す *)
+let probe f =
+  let open Syntax.Type in
+  let saved_on = !trailing and saved = !trail in
+  trailing := true;
+  trail := [];
+  let undo () =
+    List.iter (fun g -> g ()) !trail;
+    trail := saved;
+    trailing := saved_on
+  in
+  match f () with
+  | r ->
+      undo ();
+      r
+  | exception ex ->
+      undo ();
+      raise ex
+
+let show_value ty v =
+  let open Syntax.Type in
+  let shows =
+    match repr ty with
+    | TCon (c, _) when Hashtbl.mem Decls.datas c -> (
+        try probe (fun () -> Unify.add_class ty (intern "Show"); true) with Aux.Type_error _ | Aux.Type_error_at _ -> false)
+    | _ -> false
+  in
+  if shows then
+    match Interp.dispatch "Show" "show" (Value.VRecord [ (l_item, v) ]) with Value.VText s -> s | v -> Value.show v
+  else Value.show v
+
+let repl options =
+  let print_owned () = Decls.prelude_owned "effect" (Syntax.Type.intern "Print") in
+  let toplevel_extra = [ "Print" ] in
+  let start () =
+    let prelude = Elab.flatten_modules (load_prelude options) in
+    let tenv = Elab.start_session ~prelude () in
+    let sess = Interp.start_session ~print:(print_owned ()) ~sink:print_string prelude in
+    (tenv, sess)
+  in
+  let tenv0, sess0 = start () in
+  let tenv = ref tenv0 and sess = ref sess0 in
+  let session_vals : (string, unit) Hashtbl.t = Hashtbl.create 64 in
+  let line_no = ref 0 in
+  let buf = Buffer.create 256 in
+  let start_line = ref 1 in
+  (* 宣言表の写しと単一化の記録を取って f を呼び、f が `Undo を返したら戻す *)
+  let with_undo f =
+    let restore = Decls.snapshot () in
+    Syntax.Type.trailing := true;
+    Syntax.Type.trail := [];
+    let undo () =
+      List.iter (fun g -> g ()) !Syntax.Type.trail;
+      restore ()
+    in
+    let finish () =
+      Syntax.Type.trailing := false;
+      Syntax.Type.trail := []
+    in
+    match f () with
+    | `Undo ->
+        undo ();
+        finish ()
+    | `Keep -> finish ()
+    | exception ex ->
+        undo ();
+        finish ();
+        raise ex
+  in
+  let print_lines lines = List.iter (fun l -> match l with Elab.Warning _ -> print_endline (render_line l) | _ -> ()) lines in
+  let print_type_error = function
+    | Aux.Type_error_at (loc, msg) -> print_endline (render_error { Elab.e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
+    | Aux.Type_error msg -> print_endline (render_error { Elab.e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
+    | Aux.NotImplemented_at (loc, feat) -> print_endline (render_error { Elab.e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })
+    | Aux.NotImplemented feat -> print_endline (render_error { Elab.e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })
+    | ex -> raise ex
+  in
+  let process ds =
+    with_undo @@ fun () ->
+    match Elab.flatten_modules ~session_vals ds with
+    | exception ((Aux.Type_error_at _ | Aux.Type_error _ | Aux.NotImplemented_at _ | Aux.NotImplemented _) as ex) ->
+        print_type_error ex;
+        `Undo
+    | decls -> (
+        match Elab.check_input ~toplevel_extra !tenv decls with
+        | Error (lines, e) ->
+            print_lines lines;
+            print_endline (render_error e);
+            `Undo
+        | Ok (lines, env') -> (
+            print_lines lines;
+            match Interp.exec_input ~print:(print_owned ()) !sess ~sink:print_string decls with
+            | shown ->
+                tenv := env';
+                List.iter (fun x -> Hashtbl.replace session_vals x ()) (Elab.toplevel_value_names decls);
+                List.iter
+                  (fun (x, e, v) ->
+                    let ty =
+                      match e with
+                      | Some e -> Tree.get_ty e
+                      | None -> ( match Elab.lookup_value_type env' x with Some t -> t | None -> bug ("REPL の束縛の型が見つかりません: " ^ x))
+                    in
+                    let unit_ty = match Syntax.Type.repr ty with Syntax.Type.TRecord r -> Syntax.Type.repr r = Syntax.Type.TRowEmpty | _ -> false in
+                    if not (x = "_" && unit_ty) then Printf.printf "%s : %s = %s\n" x (Show.show ty) (show_value ty v))
+                  shown;
+                `Keep
+            | exception ex ->
+                flush_stdout_or_die ();
+                print_endline (runtime_message ex);
+                `Undo))
+  in
+  let type_of_expr src =
+    match try_parse ~line:!line_no src with
+    | Complete [ ((_, Tree.Tree.DExp e) as d) ] ->
+        with_undo (fun () ->
+            (match Elab.check_input ~toplevel_extra !tenv [ d ] with
+            | Ok _ ->
+                let t = Tree.get_ty e in
+                Unify.generalize 0 t;
+                print_endline (Show.show t)
+            | Error (_, err) -> print_endline (render_error err));
+            `Undo)
+    | Complete _ -> print_endline ":type には式を 1 つ書いてください"
+    | Incomplete -> print_endline ":type の式が途中で終わっています"
+    | Failed msg -> print_endline msg
+  in
+  let command line =
+    let n = String.length line in
+    if line = ":quit" || line = ":q" then `Quit
+    else if line = ":reset" then (
+      Decls.reset ();
+      Hashtbl.reset session_vals;
+      let t, s = start () in
+      tenv := t;
+      sess := s;
+      `Go)
+    else if n > 6 && String.sub line 0 6 = ":type " then (
+      type_of_expr (String.sub line 6 (n - 6));
+      `Go)
+    else (
+      print_endline ("未知のコマンド: " ^ line);
+      `Go)
+  in
+  let interactive = In_channel.isatty stdin in
+  let rec loop () =
+    if interactive then (
+      print_string (if Buffer.length buf = 0 then "> " else ". ");
+      flush_stdout_or_die ());
+    match In_channel.input_line stdin with
+    | None ->
+        if Buffer.length buf > 0 then (
+          if interactive then print_newline ();
+          match try_parse ~line:!start_line (Buffer.contents buf) with
+          | Failed msg -> print_endline msg
+          | _ -> print_endline "<stdin>: 入力が途中で終わっています")
+        else if interactive then print_newline ()
+    | Some line ->
+        incr line_no;
+        if Buffer.length buf = 0 && String.length line > 0 && line.[0] = ':' then (
+          match command line with
+          | `Quit -> ()
+          | `Go ->
+              flush_stdout_or_die ();
+              loop ())
+        else (
+          if Buffer.length buf = 0 then start_line := !line_no;
+          Buffer.add_string buf line;
+          Buffer.add_char buf '\n';
+          (match try_parse ~line:!start_line (Buffer.contents buf) with
+          | Incomplete -> ()
+          | Failed msg ->
+              Buffer.clear buf;
+              print_endline msg
+          | Complete ds ->
+              Buffer.clear buf;
+              process ds);
+          flush_stdout_or_die ();
+          loop ())
+  in
+  loop ()
+
 (* ## 16.7 結線
 
    どの段まで通すかは、モードごとに異なる。
@@ -517,6 +785,10 @@ let run_with options =
   | DumpTokens -> List.iter dump_tokens_file options.o_files
   | DumpAst -> List.iter (fun file -> Dump.dump_decls stdout (parse_file file)) options.o_files
   | TypeCheck -> ignore (type_check_files options)
+  | Repl ->
+      Interp.cancel_log :=
+        (fun msg -> try Printf.printf "cancel 節で例外が抑制されました: %s\n" msg with Sys_error _ -> ());
+      repl options
   | Run ->
       let prelude, decls = type_check_files ~quiet:true options in
       Interp.cancel_log :=
