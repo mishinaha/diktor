@@ -334,20 +334,41 @@ let rec block_of_items sloc items =
 
    右辺が呼び出しでなければエラーにする。
    行を差し込む先が無いからである。
-   これは、パーサが形だけで判断できる数少ない意味上の検査の 1 つである。 *)
+   これは、パーサが形だけで判断できる数少ない意味上の検査の 1 つである。
+
+   継続を引数の行に差し込む処理は `append_last_arg` に切り出し、末尾ブロック(§3.19)と共有する。
+   差し込む先は、どちらも引数の行の最も内側である。 *)
+let append_last_arg sloc (d, f, args) k =
+  let rec splice (ad, a) =
+    match a with
+    | RecordEmpty -> (ad, RecordExtend (mk sloc RecordEmpty, "_item", k))
+    | RecordExtend (rest, l, v) -> (ad, RecordExtend (splice rest, l, v))
+    | _ -> raise (Syntax_error "with: 呼び出しの引数形が不正です")
+  in
+  (d, Apply (f, splice args))
+
 let with_splice sloc pat call k_body =
   let k_params = match snd pat with PWildcard -> [] | _ -> [ pat ] in
   let k = mk sloc (Lambda { l_params = k_params; l_body = k_body }) in
   match call with
-  | (d, Apply (f, args)) ->
-      let rec splice (ad, a) =
-        match a with
-        | RecordEmpty -> (ad, RecordExtend (mk sloc RecordEmpty, "_item", k))
-        | RecordExtend (rest, l, v) -> (ad, RecordExtend (splice rest, l, v))
-        | _ -> raise (Syntax_error "with: 呼び出しの引数形が不正です")
-      in
-      (d, Apply (f, splice args))
+  | (d, Apply (f, args)) -> append_last_arg sloc (d, f, args) k
   | _ -> raise (Syntax_error "with の右辺は関数呼び出しでなければなりません")
+
+(* 末尾ブロック(§3.19)の補助関数。
+   `trailing_call` は、`{` の位置(lbrace_pos)と、その直前のトークンの終わり(prev_end)を受け取る。
+   `{ case … }` が作る照合関数の仮引数の名前 `%arg` は、字句解析が `%` を受け付けないので、
+   利用者の名前と衝突しない *)
+let trailing_param = "%arg"
+
+let trailing_record pos =
+  raise (Syntax_error_at (pos, "末尾ブロックの中身にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)"))
+
+let trailing_call sloc callee args (lbrace_pos, prev_end, k) =
+  if lbrace_pos.Lexing.pos_lnum <> prev_end.Lexing.pos_lnum then
+    raise (Syntax_error_at (lbrace_pos, "末尾ブロックの { は、呼び出しと同じ行に書きます"));
+  match call sloc callee args with
+  | (d, Apply (f, a)) -> append_last_arg sloc (d, f, a) k
+  | _ -> raise (Syntax_error_at (lbrace_pos, "コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません"))
 
 (* ## 3.9 閉じた行と開いた行の分かれ目
 
@@ -482,13 +503,14 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
    **テストが通ったまま**起こりうる(§3.16)。
 
    その代わり、文法の書き方は制約を受ける。
-   本章の設計判断のうち次の 5 つは、どれもそう書かないと conflict するから選んだ形である。
+   本章の設計判断のうち次の 6 つは、どれもそう書かないと conflict するから選んだ形である。
 
    - ドット連鎖を意味アクションに任せる(§3.4)
    - `#Foo(...)` を後置で受ける(§3.6)
    - 矢印型を分離する(§3.23)
    - 束縛パターンを別の言語にする(§3.16)
-   - レコード型とエフェクト行を 1 本の規則に統合する(§3.23) *)
+   - レコード型とエフェクト行を 1 本の規則に統合する(§3.23)
+   - 末尾ブロックを付けられる位置を 3 つに限る(§3.19) *)
 
 %%
 
@@ -806,11 +828,42 @@ prefix_exp:
 
 (* ## 3.19 後置とアトム
 
-   後置は 3 種類ある。
-   ドットによる選択(§3.4)、`\` によるフィールドの除去、呼び出し(§3.6)である。
-   Keleut には**並置による適用が無い**ので、
+   後置は 4 種類ある。
+   ドットによる選択(§3.4)、`\` によるフィールドの除去、呼び出し(§3.6)、末尾ブロックである。
+   Keleut には、末尾ブロックを除いて**並置による適用が無い**ので、
    `f (x)` の `(` が呼び出しなのかグループ化なのかで迷う余地が無い。
    そのため、式の `(` を素直に読める。
+
+   末尾ブロックは、呼び出しの最後の引数を括弧の外に波括弧で書いた無名関数である。
+   付けられる位置は、呼び出しの `)` の直後、ドットで選んだ小文字の名前の直後、
+   小文字の識別子の直後の 3 つで(`tb_call`)、中身は 3 つの形を受ける。
+
+   | 中身 | 脱糖 |
+   |---|---|
+   | `{ 文の列 }` | `fn() => { 文の列 }` |
+   | `{ x => 文の列 }` | `fn(x) => { 文の列 }` |
+   | `{ case … }` | `fn(%arg) => %arg match { case … }` |
+
+   関数は `append_last_arg`(§3.8)で引数の行の最も内側に足すので、`with` と同じく最後の引数になる。
+   任意の後置式の後ろには付けない。
+   括弧はノードを残さない(§3.20)ので、
+   意味アクションは `(g(1)) { k }` と `g(1) { k }` を区別できない。
+   また、任意の後置式の後ろと呼び出しの後ろの両方に付ける文法は、
+   shift/reduce の conflict を 1 個生む。
+   呼び出しの位置でも、`call`(§3.6)が構築を作ったとき(大文字の名前や `#Tag`)は構文エラーにする。
+
+   末尾ブロックの `{` は直前のトークンと同じ行に書く。
+   トップレベルとブロックの中では、改行が先に文を区切る(§2.10)ので、
+   次の行の `{` はこの規則に届かない。
+   丸括弧やレコードの中では改行が捨てられるので、
+   `{` の位置の行を直前のトークンの行と比べて検査する。
+   `{ x => … }` と `{ case … }` は単独では式にならないので、`lambda_block` を `atom` にも置き、
+   末尾ブロックの位置の外に現れたときに専用の診断を出す。
+   `{ 文の列 }` は単独でも正しいブロックなので、次の行に書くと独立した式文になる。
+
+   末尾ブロックの診断は、`Syntax_error_at` で誤りの `{`(`{ _ =>` では `_`)の位置を報告する。
+   診断は `}` の後ろのトークンを読んでから出るので、
+   最後に読んだトークンの位置は誤りの場所を指さない。
 
    `atom` の `#Ident` は空のペイロードの `Variant` として作り、
    引数が付いていれば、後置の呼び出しの規則が `call` で差し替える(§3.6)。
@@ -833,7 +886,36 @@ postfix_exp:
   | postfix_exp DOT upper_id            { dot_select $sloc $1 $3 }
   | postfix_exp BACKSLASH lower_id      { mk $sloc (RecordRestriction ($1, $3)) }
   | postfix_exp LPAREN call_args RPAREN { call $sloc $1 $3 }
+  | tb_call                             { $1 }
   | atom                                { $1 }
+
+tb_call:
+  | postfix_exp LPAREN call_args RPAREN trailing_block
+      { trailing_call $sloc $1 $3 ($startpos($5), $endpos($4), $5) }
+  | postfix_exp DOT lower_id trailing_block
+      { trailing_call $sloc (dot_select $sloc $1 $3) [] ($startpos($4), $endpos($3), $4) }
+  | lower_id trailing_block
+      { trailing_call $sloc (mk $loc($1) (Ident (LongId [ $1 ]))) [] ($startpos($2), $endpos($1), $2) }
+  | postfix_exp LPAREN call_args RPAREN record_exp { trailing_record $startpos($5) }
+  | postfix_exp DOT lower_id record_exp            { trailing_record $startpos($4) }
+  | lower_id record_exp                            { trailing_record $startpos($2) }
+  | tb_call trailing_block
+      { raise (Syntax_error_at ($startpos($2), "末尾ブロックは 1 つの呼び出しに 1 個までです")) }
+
+trailing_block:
+  | block                         { mk $sloc (Lambda { l_params = []; l_body = $1 }) }
+  | lambda_block                  { $1 }
+
+lambda_block:
+  | LBRACE_BLOCK lower_id EQ_GREATER items RBRACE
+      { mk $sloc (Lambda { l_params = [ mk $loc($2) (PVar $2) ]; l_body = block_of_items $loc($4) $4 }) }
+  | LBRACE_BLOCK LOWLINE EQ_GREATER items RBRACE
+      { raise (Syntax_error_at ($startpos($2),
+          "末尾ブロックの引数に _ は書けません(引数なしは { 式 }、引数を捨てる 1 引数は { case _ => 式 })")) }
+  | LBRACE_BLOCK clause clauses RBRACE
+      { let v = mk $sloc (Ident (LongId [ trailing_param ])) in
+        mk $sloc (Lambda { l_params = [ mk $sloc (PVar trailing_param) ];
+                           l_body = mk $sloc (Match (v, $2 :: $3)) }) }
 
 atom:
   | NUMBER { mk $sloc (Number $1) }
@@ -851,8 +933,15 @@ atom:
         | [ (None, e) ] -> mk $sloc (Resume (Some e))
         | [ (Some _, _) ] -> raise (Syntax_error "resume の引数にラベルは付けられません")
         | _ -> raise (Syntax_error "resume の引数は高々1個です") }
+  | PERFORM perform_op LPAREN call_args RPAREN trailing_block
+      { raise (Syntax_error_at ($startpos($6), "perform には末尾ブロックを付けられません")) }
+  | RESUME LPAREN call_args RPAREN trailing_block
+      { raise (Syntax_error_at ($startpos($5), "resume には末尾ブロックを付けられません")) }
   | RUN lower_id run_body                      { mk $sloc (Run ($2, $3)) }
   | block                                      { $1 }
+  | lambda_block
+      { raise (Syntax_error_at ($startpos,
+          "{ x => ... } と { case ... } は末尾ブロックとしてだけ書けます(呼び出しの直後の同じ行に置くか、fn(x) => ... と書きます)")) }
   | record_exp                                 { $1 }
   | paren_exp                                  { $1 }
 
