@@ -296,6 +296,63 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
    値の名前は、第11章が解決した実体を木に書くので、第14章は同義語表を引かない。 *)
 let current_module : string option ref = ref None
 
+(* 単位。起点は 0、標準環境は -1、import した単位は 1 から振る。
+   起点でない単位の型、コンストラクタ、エフェクト、クラス、module の名前は、
+   綴りの先頭に %N. の印を付けて intern する *)
+type unit_id = int
+
+let root_unit = 0
+
+let std_unit = -1
+
+let current_unit : unit_id ref = ref root_unit
+
+(* 単位の番号 → 表示用のパス *)
+let unit_paths : (unit_id, string) Hashtbl.t = Hashtbl.create 8
+
+(* 宣言ノードの oid → 宣言した単位 *)
+let decl_unit : (oid, unit_id) Hashtbl.t = Hashtbl.create 64
+
+(* 単位の同義語。(単位, 非修飾名) → 綴り。型、コンストラクタ、エフェクト、クラスを載せる *)
+let unit_synonyms : (unit_id * oid, oid) Hashtbl.t = Hashtbl.create 16
+
+(* 修飾名の頭。(単位, module 名かクラス名) → 綴り *)
+let unit_qualifiers : (unit_id * string, string) Hashtbl.t = Hashtbl.create 16
+
+let marks_unit u = u > root_unit
+
+let mark_spelling u name = if marks_unit u then "%" ^ string_of_int u ^ "." ^ name else name
+
+(* 綴りの印から単位を引く。印の無い綴りは None *)
+let unit_of_spelling name =
+  if String.length name > 1 && name.[0] = '%' then
+    match String.index_opt name '.' with
+    | Some i -> int_of_string_opt (String.sub name 1 (i - 1))
+    | None -> None
+  else None
+
+let resolve_unit c = match Hashtbl.find_opt unit_synonyms (!current_unit, c) with Some q -> q | None -> c
+
+(* 修飾名 M.x の頭を、現在の単位の綴りに置き換える *)
+let qualify name =
+  if String.length name > 0 && name.[0] = '%' then name
+  else
+    match String.index_opt name '.' with
+    | Some i -> (
+        match Hashtbl.find_opt unit_qualifiers (!current_unit, String.sub name 0 i) with
+        | Some h -> h ^ String.sub name i (String.length name - i)
+        | None -> name)
+    | None -> name
+
+(* 現在の単位から見える実体か。印の無い綴りは標準環境か起点のもので、どの単位からも見える
+   (起点の宣言は、起点より前に処理する単位からは表に無い)。印の付いた綴りは、
+   現在の単位の同義語の先になっているものだけが見える *)
+let visible_in_unit oid =
+  let name = Type.name_of oid in
+  match unit_of_spelling name with
+  | None -> true
+  | Some _ -> Hashtbl.find_opt unit_synonyms (!current_unit, Type.intern (Type.display name)) = Some oid
+
 (* コンパニオン型だけを載せる大域の同義語。値は候補の列で、
    resolve_con は候補が 1 つのときだけ使う *)
 let con_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
@@ -314,9 +371,13 @@ let module_val_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 let resolve_con_global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
 
 let resolve_con c =
+  let c = Type.intern (qualify (Type.name_of c)) in
+  let in_unit () =
+    match Hashtbl.find_opt unit_synonyms (!current_unit, c) with Some q -> q | None -> resolve_con_global c
+  in
   match !current_module with
-  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> resolve_con_global c)
-  | None -> resolve_con_global c
+  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> in_unit ())
+  | None -> in_unit ()
 
 (* 診断専用の候補列。解決には使わない *)
 let con_hints : (oid, oid list) Hashtbl.t = Hashtbl.create 16
@@ -1047,7 +1108,12 @@ let reset () =
   Hashtbl.reset value_visibility;
   Hashtbl.reset con_visibility;
   Hashtbl.reset decl_module;
+  Hashtbl.reset unit_paths;
+  Hashtbl.reset decl_unit;
+  Hashtbl.reset unit_synonyms;
+  Hashtbl.reset unit_qualifiers;
   current_module := None;
+  current_unit := root_unit;
   in_prelude := false;
   register_builtins ()
 
@@ -1056,7 +1122,7 @@ let () = register_builtins ()
 (* ## 6.14 宣言表の写し
 
    対話的な実行(第16章)は、型検査が失敗した入力の宣言を表に残さない。
-   `snapshot` は、本章の大域の表 21 個と参照 3 つの中身を写し、写した時点の中身に戻す閉包を返す。
+   `snapshot` は、本章の大域の表 25 個と参照 4 つの中身を写し、写した時点の中身に戻す閉包を返す。
    戻すときは、表を空にしてから写しを書き戻す。
    `Hashtbl.fold` は同じ鍵の束縛を新しい順に渡すので、リストに積んでから順に `add` すれば、
    隠れた束縛の順序も戻る。
@@ -1088,6 +1154,10 @@ let snapshot () =
       snapshot_tbl value_visibility;
       snapshot_tbl con_visibility;
       snapshot_tbl decl_module;
+      snapshot_tbl unit_paths;
+      snapshot_tbl decl_unit;
+      snapshot_tbl unit_synonyms;
+      snapshot_tbl unit_qualifiers;
       snapshot_tbl aliases;
       snapshot_tbl datas;
       snapshot_tbl ctor_owner;
@@ -1098,9 +1168,10 @@ let snapshot () =
       snapshot_tbl reserved_predicates;
     ]
   in
-  let ip = !in_prelude and cm = !current_module and bo = !builtin_ops in
+  let ip = !in_prelude and cm = !current_module and cu = !current_unit and bo = !builtin_ops in
   fun () ->
     List.iter (fun r -> r ()) rs;
     in_prelude := ip;
     current_module := cm;
+    current_unit := cu;
     builtin_ops := bo

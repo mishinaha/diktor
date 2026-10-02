@@ -183,6 +183,16 @@ module Type = struct
 
   let name_of oid = Hashtbl.find name_map oid
 
+  (* 単位の印 %N. を外した綴り。印は綴りの先頭にだけ付く(第6章 §6.4) *)
+  let display name =
+    if String.length name > 1 && name.[0] = '%' then
+      match String.index_opt name '.' with
+      | Some i -> String.sub name (i + 1) (String.length name - i - 1)
+      | None -> name
+    else name
+
+  let display_of oid = display (name_of oid)
+
 (* ## 1.3 カインド
 
    カインドは純粋に構造的で、制約を載せない。
