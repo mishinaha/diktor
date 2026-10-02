@@ -106,6 +106,17 @@ pub let rec の相互再帰(@ 省略)は、どの束縛の本体も閉じた空�
   $ diktor --type-check pub14.kel
   ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
   [1]
+handle や run の本体の中で起こしたエフェクトも、pub の規則を名指しして案内する:
+
+  $ printf 'pub let f(): Unit = { echo("a"); () } handle { case print(m) => resume(()) }\n' > pubh.kel
+  $ diktor --type-check pubh.kel
+  ! pubh.kel:1:23: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
+  [1]
+  $ printf 'pub let g(): Int32 = run h { echo("a"); 1 }\n' > pubr.kel
+  $ diktor --type-check pubr.kel
+  ! pubr.kel:1:30: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
+  [1]
+
   $ cat > pub15.kel <<'KEL'
   > let (helper, k) = (fn(x: Int32) => x, 0)
   > pub let go(n: Int32): Int32 = helper(n)
