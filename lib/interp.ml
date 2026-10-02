@@ -45,6 +45,9 @@
       とくに、`eval` の再帰を `try … with` で包まない。
       Keleut には while が無く、反復の手段は再帰だけなので、末尾呼び出しの最適化を失うと、
       普通のループがスタックを使い尽くす。
+      例外は操作節の本体で、§14.10 の 3 つの経路を判定するために包みの中で評価する。
+      そのため、操作節の本体の末尾位置にある関数呼び出しは末尾にならない。
+      末尾の背骨にある `resume` だけは、包みを抜けてから継続を末尾で発行する(§14.10)。
 
    2. 評価順序を let で固定する。
       OCaml は関数適用で引数を評価する順序を規定しておらず、現行のコンパイラは右から左に評価する。
@@ -272,8 +275,8 @@ let number_value node (n : number) =
      節本体が `{ … ; resume(f()) }` のように `Resume` そのものでない形のとき、
      `f` が例外で脱出すれば、resume は未消費のまま節の例外の経路(§14.10 の discontinue)に乗る。
      順序を入れ替えると、消費済みの継続を捨てることになる。
-     節本体が `resume(…)` そのもののときは §14.10 の末尾 resume 最適化に乗るが、
-     その経路でも引数の評価は包んであり、例外なら discontinue する。
+     節本体の末尾の背骨にある `resume` は §14.10 の `eval_clause_tail` が処理するが、
+     その経路でも引数の評価は包みの中にあり、例外なら discontinue する。
    - `Run` は、実行時には恒等写像である。
      `run h { … }` の `h` は型の上にしか存在せず、
      リージョンの安全性は第11章の剛定数とレベルが保証している。
@@ -281,6 +284,11 @@ let number_value node (n : number) =
      `Run` は、実行時に何もしないもののいちばん目立つ例である。
      `Blocking` を落とす組み込み関数 `pinned` も、実行時には渡された関数を呼ぶだけである(§14.11)。
      型で守り切れた性質を、実行時に検査し直すことはしない。 *)
+
+(* 操作節の本体を末尾の背骨に沿って評価した結果(§14.10)。
+   `Clause_resume v` は、背骨の末尾の `resume(v)` に着いたことを表す。
+   継続はまだ再開しておらず、再開は呼び出し側が例外の捕捉を抜けてから行う *)
+type clause_end = Clause_value of Value.t | Clause_resume of Value.t
 
 let rec eval env ((_, e) as node : T.exp) : Value.t =
   match e with
@@ -395,20 +403,11 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           Effect.perform (Op (op, va))
       | _ -> bug "Perform が解決されていません")
   | T.Handle (body, clauses) -> eval_handle env body clauses
-  | T.Resume arg -> (
-      match env.resume with
-      | None -> runtime_error "resume は操作節の中でのみ使えます"
-      | Some r ->
-          (* 引数を先に評価する。節本体が Resume そのものでない形なら、引数の評価中に
-             起きた例外で、resume は未消費のまま節の例外の経路(discontinue)に乗る。
-             節本体が Resume そのもののときは eval_handle の末尾 resume 最適化が
-             処理するので、この分岐は走らない *)
-          let v = match arg with Some e -> eval env e | None -> unit in
-          if not r.r_alive then runtime_error "resume を節の外で呼び出しました(second-class)"
-          else if r.r_used then runtime_error "resume は高々1回しか呼べません(アフィン)"
-          else (
-            r.r_used <- true;
-            Effect.Deep.continue r.r_k v))
+  | T.Resume arg ->
+      (* この分岐に来るのは、節本体の末尾の背骨の外にある resume だけである。
+         背骨の上の resume は §14.10 の eval_clause_tail が処理する *)
+      let r, v = take_resume env arg in
+      Effect.Deep.continue r.r_k v
   | T.Run (_, body) -> eval env body (* 実行時は恒等。リージョンの安全性は型が保証する *)
 
 (* ## 14.5 関数の適用
@@ -769,34 +768,59 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    この規約は、§13.6 の最も外側のハンドラ(`with_runtime` の `Console.write`)にも当てはまる。
 
-   ### 末尾 resume 最適化
+   ### 末尾 resume
 
    上の 3 つの経路を判定するには、節の評価を `match … with exception` で包む必要がある。
-   この包みがあると、`continue` が `effc` の末尾式でなくなる。
+   この包みの内側で `continue` を発行すると、`continue` が `effc` の末尾式でなくなる。
    継続の発行が末尾でないと、perform のたびにスタックが伸びる。
-   fiber のスタックは伸長できるので Stack_overflow にはならないが、
-   perform の回数が増えるほど大幅に遅くなる。
+   fiber のスタックは伸長できるので既定の上限では Stack_overflow になりにくいが、
+   perform の回数に比例して空間を使い、大幅に遅くなる。
+   Keleut は反復を再帰で書くので、perform を含むループは、
+   節の末尾の `resume` が継続を末尾で発行することを前提にしている。
 
+   そこで、節本体の末尾の背骨にある `Resume` では、継続を包みの内側で発行しない。
+   背骨は `eval` の末尾位置と同じで、`Seq` の最後、`Let` と `LetRec` の続き、
+   `Match` の節本体、`&&` と `||` の右辺、`Run` の本体である。
+   `eval_clause_tail` は背骨をたどり、背骨の末尾の `Resume` に着いたら、
+   引数を評価して検査を済ませ、継続を再開せずに `Clause_resume v` を返す。
+   背骨から外れた部分は `eval` で評価し、`Clause_value v` を返す。
+   `effc` は包みを抜けた後の値の枝で、`Clause_resume v` なら `continue k v` を末尾で発行する。
+   `Clause_value v` なら、上の表の 1 行目か 2 行目の経路に進む。
+
+   背骨は `Handle` と `Lambda` に入らない。
+   内側の `handle` の本体にある `resume` は、内側のハンドラの枠の中から呼ばれるので末尾にならない。
+   閉包の本体には、その節の `resume` を書けない(§11.21)。
+   そのため、背骨の上の `Resume` は常にこの節の resume である。
+   背骨の外の `Resume` は、従来どおり `eval` の中で `continue` を発行し、その結果を値として返す。
+
+   背骨に `Resume` の無い節は、背骨をたどらずに `eval` で評価する。
+   `eval_handle` は、ハンドラを起動するときに各節の背骨を 1 回ずつ調べ(`spine_has_resume`)、
+   結果を節と並べて持つ。
+   調べる費用は背骨の長さに比例し、perform のたびには掛からない。
+   resume しない節の本体から深く再帰する形では、背骨をたどる 1 段が再帰の 1 段ごとに
+   スタックを使うので、この区別が無いと、同じスタックの上限で落ちる深さが浅くなる。
+
+   節本体が構文上 `Resume` そのものである節は、さらに短い経路を通る。
    `case op(x) => resume(…)` の形の節は多く、プレリュードのハンドラ(`with_stdout`)もこの形である。
-   そこで、節本体が構文上 `Resume` そのものであれば、
-   節本体全体を包んで終わり方を判定する処理を省き、
-   `Effect.Deep.continue k v` を末尾で発行する。
-   `test/eval.t` の perf.kel(10 万回の println)がこの経路の回帰テストで、
-   最適化が外れると実行時間で気づける。
-   この最適化は、性能の改善というより、実用上の必要条件である。
+   この経路は `r_used` を引数の評価より先に `true` にするので、
+   引数の中の入れ子の `resume` は、継続を再開する前にアフィン性の検査で落ちる。
+   背骨をたどる経路では、引数の中の入れ子の `resume` は継続を再開し、
+   その後で外側の `resume` がアフィン性の検査で落ちる。
+   どちらも実行時エラーで終わるが、エラーの前に継続の出力が見えるかどうかが異なる。
+   `test/eval.t` の perf.kel(10 万回の println)が短い経路の回帰テストで、
+   `test/tail_calls.t` が、小さいスタック上限の下で両方の経路が空間を使わないことを確かめる。
 
-   この速い経路も、3 つの経路の規約を守る。
-   `match … with exception` が覆うのは引数の評価だけである。
-   引数が例外で脱出したら、通常の経路と同じく `discontinue` する。
-   引数の評価を包まないと、`resume(???)` の形で、
-   捨てた継続の cancel 節も自分の cancel 節も走らない。
+   どちらの経路も、3 つの経路の規約を守る。
+   `match … with exception` が覆うのは、節の評価(短い経路では引数の評価)だけである。
+   その中で例外が起きたら、resume していなければ `discontinue` する。
+   包まないと、`resume(???)` の形で、捨てた継続の cancel 節も自分の cancel 節も走らない。
    回帰テストは `test/eval.t` の tailresume.kel である。
+   再開した計算から出てきた例外は、包みの外で発行した `continue` からそのまま `effc` の外へ出る。
+   これは、継続を消費済みの節が例外を再送出する経路(上の表の 3 行目)と同じ結果である。
 
-   包むのが引数の評価だけなので、`continue` は値の枝、
-   つまり例外を捕まえる範囲(trap)を抜けた後にあり、末尾での発行が保たれる。
+   `continue` は値の枝、つまり例外を捕まえる範囲(trap)を抜けた後にあり、末尾での発行が保たれる。
    OCaml は、値の場合の枝を trap の外に置いてコンパイルする。
-   引数の評価だけを包む形は、包まない形と実行時間もメモリも変わらない。
-   一方、`continue` を trap の内側に置くと、大幅に遅くなる。
+   一方、`continue` を trap の内側に置くと、perform のたびにスタックが伸びる。
 
    ### アフィンな resume と second-class
 
@@ -853,6 +877,79 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    仕様は行の部分型付け(サブエフェクティング)を持たないので(sample.kel:473)、
    E を消す型付けと、E の操作を外へ流す実行を両立させる手段がない。 *)
 
+(* resume の引数を評価し、アフィン性と second-class の検査を済ませて、継続を消費済みにする。
+   継続の再開は呼び出し側が行う。
+   引数を先に評価するので、引数の評価中に起きた例外では、resume は未消費のまま
+   節の例外の経路(discontinue)に乗る。
+   順序を入れ替えると、消費済みの継続を捨てることになる *)
+and take_resume env arg =
+  match env.resume with
+  | None -> runtime_error "resume は操作節の中でのみ使えます"
+  | Some r ->
+      let v = match arg with Some e -> eval env e | None -> unit in
+      if not r.r_alive then runtime_error "resume を節の外で呼び出しました(second-class)"
+      else if r.r_used then runtime_error "resume は高々1回しか呼べません(アフィン)"
+      else (
+        r.r_used <- true;
+        (r, v))
+
+(* 操作節の本体を、末尾の背骨に沿って評価する(§14.10)。
+   背骨は `eval` の末尾位置と同じで、`Seq` の最後、`Let` と `LetRec` の続き、
+   `Match` の節本体、`&&` と `||` の右辺、`Run` の本体である。
+   それ以外のノードは `eval` に渡して `Clause_value` にする。
+   `Handle` と `Lambda` には入らないので、背骨の上の `Resume` は常にこの節の resume である *)
+and eval_clause_tail env ((_, e) as node : T.exp) : clause_end =
+  match e with
+  | T.Resume arg ->
+      let _, v = take_resume env arg in
+      Clause_resume v
+  | T.Seq es ->
+      let rec go = function
+        | [] -> Clause_value unit
+        | [ last ] -> eval_clause_tail env last
+        | s :: rest ->
+            let _ = eval env s in
+            go rest
+      in
+      go es
+  | T.Let (b, rest) ->
+      let locals = eval_binding env b in
+      eval_clause_tail { env with locals } rest
+  | T.LetRec (bs, rest) ->
+      let locals = eval_rec_bindings env bs in
+      eval_clause_tail { env with locals } rest
+  | T.Match (scrut, clauses) ->
+      (* 節の選び方は §14.4 の Match と同じである *)
+      let v = eval env scrut in
+      let rec try_clauses = function
+        | [] -> runtime_error ("match のどの節にも一致しません: " ^ show v)
+        | ((_, c) : T.clause) :: rest -> (
+            match match_pat env.locals c.T.cl_pat v with
+            | None -> try_clauses rest
+            | Some locals -> (
+                let env2 = { env with locals } in
+                match c.T.cl_guard with
+                | Some g ->
+                    if Builtin.as_bool (eval env2 g) then eval_clause_tail env2 c.T.cl_body else try_clauses rest
+                | None -> eval_clause_tail env2 c.T.cl_body))
+      in
+      try_clauses clauses
+  | T.BinOp (l, And, r) -> if Builtin.as_bool (eval env l) then eval_clause_tail env r else Clause_value (VBool false)
+  | T.BinOp (l, Or, r) -> if Builtin.as_bool (eval env l) then Clause_value (VBool true) else eval_clause_tail env r
+  | T.Run (_, body) -> eval_clause_tail env body
+  | _ -> Clause_value (eval env node)
+
+(* 節本体の末尾の背骨に `Resume` があるか。背骨の定義は `eval_clause_tail` と同じである *)
+and spine_has_resume ((_, e) : T.exp) =
+  match e with
+  | T.Resume _ -> true
+  | T.Seq es -> ( match List.rev es with last :: _ -> spine_has_resume last | [] -> false)
+  | T.Let (_, rest) | T.LetRec (_, rest) -> spine_has_resume rest
+  | T.Match (_, clauses) -> List.exists (fun ((_, c) : T.clause) -> spine_has_resume c.T.cl_body) clauses
+  | T.BinOp (_, (And | Or), r) -> spine_has_resume r
+  | T.Run (_, body) -> spine_has_resume body
+  | _ -> false
+
 and eval_handle env body clauses =
   (* inst は Handle ノードを評価するたびに採番する(入れ子に起動したハンドラが、
      外側宛ての Unwind を自分宛てと取り違えないため) *)
@@ -860,7 +957,9 @@ and eval_handle env body clauses =
   let op_clauses =
     List.filter_map
       (fun (cl : T.clause) ->
-        match Tree.get_resolved cl with Some (Tree.ROp op) -> Some (op, cl) | _ -> None)
+        match Tree.get_resolved cl with
+        | Some (Tree.ROp op) -> Some (op, (cl, spine_has_resume (snd cl).T.cl_body))
+        | _ -> None)
       clauses
   in
   let ret_clause = List.find_opt (fun cl -> Tree.get_resolved cl = Some Tree.RReturnClause) clauses in
@@ -921,15 +1020,15 @@ and eval_handle env body clauses =
                          次の節へ進む(§14.2 の match と同じ規則)。ガードから継続は見えない *)
                       let rec select = function
                         | [] -> None
-                        | (_, ((_, c) : T.clause)) :: rest -> (
+                        | (_, (((_, c) : T.clause), tail)) :: rest -> (
                             match bind env.locals (clause_arg_pats c) fields with
                             | None -> select rest
                             | Some locals -> (
                                 match c.T.cl_guard with
-                                | None -> Some (locals, c)
+                                | None -> Some (locals, c, tail)
                                 | Some g ->
                                     if Builtin.as_bool (eval { env with locals; resume = None } g) then
-                                      Some (locals, c)
+                                      Some (locals, c, tail)
                                     else select rest))
                       in
                       match select cands with
@@ -944,10 +1043,10 @@ and eval_handle env body clauses =
                              捨てた継続の cancel 節を走らせる(3 つの経路の規約) *)
                           Effect.Deep.discontinue k
                             (Runtime_error ("handle のどの節にも一致しません: " ^ Type.name_of op ^ show args))
-                      | Some (locals, c) -> (
+                      | Some (locals, c, tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
-                              (* 末尾 resume 最適化(§14.10)。exception 節が覆うのは
+                              (* 節本体が resume そのものの短い経路(§14.10)。exception 節が覆うのは
                                  引数の評価だけで、continue は値の枝(例外の捕捉を抜けた後)に
                                  あるので、末尾での発行が保たれる。引数が例外で脱出したときは、
                                  通常の経路と同じく discontinue して、捨てた継続の cancel 節を
@@ -967,10 +1066,25 @@ and eval_handle env body clauses =
                                   | exception ex ->
                                       r.r_alive <- false;
                                       Effect.Deep.discontinue k ex))
-                          | _ -> (
+                          | _ when not tail -> (
+                              (* 背骨に resume の無い節は、背骨をたどらずに評価する *)
                               let r = { r_k = k; r_used = false; r_alive = true } in
                               match eval { env with locals; resume = Some r } c.T.cl_body with
                               | v ->
+                                  r.r_alive <- false;
+                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
+                              | exception ex ->
+                                  r.r_alive <- false;
+                                  if r.r_used then raise ex else Effect.Deep.discontinue k ex)
+                          | _ -> (
+                              let r = { r_k = k; r_used = false; r_alive = true } in
+                              match eval_clause_tail { env with locals; resume = Some r } c.T.cl_body with
+                              | Clause_resume v ->
+                                  (* 背骨の末尾の resume。continue は値の枝(例外の捕捉を
+                                     抜けた後)にあるので、末尾で発行される *)
+                                  r.r_alive <- false;
+                                  Effect.Deep.continue k v
+                              | Clause_value v ->
                                   r.r_alive <- false;
                                   (* resume していなければ継続を巻き戻し、
                                      自分の exnc で v を受け取り直す *)
@@ -1366,8 +1480,10 @@ let run ~sink decls =
    通常のスタックの上で走る場合より遅れて `Stack_overflow` として現れる。
    先にメモリを使い尽くし、`Out_of_memory` として現れることもある。
    そのため driver(第16章)は、`Stack_overflow` と `Out_of_memory` を同じ終了コード 3 で報告する。
-   同じ理由で、深い非末尾再帰の限界を評価器のテストで固定することには意味が無い。
-   限界は環境のメモリ量で変わる。
+   既定の上限の下では、深い非末尾再帰がどこで落ちるかは環境のメモリ量で変わる。
+   そのため、末尾呼び出しが空間を使わないことは、既定の上限の下での完走では確かめられない。
+   `test/tail_calls.t` は `OCAMLRUNPARAM=l=100k` でスタックの上限を 10 万語に絞り、
+   末尾でない再帰が落ちる回数で、末尾呼び出しと末尾の `resume` が完走することを確かめる。
 
    ### 残している穴
 
@@ -1428,7 +1544,8 @@ let run ~sink decls =
 
    1. 起動ごとの `inst` の採番(共有すると、入れ子のハンドラが `Unwind` を横取りする)
    2. resume しなかった場合と例外で脱出した場合の両方での `discontinue`(落とすと資源が漏れる)
-   3. 節本体が `Resume` のときの末尾での `continue`(落とすと実用的な速度を失う。
+   3. 節本体の末尾の背骨にある `Resume` の `continue` を、包みを抜けてから発行すること
+      (落とすと perform を含むループが perform のたびに空間を使う。
       ただし引数の評価は包む。包み忘れると資源が漏れる)
    4. クラスパラメータの位置だけを使うディスパッチ(外すとコヒーレンスが破れる)
    5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)
