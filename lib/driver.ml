@@ -354,7 +354,8 @@ let load_prelude options =
 (* CLI の経路(§16.6)と同じ前処理を通す。
    平坦化を省くと、プレリュードに module が入ったときに、
    API の経路だけが型検査の内部エラー(平坦化されていない module)で落ちる *)
-let embedded_prelude () = Elab.flatten_modules (parse_string ~filename:"<prelude>" Prelude_embed.source)
+let embedded_prelude () =
+  Elab.flatten_modules ~unit:Decls.std_unit (parse_string ~filename:"<prelude>" Prelude_embed.source)
 
 (* 出力行と診断を整形する。
    行の種別は第11章が値で運び、見た目は本章が決める。
@@ -442,14 +443,14 @@ let type_check_files ?(quiet = false) options =
     flush_stdout_or_die ();
     safe_exit err.Elab.e_exit
   in
-  let flatten ds =
-    try Elab.flatten_modules ds with
+  let flatten ?unit ds =
+    try Elab.flatten_modules ?unit ds with
     | Aux.Type_error_at (loc, msg) -> report { Elab.e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
     | Aux.Type_error msg -> report { Elab.e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
     | Aux.NotImplemented_at (loc, feat) -> report { Elab.e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
     | NotImplemented feat -> report { Elab.e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
   in
-  let prelude = flatten (load_prelude options) in
+  let prelude = flatten ~unit:Decls.std_unit (load_prelude options) in
   let decls = flatten (List.concat_map parse_file options.o_files) in
   let put l =
     if quiet then (
@@ -602,7 +603,7 @@ let repl options =
   let print_owned () = Decls.prelude_owned "effect" (Syntax.Type.intern "Print") in
   let toplevel_extra = [ "Print" ] in
   let start () =
-    let prelude = Elab.flatten_modules (load_prelude options) in
+    let prelude = Elab.flatten_modules ~unit:Decls.std_unit (load_prelude options) in
     let tenv = Elab.start_session ~prelude () in
     let sess = Interp.start_session ~print:(print_owned ()) ~sink:print_string prelude in
     (tenv, sess)

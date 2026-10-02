@@ -4847,7 +4847,25 @@ let toplevel_value_names (decls : T.decl list) =
    組み込みの操作をプレリュードのソースへ移す場合は、
    この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。 *)
 
-let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
+let flatten_modules ?session_vals ?(unit = Decls.root_unit) (decls : T.decl list) : T.decl list =
+  (* 起点でない単位では、型、コンストラクタ、エフェクト、クラス、module の名前に単位の印を付け、
+     印の無い名前から印付きの綴りへの同義語を単位の表に張る(§6.4)。値の名前には印を付けない *)
+  let marked = Decls.marks_unit unit in
+  let spell tbl name =
+    let q = Decls.mark_spelling unit name in
+    if marked then Hashtbl.replace tbl (unit, intern name) (intern q);
+    q
+  in
+  let qualifier name =
+    let q = Decls.mark_spelling unit name in
+    if marked then Hashtbl.replace Decls.unit_qualifiers (unit, name) q;
+    q
+  in
+  let spell_ctors (n : T.newtype') =
+    match n.T.nt_rhs with
+    | T.NtCtors cs ->
+        { n with T.nt_rhs = T.NtCtors (List.map (fun (c : T.ctor_decl) -> { c with T.cd_name = spell Decls.unit_ctors c.T.cd_name }) cs) }
+  in
   (* トップレベル(module の外)の値の名前を先に集める。module 内の値の名前がこれと同名に
      なるのを禁止するため(§6.4)。
      パターン束縛の束縛子もすべて拾う。binding_name(PVar だけ)で集めると、
@@ -4871,7 +4889,13 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
   let toplevel_types = Hashtbl.create 16 in
   let class_methods : (string, string list) Hashtbl.t = Hashtbl.create 16 in
   Hashtbl.iter
-    (fun cname (ci : Decls.class_info) -> Hashtbl.replace class_methods (Type.name_of cname) (List.map fst ci.Decls.ci_methods))
+    (fun cname (ci : Decls.class_info) ->
+      (* この単位から見えるクラスは、印の無いクラスと、この単位で宣言したクラスである *)
+      let s = Type.name_of cname in
+      match Decls.unit_of_spelling s with
+      | None -> Hashtbl.replace class_methods s (List.map fst ci.Decls.ci_methods)
+      | Some u when u = unit -> Hashtbl.replace class_methods (Type.display s) (List.map fst ci.Decls.ci_methods)
+      | Some _ -> ())
     Decls.classes;
   List.iter
     (fun ((_, d) : T.decl) ->
@@ -4909,11 +4933,25 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
             (toplevel_value_names [ node ]))
         decls;
       Hashtbl.iter (fun x () -> Hashtbl.replace toplevel_vals x ()) prev);
+  let record_unit ((data, d') : T.decl) =
+    Hashtbl.replace Decls.decl_unit (Tree.oid_of (data, d')) unit;
+    (data, d')
+  in
   List.concat_map
-    (fun ((_, d) as node : T.decl) ->
+    (fun ((bdata0, d) as node : T.decl) ->
       at_node node @@ fun () ->
+      List.map record_unit
+      @@
       match d with
+      | T.DNewtype n -> [ (bdata0, T.DNewtype (spell_ctors { n with T.nt_name = spell Decls.unit_synonyms n.T.nt_name })) ]
+      | T.DType t -> [ (bdata0, T.DType { t with T.ta_name = spell Decls.unit_synonyms t.T.ta_name }) ]
+      | T.DEffect e -> [ (bdata0, T.DEffect { e with T.ef_name = spell Decls.unit_synonyms e.T.ef_name }) ]
+      | T.DClass c ->
+          ignore (qualifier c.T.cls_name);
+          [ (bdata0, T.DClass { c with T.cls_name = spell Decls.unit_classes c.T.cls_name }) ]
       | T.DModule (_, mname, body) ->
+          (* mname は表示名、sname は表の鍵に使う綴り *)
+          let sname = qualifier mname in
           List.concat_map
             (fun ((bdata, bd) as bnode : T.decl) ->
               at_node bnode @@ fun () ->
@@ -4935,12 +4973,12 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
                   type_error
                     ("module " ^ mname ^ " の " ^ x ^ " は組み込みの " ^ mname ^ "." ^ x
                    ^ " と同名です(組み込みの名前は宣言できません)")
-                else Decls.(Hashtbl.replace module_val_synonyms (mname, intern x) (intern (mname ^ "." ^ x)));
-                Decls.add_val_synonym (intern x) (intern (mname ^ "." ^ x))
+                else Decls.(Hashtbl.replace module_val_synonyms (sname, intern x) (intern (sname ^ "." ^ x)));
+                Decls.add_val_synonym (intern x) (intern (sname ^ "." ^ x))
               in
               let claim_con name pub =
-                let qual = mname ^ "." ^ name in
-                Decls.(Hashtbl.replace module_con_synonyms (mname, intern name) (intern qual));
+                let qual = sname ^ "." ^ name in
+                Decls.(Hashtbl.replace module_con_synonyms (sname, intern name) (intern qual));
                 Decls.add_con_hint (intern name) (intern qual);
                 (* コンパニオン(module 名と同名の型)とトップレベルの型名の衝突は、ここで
                    拒否する。黙って許すと、module Foo を 1 行足すだけでトップレベルの型 Foo が
@@ -4952,20 +4990,20 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
                   type_error
                     ("module " ^ mname ^ " のコンパニオン型 " ^ name ^ " は既存の型 " ^ name
                    ^ " と同名です(module 内の型とトップレベルの型は同名にできません)");
-                Hashtbl.replace Decls.con_visibility (intern qual) { Decls.vis_module = mname; vis_pub = pub };
+                Hashtbl.replace Decls.con_visibility (intern qual) { Decls.vis_module = sname; vis_pub = pub };
                 qual
               in
               let record_module (data, d') =
-                Hashtbl.replace Decls.decl_module (Tree.oid_of (data, d')) mname;
+                Hashtbl.replace Decls.decl_module (Tree.oid_of (data, d')) sname;
                 (data, d')
               in
               let vis x pub =
-                Hashtbl.replace Decls.value_visibility (intern (mname ^ "." ^ x)) { Decls.vis_module = mname; vis_pub = pub }
+                Hashtbl.replace Decls.value_visibility (intern (sname ^ "." ^ x)) { Decls.vis_module = sname; vis_pub = pub }
               in
               match bd with
               | T.DNewtype n ->
                   let qual = claim_con n.T.nt_name n.T.nt_pub in
-                  [ record_module (bdata, T.DNewtype { n with T.nt_name = qual }) ]
+                  [ record_module (bdata, T.DNewtype (spell_ctors { n with T.nt_name = qual })) ]
               | T.DType t ->
                   let qual = claim_con t.T.ta_name t.T.ta_pub in
                   [ record_module (bdata, T.DType { t with T.ta_name = qual }) ]
@@ -4974,7 +5012,7 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
                   | T.PVar x ->
                       claim_val x;
                       vis x b.T.lb_pub;
-                      [ record_module (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) })) ]
+                      [ record_module (bdata, T.DLet (bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (sname ^ "." ^ x)) })) ]
                   | _ -> type_error ("module 内の let はパターン束縛にできません: module " ^ mname))
               | T.DLetRec bs ->
                   [
@@ -4987,7 +5025,7 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
                                | T.PVar x ->
                                    claim_val x;
                                    vis x b.T.lb_pub;
-                                   ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (mname ^ "." ^ x)) }) : T.let_binding)
+                                   ((bd2, { b with T.lb_name = (fst b.T.lb_name, T.PVar (sname ^ "." ^ x)) }) : T.let_binding)
                                | _ -> type_error "module 内の let rec はパターン束縛にできません")
                              bs) );
                   ]
@@ -4995,7 +5033,7 @@ let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
               | T.DExtern ex ->
                   claim_val ex.T.ex_name;
                   vis ex.T.ex_name ex.T.ex_pub;
-                  [ record_module (bdata, T.DExtern { ex with T.ex_name = mname ^ "." ^ ex.T.ex_name }) ]
+                  [ record_module (bdata, T.DExtern { ex with T.ex_name = sname ^ "." ^ ex.T.ex_name }) ]
               | T.DModule _ -> noimpl "module の入れ子(M10)"
               | T.DEffect _ -> noimpl ("module 内の effect 宣言(M10): module " ^ mname)
               | T.DClass _ -> noimpl ("module 内の type class 宣言(M10): module " ^ mname)
