@@ -294,7 +294,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   実行時エラー: ??? に到達しました
   [3]
 
-性能回帰: 10万回の println が末尾 resume 最適化で完走する(§8.4):
+性能回帰: 10万回の println が、節本体が resume だけの短い経路で完走する(§8.4):
 
   $ cat > perf.kel <<'EOF'
   > let rec loop(n: Int32): Unit @ Print =
@@ -318,7 +318,7 @@ Run モードでも網羅性警告は stderr に出る:
   ⚠ match が非網羅的です。例えば None2 が漏れています
   ran
 
-末尾 resume 経路でも引数の例外で discontinue が走る(B1 / §14.10。
+節本体が resume だけの短い経路でも、引数の例外で discontinue が走る(B1 / §14.10。
 捨てた継続の cancel と自分の cancel の両方):
 
   $ cat > tailresume.kel <<'EOF2'
