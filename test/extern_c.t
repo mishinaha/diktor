@@ -17,8 +17,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   $ diktor cok.kel
   3.0
 
-行は照合しない(@ Blocking を付けるかはバインディング作者の判断、
-sample.kel:796):
+行は照合しない(どの行を書くかはバインディング作者の判断、sample.kel:796-797):
 
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
@@ -83,7 +82,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
 
   $ printf 'extern "C" let sqrt(x: Float64): Float64\nextern "C" let sqrt(x: Float64): Float64\n' > dd.kel
   $ diktor --type-check dd.kel
-  sqrt : (Float64) => Float64
+  sqrt : (Float64) => Float64 @ {Blocking extends R1}
   ! dd.kel:2:1: 型エラー: extern sqrt が二重に宣言されています
   [1]
 
