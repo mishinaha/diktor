@@ -868,16 +868,9 @@ let register_ref_array () =
    - `pub let` にすると、「pub な宣言はエフェクトを起こせません」で落ちる。
    - 本体を `run h { … }` で包むと、`Heap[h]` が行にある文脈で `@ {}` の関数を呼ぶことになり、
      「ラベル Heap がありません」で落ちる。 *)
-let register_parallel () =
-  let arr_oid = intern "Array" in
+let register_pinned () =
   let arrow args ret eff = Type.TArrow (Type.TRecord (closed_args_row args), ret, eff) in
   let def name ty = builtin_ops := !builtin_ops @ [ (name, ty) ] in
-  (* par_map : [A, B] (Array[A], (A) => B @ {}) => Array[B] @ ρ *)
-  (let a = generic () and b = generic () and e = generic ~kind:Type.KRow () in
-   def "par_map" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] b Type.TRowEmpty ] (Type.TCon (arr_oid, [ b ])) e));
-  (* par : [A, B] (() => A @ {}, () => B @ {}) => (A, B) @ ρ *)
-  (let a = generic () and b = generic () and e = generic ~kind:Type.KRow () in
-   def "par" (arrow [ arrow [] a Type.TRowEmpty; arrow [] b Type.TRowEmpty ] (Type.TRecord (closed_args_row [ a; b ])) e));
   (* pinned : [A, E] (() => A @ {Blocking extends E}) => A @ E。
      Blocking は操作を持たない組み込みのラベル(§6.11)なので、Blocking を行から
      落とすのは型の上だけの操作である。run が実行時には恒等写像である(§14.4)のと
@@ -995,7 +988,7 @@ let register_builtins () =
   add_data { dd_name = intern "Never"; dd_params = []; dd_ctors = []; dd_opaque = false };
   builtin_ops := [];
   register_ref_array ();
-  register_parallel ()
+  register_pinned ()
 
 (* ## 6.13 値環境への登録と表の初期化
 

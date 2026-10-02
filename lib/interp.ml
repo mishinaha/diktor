@@ -1198,37 +1198,6 @@ let register_builtin_values globals =
       match Builtin.arg1 args with
       | VMutArray a -> VArray (Array.copy a)
       | _ -> runtime_error "MutableArray ではありません");
-  (* par と par_map。逐次実装が並列実行と観測上同値である根拠は、スケジューラが
-     無いことではなく、コールバックの行が @ {} に閉じていることにある。コールバックは
-     Heap も Console も起こせないので、実行順序を観測できない(§6.11b)。
-     並列に実行した場合と違うのは 1 点だけで、コールバックが例外で脱出したとき、
-     逐次実装では後続を評価しない(素の OCaml と同じ)。
-     par_map の返り値は不変の Array[B] で、可変配列とは型が違う。
-     決定性は型が守り、その根拠は次の 2 つである。可変配列は h を型に持つので、
-     @ {} のコールバックからは触れない。入れ子の矢印で @ を省略すると @ {} と読むので、
-     高階の位置でエフェクトを隠す形が書けない(test/annot_rows.t の launder) *)
-  reg "par_map" (fun args ->
-      match Builtin.arg_values args with
-      | [ VArray a; f ] ->
-          (* 適用の順序は添字 0 から明示的に固定し、Array.map の適用順に任せない。
-             par の左から右と同じく、逐次実装の意味論は順序も含めて固定する(規約 2) *)
-          let n = Array.length a in
-          if n = 0 then VArray [||]
-          else (
-            let out = Array.make n unit in
-            for i = 0 to n - 1 do
-              out.(i) <- apply f (VRecord [ (Type.l_item, a.(i)) ])
-            done;
-            VArray out)
-      | _ -> runtime_error "par_map の引数が不正です");
-  reg "par" (fun args ->
-      match Builtin.arg_values args with
-      | [ fa; fb ] ->
-          (* 左から評価する。OCaml の未規定の評価順に任せない(規約 2) *)
-          let va = apply fa unit in
-          let vb = apply fb unit in
-          VRecord [ (Type.l_item, va); (Type.l_item, vb) ]
-      | _ -> runtime_error "par の引数が不正です");
   (* pinned は恒等関数として実装する。Diktor が Blocking について守る観測できる
      契約は、並列度を減らさないことと、キャンセルの配送点にならないことの 2 つである。
      Diktor はタスクを 1 つしか持たず、キャンセルの配送点も持たないので、
