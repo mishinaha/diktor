@@ -246,7 +246,14 @@ let new_pub_pure_row () =
   pub_pure_cells := r :: !pub_pure_cells;
   TVar r
 
-let is_pub_pure_row eff = match eff with TVar r -> List.memq r !pub_pure_cells | _ -> false
+(* 行の尾部が印のセルかどうか。handle や run の本体の行は、印のセルの上にラベルを積んだ形になるので、
+   repr を通さずに尾部までたどる(repr はリンクをたどって空の行を返し、セルの同一性を失う) *)
+let rec is_pub_pure_row eff =
+  match eff with
+  | TVar r when List.memq r !pub_pure_cells -> true
+  | TVar { contents = Link t } -> is_pub_pure_row t
+  | TRowExtend (_, _, rest) -> is_pub_pure_row rest
+  | _ -> false
 
 (* 失敗が行の単一化に由来するかどうか(エラー文言を言い換えるかどうかの判定)。
    引数の型の不一致まで、仕様 §9 の行の話にしないために使う。
