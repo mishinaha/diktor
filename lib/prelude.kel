@@ -220,7 +220,6 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 // ランタイムが提供する Console / Fs(仕様 sample.kel:464)と、ユーザ層の Print
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
-effect Fs      = {}
 
 // ## 15.5 extern の型と実装
 //
@@ -336,10 +335,6 @@ extern "prim" let __i64_to_f64(x: Int64): Float64
 extern "prim" let __f64_to_i32(x: Float64): Int32
 extern "prim" let __f64_to_i64(x: Float64): Int64
 extern "prim" let __panic[A](message: String): A
-extern "prim" let __open(path: String): Int32 @ Fs
-extern "prim" let __read(h: Int32): String @ Fs
-extern "prim" let __write(h: Int32, s: String): Unit @ Fs
-extern "prim" let __close(h: Int32): Unit @ Fs
 
 // 比較の残り 9 本と `__show_int32`。実装表のすべての名前に型を与える(§15.5)
 extern "prim" let __int64_le(x: Int64, y: Int64): Boolean

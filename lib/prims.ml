@@ -234,7 +234,7 @@ let show_bin_op = function
    `toplevel_effects` を `runtime_effects` との連結で定義しているのは、
    この包含を構造で保つためである。 *)
 
-let runtime_effects = [ "Console"; "Fs" ]
+let runtime_effects = [ "Console" ]
 
 (* 上の名簿に Blocking を足したもの。包含 runtime_effects ⊆ toplevel_effects を
    構造で保つために連結で定義する *)

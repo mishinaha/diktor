@@ -136,22 +136,6 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    ハンドル番号が実行の回数に依存する。
    ハンドル番号は、1 回の実行の中では単調に増え、実行ごとに 0 に戻るのが正しい。 *)
 
-  (* ---- テスト用のメモリ上のダミーのファイルシステム ---- *)
-
-let fs : (string, string) Hashtbl.t = Hashtbl.create 8
-
-let handles : (int32, string) Hashtbl.t = Hashtbl.create 8
-
-let next_handle = ref 0l
-
-(* 実行のたびにダミーのファイルシステムを空にする。3 つをまとめて戻すのは、
-   呼び出し側の戻し忘れを防ぐため。next_handle を戻さないと、再入 API で
-   ハンドル番号が実行の回数に依存する *)
-let reset_fs () =
-  Hashtbl.reset fs;
-  Hashtbl.reset handles;
-  next_handle := 0l
-
 (* ## 13.4 プリミティブ表
 
    表の作りは単純である。
@@ -324,27 +308,6 @@ let prims : (string * (t -> t)) list =
     ("__f64_to_i64", fun v -> VInt64 (Int64.of_float (f64_to_int "__f64_to_i64" (Int64.to_float Int64.min_int) (as_f64 (arg1 v)))));
     ("__show_int32", fun v -> VText (Int32.to_string (as_i32 (arg1 v))));
     ("__panic", fun v -> runtime_error ("panic: " ^ as_text (arg1 v)));
-    ( "__open",
-      fun v ->
-        let path = as_text (arg1 v) in
-        next_handle := Int32.add !next_handle 1l;
-        Hashtbl.replace handles !next_handle path;
-        VInt32 !next_handle );
-    ( "__read",
-      fun v ->
-        let h = as_i32 (arg1 v) in
-        let path = try Hashtbl.find handles h with Not_found -> runtime_error "__read: 無効なハンドルです" in
-        VText (Option.value ~default:"" (Hashtbl.find_opt fs path)) );
-    ( "__write",
-      fun v ->
-        let h, s = arg2 v in
-        let path = try Hashtbl.find handles (as_i32 h) with Not_found -> runtime_error "__write: 無効なハンドルです" in
-        Hashtbl.replace fs path (Option.value ~default:"" (Hashtbl.find_opt fs path) ^ as_text s);
-        unit );
-    ( "__close",
-      fun v ->
-        Hashtbl.remove handles (as_i32 (arg1 v));
-        unit );
   ]
 
 (* extern C の既知名の表。Diktor は本物の C FFI を実装していない。

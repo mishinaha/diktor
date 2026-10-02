@@ -1465,7 +1465,6 @@ let run ~sink decls =
   Hashtbl.reset user_instances;
   Hashtbl.reset resolution_cache;
   Hashtbl.reset positions_cache;
-  Builtin.reset_fs ();
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
