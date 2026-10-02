@@ -362,6 +362,19 @@ let split_import_path loc src =
 
 let realpath p = with_input (fun () -> try Unix.realpath p with Unix.Unix_error (e, _, _) -> raise (Sys_error (p ^ ": " ^ Unix.error_message e)))
 
+(* 相殺した綴りが同じファイルを指さないとき(シンボリックリンクの下の .. など)は、
+   相殺しない開くパスをそのまま表示に使う。別の実在のファイルの名前で診断を出さないためである *)
+let faithful_display ~id ~path display =
+  (* . の成分を除くことは、シンボリックリンクがあっても行き先を変えない *)
+  let undotted =
+    let comps = List.filter (fun c -> c <> "." && c <> "") (String.split_on_char '/' path) in
+    (if String.length path > 0 && path.[0] = '/' then "/" else "") ^ String.concat "/" comps
+  in
+  match Unix.realpath display with
+  | r when r = id -> display
+  | _ -> undotted
+  | exception Unix.Unix_error _ -> undotted
+
 (* import 文の行き先を (開くパス, 表示, 同一性) で返す *)
 let resolve_import ~import_path (importer : unit_src) (im : Syntax.import_decl) =
   let loc = im.Syntax.im_loc and src = im.Syntax.im_source in
@@ -372,14 +385,19 @@ let resolve_import ~import_path (importer : unit_src) (im : Syntax.import_decl) 
       let prefix = if ups = 0 then "./" else String.concat "" (List.init ups (fun _ -> "../")) in
       let path = Filename.concat (Filename.dirname importer.u_path) (prefix ^ file) in
       let display = normalize_display (Filename.dirname importer.u_display ^ "/" ^ prefix ^ file) in
-      if Sys.file_exists path then (path, display, realpath path)
+      if Sys.file_exists path then
+        let id = realpath path in
+        (path, faithful_display ~id ~path display, id)
       else import_error loc (Printf.sprintf "import 先が見つかりません: %s(%s)" src display)
   | None -> (
       let found =
         List.filter_map
           (fun d ->
             let path = Filename.concat d file in
-            if Sys.file_exists path then Some (path, normalize_display (d ^ "/" ^ file), realpath path) else None)
+            if Sys.file_exists path then
+              let id = realpath path in
+              Some (path, faithful_display ~id ~path (normalize_display ((if d = "" then "." else d) ^ "/" ^ file)), id)
+            else None)
           import_path
       in
       (* 同じファイルを複数の検索パスの綴りで見つけたものは 1 つと数える *)
@@ -395,7 +413,11 @@ let resolve_import ~import_path (importer : unit_src) (im : Syntax.import_decl) 
 
 let read_unit ~path ~display ~id =
   let imports, decls =
-    with_input (fun () -> parse_unit_with (Lexer'.from_filename ~display path))
+    with_input (fun () ->
+        try parse_unit_with (Lexer'.from_filename ~display path)
+        with Sys_error msg when String.starts_with ~prefix:path msg ->
+          (* 開く段の誤りは開くパスを含むので、表示の綴りに替える *)
+          raise (Sys_error (display ^ String.sub msg (String.length path) (String.length msg - String.length path))))
   in
   { u_id = id; u_display = display; u_path = path; u_imports = imports; u_decls = decls; u_targets = [] }
 

@@ -5282,18 +5282,25 @@ type unit_table = { t_pub : (string * pub_entry) list; t_all : string list }
 
 let public_table ~unit env (raw : T.decl list) =
   let sp = Decls.mark_spelling unit in
-  let value x = match (SMap.find_opt x env.values, SMap.find_opt x env.tops) with Some t, Some g -> Some (PValue (t, g)) | _ -> None in
+  (* 値は束縛ノードの実体で引く。名前で引くと、pub の束縛の後ろに置いた同名の非公開の束縛が見える *)
+  let value oid x =
+    let g = Tree.GDecl (oid, x) in
+    match Hashtbl.find_opt top_types g with Some t -> Some (PValue (t, g)) | None -> None
+  in
+  ignore env;
   let ctors (n : T.newtype') = match n.T.nt_rhs with T.NtCtors cs -> List.map (fun (c : T.ctor_decl) -> (c.T.cd_name, intern (sp c.T.cd_name))) cs in
   (* prefix は module の中なら綴りの頭(%3.M.)で、トップレベルなら空 *)
   let rec scan prefix (decls : T.decl list) =
     let ty_spell x = if prefix = "" then sp x else prefix ^ x in
-    let binding_entries pub (b : T.let_binding') = List.map (fun x -> (pub, x, value (prefix ^ x))) (pat_var_names b.T.lb_name) in
+    let binding_entries ((_, b) as bnode : T.let_binding) =
+      List.map (fun x -> (b.T.lb_pub, x, value (Tree.oid_of bnode) (prefix ^ x))) (pat_var_names b.T.lb_name)
+    in
     List.concat_map
-      (fun ((_, d) : T.decl) ->
+      (fun ((_, d) as node : T.decl) ->
         match d with
-        | T.DLet (_, b) -> binding_entries b.T.lb_pub b
-        | T.DLetRec bs -> List.concat_map (fun ((_, b) : T.let_binding) -> binding_entries b.T.lb_pub b) bs
-        | T.DExtern ex -> [ (ex.T.ex_pub, ex.T.ex_name, value (prefix ^ ex.T.ex_name)) ]
+        | T.DLet bnode -> binding_entries bnode
+        | T.DLetRec bs -> List.concat_map binding_entries bs
+        | T.DExtern ex -> [ (ex.T.ex_pub, ex.T.ex_name, value (Tree.oid_of node) (prefix ^ ex.T.ex_name)) ]
         | T.DNewtype n -> [ (n.T.nt_pub, n.T.nt_name, Some (PType (intern (ty_spell n.T.nt_name), ctors n))) ]
         | T.DType t -> [ (t.T.ta_pub, t.T.ta_name, Some (PType (intern (ty_spell t.T.ta_name), []))) ]
         | T.DEffect e -> [ (e.T.ef_pub, e.T.ef_name, Some (PEffect (intern (sp e.T.ef_name)))) ]
@@ -5313,7 +5320,15 @@ let public_table ~unit env (raw : T.decl list) =
         | T.DInstance _ | T.DExp _ -> [])
       decls
   in
-  let entries = scan "" raw in
+  (* 同じ名前の pub の値が 2 回宣言されていれば、後の宣言を公開する(ファイルの中の再束縛と同じ向き) *)
+  let rec last_values = function
+    | [] -> []
+    | ((true, x, Some (PValue _)) as e) :: rest ->
+        if List.exists (function true, y, Some (PValue _) -> y = x | _ -> false) rest then last_values rest
+        else e :: last_values rest
+    | e :: rest -> e :: last_values rest
+  in
+  let entries = last_values (scan "" raw) in
   {
     t_pub = List.filter_map (fun (p, x, e) -> match e with Some e when p -> Some (x, e) | _ -> None) entries;
     t_all = List.map (fun (_, x, _) -> x) entries;
@@ -5368,16 +5383,34 @@ let import_claims binds =
           claim loc src KType x (name_of o) "";
           claim_ctors loc src x cs
       | PEffect o -> claim loc src KType x (name_of o) ""
-      | PClass (o, _) -> claim loc src KClass x (name_of o) ""
+      | PClass (o, methods) ->
+          claim loc src KClass x (name_of o) "";
+          (* メソッドの非修飾名も値の名前として数える。同じファイルで 2 つのクラスに同名のメソッドを
+             宣言できないのと同じく、別々のクラスの同名のメソッドや同名の値を import できない。
+             トップレベルの宣言は、ファイルの中と同じくメソッドの非修飾名を覆える *)
+          List.iter (fun (m, _) -> claim loc src KValue m ("m:" ^ name_of o ^ "." ^ m) "method") methods
       | PModule (sm, members, _) ->
           claim loc src KModule x sm "";
-          List.iter (fun (y, e) -> match e with PType (_, cs) -> claim_ctors loc src y cs | _ -> ()) members)
+          List.iter
+            (fun (y, e) ->
+              match e with
+              | PType (o, cs) ->
+                  (* module と同名の型(コンパニオン)は、module 名で型として引ける *)
+                  if y = x then claim loc src KType x (name_of o) "";
+                  claim_ctors loc src y cs
+              | _ -> ())
+            members)
     binds;
   seen
 
 (* ファイルのトップレベルの宣言が、import した名前と衝突していないかを確かめる *)
 let check_own_clashes seen (raw : T.decl list) =
-  let clash kind name = if Hashtbl.mem seen (kind, name) then type_error (name ^ " は import した名前と同じです") in
+  let clash kind name =
+    match Hashtbl.find_opt seen (kind, name) with
+    | Some (_, _, "method") -> ()
+    | Some _ -> type_error (name ^ " は import した名前と同じです")
+    | None -> ()
+  in
   let clash_ctors (n : T.newtype') =
     match n.T.nt_rhs with
     | T.NtCtors cs ->
