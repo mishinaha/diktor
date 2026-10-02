@@ -317,9 +317,7 @@ let parse_file file = with_input (fun () -> parse_unit_with (Lexer'.from_filenam
    相対パスは、先頭の `./` 1 個か `../` の繰り返しで始め、その後の成分に空、`.`、`..` は書けない。
    それ以外は検索パスの中を探し、複数のディレクトリで見つかれば誤りにする。
    検索パスの順序で結果が変わらないようにするためである。 *)
-exception Import_error of Location.span * string
-
-let import_error loc msg = raise (Import_error (loc, msg))
+let import_error loc msg = raise (Aux.Import_error (loc, msg))
 
 type unit_src = {
   u_id : string; (* realpath。同一性の判定だけに使う *)
@@ -327,6 +325,7 @@ type unit_src = {
   u_path : string;
   u_imports : Syntax.import_decl list;
   u_decls : Tree.Tree.decl list;
+  mutable u_targets : (Syntax.import_decl * string) list; (* import 文と、行き先の同一性 *)
 }
 
 let normalize_display p =
@@ -398,7 +397,7 @@ let read_unit ~path ~display ~id =
   let imports, decls =
     with_input (fun () -> parse_unit_with (Lexer'.from_filename ~display path))
   in
-  { u_id = id; u_display = display; u_path = path; u_imports = imports; u_decls = decls }
+  { u_id = id; u_display = display; u_path = path; u_imports = imports; u_decls = decls; u_targets = [] }
 
 (* (依存する単位の帰りがけ順の列, 起点のファイルの列) を返す *)
 let load_units options =
@@ -411,6 +410,7 @@ let load_units options =
     List.iter
       (fun (im : Syntax.import_decl) ->
         let path, display, id = resolve_import ~import_path:options.o_import_path u im in
+        u.u_targets <- u.u_targets @ [ (im, id) ];
         (if List.exists (fun (id', _) -> id' = id) stack then
            let rec from = function [] -> [] | ((id', _) :: _) as l when id' = id -> l | _ :: rest -> from rest in
            let cycle = List.map snd (from (List.rev stack)) @ [ display ] in
@@ -614,12 +614,21 @@ let type_check_files ?(quiet = false) options =
   let prelude = flatten ~unit:Decls.std_unit (load_prelude options) in
   let deps, roots =
     try load_units options
-    with Import_error (loc, msg) -> report { Elab.e_loc = Some loc; e_word = "import エラー"; e_exit = 1; e_msg = msg }
+    with Aux.Import_error (loc, msg) -> report { Elab.e_loc = Some loc; e_word = "import エラー"; e_exit = 1; e_msg = msg }
   in
-  (match List.concat_map (fun u -> u.u_imports) roots with
-  | im :: _ -> report { Elab.e_loc = Some im.Syntax.im_loc; e_word = "未実装"; e_exit = 4; e_msg = "import(ファイルの名前空間)" }
-  | [] -> ignore deps);
-  let decls = flatten (List.concat_map (fun u -> u.u_decls) roots) in
+  (* 依存する単位に、帰りがけ順に 1 から番号を振る。起点は 0 である *)
+  let ids = Hashtbl.create 8 in
+  List.iteri
+    (fun i u ->
+      Hashtbl.replace ids u.u_id (i + 1);
+      Hashtbl.replace Decls.unit_paths (i + 1) u.u_display)
+    deps;
+  Hashtbl.replace Decls.unit_paths Decls.root_unit (String.concat "、" (List.map (fun u -> u.u_display) roots));
+  let targets u = List.map (fun (im, id) -> (im, Hashtbl.find ids id)) u.u_targets in
+  let units =
+    List.map (fun u -> { Elab.su_id = Hashtbl.find ids u.u_id; su_imports = targets u; su_decls = u.u_decls }) deps
+    @ [ { Elab.su_id = Decls.root_unit; su_imports = List.concat_map targets roots; su_decls = List.concat_map (fun u -> u.u_decls) roots } ]
+  in
   let put l =
     if quiet then (
       match l with
@@ -633,8 +642,8 @@ let type_check_files ?(quiet = false) options =
       | Elab.Binding _ -> ())
     else print_endline (render_line l)
   in
-  match Elab.type_check ~prelude decls with
-  | lines, None ->
+  match Elab.type_check_units ~prelude units with
+  | lines, None, flat ->
       List.iter put lines;
       (* --strict-exhaustive が数えるのは、利用者に見せた警告(返ってきた行)だけである。
          大域の Elab.warnings を数えると、表示しないプレリュードの警告のせいで、
@@ -642,8 +651,8 @@ let type_check_files ?(quiet = false) options =
       if options.o_strict_exhaustive && List.exists (function Elab.Warning _ -> true | _ -> false) lines then (
         flush_stdout_or_die ();
         safe_exit 1);
-      (prelude, decls)
-  | lines, Some err ->
+      prelude :: flat
+  | lines, Some err, _ ->
       List.iter put lines;
       (* 出力先はモード単位で決める。--type-check はレポートなので全部を stdout へ出す。
          Run は stdout をプログラムの出力専用にし、診断を stderr へ出す *)
@@ -980,13 +989,13 @@ let run_with options =
         (fun msg -> try Printf.printf "cancel 節で例外が抑制されました: %s\n" msg with Sys_error _ -> ());
       repl options
   | Run ->
-      let prelude, decls = type_check_files ~quiet:true options in
+      let units = type_check_files ~quiet:true options in
       Interp.cancel_log :=
         (fun msg ->
           (* stderr へ書く直前に stdout を flush する(§16.8 の出力先の規約) *)
           flush_stdout_or_die ();
           try Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg; flush stderr with Sys_error _ -> ());
-      Interp.run ~sink:print_string (prelude @ decls));
+      Interp.run_units ~sink:print_string units);
   (* モードの最後に stdout を flush し切る。受け皿の中で flush して、
      失敗を終了コード 74 にするためである(§16.8 の不変条件) *)
   flush_stdout_or_die ()

@@ -967,10 +967,13 @@ and expand_alias env level ~expanding info args =
     let expanding = info.Decls.al_name :: expanding in
     (* 本体は宣言スコープで展開する。module 内のエイリアスが内部型を指しているとき、
        外から使っても壊れないようにするため *)
-    let saved = !Decls.current_module in
+    let saved = !Decls.current_module and saved_unit = !Decls.current_unit in
     Decls.current_module := info.Decls.al_module;
+    Decls.current_unit := info.Decls.al_unit;
     Fun.protect
-      ~finally:(fun () -> Decls.current_module := saved)
+      ~finally:(fun () ->
+        Decls.current_module := saved;
+        Decls.current_unit := saved_unit)
       (fun () ->
         match info.Decls.al_kind with
         | Some "EffectRow" -> elab_eff env' level ~expanding info.Decls.al_body
@@ -4426,6 +4429,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
               al_kind = t.T.ta_kind;
               al_body = t.T.ta_body;
               al_module = !Decls.current_module;
+              al_unit = !Decls.current_unit;
             }
       | T.DNewtype n ->
           no_param_constraints ("newtype " ^ Type.display n.T.nt_name) n.T.nt_params;
@@ -4874,7 +4878,7 @@ let toplevel_value_names (decls : T.decl list) =
    組み込みの操作をプレリュードのソースへ移す場合は、
    この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。 *)
 
-let flatten_modules ?session_vals ?(unit = Decls.root_unit) (decls : T.decl list) : T.decl list =
+let flatten_modules ?session_vals ?(imported_vals = []) ?(unit = Decls.root_unit) (decls : T.decl list) : T.decl list =
   (* 起点でない単位では、型、コンストラクタ、エフェクト、クラス、module の名前に単位の印を付け、
      印の無い名前から印付きの綴りへの同義語を単位の表に張る(§6.4)。トップレベルの値の名前には
      印を付けない。module の値は、印付きの module 名を頭に持つ綴りになる *)
@@ -4940,6 +4944,8 @@ let flatten_modules ?session_vals ?(unit = Decls.root_unit) (decls : T.decl list
   (* 対話的な実行では、前の入力の名前とも突き合わせる。このプログラムのトップレベルの値が、
      前の入力の module の中の値と同名でないかを確かめ、前の入力のトップレベルの値の名前を
      toplevel_vals に足して、この入力の module の中の値と突き合わせる *)
+  (* import した値の名前も、module の中の値と同名にできない(§15.3 の範囲はファイル) *)
+  List.iter (fun x -> Hashtbl.replace toplevel_vals x ()) imported_vals;
   (match session_vals with
   | None -> ()
   | Some (prev : (string, unit) Hashtbl.t) ->
@@ -5202,3 +5208,268 @@ let snapshot () =
 
 (* 値環境から名前の型を引く(対話的な実行の :type と結果の表示に使う) *)
 let lookup_value_type env x = SMap.find_opt x env.values
+
+(* ## 11.45 ファイルの名前空間
+
+   import のあるプログラムは、単位(ソースファイル)の列として型検査する。
+   単位の列は依存される側が先で、最後が起点である(第16章 §16.3b)。
+   各単位は、次の順に処理する。
+
+   1. import の名前を、import 先の単位の公開表で引く。
+   2. 単位の宣言を平坦化する。起点でない単位の宣言の綴りには単位の印が付く(§11.42)。
+   3. 標準環境だけを処理した環境に、import した名前を足して、単位のスコープを作る。
+      値は型と実体を環境に足し、型、コンストラクタ、エフェクト、クラスは単位の同義語に、
+      module とクラスは修飾名の頭の表に張る(第6章 §6.4)。
+   4. 名前の衝突を検査する。
+   5. `check_unit` で宣言を型検査する。
+   6. 起点でない単位なら、公開表を作る。
+
+   公開表は、ファイルのトップレベルの宣言の名前から、種類ごとの実体を引く表である。
+   載るのは `pub` を付けた宣言で、`pub module` は中の `pub` の宣言を持つ。
+   `pub` の無い module は import できない。
+   公開されていない名前の診断と、存在しない名前の診断を言い分けるため、
+   トップレベルのすべての宣言の名前も持つ。
+   値の型と実体は、型検査を終えた単位の環境から取る。
+   `pub` の値は完全な注釈を要するので、型は注釈から決まった署名である。
+
+   名前の衝突の規則は次のとおりである。
+
+   - 別々の実体を指す 2 つの import が、同じ種類の同じ名前を束縛したら誤りにする。
+     同じ実体を別のパスや別の import 文で重ねて束縛するのは構わない。
+   - import した名前と同じ種類の同じ名前を、ファイルのトップレベルで宣言したら誤りにする。
+   - import した型のコンストラクタも、ファイルの中のコンストラクタ名の一意性に含める。
+   - 標準環境の値は、import した値とトップレベルの値が覆う。
+
+   種類は、値、型(型エイリアスとエフェクトを含む。1 つの名前空間を共有する)、
+   コンストラクタ、クラス、module の 5 つである。
+
+   インスタンスは import で指定しない。
+   どの単位で宣言したインスタンスも、宣言表の 1 つのインスタンス表から引く。
+   孤児規則(§11.35)の下では、インスタンス `C[T]` を使うファイルは `C` と `T` の両方の宣言に
+   依存しているので、`C[T]` はそのファイルの import の閉包のどこかにある。 *)
+
+type pub_entry =
+  | PValue of ty * Tree.gref
+  | PType of oid * (string * oid) list (* 型の綴りと、コンストラクタの(名前, 綴り) *)
+  | PEffect of oid
+  | PClass of oid * (string * ty) list (* クラスの綴りと、メソッドの(名前, 型) *)
+  | PModule of string * (string * pub_entry) list * string list (* 綴り、公開のメンバー、全メンバーの名前 *)
+
+type unit_table = { t_pub : (string * pub_entry) list; t_all : string list }
+
+let public_table ~unit env (raw : T.decl list) =
+  let sp = Decls.mark_spelling unit in
+  let value x = match (SMap.find_opt x env.values, SMap.find_opt x env.tops) with Some t, Some g -> Some (PValue (t, g)) | _ -> None in
+  let ctors (n : T.newtype') = match n.T.nt_rhs with T.NtCtors cs -> List.map (fun (c : T.ctor_decl) -> (c.T.cd_name, intern (sp c.T.cd_name))) cs in
+  (* prefix は module の中なら綴りの頭(%3.M.)で、トップレベルなら空 *)
+  let rec scan prefix (decls : T.decl list) =
+    let ty_spell x = if prefix = "" then sp x else prefix ^ x in
+    let binding_entries pub (b : T.let_binding') = List.map (fun x -> (pub, x, value (prefix ^ x))) (pat_var_names b.T.lb_name) in
+    List.concat_map
+      (fun ((_, d) : T.decl) ->
+        match d with
+        | T.DLet (_, b) -> binding_entries b.T.lb_pub b
+        | T.DLetRec bs -> List.concat_map (fun ((_, b) : T.let_binding) -> binding_entries b.T.lb_pub b) bs
+        | T.DExtern ex -> [ (ex.T.ex_pub, ex.T.ex_name, value (prefix ^ ex.T.ex_name)) ]
+        | T.DNewtype n -> [ (n.T.nt_pub, n.T.nt_name, Some (PType (intern (ty_spell n.T.nt_name), ctors n))) ]
+        | T.DType t -> [ (t.T.ta_pub, t.T.ta_name, Some (PType (intern (ty_spell t.T.ta_name), []))) ]
+        | T.DEffect e -> [ (e.T.ef_pub, e.T.ef_name, Some (PEffect (intern (sp e.T.ef_name)))) ]
+        | T.DClass c ->
+            let cs = sp c.T.cls_name in
+            let methods =
+              List.filter_map
+                (fun (v : T.class_val) -> Option.map (fun t -> (v.T.cv_name, t)) (SMap.find_opt (cs ^ "." ^ v.T.cv_name) env.values))
+                c.T.cls_vals
+            in
+            [ (c.T.cls_pub, c.T.cls_name, Some (PClass (intern cs, methods))) ]
+        | T.DModule (pub, m, body) ->
+            let sm = sp m in
+            let members = scan (sm ^ ".") body in
+            let pubs = List.filter_map (fun (p, x, e) -> match e with Some e when p -> Some (x, e) | _ -> None) members in
+            [ (pub, m, Some (PModule (sm, pubs, List.map (fun (_, x, _) -> x) members))) ]
+        | T.DInstance _ | T.DExp _ -> [])
+      decls
+  in
+  let entries = scan "" raw in
+  {
+    t_pub = List.filter_map (fun (p, x, e) -> match e with Some e when p -> Some (x, e) | _ -> None) entries;
+    t_all = List.map (fun (_, x, _) -> x) entries;
+  }
+
+(* import 文の名前を公開表で引き、(束縛する名前, 項目, 位置) の列を返す。束縛する名前は最後の要素 *)
+let resolve_import_names (tbl : unit_table) (im : Syntax.import_decl) =
+  let src = im.Syntax.im_source in
+  List.concat_map
+    (fun (n : Syntax.import_name) ->
+      let fail msg = raise (Import_error (n.Syntax.in_loc, msg)) in
+      let pick name pubs all what =
+        match List.filter (fun (y, _) -> y = name) pubs with
+        | [] ->
+            if List.mem name all then fail (src ^ " の " ^ what ^ " は公開されていません")
+            else fail (src ^ " に " ^ what ^ " という公開の宣言はありません")
+        | es -> List.map (fun (_, e) -> (name, e, n.Syntax.in_loc)) es
+      in
+      match n.Syntax.in_path with
+      | [ x ] -> pick x tbl.t_pub tbl.t_all x
+      | [ m; x ] -> (
+          match List.find_map (fun (y, e) -> match e with PModule (_, ms, all) when y = m -> Some (ms, all) | _ -> None) tbl.t_pub with
+          | None ->
+              if List.mem m tbl.t_all then fail (src ^ " の " ^ m ^ " は公開されていません")
+              else fail (src ^ " に " ^ m ^ " という公開の宣言はありません")
+          | Some (ms, all) -> pick x ms all (m ^ "." ^ x))
+      | _ -> bug "import の名前は 2 段まで")
+    im.Syntax.im_names
+
+type import_kind = KValue | KType | KCtor | KClass | KModule
+
+let gref_key = function
+  | Tree.GBuiltin s -> "b:" ^ s
+  | Tree.GMethod q -> "m:" ^ q
+  | Tree.GDecl (o, x) -> "d:" ^ string_of_int o ^ ":" ^ x
+
+(* import した名前を種類ごとに数える。(種類, 名前) → (実体の鍵, import 元, 型の名前) *)
+let import_claims binds =
+  let seen : (import_kind * string, string * string * string) Hashtbl.t = Hashtbl.create 16 in
+  let claim loc src kind name key owner =
+    match Hashtbl.find_opt seen (kind, name) with
+    | Some (k, _, _) when k = key -> ()
+    | Some (_, src0, _) -> raise (Import_error (loc, name ^ " は " ^ src0 ^ " からも import しています(別の宣言です)"))
+    | None -> Hashtbl.replace seen (kind, name) (key, src, owner)
+  in
+  let claim_ctors loc src owner cs = List.iter (fun (c, o) -> claim loc src KCtor c (name_of o) owner) cs in
+  List.iter
+    (fun (x, e, loc, src) ->
+      match e with
+      | PValue (_, g) -> claim loc src KValue x (gref_key g) ""
+      | PType (o, cs) ->
+          claim loc src KType x (name_of o) "";
+          claim_ctors loc src x cs
+      | PEffect o -> claim loc src KType x (name_of o) ""
+      | PClass (o, _) -> claim loc src KClass x (name_of o) ""
+      | PModule (sm, members, _) ->
+          claim loc src KModule x sm "";
+          List.iter (fun (y, e) -> match e with PType (_, cs) -> claim_ctors loc src y cs | _ -> ()) members)
+    binds;
+  seen
+
+(* ファイルのトップレベルの宣言が、import した名前と衝突していないかを確かめる *)
+let check_own_clashes seen (raw : T.decl list) =
+  let clash kind name = if Hashtbl.mem seen (kind, name) then type_error (name ^ " は import した名前と同じです") in
+  let clash_ctors (n : T.newtype') =
+    match n.T.nt_rhs with
+    | T.NtCtors cs ->
+        List.iter
+          (fun (c : T.ctor_decl) ->
+            match Hashtbl.find_opt seen (KCtor, c.T.cd_name) with
+            | Some (_, _, owner) ->
+                type_error ("コンストラクタ " ^ c.T.cd_name ^ " は import した型 " ^ owner ^ " のコンストラクタと同じ名前です")
+            | None -> ())
+          cs
+  in
+  List.iter
+    (fun ((_, d) as node : T.decl) ->
+      at_node node @@ fun () ->
+      match d with
+      | T.DLet (_, b) -> List.iter (clash KValue) (pat_var_names b.T.lb_name)
+      | T.DLetRec bs -> List.iter (fun ((_, b) : T.let_binding) -> List.iter (clash KValue) (pat_var_names b.T.lb_name)) bs
+      | T.DExtern ex -> clash KValue ex.T.ex_name
+      | T.DNewtype n ->
+          clash KType n.T.nt_name;
+          clash_ctors n
+      | T.DType t -> clash KType t.T.ta_name
+      | T.DEffect e -> clash KType e.T.ef_name
+      | T.DClass c -> clash KClass c.T.cls_name
+      | T.DModule (_, m, body) ->
+          clash KModule m;
+          List.iter (fun ((_, d) : T.decl) -> match d with T.DNewtype n -> clash_ctors n | _ -> ()) body
+      | T.DInstance _ | T.DExp _ -> ())
+    raw
+
+(* import した名前を単位のスコープに張る *)
+let apply_imports ~unit env binds =
+  let syn tbl x o = Hashtbl.replace tbl (unit, intern x) o in
+  let ctors cs = List.iter (fun (c, o) -> syn Decls.unit_ctors c o) cs in
+  List.fold_left
+    (fun env (x, e, _, _) ->
+      match e with
+      | PValue (t, g) -> add_top env x t g
+      | PType (o, cs) ->
+          syn Decls.unit_synonyms x o;
+          ctors cs;
+          env
+      | PEffect o ->
+          syn Decls.unit_synonyms x o;
+          env
+      | PClass (o, methods) ->
+          let q = name_of o in
+          syn Decls.unit_classes x o;
+          Hashtbl.replace Decls.unit_qualifiers (unit, x) q;
+          (* メソッドは修飾名と非修飾名の両方で引ける。非修飾名は先勝ち(§11.39 のパス 1b と同じ) *)
+          List.fold_left
+            (fun env (m, t) ->
+              let g = Tree.GMethod (q ^ "." ^ m) in
+              let env = add_top env (q ^ "." ^ m) t g in
+              if SMap.mem m env.values then env else add_top env m t g)
+            env methods
+      | PModule (sm, members, _) ->
+          Hashtbl.replace Decls.unit_qualifiers (unit, x) sm;
+          List.fold_left
+            (fun env (y, e) ->
+              match e with
+              | PValue (t, g) -> add_top env (sm ^ "." ^ y) t g
+              | PType (o, cs) ->
+                  (* module と同名の型(コンパニオン)は、module 名だけで型として引ける *)
+                  if y = x then syn Decls.unit_synonyms x o;
+                  ctors cs;
+                  env
+              | _ -> env)
+            env members)
+    env binds
+
+type src_unit = {
+  su_id : Decls.unit_id;
+  su_imports : (Syntax.import_decl * Decls.unit_id) list; (* import 文と、その行き先の単位 *)
+  su_decls : T.decl list;
+}
+
+(* 単位の列を型検査し、(出力行, 誤り, 平坦化した単位ごとの宣言列) を返す。
+   起点の束縛だけを出力行に出し、警告はどの単位のものも出す *)
+let type_check_units ~prelude (units : src_unit list) =
+  current_out := [];
+  let out = current_out in
+  let emit_all s = out := s :: !out in
+  let emit_warnings = function Warning _ as s -> emit_all s | Binding _ -> () in
+  let tables : (Decls.unit_id, unit_table) Hashtbl.t = Hashtbl.create 8 in
+  let flat = ref [] in
+  let fail e = (List.rev !out, Some e, List.rev !flat) in
+  try
+    start_program ();
+    let env_std = check_prelude prelude in
+    List.iter
+      (fun su ->
+        let unit = su.su_id in
+        let binds =
+          List.concat_map
+            (fun ((im : Syntax.import_decl), target) ->
+              List.map (fun (x, e, loc) -> (x, e, loc, im.Syntax.im_source)) (resolve_import_names (Hashtbl.find tables target) im))
+            su.su_imports
+        in
+        let seen = import_claims binds in
+        let imported_vals = List.filter_map (function x, PValue _, _, _ -> Some x | _ -> None) binds in
+        let decls = flatten_modules ~imported_vals ~unit su.su_decls in
+        check_own_clashes seen su.su_decls;
+        let env = apply_imports ~unit env_std binds in
+        let emit = if unit = Decls.root_unit then emit_all else emit_warnings in
+        let env' = check_unit ~unit env ~emit decls in
+        if unit <> Decls.root_unit then Hashtbl.replace tables unit (public_table ~unit env' su.su_decls);
+        flat := decls :: !flat)
+      units;
+    (List.rev !out, None, List.rev !flat)
+  with
+  | Type_error_at (loc, msg) -> fail { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | Type_error msg -> fail { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | Import_error (loc, msg) -> fail { e_loc = Some loc; e_word = "import エラー"; e_exit = 1; e_msg = msg }
+  | NotImplemented_at (loc, feat) -> fail { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  | NotImplemented feat -> fail { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+
+let () = Show.unit_label := fun o -> Decls.unit_path (Decls.entity_unit o)

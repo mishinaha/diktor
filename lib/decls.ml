@@ -542,6 +542,7 @@ type alias_info = {
      指していても外から展開して壊れないように、展開の間はこの module を
      current_module に立てる。引数は使う側のスコープで読む *)
   al_module : string option;
+  al_unit : unit_id; (* 本体を展開するときに立てる単位 *)
 }
 
 let aliases : (oid, alias_info) Hashtbl.t = Hashtbl.create 64
@@ -753,6 +754,19 @@ let classes : (oid, class_info) Hashtbl.t = Hashtbl.create 64
 
 let find_class c = Hashtbl.find_opt classes c
 
+(* 実体の出身の単位。印の付いた綴りは印の単位、印の無い綴りは、標準環境(組み込みとプレリュード)の
+   ものなら標準環境、それ以外は起点である。孤児規則と、診断のファイル名の添え字が使う *)
+let std_type c = Hashtbl.mem reserved_type_names c || prelude_owned "data" c || prelude_owned "alias" c
+
+let std_class c = match Hashtbl.find_opt classes c with Some ci -> ci.ci_builtin || prelude_owned "class" c | None -> false
+
+let entity_unit oid =
+  match unit_of_spelling (Type.name_of oid) with
+  | Some u -> u
+  | None -> if std_type oid || std_class oid || prelude_owned "effect" oid then std_unit else root_unit
+
+let unit_path u = if u = std_unit then "標準環境" else Option.value ~default:"?" (Hashtbl.find_opt unit_paths u)
+
 (* 組み込みと同名の宣言は標準環境の名前の再宣言、それ以外の重複は二重宣言として拒否する *)
 let add_class_decl info =
   let s = Type.name_of info.ci_name in
@@ -765,7 +779,9 @@ let add_class_decl info =
   | Some prev when prev.ci_builtin ->
       type_error ("標準環境の type class " ^ Type.display_of info.ci_name ^ " は再宣言できません")
   | Some _ -> type_error ("type class " ^ Type.display_of info.ci_name ^ " が二重に宣言されています")
-  | None -> Hashtbl.add classes info.ci_name info
+  | None ->
+      Hashtbl.add classes info.ci_name info;
+      mark "class" info.ci_name
 
 (* ## 6.9 インスタンス表とコヒーレンス
 

@@ -92,7 +92,43 @@ open Type
    利用者が型と照合しにくくなる。
    型は短いので、線形探索の費用は問題にならない。 *)
 
+(* 名前の実体から、出身のファイルの表示を引く。第11章が第6章の単位の表を引く関数を差し込む *)
+let unit_label : (oid -> string) ref = ref (fun _ -> "?")
+
 let show_all ts =
+  (* 同じ表示名を持つ別々の実体(別々のファイルの同名の型やエフェクト)が 1 回の印字に並ぶときだけ、
+     その名前にファイルを添えて T(lib/a.kel) と書く。それ以外は表示名だけを書く *)
+  let seen : (string, oid list) Hashtbl.t = Hashtbl.create 16 in
+  let note n =
+    let d = display_of n in
+    let prev = Option.value ~default:[] (Hashtbl.find_opt seen d) in
+    if not (List.mem n prev) then Hashtbl.replace seen d (n :: prev)
+  in
+  let rec collect t =
+    match repr t with
+    | TCon (n, args) ->
+        note n;
+        List.iter collect args
+    | TApp (f, a) ->
+        collect f;
+        collect a
+    | TArrow (p, r, e) ->
+        collect p;
+        collect r;
+        collect e
+    | TRecord row | TVariant row -> collect row
+    | TRowExtend (l, f, rest) ->
+        note l;
+        collect f;
+        collect rest
+    | TRowEmpty | TVar _ -> ()
+  in
+  List.iter collect ts;
+  let con_name n =
+    match Hashtbl.find_opt seen (display_of n) with
+    | Some (_ :: _ :: _) -> display_of n ^ "(" ^ !unit_label n ^ ")"
+    | _ -> display_of n
+  in
   let names : (oid, string) Hashtbl.t = Hashtbl.create 16 in
   let constrained : (string * cls) list ref = ref [] in
   let star_pool = "ABCDE" in
@@ -271,8 +307,8 @@ let show_all ts =
         | Generic i -> name_of_var i ~generic:true
         | Rigid i -> rigid_name i
         | Link t -> go t)
-    | TCon (n, []) -> display_of n
-    | TCon (n, args) -> display_of n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
+    | TCon (n, []) -> con_name n
+    | TCon (n, args) -> con_name n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TApp _ as t ->
         let h, args = app_spine t in
         (* 頭を先に採番する。^ は右辺を先に評価しうるので、let で順序を固定する(§9.4) *)
@@ -388,7 +424,7 @@ let show_all ts =
 
   and eff_row row =
     let fields, tail = row_fields row in
-    let label (l, t) = if is_unit t then display_of l else display_of l ^ "[" ^ go t ^ "]" in
+    let label (l, t) = if is_unit t then con_name l else con_name l ^ "[" ^ go t ^ "]" in
     let parts = map_ordered label fields in
     let ext = match repr tail with TRowEmpty -> "" | tail -> (if parts = [] then "extends " else " extends ") ^ go tail in
     "{" ^ String.concat ", " parts ^ ext ^ "}"

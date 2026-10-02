@@ -98,3 +98,6 @@ exception Type_error_at of Location.span * string
 
 (* 位置つきの未実装。at_node は NotImplemented にも同じ規則で span を貼る *)
 exception NotImplemented_at of Location.span * string
+
+(* import 文の誤り(パス、読み込み、名前の解決)。位置は import 文か import の名前である *)
+exception Import_error of Location.span * string
