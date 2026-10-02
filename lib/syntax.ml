@@ -740,7 +740,7 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
    `tp_arity` が 0 の束縛子のカインドは、
    宣言群の中の型の本体での使われ方からしか決まらない(sample.kel:246-247)。
    使われ方が無ければ `KStar` に既定化されるので、行カインドの phantom パラメータを書く手段は無い。
-   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:874-876)。
+   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:872-874)。
    カインドを書けるのはエイリアスの側だけである(`type Request: EffectRow`)。
 
    `tp_classes` は `long_id list` である。
