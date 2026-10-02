@@ -179,13 +179,6 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   ! c15.kel:1:1: 型エラー: メソッド f が二重に宣言されています
   [1]
 
-newtype の型パラメータ制約も検証される(D6 の残り):
-
-  $ printf 'newtype Box[A: Bogus] = Box(A)\n' > c16.kel
-  $ diktor --type-check --no-prelude c16.kel
-  ! c16.kel:1:1: 型エラー: 未知のクラス: Bogus
-  [1]
-
 module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフォール
 バック。かつては自己再帰すら「未束縛の変数」で落ちた):
 

@@ -549,25 +549,6 @@ sample.kel:252-255)。Row のパラメータの位置ではエフェクト行と
   ! nope.kel:2:19: 型エラー: 未知のエフェクト: Nope
   [1]
 
-行カインドになったパラメータに型クラスの制約は書けない(M28。260829-5 の M17
-「記録のみ」の 2 件目。かつてエイリアスでは全使用点で落ち、newtype では構築点が
-行を見ないので黙って素通りした):
-
-  $ printf 'type R[E: Show]: EffectRow = {Console extends E}\n' > rowconstr.kel
-  $ diktor --type-check rowconstr.kel
-  ! rowconstr.kel:1:1: 型エラー: 型パラメータ E は行カインドなので、型クラス Show の制約は書けません(型クラスは Type のクラス)
-  [1]
-  $ printf 'newtype N[E: Show] = N(() => Unit @ E)\n' > rowconstr2.kel
-  $ diktor --type-check rowconstr2.kel
-  ! rowconstr2.kel:1:1: 型エラー: 型パラメータ E は行カインドなので、型クラス Show の制約は書けません(型クラスは Type のクラス)
-  [1]
-
-Type のパラメータの制約は従来どおり言及時に効く(規則 3):
-
-  $ printf 'type P[A: Show] = (A, A)\nlet f(x: P[Int32]): Int32 = 0\n' > tyconstr.kel
-  $ diktor --type-check tyconstr.kel
-  f : ((Int32, Int32)) => Int32
-
 高階カインドの型変数への適用も定義域を照合する(D86)。F[_] の定義域は Type
 なので F[E] が E を Type に確定させ、次の @ E で落ちる。診断の位置が 2 番目の
 使用点になるのは、F[E] の時点では E のカインドが未定で照合が通るため(かつては

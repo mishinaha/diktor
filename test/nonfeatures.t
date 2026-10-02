@@ -154,3 +154,24 @@ par と par_map は標準環境に無い(LangSpec §16):
   $ diktor --type-check par.kel
   ! par.kel:1:9: 型エラー: 未束縛の変数: par
   [1]
+
+型エイリアスと newtype のパラメータには制約を書けない(LangSpec §12.1):
+
+  $ printf 'type P[A: Show] = (A, A)\n' > aliascons.kel
+  $ diktor --type-check aliascons.kel
+  ! aliascons.kel:1:1: 型エラー: 型エイリアス P の型パラメータ A には型クラスの制約を書けません
+  [1]
+  $ printf 'newtype Box[A: Show] = Box(A)\n' > ntcons.kel
+  $ diktor --type-check ntcons.kel
+  ! ntcons.kel:1:1: 型エラー: newtype Box の型パラメータ A には型クラスの制約を書けません
+  [1]
+
+関数の型パラメータの制約は今までどおり書ける:
+
+  $ cat > fncons.kel <<'KEL'
+  > newtype Box[A] = Box(A)
+  > let f[A: Show](b: Box[A]): String = b match { case Box(x) => show(x) }
+  > echoln(f(Box(2)))
+  > KEL
+  $ diktor fncons.kel
+  2

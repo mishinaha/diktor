@@ -1,5 +1,5 @@
-型クラスの検査(M17)。曖昧性検査(D2 / D48)、エイリアスの
-パラメータ制約(D5 / D51)。
+型クラスの検査(M17)。曖昧性検査(D2 / D48)と、エイリアスの
+パラメータに制約を書けないこと。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -76,33 +76,11 @@ MiniLang より厳しくなる点):
   ! amb.kel:2:1: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
   [1]
 
-エイリアスのパラメータ制約は言及時に課される(D51。エイリアスは透過で
-構築点が無いので、newtype の「構築時」より早い時点になる。かつては
-黙って無視された):
+型エイリアスのパラメータには制約を書けない(LangSpec §12.1。宣言の時点で拒否する):
 
   $ printf 'type P[A: Show] = (A, A)\nlet ok: P[Int32] = (1i32, 2i32)\n' > alc.kel
   $ diktor --type-check --no-prelude alc.kel
-  ok : (Int32, Int32)
-  $ cat > alc2.kel <<'KEL'
-  > newtype NoShow = MkNoShow
-  > type P[A: Show] = (A, A)
-  > let bad: P[NoShow] = (MkNoShow, MkNoShow)
-  > KEL
-  $ diktor --type-check --no-prelude alc2.kel
-  ! alc2.kel:3:10: 型エラー: NoShow は Show のインスタンスではありません
-  [1]
-
-コンストラクタ由来の制約つき変数も台帳に載る(M17 検証。かつて
-subst_params 経路が台帳をすり抜け、Empty 由来の Show だけ素通りした):
-
-  $ cat > fn1.kel <<'KEL'
-  > newtype Box[A: Show] = Empty | Box(A)
-  > let idf[A](x: A): A = x
-  > let g(): String = { let e = idf(Empty); "x" }
-  > KEL
-  $ diktor --type-check --no-prelude fn1.kel
-  idf : (A) => A
-  ! fn1.kel:3:5: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
+  ! alc.kel:1:1: 型エラー: 型エイリアス P の型パラメータ A には型クラスの制約を書けません
   [1]
 
 instance 本体にも宣言終端の掃き出しが掛かる(M17 検証。値制限で
@@ -118,23 +96,6 @@ instance 本体にも宣言終端の掃き出しが掛かる(M17 検証。値制
   read_ : [A: Show] (String) => A
   idf : (A) => A
   ! inam.kel:4:1: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
-  [1]
-
-制約つきエイリアスは宣言スキーマの位置(newtype フィールド・クラス
-メソッド型)でも使える — Generic のパラメータが制約を持っていれば
-満たされ、無ければ制約を書けと案内される(M17 検証。かつて add_class が
-Generic を扱えず、満たしていても落ちた):
-
-  $ cat > alg.kel <<'KEL'
-  > type P[A: Show] = (A, A)
-  > newtype Wrap[B: Show] = Wrap(P[B])
-  > let w = Wrap((1i32, 2i32))
-  > KEL
-  $ diktor --type-check --no-prelude alg.kel
-  w : Wrap[Int32]
-  $ printf 'type P[A: Show] = (A, A)\nnewtype Wrap[B] = Wrap(P[B])\n' > alg2.kel
-  $ diktor --type-check --no-prelude alg2.kel
-  ! alg2.kel:2:24: 型エラー: 型パラメータ A は Show のインスタンスではありません。[A: Show] のように制約を書いてください
   [1]
 
 スーパークラスは入れない裁定(§8 / D98)。クラスパラメータの制約は宣言時に
