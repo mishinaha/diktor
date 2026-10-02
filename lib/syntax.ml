@@ -269,6 +269,12 @@ module Type = struct
    ランクによる併合はしない。
    型は木なので、経路圧縮だけで実用上の深さは十分に浅くなる。
 
+   型変数とカインド変数のセルの書き換えは、すべて §1.6 の `set_tv` と `set_klink` を通す。
+   記録(`trailing`)が有効の間、この 2 つは書き換える前の中身を戻す閉包を `trail` に積む。
+   対話的な実行(第16章)は、型検査や実行が失敗した入力の書き換えを、この記録で戻す。
+   経路圧縮も、指す先が変わるときだけ書き換える。
+   指す先が変わらない書き換えまで記録すると、評価器が数値リテラルの型を引くたびに記録が伸びる。
+
    型変数の状態は次の 4 つである。
 
    - `Unbound i`：**未定変数**。まだ決まっていない変数で、`i.vlevel` が一般化の可否を決める。
@@ -393,10 +399,28 @@ module Type = struct
    `show_kind` は Keleut の表記(`Type` / `Row` / `[_, _] Type`)に合わせる。
    `?k` の付いた表記は、既定化の前にしか現れないはずのものである。 *)
 
+  (* セルの書き換えの記録(§1.5)。trailing が真の間、型変数とカインド変数の
+     書き換えを、元に戻す閉包として積む *)
+  let trailing = ref false
+
+  let trail : (unit -> unit) list ref = ref []
+
+  let set_klink (r : kind_ref) k =
+    (if !trailing then
+       let old = r.k_link in
+       trail := (fun () -> r.k_link <- old) :: !trail);
+    r.k_link <- k
+
+  let set_tv (r : tvar ref) v =
+    (if !trailing then
+       let old = !r in
+       trail := (fun () -> r := old) :: !trail);
+    r := v
+
   let rec kind_repr = function
     | KVar ({ k_link = Some k; _ } as r) ->
         let k' = kind_repr k in
-        r.k_link <- Some k';
+        if k' != k then set_klink r (Some k');
         k'
     | k -> k
 
@@ -412,14 +436,14 @@ module Type = struct
     | KArrow (a1, a2), KArrow (b1, b2) -> same_kind a1 b1 && same_kind a2 b2
     | KVar r1, KVar r2 when r1 == r2 -> true
     | KVar r, k | k, KVar r ->
-        r.k_link <- Some k;
+        set_klink r (Some k);
         true
     | _ -> false
 
   (* 未解決の KVar を KStar へ既定化する(呼ぶ時期は §1.6) *)
   let rec default_kind k =
     match kind_repr k with
-    | KVar r -> r.k_link <- Some KStar
+    | KVar r -> set_klink r (Some KStar)
     | KArrow (a, b) ->
         default_kind a;
         default_kind b
@@ -493,7 +517,8 @@ module Type = struct
     match ty with
     | TVar ({ contents = Link t } as r) ->
         let t' = repr t in
-        r := Link t';
+        (* 圧縮で指す先が変わるときだけ書く。変わらない書き込みを記録すると、評価中に記録が伸び続ける *)
+        if t' != t then set_tv r (Link t');
         t'
     | TApp (f, a) ->
         let f' = repr f in

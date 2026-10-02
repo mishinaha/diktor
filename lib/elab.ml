@@ -2727,7 +2727,7 @@ and release_rigids rigids =
       match !r with
       | Rigid i ->
           default_kind i.vkind (* 未解決のカインドは KStar に既定化する *);
-          r := Generic i
+          Type.set_tv r (Generic i)
       | _ -> ())
     rigids
 

@@ -91,7 +91,7 @@ let rec drop_arrows k n =
     | KVar r ->
         (* 使われた位置でカインドを確定させる *)
         let res = new_kind_var () in
-        r.k_link <- Some (KArrow (new_kind_var (), res));
+        set_klink r (Some (KArrow (new_kind_var (), res)));
         drop_arrows res (n - 1)
     | KStar | KRow -> type_error "型構成子ではない型に型引数が適用されています"
 
@@ -163,7 +163,7 @@ let rec occurs_adjust tv lvl t =
   | TVar v ->
       if v == tv then type_error "occurs check に失敗しました(無限型が発生します)";
       (match !v with
-      | Unbound i -> if i.vlevel > lvl then v := Unbound { i with vlevel = lvl }
+      | Unbound i -> if i.vlevel > lvl then set_tv v (Unbound { i with vlevel = lvl })
       | Rigid i ->
           (* 剛定数はレベルを下げられない。下げる代わりにエラーにする *)
           if i.vlevel > lvl then type_error ("スコープ付きの型 " ^ show (TVar v) ^ " がスコープの外に漏れています")
@@ -305,7 +305,7 @@ let rec add_class t c =
       match !v with
       | Unbound i ->
           if not (List.mem c i.vcls) then (
-            v := Unbound { i with vcls = c :: i.vcls };
+            set_tv v (Unbound { i with vcls = c :: i.vcls });
             note_class_var v)
       | Rigid i | Generic i ->
           (* Generic に届くのは、宣言のスキーマの中(newtype のフィールドや
@@ -365,7 +365,7 @@ let bind v t =
         type_error ("カインドが一致しません: " ^ show (TVar v) ^ " :: " ^ show_kind vkind ^ " と " ^ show t);
       occurs_adjust v vlevel t;
       List.iter (fun c -> add_class t c) vcls;
-      v := Link t
+      set_tv v (Link t)
   | _ -> bug "束縛できない変数への bind"
 
 let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r | _ -> None
@@ -459,7 +459,7 @@ let rec rewrite_row row label =
       | Unbound { vlevel; vkind; _ } when same_kind vkind KRow ->
           let f2 = new_var vlevel in
           let rest2 = new_row_var vlevel in
-          v := Link (TRowExtend (label, f2, rest2));
+          set_tv v (Link (TRowExtend (label, f2, rest2)));
           (f2, rest2)
       | Rigid { vkind; _ } when same_kind vkind KRow ->
           (* 注釈で固定された行にはラベルを追加できない。高階のエフェクト
@@ -673,7 +673,7 @@ let rec generalize level t =
       | Unbound i when i.vlevel > level ->
           if List.mem cls_integral i.vcls then bind v t_int32
           else if List.mem cls_fractional i.vcls then bind v t_float64
-          else v := Generic i
+          else set_tv v (Generic i)
       | _ -> ())
   | TCon (_, args) -> List.iter (generalize level) args
   | TApp (f, a) ->
@@ -704,7 +704,7 @@ let rec generalize level t =
    曖昧な制約を報告する位置も変わる。
    `Rigid` と `Generic` には触らない *)
 let lower_levels ~since level t =
-  let lower v = match !v with Unbound i when i.vlevel > level -> v := Unbound { i with vlevel = level } | _ -> () in
+  let lower v = match !v with Unbound i when i.vlevel > level -> set_tv v (Unbound { i with vlevel = level }) | _ -> () in
   let rec go t =
     match repr t with
     | TVar v -> lower v
