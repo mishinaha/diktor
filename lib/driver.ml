@@ -562,7 +562,7 @@ let try_parse ~line source =
 (* 実行時エラーの文言。§16.8 の受け皿と同じ文言にそろえる *)
 let runtime_message = function
   | Value.Runtime_error msg -> "実行時エラー: " ^ msg
-  | Effect.Unhandled (Value.Op (op, _)) -> "未処理のエフェクト操作: " ^ Syntax.Type.name_of op
+  | Effect.Unhandled (Value.Op (op, _)) -> "未処理のエフェクト操作: " ^ Syntax.Type.display_of op
   | Stack_overflow -> "実行時エラー: スタックオーバーフロー(再帰が深すぎます)"
   | Out_of_memory -> "実行時エラー: メモリ不足です"
   | Panic msg -> msg
@@ -671,7 +671,7 @@ let repl options =
                       | None -> ( match Elab.lookup_value_type env' x with Some t -> t | None -> bug ("REPL の束縛の型が見つかりません: " ^ x))
                     in
                     let unit_ty = match Syntax.Type.repr ty with Syntax.Type.TRecord r -> Syntax.Type.repr r = Syntax.Type.TRowEmpty | _ -> false in
-                    if not (x = "_" && unit_ty) then Printf.printf "%s : %s = %s\n" x (Show.show ty) (show_value ty v))
+                    if not (x = "_" && unit_ty) then Printf.printf "%s : %s = %s\n" (Syntax.Type.display x) (Show.show ty) (show_value ty v))
                   shown;
                 `Keep
             | exception ex ->
@@ -942,7 +942,7 @@ let main () =
           Printf.eprintf "実行時エラー: %s\n" msg;
           safe_exit 3
       | Effect.Unhandled (Value.Op (op, _)) ->
-          Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.name_of op);
+          Printf.eprintf "未処理のエフェクト操作: %s\n" (Syntax.Type.display_of op);
           safe_exit 3
       | Effect.Unhandled _ ->
           (* 評価器が起こすエフェクトは Value.Op の 1 種類だけなので、ここへ来たら内部異常である *)

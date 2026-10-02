@@ -295,11 +295,11 @@ let new_class_var ~kind ~classes level =
 
 let rec add_class t c =
   let ci =
-    match Decls.find_class c with Some ci -> ci | None -> type_error ("未知のクラス: " ^ name_of c)
+    match Decls.find_class c with Some ci -> ci | None -> type_error ("未知のクラス: " ^ display_of c)
   in
   if not (same_kind ci.ci_param_kind (kind_of t)) then
     type_error
-      ("クラス " ^ name_of c ^ " は " ^ show_kind ci.ci_param_kind ^ " のクラスですが、" ^ show t ^ " に要求されました");
+      ("クラス " ^ display_of c ^ " は " ^ show_kind ci.ci_param_kind ^ " のクラスですが、" ^ show t ^ " に要求されました");
   match repr t with
   | TVar v -> (
       match !v with
@@ -317,22 +317,22 @@ let rec add_class t c =
               type_error "型パラメータに数値リテラルは使えません。0i32 のように接尾辞を付けるか具体型を使ってください"
             else
               type_error
-                ("型パラメータ " ^ show (TVar v) ^ " は " ^ name_of c ^ " のインスタンスではありません。[A: " ^ name_of c
+                ("型パラメータ " ^ show (TVar v) ^ " は " ^ display_of c ^ " のインスタンスではありません。[A: " ^ display_of c
                ^ "] のように制約を書いてください")
-      | _ -> type_error (show t ^ " に " ^ name_of c ^ " 制約を付けられません"))
+      | _ -> type_error (show t ^ " に " ^ display_of c ^ " 制約を付けられません"))
   | TCon (n, args) -> (
       match Decls.find_instance ~cls:c ~con:n with
       | Some { ii_premises; _ } ->
           List.iter (fun (i, c2) -> if i < List.length args then add_class (List.nth args i) c2) ii_premises
-      | None -> type_error (name_of n ^ " は " ^ name_of c ^ " のインスタンスではありません"))
+      | None -> type_error (display_of n ^ " は " ^ display_of c ^ " のインスタンスではありません"))
   | (TRecord row | TVariant row) when ci.ci_derive_structural ->
       (* 閉じた行への構造的導出(sample.kel:391-395)。開いた行は不可 *)
       let fields, tail = row_fields row in
       (match repr tail with
       | TRowEmpty -> List.iter (fun (_, f) -> add_class f c) fields
-      | _ -> type_error ("行変数を含む型 " ^ show t ^ " に " ^ name_of c ^ " の構造的導出は適用できません(行が閉じていません)"))
-  | TApp _ -> type_error ("制約 " ^ name_of c ^ " を " ^ show t ^ " に付けられません(頭が型変数の適用には制約を貼れません)")
-  | other -> type_error (show other ^ " は " ^ name_of c ^ " のインスタンスではありません")
+      | _ -> type_error ("行変数を含む型 " ^ show t ^ " に " ^ display_of c ^ " の構造的導出は適用できません(行が閉じていません)"))
+  | TApp _ -> type_error ("制約 " ^ display_of c ^ " を " ^ show t ^ " に付けられません(頭が型変数の適用には制約を貼れません)")
+  | other -> type_error (show other ^ " は " ^ display_of c ^ " のインスタンスではありません")
 
 (* ## 8.5 代入の 4 つの手順
 
@@ -446,7 +446,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
    新変数は行変数自身のレベルで作る(§8.6 の注意点 1) *)
 let rec rewrite_row row label =
   match repr row with
-  | TRowEmpty -> type_error ("ラベル " ^ name_of label ^ " がありません(行は閉じています)")
+  | TRowEmpty -> type_error ("ラベル " ^ display_of label ^ " がありません(行は閉じています)")
   | TRowExtend (l, f, rest) when l = label -> (f, rest)
   | TRowExtend (l, f, rest) ->
       let f2, rest2 = rewrite_row rest label in
@@ -467,8 +467,8 @@ let rec rewrite_row row label =
              ありません: ς1」ではなく原因を述べる(§8.8 の Heap の
              言い換えと同じく、原因を名指しする) *)
           type_error
-            ("行 " ^ show (TVar v) ^ " は注釈で固定された行変数なので、ラベル " ^ name_of label
-           ^ " を足せません(注釈側に " ^ name_of label ^ " を(必要なら引数つきで)書き足してください)")
+            ("行 " ^ show (TVar v) ^ " は注釈で固定された行変数なので、ラベル " ^ display_of label
+           ^ " を足せません(注釈側に " ^ display_of label ^ " を(必要なら引数つきで)書き足してください)")
       | _ -> type_error ("行型ではありません: " ^ show (TVar v)))
   | t -> type_error ("行型ではありません: " ^ show t)
 
@@ -784,7 +784,7 @@ let check_ambiguity ~all ~level tys =
           then
             type_error
               ("曖昧な制約: "
-              ^ String.concat " + " (List.sort compare (List.map name_of i.vcls))
+              ^ String.concat " + " (List.sort compare (List.map display_of i.vcls))
               ^ " を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)")
       | _ -> ())
     !class_vars;

@@ -211,7 +211,7 @@ let unbound_value name scoped =
       match pub_only (Decls.val_synonym_candidates (intern name)) with
       | [] -> type_error ("未束縛の変数: " ^ name)
       | qs ->
-          type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map name_of qs) ^ " と修飾してください)"))
+          type_error ("未束縛の変数: " ^ name ^ "(" ^ String.concat " か " (List.map display_of qs) ^ " と修飾してください)"))
 
 (* 構文的に反駁できないパターンかどうか。
    関数の引数と return 節の網羅性検査では、
@@ -497,7 +497,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                   with
                   | _ :: _ as cands ->
                       type_error
-                        ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)")
+                        ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)")
                   | _ -> type_error ("未知の型: " ^ n)))
   | T.EIdent li -> (
       (* 平坦化済みの module の修飾型参照(Parser.Parser など)。
@@ -903,7 +903,7 @@ and unknown_effect n =
     in
     match List.filter pub_row_alias (Decls.con_synonym_candidates (intern n)) with
     | [] -> "未知のエフェクト: " ^ n
-    | cands -> "未知のエフェクト: " ^ n ^ "(" ^ String.concat " か " (List.map name_of cands) ^ " と修飾してください)"
+    | cands -> "未知のエフェクト: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)"
 
 (* エイリアスが開いた行に展開されたときの splice。
    row_append は左が閉じていることを要求するので、展開結果の閉じた前置部分をなぞり、
@@ -925,10 +925,10 @@ and splice_row alias_name expanded acc =
 
 and expand_alias env level ~expanding info args =
   if List.mem info.Decls.al_name expanding then
-    type_error ("型エイリアス " ^ name_of info.Decls.al_name ^ " が再帰しています(エイリアスは非再帰)")
+    type_error ("型エイリアス " ^ display_of info.Decls.al_name ^ " が再帰しています(エイリアスは非再帰)")
   else if List.length args <> List.length info.Decls.al_params then
     type_error
-      (Printf.sprintf "型エイリアス %s の引数は %d 個必要です(%d 個与えられました。部分適用は禁止)" (name_of info.Decls.al_name)
+      (Printf.sprintf "型エイリアス %s の引数は %d 個必要です(%d 個与えられました。部分適用は禁止)" (display_of info.Decls.al_name)
          (List.length info.Decls.al_params) (List.length args))
   else
     (* 引数は使用スコープで精緻化する(呼び出し側の module のまま)。
@@ -936,7 +936,7 @@ and expand_alias env level ~expanding info args =
        kind_repr の構造の一致、照合は same_kind である。al_kinds は構築点で al_params と
        同じ長さに作るので、長さの食い違いは処理系の欠陥である *)
     if List.length info.Decls.al_kinds <> List.length info.Decls.al_params then
-      bug ("expand_alias: " ^ name_of info.Decls.al_name ^ " の al_kinds の長さが al_params と違います");
+      bug ("expand_alias: " ^ display_of info.Decls.al_name ^ " の al_kinds の長さが al_params と違います");
     let arg_tys =
       List.map2
         (fun a pk ->
@@ -948,7 +948,7 @@ and expand_alias env level ~expanding info args =
           in
           if not (same_kind pk (Unify.kind_of t)) then
             type_error
-              ("型エイリアス " ^ name_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
+              ("型エイリアス " ^ display_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
              ^ " を期待しましたが " ^ Show.show t ^ " は " ^ show_kind (Unify.kind_of t) ^ " です");
           t)
         args info.Decls.al_kinds
@@ -1337,7 +1337,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
         | Some dname ->
             Decls.check_ctor_visible ctor dname;
             let dd = Hashtbl.find Decls.datas dname in
-            if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
+            if dd.Decls.dd_opaque then type_error ("newtype " ^ display_of dname ^ " の表現は ??? で隠されています")
             else
               let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in
               let nfields = List.length ct.Decls.ct_fields in
@@ -1744,7 +1744,7 @@ and elab_exp' env level eff node e =
             「行型ではありません: ς1」では原因に結びつかない) *)
          let pub_pure = is_pub_pure_row eff in
          if pub_pure then type_error "pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)"
-         else type_error ("エフェクト " ^ name_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
+         else type_error ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
       op_ret
 (* ## 11.16 環境に置く resume の型
 
@@ -1868,7 +1868,7 @@ and elab_construct env level node cname ?eff args =
       let dd = Hashtbl.find Decls.datas dname in
       (* dd_opaque の型は組み込みの不透明型だけで、コンストラクタを持たないので、
          ここには来ない。拒否は防御のための分岐である *)
-      if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
+      if dd.Decls.dd_opaque then type_error ("newtype " ^ display_of dname ^ " の表現は ??? で隠されています")
       else
         let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in
         let nfields = List.length ct.Decls.ct_fields in
@@ -2063,8 +2063,8 @@ and resolve_perform eff li =
           | [] ->
               type_error
                 ("操作 " ^ op ^ " は複数のエフェクト("
-                ^ String.concat ", " (List.map name_of many)
-                ^ ")に属します。" ^ name_of (List.hd many) ^ "." ^ op ^ " のように修飾してください")))
+                ^ String.concat ", " (List.map display_of many)
+                ^ ")に属します。" ^ display_of (List.hd many) ^ "." ^ op ^ " のように修飾してください")))
   | li -> type_error ("不正な操作名です: " ^ show_long_id li)
 
 (* ## 11.21 resume の第二級性
@@ -2308,7 +2308,7 @@ and elab_handle env level eff clauses body =
     match List.sort_uniq compare quals with
     | [ e ] ->
         (* 修飾されたエフェクトが実在するかを調べる(調べないと後段の Option.get で落ちる) *)
-        if Decls.find_effect e = None then type_error ("未知のエフェクト: " ^ name_of e)
+        if Decls.find_effect e = None then type_error ("未知のエフェクト: " ^ display_of e)
         else if runtime_provided e then type_error (runtime_msg e)
         else e
     | _ :: _ -> type_error "handle の節の修飾エフェクトが一致しません"
@@ -2338,26 +2338,26 @@ and elab_handle env level eff clauses body =
                     (Option.get (Decls.find_effect e)).Decls.ef_ops
                 in
                 type_error
-                  ("ハンドラが操作を網羅していません: " ^ name_of e ^ " の "
-                  ^ String.concat ", " (List.map (fun (op, _) -> name_of op) missing)
+                  ("ハンドラが操作を網羅していません: " ^ display_of e ^ " の "
+                  ^ String.concat ", " (List.map (fun (op, _) -> display_of op) missing)
                   ^ " が漏れています")
-            | [] -> type_error ("この操作の組を宣言するエフェクトがありません: " ^ String.concat ", " (List.map name_of op_names)))
+            | [] -> type_error ("この操作の組を宣言するエフェクトがありません: " ^ String.concat ", " (List.map display_of op_names)))
         | es ->
             type_error
-              ("handle の対象エフェクトが曖昧です(" ^ String.concat ", " (List.map name_of es)
-             ^ ")。" ^ name_of (List.hd es) ^ "." ^ name_of (List.hd op_names) ^ " のように修飾してください"))
+              ("handle の対象エフェクトが曖昧です(" ^ String.concat ", " (List.map display_of es)
+             ^ ")。" ^ display_of (List.hd es) ^ "." ^ display_of (List.hd op_names) ^ " のように修飾してください"))
   in
   let target_info = Option.get (Decls.find_effect target) in
   (* 対象が決まったら、全操作の網羅と、全節の所属を調べる *)
   List.iter
     (fun (op, _) ->
       if not (List.mem op op_names) then
-        type_error ("ハンドラが操作を網羅していません: " ^ name_of target ^ " の " ^ name_of op ^ " が漏れています"))
+        type_error ("ハンドラが操作を網羅していません: " ^ display_of target ^ " の " ^ display_of op ^ " が漏れています"))
     target_info.Decls.ef_ops;
   List.iter
     (fun (op, _, _, _) ->
       if not (List.mem_assoc op target_info.Decls.ef_ops) then
-        type_error ("操作 " ^ name_of op ^ " はエフェクト " ^ name_of target ^ " に属しません"))
+        type_error ("操作 " ^ display_of op ^ " はエフェクト " ^ display_of target ^ " に属しません"))
     ops;
   (* 操作節の引数パターンを型付ける。
      総和性の検査は引数の型を見て判定するので、パターンだけを先にここで型付ける。
@@ -2376,7 +2376,7 @@ and elab_handle env level eff clauses body =
         let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
         if List.length args <> List.length param_tys then
           type_error
-            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (name_of op) (List.length param_tys)
+            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (display_of op) (List.length param_tys)
                (List.length args));
         List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
         let seen = ref [] in
@@ -2405,9 +2405,9 @@ and elab_handle env level eff clauses body =
     (fun (op, _) ->
       if not (List.exists (fun ((o, _, _, _), _, _, total) -> o = op && total) op_clauses) then
         type_error
-          ("操作 " ^ name_of op
+          ("操作 " ^ display_of op
          ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
-         ^ name_of op ^ "(...) を最後に置いてください"))
+         ^ display_of op ^ "(...) を最後に置いてください"))
     target_info.Decls.ef_ops;
   (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
      この検出は match の useful 判定(第10章)より弱い。
@@ -2418,7 +2418,7 @@ and elab_handle env level eff clauses body =
     | [] -> ()
     | ((o, _, _, _), _, _, total) :: rest ->
         if List.mem o seen_total then
-          warn ("操作 " ^ name_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
+          warn ("操作 " ^ display_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
         dead_scan (if total && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
   in
   dead_scan [] op_clauses;
@@ -3467,7 +3467,7 @@ let register_newtype env (n : T.newtype') =
                        check_value_kind に任せ、ここでは名詞句にコンストラクタ名を添えるだけ。
                        フィールドの最外を見る枝はここに置く。どのフィールドかを名指しできるのは
                        ここだけで、内側に包んだ形は elab_value_type が位置ごとに落とす *)
-                    at_node f.T.fd_ty (fun () -> check_value_kind ("コンストラクタ " ^ c.T.cd_name ^ " のフィールドの型") ty);
+                    at_node f.T.fd_ty (fun () -> check_value_kind ("コンストラクタ " ^ Type.display c.T.cd_name ^ " のフィールドの型") ty);
                     (* 省略された @ など、束縛されなかった変数はスキーマでは Generic にする *)
                     Unify.generalize 0 ty;
                     { Decls.fi_label = Option.map intern f.T.fd_label; fi_ty = ty })
@@ -3528,7 +3528,7 @@ let register_effect env (e : T.effect') =
   (* 同じ effect の中での操作名の重複を拒否する *)
   let rec dup = function
     | [] -> ()
-    | (op, _) :: rest -> if List.mem_assoc op rest then type_error ("操作 " ^ name_of op ^ " が二重に宣言されています") else dup rest
+    | (op, _) :: rest -> if List.mem_assoc op rest then type_error ("操作 " ^ display_of op ^ " が二重に宣言されています") else dup rest
   in
   dup ops;
   Decls.add_effect { Decls.ef_name = intern e.T.ef_name; ef_ops = ops }
@@ -3680,8 +3680,8 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    同じ型を持つ普通の多相 let(let read_[A: Show](s: String): A = ???)で代用している *)
 let register_class env (c : T.class_decl') =
   let cls = intern c.T.cls_name in
-  (if Decls.reserved_predicate cls then
-     type_error (c.T.cls_name ^ " は予約されたリテラル述語です(ユーザ宣言不可、D8)"));
+  (if Decls.reserved_predicate (intern (Type.display c.T.cls_name)) then
+     type_error (Type.display c.T.cls_name ^ " は予約されたリテラル述語です(ユーザ宣言不可、D8)"));
   let param =
     match c.T.cls_params with
     | [ p ] -> p
@@ -3762,12 +3762,12 @@ let register_class env (c : T.class_decl') =
       Hashtbl.iter
         (fun _ (other : Decls.class_info) ->
           if
-            other.Decls.ci_name <> cls
+            Type.display_of other.Decls.ci_name <> Type.display_of cls
             && Decls.visible_in_unit Decls.unit_classes other.Decls.ci_name
             && List.mem_assoc m other.Decls.ci_methods
           then
             type_error
-              ("メソッド名 " ^ m ^ " は型クラス " ^ name_of other.Decls.ci_name
+              ("メソッド名 " ^ m ^ " は型クラス " ^ display_of other.Decls.ci_name
              ^ " が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)"))
         Decls.classes)
     methods;
@@ -3854,14 +3854,14 @@ let instance_head (i : T.instance_decl') =
   let arity = kind_arity (Decls.con_kind con holes) in
   if holes <> arity then
     type_error
-      ("インスタンス頭 " ^ name_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
+      ("インスタンス頭 " ^ display_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
      ^ string_of_int holes ^ " 個書かれています");
   (* 前提の束縛子は、頭の _ へ左から順に対応する。余った _ は未適用のまま残り、
      カインドの矢印になる(Functor[List[_]] が束縛子 0 個で通る形) *)
   let np = List.length i.T.ins_tparams in
   if np > holes then
     type_error
-      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、頭 " ^ name_of con ^ " の _ は "
+      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、頭 " ^ display_of con ^ " の _ は "
      ^ string_of_int holes ^ " 個です");
   (cls, con, holes)
 
@@ -3891,7 +3891,7 @@ let register_instance (i : T.instance_decl') =
   (if Decls.reserved_predicate cls then
      type_error (i.T.ins_class ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   let ci = match Decls.find_class cls with Some ci -> ci | None -> type_error ("未知のクラス: " ^ i.T.ins_class) in
-  if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ name_of con);
+  if not (Hashtbl.mem Decls.con_kinds con) then type_error ("未知の型構成子: " ^ display_of con);
   (* 頭のカインドは、束縛子の個数だけ適用した後のカインドである。同時に、束縛子の
      カインドが、頭の構成子がその位置に要求するカインドと一致することを確かめる
      ([F[_]: C] を List[_] の穴には置けない) *)
@@ -3904,13 +3904,13 @@ let register_instance (i : T.instance_decl') =
             let kb = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
             if not (same_kind a kb) then
               type_error
-                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが頭 " ^ name_of con ^ " の引数と一致しません");
+                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが頭 " ^ display_of con ^ " の引数と一致しません");
             head_kind r rest
         | _ -> bug "instance: 束縛子が頭のアリティを超えています(D96 の検査が先に落とすはず)")
   in
   if not (same_kind ci.Decls.ci_param_kind (head_kind (Decls.con_kind con holes) i.T.ins_tparams)) then
     type_error
-      ("インスタンス頭 " ^ name_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
+      ("インスタンス頭 " ^ display_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
   (* 前提は(引数位置, クラス)の組。束縛子 i は頭の引数位置 i に対応するので恒等写像。
      class_names_of を通すので、未知のクラスや予約述語の拒否が束縛子の位置でも効く *)
   let premises =
@@ -3934,7 +3934,7 @@ let register_instance (i : T.instance_decl') =
   List.iter
     (fun (m, _) ->
       if not (List.exists (fun (m2, _) -> intern m2 = m) ci.Decls.ci_methods) then
-        type_error ("クラス " ^ i.T.ins_class ^ " にメソッド " ^ name_of m ^ " はありません"))
+        type_error ("クラス " ^ i.T.ins_class ^ " にメソッド " ^ display_of m ^ " はありません"))
     methods;
   List.iter
     (fun (m, _) ->
@@ -4405,7 +4405,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       with_decl_module node @@ fun () ->
       match d with
       | T.DType t ->
-          no_param_constraints ("型エイリアス " ^ t.T.ta_name) t.T.ta_params;
+          no_param_constraints ("型エイリアス " ^ Type.display t.T.ta_name) t.T.ta_params;
           register_companion t.T.ta_name;
           Decls.add_alias
             {
@@ -4422,14 +4422,14 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
               al_module = !Decls.current_module;
             }
       | T.DNewtype n ->
-          no_param_constraints ("newtype " ^ n.T.nt_name) n.T.nt_params;
+          no_param_constraints ("newtype " ^ Type.display n.T.nt_name) n.T.nt_params;
           (* 型の名前空間の主張はここ(宣言順)で行う。add_data も add_effect も 1b なので、
              種別の交差の検出を各 add に任せると、1a の add_alias が常に先回りし、後に
              書かれたエイリアスが、先に書かれた newtype を再宣言として逆向きに咎める *)
           Decls.claim_type_name "newtype" (intern n.T.nt_name);
           register_companion n.T.nt_name;
           if Decls.prelude_owned "data" (intern n.T.nt_name) && not !Decls.in_prelude then
-            type_error ("標準環境の newtype " ^ n.T.nt_name ^ " は再宣言できません");
+            type_error ("標準環境の newtype " ^ Type.display n.T.nt_name ^ " は再宣言できません");
           (* 頭のカインドは、パラメータごとにカインド変数を積む。1b の register_newtype が
              このセルを剥がして dd_params の vkind に据えるので、本体で決まったカインドが
              そのまま頭に反映される *)
@@ -4559,7 +4559,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
   in
   (* パス 2: 本体の推論(宣言順) *)
   let show_binding env ((_, b) : T.let_binding) =
-    match binding_name b with Some x -> emit (Binding (x ^ " : " ^ Show.show (SMap.find x env.values))) | None -> ()
+    match binding_name b with Some x -> emit (Binding (Type.display x ^ " : " ^ Show.show (SMap.find x env.values))) | None -> ()
   in
 (* ## 11.40 パス 2 の 1 歩
 
@@ -4680,7 +4680,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
           release_rigids (rigids @ eff_rigids);
-          emit (Binding (ex.T.ex_name ^ " : " ^ Show.show ty));
+          emit (Binding (Type.display ex.T.ex_name ^ " : " ^ Show.show ty));
           add_top env ex.T.ex_name ty (Tree.GDecl (Tree.oid_of node, ex.T.ex_name))
       | T.DNewtype _ -> env (* パス 1 で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> env (* パス 1 で登録済み *)
@@ -4927,7 +4927,7 @@ let flatten_modules ?session_vals ?(unit = Decls.root_unit) (decls : T.decl list
               with
               | Some m ->
                   type_error
-                    ("トップレベルの " ^ x ^ " は、前の入力の module " ^ m ^ " の " ^ x
+                    ("トップレベルの " ^ x ^ " は、前の入力の module " ^ Type.display m ^ " の " ^ x
                    ^ " と同名です(module 内の名前とトップレベル名は同名にできません)")
               | None -> ())
             (toplevel_value_names [ node ]))

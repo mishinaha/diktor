@@ -295,7 +295,7 @@ let record_fields = function VRecord fs -> fs | _ -> runtime_error "レコード
 (* 最左の label を選択する *)
 let record_select v label =
   let rec go = function
-    | [] -> runtime_error ("レコードにラベル " ^ Type.name_of label ^ " がありません")
+    | [] -> runtime_error ("レコードにラベル " ^ Type.display_of label ^ " がありません")
     | (l, x) :: rest -> if l = label then x else go rest
   in
   go (record_fields v)
@@ -305,7 +305,7 @@ let record_extend v label x = VRecord ((label, x) :: record_fields v)
 (* 最左の label を 1 つ消す(隠れていた同名のフィールドが再び見える) *)
 let record_restrict v label =
   let rec go = function
-    | [] -> runtime_error ("レコードにラベル " ^ Type.name_of label ^ " がありません")
+    | [] -> runtime_error ("レコードにラベル " ^ Type.display_of label ^ " がありません")
     | (l, x) :: rest -> if l = label then rest else (l, x) :: go rest
   in
   VRecord (go (record_fields v))
@@ -313,7 +313,7 @@ let record_restrict v label =
 (* 選択と制限を同時に行う(パターン照合と構造的等価が使う) *)
 let record_take v label =
   let rec go acc = function
-    | [] -> runtime_error ("レコードにラベル " ^ Type.name_of label ^ " がありません")
+    | [] -> runtime_error ("レコードにラベル " ^ Type.display_of label ^ " がありません")
     | (l, x) :: rest -> if l = label then (x, VRecord (List.rev_append acc rest)) else go ((l, x) :: acc) rest
   in
   go [] (record_fields v)
@@ -321,7 +321,7 @@ let record_take v label =
 (* 最左の label をその場で差し替える(フィールドの物理的な順序を保つ) *)
 let record_update v label x =
   let rec go = function
-    | [] -> runtime_error ("レコードにラベル " ^ Type.name_of label ^ " がありません")
+    | [] -> runtime_error ("レコードにラベル " ^ Type.display_of label ^ " がありません")
     | (l, y) :: rest -> if l = label then (l, x) :: rest else (l, y) :: go rest
   in
   VRecord (go (record_fields v))
@@ -452,12 +452,12 @@ let rec show v =
       else if List.for_all (fun (l, _) -> l = Type.l_item) fs then
         (* 1 要素は (x,)。(x) は式でもパターンでもグループ化なので貼り戻せない(仕様 §4) *)
         "(" ^ String.concat ", " (List.map (fun (_, x) -> show x) fs) ^ (match fs with [ _ ] -> ",)" | _ -> ")")
-      else "{" ^ String.concat ", " (List.map (fun (l, x) -> Type.name_of l ^ " = " ^ show x) fs) ^ "}"
-  | VVariant (l, VRecord []) -> "#" ^ Type.name_of l
-  | VVariant (l, p) -> "#" ^ Type.name_of l ^ "(" ^ show p ^ ")"
+      else "{" ^ String.concat ", " (List.map (fun (l, x) -> Type.display_of l ^ " = " ^ show x) fs) ^ "}"
+  | VVariant (l, VRecord []) -> "#" ^ Type.display_of l
+  | VVariant (l, p) -> "#" ^ Type.display_of l ^ "(" ^ show p ^ ")"
   | VData { d_ctor; d_fields; _ } ->
-      if Array.length d_fields = 0 then Type.name_of d_ctor
-      else Type.name_of d_ctor ^ "(" ^ String.concat ", " (Array.to_list (Array.map show d_fields)) ^ ")"
+      if Array.length d_fields = 0 then Type.display_of d_ctor
+      else Type.display_of d_ctor ^ "(" ^ String.concat ", " (Array.to_list (Array.map show d_fields)) ^ ")"
   | VClosure _ -> "<fn>"
   | VPrim p -> "<prim " ^ p.p_name ^ ">"
   | VRef _ -> "<ref>"

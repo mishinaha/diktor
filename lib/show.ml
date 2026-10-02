@@ -271,8 +271,8 @@ let show_all ts =
         | Generic i -> name_of_var i ~generic:true
         | Rigid i -> rigid_name i
         | Link t -> go t)
-    | TCon (n, []) -> name_of n
-    | TCon (n, args) -> name_of n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
+    | TCon (n, []) -> display_of n
+    | TCon (n, args) -> display_of n ^ "[" ^ String.concat ", " (map_ordered go args) ^ "]"
     | TApp _ as t ->
         let h, args = app_spine t in
         (* 頭を先に採番する。^ は右辺を先に評価しうるので、let で順序を固定する(§9.4) *)
@@ -301,13 +301,13 @@ let show_all ts =
               "{" ^ fs ^ " extends " ^ ts ^ "}")
     | TVariant row -> (
         let fields, tail = row_fields row in
-        let case (l, t) = if is_unit t then "#" ^ name_of l else "#" ^ name_of l ^ "(" ^ go t ^ ")" in
+        let case (l, t) = if is_unit t then "#" ^ display_of l else "#" ^ display_of l ^ "(" ^ go t ^ ")" in
         let parts = map_ordered case fields in
         let parts = match repr tail with TRowEmpty -> parts | tail -> parts @ [ go tail ] in
         match parts with [] -> "#|" (* 空ヴァリアント(Never 相当) *) | _ -> String.concat " | " parts)
     | TRowEmpty -> "{}"
     | TRowExtend _ as row -> eff_row row (* 裸の行はエフェクト行の書式で印字する *)
-  and field (l, t) = name_of l ^ ": " ^ go t
+  and field (l, t) = display_of l ^ ": " ^ go t
   and is_unit t = match repr t with TRecord r -> ( match repr r with TRowEmpty -> true | _ -> false) | _ -> false
 
 (* ## 9.5 引数の行を括弧の並びに戻す
@@ -388,7 +388,7 @@ let show_all ts =
 
   and eff_row row =
     let fields, tail = row_fields row in
-    let label (l, t) = if is_unit t then name_of l else name_of l ^ "[" ^ go t ^ "]" in
+    let label (l, t) = if is_unit t then display_of l else display_of l ^ "[" ^ go t ^ "]" in
     let parts = map_ordered label fields in
     let ext = match repr tail with TRowEmpty -> "" | tail -> (if parts = [] then "extends " else " extends ") ^ go tail in
     "{" ^ String.concat ", " parts ^ ext ^ "}"
@@ -437,7 +437,7 @@ let show_all ts =
     | cs ->
         "["
         ^ String.concat ", "
-            (List.map (fun (n, cls) -> n ^ ": " ^ String.concat " + " (List.sort compare (List.map name_of cls))) cs)
+            (List.map (fun (n, cls) -> n ^ ": " ^ String.concat " + " (List.sort compare (List.map display_of cls))) cs)
         ^ "] "
   in
   (strs, ctx)

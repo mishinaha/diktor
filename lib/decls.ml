@@ -115,7 +115,7 @@ let type_namespace : (oid, string) Hashtbl.t = Hashtbl.create 64
 let claim_type_name kind name =
   match Hashtbl.find_opt type_namespace name with
   | Some prev_kind when prev_kind <> kind ->
-      type_error (Type.name_of name ^ " は既に " ^ prev_kind ^ " として宣言されています(" ^ kind ^ " では再宣言できません)")
+      type_error (Type.display_of name ^ " は既に " ^ prev_kind ^ " として宣言されています(" ^ kind ^ " では再宣言できません)")
   | _ -> Hashtbl.replace type_namespace name kind
 
 (* ## 6.2 extern 登録簿
@@ -233,11 +233,14 @@ let check_std_type_twin kind name =
   let dn = Type.display s in
   if dn <> s then (
     let d = Type.intern dn in
-    if Hashtbl.mem reserved_type_names d then type_error ("組み込み型 " ^ dn ^ " は " ^ kind ^ " で再宣言できません");
+    (* 文言は起点の宣言の診断とそろえる。型エイリアスだけは種別の語の前後に空白を置かない *)
+    let sp = if kind = "型エイリアス" then "" else " " in
+    if Hashtbl.mem reserved_type_names d then
+      type_error ("組み込み型 " ^ dn ^ " は" ^ sp ^ kind ^ sp ^ "で再宣言できません");
     match Hashtbl.find_opt type_namespace d with
     | Some prev when prev <> kind ->
         type_error (dn ^ " は既に " ^ prev ^ " として宣言されています(" ^ kind ^ " では再宣言できません)")
-    | Some _ -> type_error ("標準環境の " ^ kind ^ " " ^ dn ^ " は再宣言できません")
+    | Some _ -> type_error ("標準環境の" ^ sp ^ kind ^ " " ^ dn ^ " は再宣言できません")
     | None -> ())
 
 (* ## 6.4 module の平坦化のための同義語表と可視性台帳
@@ -451,21 +454,21 @@ let visible_here (v : visibility) = v.vis_pub || !current_module = Some v.vis_mo
 let check_con_visible oid =
   match Hashtbl.find_opt con_visibility oid with
   | Some v when not (visible_here v) ->
-      type_error ("型 " ^ Type.name_of oid ^ " は module " ^ v.vis_module ^ " の外からは参照できません(pub を付けてください)")
+      type_error ("型 " ^ Type.display_of oid ^ " は module " ^ Type.display v.vis_module ^ " の外からは参照できません(pub を付けてください)")
   | _ -> ()
 
 let check_value_visible oid =
   match Hashtbl.find_opt value_visibility oid with
   | Some v when not (visible_here v) ->
-      type_error (Type.name_of oid ^ " は module " ^ v.vis_module ^ " の外からは参照できません(pub を付けてください)")
+      type_error (Type.display_of oid ^ " は module " ^ Type.display v.vis_module ^ " の外からは参照できません(pub を付けてください)")
   | _ -> ()
 
 let check_ctor_visible ctor owner =
   match Hashtbl.find_opt con_visibility owner with
   | Some v when not (visible_here v) ->
       type_error
-        ("コンストラクタ " ^ Type.name_of ctor ^ " は module " ^ v.vis_module ^ " の外からは参照できません(newtype "
-       ^ Type.name_of owner ^ " に pub を付けてください)")
+        ("コンストラクタ " ^ Type.display_of ctor ^ " は module " ^ Type.display v.vis_module ^ " の外からは参照できません(newtype "
+       ^ Type.display_of owner ^ " に pub を付けてください)")
   | _ -> ()
 
 (* ## 6.5 型エイリアス
@@ -511,13 +514,13 @@ let add_alias info =
      C 既知名の署名との照合は型名で比べるので、type Float64 = String が通ると、
      照合は Float64 と書いた宣言に、Float64 でなければならないという自己矛盾した診断を出す *)
   if Hashtbl.mem reserved_type_names info.al_name && not !in_prelude then
-    type_error ("組み込み型 " ^ Type.name_of info.al_name ^ " は型エイリアスで再宣言できません")
+    type_error ("組み込み型 " ^ Type.display_of info.al_name ^ " は型エイリアスで再宣言できません")
   else check_std_type_twin "型エイリアス" info.al_name;
   claim_type_name "型エイリアス" info.al_name;
   if Hashtbl.mem aliases info.al_name then
     if prelude_owned "alias" info.al_name then
-      type_error ("標準環境の型エイリアス " ^ Type.name_of info.al_name ^ " は再宣言できません")
-    else type_error ("型エイリアス " ^ Type.name_of info.al_name ^ " が二重に宣言されています")
+      type_error ("標準環境の型エイリアス " ^ Type.display_of info.al_name ^ " は再宣言できません")
+    else type_error ("型エイリアス " ^ Type.display_of info.al_name ^ " が二重に宣言されています")
   else (
     Hashtbl.add aliases info.al_name info;
     mark "alias" info.al_name)
@@ -586,13 +589,13 @@ let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* コンストラク
 
 let add_data info =
   if Hashtbl.mem reserved_type_names info.dd_name && not !in_prelude then
-    type_error ("組み込み型 " ^ Type.name_of info.dd_name ^ " は newtype で再宣言できません")
+    type_error ("組み込み型 " ^ Type.display_of info.dd_name ^ " は newtype で再宣言できません")
   else check_std_type_twin "newtype" info.dd_name;
   claim_type_name "newtype" info.dd_name;
   if Hashtbl.mem datas info.dd_name then
     if prelude_owned "data" info.dd_name then
-      type_error ("標準環境の newtype " ^ Type.name_of info.dd_name ^ " は再宣言できません")
-    else type_error ("newtype " ^ Type.name_of info.dd_name ^ " が二重に宣言されています")
+      type_error ("標準環境の newtype " ^ Type.display_of info.dd_name ^ " は再宣言できません")
+    else type_error ("newtype " ^ Type.display_of info.dd_name ^ " が二重に宣言されています")
   else (
     Hashtbl.add datas info.dd_name info;
     mark "data" info.dd_name;
@@ -659,13 +662,13 @@ let add_effect info =
      名前空間も newtype やエイリアスと共有する(effect List は List の再宣言になる。
      §6.1 の後の type_namespace) *)
   if Hashtbl.mem reserved_type_names info.ef_name && not !in_prelude then
-    type_error ("組み込み型 " ^ Type.name_of info.ef_name ^ " は effect で再宣言できません")
+    type_error ("組み込み型 " ^ Type.display_of info.ef_name ^ " は effect で再宣言できません")
   else check_std_type_twin "effect" info.ef_name;
   claim_type_name "effect" info.ef_name;
   if Hashtbl.mem effects info.ef_name then
     if prelude_owned "effect" info.ef_name then
-      type_error ("標準環境の effect " ^ Type.name_of info.ef_name ^ " は再宣言できません")
-    else type_error ("effect " ^ Type.name_of info.ef_name ^ " が二重に宣言されています")
+      type_error ("標準環境の effect " ^ Type.display_of info.ef_name ^ " は再宣言できません")
+    else type_error ("effect " ^ Type.display_of info.ef_name ^ " が二重に宣言されています")
   else (
     Hashtbl.add effects info.ef_name info;
     mark "effect" info.ef_name;
@@ -723,8 +726,8 @@ let add_class_decl info =
   | _ -> ());
   match Hashtbl.find_opt classes info.ci_name with
   | Some prev when prev.ci_builtin ->
-      type_error ("標準環境の type class " ^ Type.name_of info.ci_name ^ " は再宣言できません")
-  | Some _ -> type_error ("type class " ^ Type.name_of info.ci_name ^ " が二重に宣言されています")
+      type_error ("標準環境の type class " ^ Type.display_of info.ci_name ^ " は再宣言できません")
+  | Some _ -> type_error ("type class " ^ Type.display_of info.ci_name ^ " が二重に宣言されています")
   | None -> Hashtbl.add classes info.ci_name info
 
 (* ## 6.9 インスタンス表とコヒーレンス
@@ -777,14 +780,14 @@ let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
      登録(builtin = true)だけである。組み込みの登録自身が Integral[Int32] /
      Fractional[Float64] をここから入れる。免除の条件を in_prelude にしない理由は §6.12 *)
   (if reserved_predicate cls && not builtin then
-     type_error (Type.name_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
+     type_error (Type.display_of cls ^ " は予約されたリテラル述語です(インスタンスは宣言できません、D8)"));
   match Hashtbl.find_opt instances (cls, con) with
   | Some prev when prev.ii_builtin && not builtin ->
       type_error
-        ("標準環境のインスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] は再宣言できません")
+        ("標準環境のインスタンス " ^ Type.display_of cls ^ "[" ^ Type.display_of con ^ "] は再宣言できません")
   | Some _ ->
       type_error
-        ("インスタンス " ^ Type.name_of cls ^ "[" ^ Type.name_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
+        ("インスタンス " ^ Type.display_of cls ^ "[" ^ Type.display_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
   | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin; ii_methods = methods }
 
 let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)

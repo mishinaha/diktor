@@ -592,7 +592,7 @@ and dispatch cls_name meth args =
       (match List.find_map tycon_of_value cand_vals with
       | Some con when Decls.find_instance ~cls:cls_oid ~con <> None ->
           runtime_error
-            (cls_name ^ "[" ^ Type.name_of con ^ "] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)")
+            (Type.display cls_name ^ "[" ^ Type.display_of con ^ "] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)")
       | _ -> ());
       (* 構造的導出(Diktor は Eq だけを導出する)。コヒーレンスにより elab の選択と一致する *)
       let structural = match Decls.find_class cls_oid with Some ci -> ci.Decls.ci_derive_structural | None -> false in
@@ -1040,7 +1040,7 @@ and eval_handle env body clauses =
                              防御の分岐である。素の raise ではなく discontinue にして、
                              捨てた継続の cancel 節を走らせる(3 つの経路の規約) *)
                           Effect.Deep.discontinue k
-                            (Runtime_error ("handle のどの節にも一致しません: " ^ Type.name_of op ^ show args))
+                            (Runtime_error ("handle のどの節にも一致しません: " ^ Type.display_of op ^ show args))
                       | Some (locals, c, tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
@@ -1347,7 +1347,7 @@ let exec_decl env ((_, d) as node : T.decl) =
         | None ->
             fun _ ->
               runtime_error
-                ("未実装のプリミティブ: " ^ ex.T.ex_name
+                ("未実装のプリミティブ: " ^ Type.display ex.T.ex_name
                 ^ if ex.T.ex_name = ex.T.ex_prim then "" else "(実装名 " ^ ex.T.ex_prim ^ " が見つかりません)")
       in
       bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), VPrim { p_name = ex.T.ex_name; p_fn = impl }) ]

@@ -790,15 +790,15 @@ let show_lit = function LBool b -> string_of_bool b | LText s -> "\"" ^ String.e
 let rec show_ipat = function
   | IWild -> "_"
   | ILit l -> show_lit l
-  | IVariant (l, IRecord ([], true)) -> "#" ^ name_of l
-  | IVariant (l, sub) -> "#" ^ name_of l ^ "(" ^ show_ipat sub ^ ")"
-  | ICtor (c, []) -> name_of c
-  | ICtor (c, subs) -> name_of c ^ "(" ^ String.concat ", " (List.map show_ipat subs) ^ ")"
+  | IVariant (l, IRecord ([], true)) -> "#" ^ display_of l
+  | IVariant (l, sub) -> "#" ^ display_of l ^ "(" ^ show_ipat sub ^ ")"
+  | ICtor (c, []) -> display_of c
+  | ICtor (c, subs) -> display_of c ^ "(" ^ String.concat ", " (List.map show_ipat subs) ^ ")"
   | IRecord ([], true) -> "()"
   | IRecord (fs, closed) ->
       if closed && fs <> [] && List.for_all (fun (l, _) -> l = l_item) fs then
         "(" ^ String.concat ", " (List.map (fun (_, p) -> show_ipat p) fs) ^ (match fs with [ _ ] -> ",)" | _ -> ")")
-      else "{" ^ String.concat ", " (List.map (fun (l, p) -> name_of l ^ " = " ^ show_ipat p) fs) ^ "}"
+      else "{" ^ String.concat ", " (List.map (fun (l, p) -> display_of l ^ " = " ^ show_ipat p) fs) ^ "}"
 
 (* ## 10.13 検査キュー
 
