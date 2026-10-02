@@ -5062,7 +5062,7 @@ let flatten_modules (decls : T.decl list) : T.decl list =
    受けるのは 2 系統だけで、`Type_error` / `Type_error_at` は終了コード 1、
    `NotImplemented` / `NotImplemented_at` は終了コード 4 になる。
    `Syntax_error` の節は置かない。
-   `Syntax_error` を投げるのは parser.mly だけで、
+   `Syntax_error` と `Syntax_error_at` を投げるのは parser.mly だけで、
    第16章の `parse_with` がそれをすべて `Parse_error` に包み直してから型検査に入るからである。
    診断は `error` レコード(位置、種別の語、終了コード、本文)として返す。
    そこから先の整形と印字は、第16章(driver.ml)が行う。
@@ -5098,7 +5098,7 @@ let type_check ?(prelude = []) decls =
   try (type_check_decls ~prelude decls, None) with
   | Type_error_at (loc, msg) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   | Type_error msg -> (List.rev !current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
-  (* Syntax_error の節は置かない。投げるのは parser.mly だけで、第16章の parse_with が
+  (* Syntax_error と Syntax_error_at の節は置かない。投げるのは parser.mly だけで、第16章の parse_with が
      すべて Parse_error に包み直してから型検査に入る。届く例外は、Type_error と、未実装の
      NotImplemented の 2 系統だけ *)
   | NotImplemented_at (loc, feat) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })

@@ -229,14 +229,16 @@ let dump_tokens_file file =
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
-   上流から来る失敗のうち、この関数が受けるのは次の 3 種類である。
+   上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
 
    - `Parser'.Error`：menhir が次に進む節を選べなかった(文法に合わない)
    - `Syntax.Syntax_error`：文法は通ったが、脱糖(第3章)が形を拒否した
+   - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した
    - `Sedlexing.MalFormed`：入力が不正な UTF-8 バイト列である
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
-   前の 2 つには位置を付ける。
+   前の 3 つには位置を付ける。
+   `Syntax_error_at` には指定された位置を、ほかの 2 つには最後に読んだトークンの位置を使う。
    `MalFormed` では位置が失われているので、ファイル名だけを付ける。
    字句解析器の `Lexer.Lex_error` はここでは受けず、§16.8 の受け皿がそのまま受ける。
    種類ごとに区別して報告したくなったときは、この関数で分ければよい。
@@ -251,6 +253,7 @@ let parse_with lexer =
       raise (Parse_error (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
+  | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
 
 (* パースの駆動全体を with_input で包む。
    ディレクトリを渡したときの EISDIR などの読み取りエラーは、

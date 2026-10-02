@@ -115,11 +115,18 @@ open Aux
    Menhir の `Parser.Error` とは別の系統である。
    文法で表現すると LR(1) が壊れるが、構文の誤りではある、という種類の誤りをここへ集める。
    たとえば、レコードのラベルに大文字の識別子を書いた場合である。
-   第16章は、どちらの構文エラーも終了コード 2 にそろえる。 *)
+   第16章は、どちらの構文エラーも終了コード 2 にそろえる。
+
+   `Syntax_error` の位置は、第16章が最後に読んだトークンの位置で補う。
+   `Syntax_error_at` は、意味アクションが位置を指定する構文エラーである。
+   最後に読んだトークンが誤りの場所を指さない診断(末尾ブロックの診断は、
+   `}` の後ろのトークンを読んでから出る)で使う。 *)
 
 type long_id = LongId of string list
 
 exception Syntax_error of string
+
+exception Syntax_error_at of Lexing.position * string
 
 let long_id components = LongId components
 
