@@ -17,7 +17,8 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   $ diktor cok.kel
   3.0
 
-行は照合しない(どの行を書くかはバインディング作者の判断、sample.kel:796-797):
+@ Blocking を明示した宣言も照合を通る(行は照合しない。どの行を書くかは
+バインディング作者の判断、sample.kel:796-797):
 
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
