@@ -695,7 +695,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    1. エイリアスは再帰できない。
    2. エイリアスは部分適用できない。
-   3. パラメータの制約は、エイリアスを書いた時点で課す。
+   3. パラメータには型クラスの制約を書けない。
    4. エイリアスが展開する矢印は、常に入れ子として読む。
    5. 型引数は、パラメータのカインドに合わせて読む。
 
@@ -711,9 +711,11 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    部分適用の禁止は、`expand_alias` の中の引数の個数の比較 1 つで実装している。
 
    規則 3 は、エイリアスに構築点が無いことから来る。
-   `type P[A: Show] = (A, A)` の `Show` は、`P[X]` と書いた時点で `X` に要求される。
-   エイリアスは透過なので、制約を効かせられるのは型を書いた時点しかない。
-   newtype の制約が値の構築時に効くのと比べると、エイリアスの制約は早い時点で効く。
+   エイリアスは透過なので、制約を効かせられるのは型を書いた時点しかなく、
+   newtype の制約を値の構築時に効かせるのと時点が食い違う。
+   そこで、エイリアスと newtype のパラメータには、どちらも制約を書けない。
+   制約は関数とインスタンスの型パラメータに書く。
+   規則 3 は、§11.39 のパス 1a が宣言の時点で守る(`no_param_constraints`)。
 
    規則 4 により、`type Thunk = () => Unit` の省略 `@` は、`Thunk` を最外に書いても `@ {}` になる
    (仕様 §9 は、型エイリアスを展開した矢印を入れ子の側に挙げている)。
@@ -924,10 +926,6 @@ and expand_alias env level ~expanding info args =
           t)
         args info.Decls.al_kinds
     in
-    (* パラメータの制約は展開時、つまり型を書いた時点で課す。エイリアスは透過で構築点が無く、
-       展開後の型に制約の痕跡も残らないので、その場で調べるしかない。これは newtype より
-       早い時点である。newtype の制約は値の構築時に効くので、Box[NoShow] は型として
-       書けるが Box(v) で落ちる *)
     let types =
       List.fold_left2 (fun m tp t -> SMap.add tp.tp_name t m) SMap.empty info.Decls.al_params arg_tys
     in
@@ -4316,11 +4314,8 @@ let check_instance_bodies env (i : T.instance_decl') =
    `Ph` のパラメータを後から行に変えることはない。
    この形で落ちるのは `let` 自身の `E` のほうで、`Ph[E]` が先に `E` を `Type` に決める。
 
-   既定化の直後には、`check_row_constraints` が、
-   行カインドになったパラメータに型クラスの制約が書かれていないかを確かめる。
-   型クラスは Type のクラスなので、行には要求できない。
-   宣言の位置で確かめないと、エイリアスでは使用点ごとに落ち、
-   newtype では構築点が行を見ないので素通りする。
+   パラメータの制約はパス 1a で拒否するので(`no_param_constraints`)、
+   行カインドになったパラメータに型クラスの制約が残ることはない。
 
    **1c**：インスタンスの頭と、前方参照の署名を登録する。
    頭のカインドの検査にクラス表が要るので、1b の後に置く。
@@ -4374,6 +4369,8 @@ let with_decl_module node f =
   Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
   Fun.protect ~finally:(fun () -> Decls.current_module := saved) f
 
+(* 型エイリアスと newtype の型パラメータには、型クラスの制約を書けない(§11.5 の規則 3)。
+   型パラメータの構文は関数、クラス、インスタンスと共有しているので、文法ではなくここで拒否する *)
 let no_param_constraints what (tparams : type_param list) =
   List.iter
     (fun (tp : type_param) ->
