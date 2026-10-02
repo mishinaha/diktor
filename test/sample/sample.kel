@@ -840,7 +840,7 @@ module BigInt {
   pub let parse(str: String): BigInt = ???    // 省略すると、本体は純粋で、公開される型は行多相
   let normalize(x: BigInt): BigInt = ???      // pub なし。注釈は自由に書ける
 
-  // インスタンスは import で選ばず、このファイルを読み込んだプログラムから見える。pub は書かない
+  // インスタンスは import で選ばず、宣言したファイルと、それを直接または間接に import したファイルから見える。pub は書かない
   type instance Add[BigInt] { let add(x, y) = ??? }
   type instance Mul[BigInt] { let mul(x, y) = ??? }
 }
