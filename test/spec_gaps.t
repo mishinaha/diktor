@@ -45,8 +45,7 @@ module の入れ子(:860)、Ord[Float64] / Eq[Float64] と NaN(:861-866)は cram
   > KEL
   $ diktor --type-check sumclosed.kel
   sum2 : (Array[Int32]) => Int32
-  ! sumclosed.kel:2:70: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
-  [1]
+  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
 
 非有限値(NaN、無限大)のリテラル(§14:867、§2)。現状は無く、文字列化の字面
 nan / inf は読み戻せない(表示側は test/numeric.t の infnan):

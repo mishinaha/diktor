@@ -32,7 +32,7 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   > KEL
   $ diktor --type-check bann.kel
   sqrt : (Float64) => Float64 @ {Blocking extends R1}
-  ! bann.kel:2:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Blocking を足せません(注釈側に Blocking を(必要なら引数つきで)書き足してください)
+  ! bann.kel:2:53: 型エラー: ラベル Blocking がありません(行は閉じています)
   [1]
 
 Blocking は操作を持たないので handle の対象にできない(禁止の名指しでは

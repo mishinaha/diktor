@@ -56,11 +56,11 @@ sample.kel:694 のとおり):
 
   $ printf 'pub let mlen[h](a: MutableArray[h, Int32]): Int32 = MutableArray.length(a)\n' > publen.kel
   $ diktor --type-check publen.kel
-  ! publen.kel:1:53: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Heap を足せません(注釈側に Heap を(必要なら引数つきで)書き足してください))
+  ! publen.kel:1:53: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Heap がありません(行は閉じています))
   [1]
   $ printf 'pub let mget[h](a: MutableArray[h, Int32]): Int32 = MutableArray.get(a, 0)\n' > pubget.kel
   $ diktor --type-check pubget.kel
-  ! pubget.kel:1:53: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Heap を足せません(注釈側に Heap を(必要なら引数つきで)書き足してください))
+  ! pubget.kel:1:53: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Heap がありません(行は閉じています))
   [1]
   $ cat > parget.kel <<'KEL'
   > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
@@ -228,8 +228,7 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   > KEL
   $ diktor --type-check eachclosed.kel
   g : (Int32) => {}
-  ! eachclosed.kel:2:56: 型エラー: ラベル Heap がありません(行は閉じています)
-  [1]
+  use : (Array[Int32]) => {}
 
 newtype のフィールドを経由して死んだリージョンの可変配列を書く形も、入れ子の
 矢印の省略 @ が @ {} になった(M26 / D75)ので閉じた — 分離(M24)だけでは

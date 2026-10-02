@@ -74,8 +74,7 @@
   > let call(f: () => Unit @ A): Unit @ A = f()
   > KEL
   $ diktor --type-check --no-prelude nested3.kel
-  ! nested3.kel:3:41: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
-  [1]
+  call : (() => {} @ {A}) => {} @ {A extends R1}
 
 型エイリアスが展開する矢印も入れ子(§9。§11.5 の規則 4):
 
@@ -164,8 +163,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > KEL
   $ diktor --type-check val1.kel
   k : (Int32) => Int32
-  ! val1.kel:2:30: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
-  [1]
+  use : () => Int32 @ {Console extends R1}
 
 注釈の頭が型エイリアスの値束縛は開き直さない — 展開先の矢印は入れ子(D75)なので
 省略は @ {}、書かれた @ {} は両方向。パス 1c の署名(§11.37)も同じ閉じた行を
@@ -253,7 +251,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > let use(b: Box): Int32 = size(b)
   > KEL
   $ diktor --type-check --no-prelude clsalias3ok.kel
-  use : (Box) => Int32 @ {Print}
+  use : (Box) => Int32 @ {Print extends R1}
 
 let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
 
@@ -315,8 +313,7 @@ let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
   > KEL
   $ diktor --type-check valclosed.kel
   g : (Int32) => Int32 @ {Console}
-  ! valclosed.kel:3:5: 型エラー: 注釈された型を満たしません(行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください))
-  [1]
+  k : (Int32) => Int32 @ {Console extends R1}
   $ cat > valclosedfn.kel <<'KEL'
   > type F = (Int32) => Int32 @ Console
   > let g: F = fn(x) => { echo("v"); x }
@@ -324,8 +321,7 @@ let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
   > KEL
   $ diktor --type-check valclosedfn.kel
   g : (Int32) => Int32 @ {Console}
-  ! valclosedfn.kel:3:37: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
-  [1]
+  kf : (Int32) => Int32 @ {Console extends R1}
   $ cat > valclosedok.kel <<'KEL'
   > type F = (Int32) => Int32 @ Console
   > let g: F = fn(x) => { echo("v"); x }
@@ -370,7 +366,7 @@ pub の規則を名指しして落ちる:
   > }
   > KEL
   $ diktor --type-check pubvalerr.kel
-  ! pubvalerr.kel:2:11: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  ! pubvalerr.kel:2:11: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
   [1]
 
 初期化式そのものは束縛の外側の行で評価されるので、そこに書いたエフェクトは
@@ -499,15 +495,15 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   > and g: (Int32) => Int32 @ Console = fn(x) => f(x)
   > KEL
   $ diktor --type-check recandboth.kel
-  ! recandboth.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
-  [1]
+  f : (Int32) => Int32 @ {Console extends R1}
+  g : (Int32) => Int32 @ {Console extends R1}
   $ cat > recandbothfn.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = b(n)
   > and b(n: Int32): Int32 @ Console = a(n)
   > KEL
   $ diktor --type-check recandbothfn.kel
-  ! recandbothfn.kel:2:36: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
-  [1]
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
 
 決めるのは呼ぶ向きで、互いを呼び合うことではない。先行が後続を呼ぶだけの形も落ち、
 同じ 2 本で後続が先行を呼ぶだけの形は通る(M33 の検証):
@@ -517,15 +513,15 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   > and b: (Int32) => Int32 @ Console = fn(n) => { echo("b"); n }
   > KEL
   $ diktor --type-check recandfwd.kel
-  ! recandfwd.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
-  [1]
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
   $ cat > recandfwdfn.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = b(n)
   > and b(n: Int32): Int32 @ Console = { echo("b"); n }
   > KEL
   $ diktor --type-check recandfwdfn.kel
-  ! recandfwdfn.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
-  [1]
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
   $ cat > recandback.kel <<'KEL'
   > let rec a: (Int32) => Int32 @ Console = fn(n) => { echo("a"); n }
   > and b: (Int32) => Int32 @ Console = fn(n) => a(n)

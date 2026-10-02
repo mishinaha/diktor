@@ -106,15 +106,14 @@ pub let rec の相互再帰(@ 省略)は群で 1 本の Rigid 行を共有して
 
   $ printf 'pub let f(x: Int32): Int32 = { echoln("hi"); x }\n' > pub14.kel
   $ diktor --type-check pub14.kel
-  ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください))
+  ! pub14.kel:1:32: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
   [1]
   $ cat > pub15.kel <<'KEL'
   > let (helper, k) = (fn(x: Int32) => x, 0)
   > pub let go(n: Int32): Int32 = helper(n)
   > KEL
   $ diktor --type-check pub15.kel
-  ! pub15.kel:2:31: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています)
-  [1]
+  go : (Int32) => Int32
 
 pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省略の意味は @ {} に
 決まっているが、公開 API では意図と書き忘れを読み分けられなければならない):
