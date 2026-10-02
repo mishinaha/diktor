@@ -8,6 +8,7 @@
     --type-check         型検査のみ。トップレベル束縛の型を "name : type" で出力
     --dump-tokens        ASI 適用後のトークン列を出力
     --dump-ast           脱糖後の AST を S 式で出力
+    --repl               対話的に実行する(FILE は不要)
     --no-prelude / --prelude PATH
     --strict-exhaustive  網羅性・到達不能警告をエラー化
   exit: 64
