@@ -147,3 +147,10 @@ derive は予約語ではない:
   $ printf 'let derive = 1\necholn(show(derive))\n' > deriveid.kel
   $ diktor deriveid.kel
   1
+
+par と par_map は標準環境に無い(LangSpec §16):
+
+  $ printf 'let p = par(fn() => 1, fn() => 2)\n' > par.kel
+  $ diktor --type-check par.kel
+  ! par.kel:1:9: 型エラー: 未束縛の変数: par
+  [1]

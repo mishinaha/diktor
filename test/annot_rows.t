@@ -116,18 +116,20 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
 `side!side!side!8` を印字して通った(実測):
 
   $ cat > launder.kel <<'KEL'
+  > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
   > newtype Cb = Cb((Int32) => Int32)
   > let wrap(f: (Int32) => Int32 @ Console): Cb = Cb(f)
   > let unwrap(c: Cb): (Int32) => Int32 @ {} = c match { case Cb(f) => f }
   > let go(c: Cb): Int32 = run h {
   >   let a = MutableArray.freeze(MutableArray.new(3, 7))
-  >   let b = par_map(a, unwrap(c))
+  >   let b = pmap(a, unwrap(c))
   >   Array.get(b, 0)
   > }
   > echoln(show(go(wrap(fn(x) => { echo("side!"); x + 1 }))))
   > KEL
   $ diktor --type-check launder.kel
-  ! launder.kel:2:47: 型エラー: ラベル Console がありません(行は閉じています)(コンストラクタ Cb のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
+  pmap : (Array[A], (A) => B) => Array[B]
+  ! launder.kel:3:47: 型エラー: ラベル Console がありません(行は閉じています)(コンストラクタ Cb のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
 正道(§9 の Callback[E]。M23 のカインド推論が前提):

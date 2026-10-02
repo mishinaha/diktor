@@ -51,7 +51,7 @@ sample.kel:694 のとおり):
   4
 
 読むだけの操作(length / get)にも Heap[h] が載っていることは、pub の純粋性と
-par_map の @ {} コールバックで観測する(署名から Heap を外しても上の mlen は
+@ {} のコールバックを受ける関数(入力の中で宣言した pmap)で観測する(署名から Heap を外しても上の mlen は
 通ってしまうので、この 3 ブロックが署名の回帰):
 
   $ printf 'pub let mlen[h](a: MutableArray[h, Int32]): Int32 = MutableArray.length(a)\n' > publen.kel
@@ -63,11 +63,13 @@ par_map の @ {} コールバックで観測する(署名から Heap を外し�
   ! pubget.kel:1:53: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Heap を足せません(注釈側に Heap を(必要なら引数つきで)書き足してください))
   [1]
   $ cat > parget.kel <<'KEL'
+  > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
   > let bad[h](a: MutableArray[h, Int32], xs: Array[Int32]): Array[Int32] =
-  >   par_map(xs, fn(x) => MutableArray.get(a, 0) + x)
+  >   pmap(xs, fn(x) => MutableArray.get(a, 0) + x)
   > KEL
   $ diktor --type-check parget.kel
-  ! parget.kel:2:24: 型エラー: ラベル Heap がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  pmap : (Array[A], (A) => B) => Array[B]
+  ! parget.kel:3:21: 型エラー: ラベル Heap がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
 可変配列は run の外に出せない:
@@ -180,26 +182,32 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
   実行時エラー: MutableArray.new: 長さが負です
   [3]
 
-par_map の @ {} コールバックは可変配列に触れない(§11 の決定性。分離前は
+@ {} のコールバックは可変配列に触れない(§11 の決定性。分離前は
 run で包めば書けた — M20 の動機 (a)):
 
   $ cat > pardet.kel <<'KEL'
+  > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
   > let bad[h](a: MutableArray[h, Int32], xs: Array[Int32]): Array[Int32] =
-  >   par_map(xs, fn(x) => run h2 { MutableArray.set(a, 0, x); x })
+  >   pmap(xs, fn(x) => run h2 { MutableArray.set(a, 0, x); x })
   > KEL
   $ diktor --type-check pardet.kel
-  ! pardet.kel:2:50: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  pmap : (Array[A], (A) => B) => Array[B]
+  ! pardet.kel:3:47: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
-不変配列は par_map のコールバックから読める:
+不変配列は @ {} のコールバックから読める:
 
   $ cat > parread.kel <<'KEL'
+  > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
   > let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 5)) }
-  > let f(xs: Array[Int32]): Array[Int32] = par_map(xs, fn(x) => x + Array.get(xs, 0))
+  > let f(xs: Array[Int32]): Array[Int32] = pmap(xs, fn(x) => x + Array.get(xs, 0))
   > echoln(show(Array.get(f(mk()), 1)))
   > KEL
-  $ diktor parread.kel
-  10
+  $ diktor --type-check parread.kel
+  pmap : (Array[A], (A) => B) => Array[B]
+  mk : () => Array[Int32]
+  f : (Array[Int32]) => Array[Int32]
+  _ : {}
 
 pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 の動機 (b)):
 
