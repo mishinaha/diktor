@@ -667,17 +667,17 @@ effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行�
   ! effield.kel:1:15: 型エラー: エフェクト行にフィールド x は書けません
   [1]
 
-sample.kel 全文のトークン化(2599 トークン。親 33c803f の写しのもの):
+sample.kel 全文のトークン化(2597 トークン。親 0527b65 の写しのもの):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
-  2599
+  2597
   $ diktor --dump-tokens sample/sample.kel | tail -6
    842  .
    842  parse
    842  (
    842  "456"
    842  )
-   877  <EOF>
+   875  <EOF>
 
 小数部の省略(1. / 2.e3)と、その後の ASI(D25。行末の 1. は NUMBER で
 文を終えられる — 以前は DOT で継続していた):
