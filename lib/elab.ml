@@ -4390,7 +4390,7 @@ let process_decls env ~emit decls =
       with_decl_module node @@ fun () ->
       match d with
       | T.DType t ->
-          no_param_constraints "型エイリアス" t.T.ta_params;
+          no_param_constraints ("型エイリアス " ^ t.T.ta_name) t.T.ta_params;
           register_companion t.T.ta_name;
           Decls.add_alias
             {
@@ -4407,7 +4407,7 @@ let process_decls env ~emit decls =
               al_module = !Decls.current_module;
             }
       | T.DNewtype n ->
-          no_param_constraints "newtype" n.T.nt_params;
+          no_param_constraints ("newtype " ^ n.T.nt_name) n.T.nt_params;
           (* 型の名前空間の主張はここ(宣言順)で行う。add_data も add_effect も 1b なので、
              種別の交差の検出を各 add に任せると、1a の add_alias が常に先回りし、後に
              書かれたエイリアスが、先に書かれた newtype を再宣言として逆向きに咎める *)
