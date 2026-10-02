@@ -192,3 +192,254 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   $ diktor dd.kel
   diktor: ファイルを開けません: dir.kel: Is a directory
   [64]
+
+## ファイルの名前空間
+
+型を import するとコンストラクタも入る。import 先の非公開の補助関数は、import した側の同名の
+関数と衝突せず、それぞれ自分のファイルの helper を使う(4.0 と ok!)。非公開の補助関数は、
+import した側からは見えない:
+
+  $ mkdir -p ok/lib
+  $ cat > ok/lib/shape.kel <<'KEL'
+  > pub newtype Shape = Circle(Float64) | Square(Float64)
+  > let helper(x: Float64): Float64 = x * x
+  > pub let area(s: Shape): Float64 = s match {
+  >   case Circle(r) => 3.0 * helper(r)
+  >   case Square(a) => helper(a)
+  > }
+  > KEL
+  $ cat > ok/main.kel <<'KEL'
+  > from "./lib/shape" import { Shape, area, }
+  > let helper(x: String): String = x + "!"
+  > echoln(show(area(Square(2.0))))
+  > echoln(helper("ok"))
+  > KEL
+  $ (cd ok && diktor main.kel)
+  4.0
+  ok!
+  $ printf 'from "./lib/shape" import area\nlet h: Float64 = helper(2.0)\n' > ok/priv.kel
+  $ (cd ok && diktor priv.kel)
+  ! priv.kel:2:18: 型エラー: 未束縛の変数: helper
+  [1]
+
+ダイヤモンドの import では、共有のファイルを 1 回だけ初期化し、依存される側から順に初期化する。
+from と import の間で改行してもよい:
+
+  $ mkdir -p dia/lib
+  $ cat > dia/lib/leaf.kel <<'KEL'
+  > echoln("init leaf")
+  > pub let base: Int32 = 10
+  > KEL
+  $ cat > dia/lib/left.kel <<'KEL'
+  > from "./leaf" import base
+  > echoln("init left")
+  > pub let l: Int32 = base + 1
+  > KEL
+  $ cat > dia/lib/right.kel <<'KEL'
+  > from "./leaf" import base
+  > echoln("init right")
+  > pub let r: Int32 = base + 2
+  > KEL
+  $ cat > dia/main.kel <<'KEL'
+  > from "./lib/left" import l
+  > from "./lib/right"
+  >   import { r, }
+  > echoln("init main")
+  > echoln(show(l + r))
+  > KEL
+  $ (cd dia && diktor main.kel)
+  init leaf
+  init left
+  init right
+  init main
+  23
+
+import を書いた順が初期化の順を決める:
+
+  $ cat > dia/main2.kel <<'KEL'
+  > from "./lib/right" import r
+  > from "./lib/left" import l
+  > echoln("init main")
+  > echoln(show(l + r))
+  > KEL
+  $ (cd dia && diktor main2.kel)
+  init leaf
+  init right
+  init left
+  init main
+  23
+
+公開されていない名前と存在しない名前。pub の無い module は import できない:
+
+  $ mkdir -p pv/lib
+  $ cat > pv/lib/a.kel <<'KEL'
+  > let hidden: Int32 = 1
+  > pub let shown: Int32 = 2
+  > module Inner { pub let f(x: Int32): Int32 = x }
+  > KEL
+  $ printf 'from "./lib/a" import hidden\n' > pv/m1.kel
+  $ (cd pv && diktor m1.kel)
+  ! m1.kel:1:23: import エラー: ./lib/a の hidden は公開されていません
+  [1]
+  $ printf 'from "./lib/a" import Nope\n' > pv/m2.kel
+  $ (cd pv && diktor m2.kel)
+  ! m2.kel:1:23: import エラー: ./lib/a に Nope という公開の宣言はありません
+  [1]
+  $ printf 'from "./lib/a" import Inner.f\n' > pv/m3.kel
+  $ (cd pv && diktor m3.kel)
+  ! m3.kel:1:23: import エラー: ./lib/a の Inner は公開されていません
+  [1]
+
+名前の衝突。2 つの import が別々の宣言を同じ名前で束縛すると誤りになる。シンボリックリンクを
+通した別の綴りで同じ宣言を重ねて束縛するのは構わない。import した名前と同じ名前をトップレベルで
+宣言することと、import した型のコンストラクタと同じ名前のコンストラクタを宣言することも誤りになる:
+
+  $ mkdir -p cl/lib
+  $ printf 'pub let f(x: Int32): Int32 = x\npub newtype T = Leaf\n' > cl/lib/a.kel
+  $ printf 'pub let f(x: Int32): Int32 = x + 1\nnewtype V = Leaf\n' > cl/lib/b.kel
+  $ printf 'from "./lib/a" import f\nfrom "./lib/b" import f\n' > cl/m1.kel
+  $ (cd cl && diktor m1.kel)
+  ! m1.kel:2:23: import エラー: f は ./lib/a からも import しています(別の宣言です)
+  [1]
+  $ ln -s lib cl/lib2
+  $ printf 'from "./lib/a" import f\nfrom "./lib2/a" import f\nlet y: Int32 = f(1)\n' > cl/m2.kel
+  $ (cd cl && diktor --type-check m2.kel)
+  y : Int32
+  $ printf 'from "./lib/a" import f\nlet f(x: Int32): Int32 = x\n' > cl/m3.kel
+  $ (cd cl && diktor m3.kel)
+  ! m3.kel:2:1: 型エラー: f は import した名前と同じです
+  [1]
+  $ printf 'from "./lib/a" import T\nnewtype W = Leaf\n' > cl/m5.kel
+  $ (cd cl && diktor m5.kel)
+  ! m5.kel:2:1: 型エラー: コンストラクタ Leaf は import した型 T のコンストラクタと同じ名前です
+  [1]
+
+コンストラクタの一意性はファイルの中で決まる。lib/a.kel と lib/b.kel はどちらも Leaf を持つが、
+b の型を import しなければ衝突しない。2 つのファイルを連結すると 1 個のファイルなので衝突する:
+
+  $ printf 'from "./lib/a" import T\nfrom "./lib/b" import f\nlet t: T = Leaf\n' > cl/m4.kel
+  $ (cd cl && diktor --type-check m4.kel)
+  t : T
+  $ (cd cl && diktor --type-check lib/a.kel lib/b.kel)
+  ! lib/b.kel:2:1: 型エラー: コンストラクタ Leaf が二重に宣言されています(コンストラクタ名は大域一意)
+  [1]
+
+別々のファイルの同じ名前の型は別の型である。1 つの診断に並ぶときは、ファイルを添えて区別する:
+
+  $ printf 'pub newtype T = T1\npub let v: T = T1\n' > cl/lib/t.kel
+  $ printf 'from "./lib/t" import v\nnewtype T = T2\nlet w: T = v\n' > cl/m6.kel
+  $ (cd cl && diktor m6.kel)
+  ! m6.kel:3:5: 型エラー: 注釈された型を満たしません(型が一致しません: T(m6.kel) と T(lib/t.kel))
+  [1]
+
+## インスタンスと孤児規則
+
+インスタンスは import で指定しなくても見える。インスタンスはクラスか型を宣言したファイルにだけ
+書け、標準環境のクラスと標準環境の型の組は標準環境だけが持つ。標準環境は Eq[List[_]] と
+Eq[Option[_]] を持つ:
+
+  $ mkdir -p or/lib
+  $ cat > or/lib/p.kel <<'KEL'
+  > pub newtype P = P(Int32)
+  > type instance Show[P] { let show(p) = p match { case P(n) => "P" + show(n) } }
+  > KEL
+  $ printf 'pub newtype Q = Q(Int32)\n' > or/lib/q.kel
+  $ printf 'from "./lib/p" import P\necholn(show(P(1)))\n' > or/m1.kel
+  $ (cd or && diktor m1.kel)
+  P1
+  $ printf 'from "./lib/q" import Q\ntype instance Show[Q] { let show(q) = "Q" }\n' > or/m2.kel
+  $ (cd or && diktor m2.kel)
+  ! m2.kel:2:1: 型エラー: Show[Q] のインスタンスは、Show か Q を宣言したファイルにだけ書けます
+  [1]
+  $ printf 'type instance[A: Ord] Ord[List[_]] { let lt(a, b) = true\nlet le(a, b) = true\nlet gt(a, b) = true\nlet ge(a, b) = true }\n' > or/m3.kel
+  $ (cd or && diktor m3.kel)
+  ! m3.kel:1:1: 型エラー: Ord[List] のインスタンスは、Ord か List を宣言したファイルにだけ書けます
+  [1]
+  $ printf 'echoln(show(Cons(1, Nil) == Cons(1, Nil)))\necholn(show(Some(1) == None))\n' > or/m4.kel
+  $ (cd or && diktor m4.kel)
+  true
+  false
+
+## ロード時のエフェクト
+
+import したファイルのトップレベルも、起点と同じ閉じた行で検査する。診断の位置は import した
+ファイルを指す:
+
+  $ mkdir -p fx/lib
+  $ printf 'perform print("x")\npub let v: Int32 = 1\n' > fx/lib/bad.kel
+  $ printf 'from "./lib/bad" import v\n' > fx/m1.kel
+  $ (cd fx && diktor m1.kel)
+  ! lib/bad.kel:1:1: 型エラー: エフェクト Print をここでは実行できません(ラベル Print がありません(行は閉じています))
+  [1]
+
+## 宣言の種類
+
+型エイリアス、エフェクト、クラス、pub module を import できる。クラスのメソッドは修飾名でも
+非修飾名でも呼べ、import した側の型にインスタンスを書ける。module の値と型は修飾名で引き、
+module と同名の型(コンパニオン)は module 名で引ける。module の中の非公開の値は見えない。
+import した側の --type-check は起点の束縛だけを出し、import したファイルの警告には
+ファイル名を前置する:
+
+  $ mkdir -p kind/lib
+  $ cat > kind/lib/k.kel <<'KEL'
+  > pub newtype Box[A] = Box(A)
+  > pub type Pair[A] = (A, A)
+  > pub effect Log = { log: (String) => {} }
+  > pub type class Named[A] { val name: (A) => String }
+  > type instance[A] Named[Box[_]] { let name(b) = "box" }
+  > pub module M {
+  >   pub newtype M = Mk(Int32)
+  >   pub let get(m: M): Int32 = m match { case Mk(n) => n }
+  >   let secret: Int32 = 7
+  > }
+  > pub let swap(p: Pair[Int32]): Pair[Int32] = p match { case (a, b) => (b, a) }
+  > pub let run_log[A](f: () => A @ {Log, Print}): A @ Print = f() handle { case log(s) => { println(s); resume() } }
+  > let first(x: Option[Int32]): Int32 = x match { case Some(n) => n }
+  > KEL
+  $ cat > kind/main.kel <<'KEL'
+  > from "./lib/k" import { Box, Pair, Log, Named, M, swap, run_log }
+  > newtype Mine = Mine(Int32)
+  > type instance Named[Mine] { let name(m) = "mine" }
+  > let p: Pair[Int32] = swap((1, 2))
+  > echoln(p match { case (a, b) => show(a) + show(b) })
+  > echoln(name(Box(1)) + " " + Named.name(Mine(3)))
+  > let mm: M = M.Mk(4)
+  > echoln(show(M.get(mm)))
+  > with_stdout { run_log { perform log("logged"); 0 } }
+  > KEL
+  $ (cd kind && diktor main.kel)
+  ⚠ lib/k.kel: match が非網羅的です。例えば None が漏れています
+  21
+  box mine
+  4
+  logged
+  $ (cd kind && diktor --type-check main.kel)
+  ⚠ lib/k.kel: match が非網羅的です。例えば None が漏れています
+  p : (Int32, Int32)
+  _ : {}
+  _ : {}
+  mm : M.M
+  _ : {}
+  _ : Int32
+  $ printf 'from "./lib/k" import M\nlet s: Int32 = M.secret\n' > kind/sec.kel
+  $ (cd kind && diktor sec.kel 2>&1 | tail -1)
+  ! sec.kel:2:16: 型エラー: 未束縛の変数: M.secret
+
+import M.n は module M の公開の宣言 n だけを束縛し、M 自身は束縛しない:
+
+  $ printf 'from "./lib/k" import M.get\nlet g = get\nlet h = M.get\n' > kind/mem.kel
+  $ (cd kind && diktor mem.kel 2>&1 | tail -1)
+  ! mem.kel:3:9: 型エラー: 未束縛の変数: M.get
+  $ printf 'from "./lib/k" import { M, M.get }\nlet g: Int32 = get(M.Mk(1))\n' > kind/mem2.kel
+  $ (cd kind && diktor --type-check mem2.kel 2>&1 | tail -1)
+  g : Int32
+
+連結したファイル群は 1 個の起点で、どのファイルの先頭の import も全体から見える:
+
+  $ printf 'pub let y: Int32 = 2\n' > cy.kel
+  $ printf 'pub let w: Int32 = 3\n' > cw.kel
+  $ printf 'from "./cw" import w\nlet x0: Int32 = w\n' > c1.kel
+  $ printf 'from "./cy" import y\nlet z: Int32 = y + x0 + w\n' > c2.kel
+  $ diktor --type-check c1.kel c2.kel
+  x0 : Int32
+  z : Int32
