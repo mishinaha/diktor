@@ -220,7 +220,6 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
 
   $ cat > dispatch.kel <<'EOF'
   > newtype Meters(Int32)
-  > type class Add[A] { val add: (A, A) => A }
   > type instance Add[Meters] {
   >   let add(a, b) = (a, b) match { case (Meters(x), Meters(y)) => Meters(x + y) }
   > }

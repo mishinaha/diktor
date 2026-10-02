@@ -157,7 +157,6 @@
 実行時のディスパッチは値の頭だけを見る(前提は運ばない — D95)。入れ子も通る:
 
   $ cat > pr10.kel <<'EOF'
-  > newtype List[A] = Cons(head: A, tail: List[A]) | Nil
   > type instance[A: Eq] Eq[List[_]] {
   >   let rec eq(xs, ys) = (xs, ys) match {
   >     case (Nil, Nil)                 => true

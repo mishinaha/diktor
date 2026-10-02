@@ -1,9 +1,9 @@
 M7(型クラスのユーザ宣言)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
-sample.kel §8 の一式(クラス宣言・インスタンス・fma・derive structural・
+sample.kel §8 の一式(クラス宣言・インスタンス・fma・
 メソッド固有型パラメータ付き HKT クラスの宣言と let rec インスタンス)。
-Add / Eq は組み込みと同名なので「照合の上で受理」される(実体は組み込み):
+Add、Mul、Eq とそのインスタンスは、宣言せずに組み込みのものを使う:
 
   $ cat > cls.kel <<'EOF'
   > type Unit = {}
@@ -12,16 +12,7 @@ Add / Eq は組み込みと同名なので「照合の上で受理」される(�
   > extern "prim" let __int32_add(x: Int32, y: Int32): Int32
   > extern "prim" let __int32_mul(x: Int32, y: Int32): Int32
   > extern "prim" let __string_concat(x: String, y: String): String
-  > type class Add[A] { val add: (A, A) => A }
-  > type class Mul[A] { val mul: (A, A) => A }
-  > type instance Add[Int32]  { let add(x, y) = __int32_add(x, y) }
-  > type instance Mul[Int32]  { let mul(x, y) = __int32_mul(x, y) }
-  > type instance Add[String] { let add(x, y) = __string_concat(x, y) }
   > let fma[A: Add + Mul](x: A, y: A, z: A): A = x * y + z
-  > type class Eq[A] {
-  >   val eq: (A, A) => Boolean
-  >   derive structural
-  > }
   > let same_point(p: Point, q: Point): Boolean = p == q
   > type class MyShow[A] { val myshow: (A) => String }
   > type instance MyShow[Boolean] {

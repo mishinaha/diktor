@@ -540,7 +540,6 @@ effect の操作型の**頭**の矢印に書いた @ は、受理されるが型
 宣言時の拒否を入れていないので、現状は通る):
 
   $ cat > ophead.kel <<'KEL'
-  > effect Print = { print: (String) => Unit }
   > effect Weird = { op: (String) => Unit @ Print }
   > let f(): Unit @ Weird = perform op("a")
   > KEL
