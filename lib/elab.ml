@@ -4736,26 +4736,44 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
 
    `Decls.in_prelude` を立てる処理は、`Fun.protect` で囲む。
    プレリュードの処理中に型エラーが飛んでも、フラグが立ったままにならないようにするためである。
-   立ったままになると、以降の利用者の宣言がプレリュードとして扱われ、再宣言の保護をすり抜ける。 *)
+   立ったままになると、以降の利用者の宣言がプレリュードとして扱われ、再宣言の保護をすり抜ける。
 
-let type_check_decls ?(prelude = []) decls =
+   プログラムの型検査は、プログラム全体の初期化と、単位ごとの処理に分かれる。
+   `start_program` は警告、単一化の台帳、網羅性の遅延キュー、行の印のセルを空にする。
+   `check_prelude` はプレリュードを処理した環境を返す。
+   `check_unit` は、渡された環境の上で 1 個の単位の宣言を処理し、単位の環境を返す。
+   宣言ごとの単位は平坦化が `Decls.decl_unit` に書いてあり、各パスがそこから
+   `current_unit` を立てる(§11.39 の `with_decl_module`)。
+   `check_unit` が `current_unit` を立てるのは、
+   宣言の外で名前を引く処理(スコープを作る処理)のためである。
+   ファイルの単位は、標準環境の環境に、その単位が import した名前を足した環境から始める。
+   対話的な実行の入力は、前の入力の後の環境から始める。 *)
+let start_program () =
   warnings := [];
   warnings_count := 0;
   Unify.reset ();
   Exhaust.reset ();
-  pub_pure_cells := [];
+  pub_pure_cells := []
+
+let check_prelude prelude =
+  Decls.in_prelude := true;
+  Fun.protect
+    ~finally:(fun () -> Decls.in_prelude := false)
+    (fun () -> process_decls (initial_env ()) ~emit:(fun _ -> ()) prelude)
+
+let check_unit ?toplevel_extra ~unit env ~emit decls =
+  let saved = !Decls.current_unit in
+  Decls.current_unit := unit;
+  Fun.protect ~finally:(fun () -> Decls.current_unit := saved) (fun () -> process_decls ?toplevel_extra env ~emit decls)
+
+let type_check_decls ?(prelude = []) decls =
+  start_program ();
   let out = current_out in
   out := [];
   (* 先頭に積んで最後に反転する。末尾に @ で連結すると、宣言数の二乗の時間がかかる *)
   let emit s = out := s :: !out in
-  let env0 = initial_env () in
-  Decls.in_prelude := true;
-  let env =
-    Fun.protect
-      ~finally:(fun () -> Decls.in_prelude := false)
-      (fun () -> process_decls env0 ~emit:(fun _ -> ()) prelude)
-  in
-  let _env = process_decls env ~emit decls in
+  let env = check_prelude prelude in
+  let _env = check_unit ~unit:Decls.root_unit env ~emit decls in
   List.rev !out
 
 (* 宣言列のトップレベル(module の外)の値の名前。パターン束縛の束縛子も含む *)
@@ -5130,15 +5148,8 @@ let type_check ?(prelude = []) decls =
    対話的な実行は `Print` を足し、トップレベルの `println` をそのまま印字する。
    足すのはプレリュードが所有する名前だけである(§11.30 の所有のガード)。 *)
 let start_session ?(prelude = []) () =
-  warnings := [];
-  warnings_count := 0;
-  Unify.reset ();
-  Exhaust.reset ();
-  pub_pure_cells := [];
-  Decls.in_prelude := true;
-  Fun.protect
-    ~finally:(fun () -> Decls.in_prelude := false)
-    (fun () -> process_decls (initial_env ()) ~emit:(fun _ -> ()) prelude)
+  start_program ();
+  check_prelude prelude
 
 let catch_input_errors f =
   try Ok (f ()) with
@@ -5155,10 +5166,10 @@ let start_input () =
   Unify.reset ();
   Exhaust.reset ()
 
-let check_input ?(toplevel_extra = []) env decls =
+let check_input ?(toplevel_extra = []) ?(unit = Decls.root_unit) env decls =
   start_input ();
   let emit s = current_out := s :: !current_out in
-  match catch_input_errors (fun () -> process_decls ~toplevel_extra env ~emit decls) with
+  match catch_input_errors (fun () -> check_unit ~toplevel_extra ~unit env ~emit decls) with
   | Ok env' -> Ok (List.rev !current_out, env')
   | Error e -> Error (List.rev !current_out, e)
 

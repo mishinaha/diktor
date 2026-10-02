@@ -1356,14 +1356,20 @@ let exec_decl env ((_, d) as node : T.decl) =
 
 (* ## 14.14 run
 
-   `run` は宣言を順に実行するだけだが、全体を `Builtin.with_runtime`(第13章)の中で走らせる。
+   `run_units` は単位の列(先頭がプレリュード)を順に実行する。
+   どの単位も同じ大域の環境の上で実行する。
+   値の参照は型検査が木に書いた実体で引き、型やコンストラクタの綴りは単位ごとに別なので、
+   別々の単位の同じ名前が実行時に混ざることは無い。
+   `run` は単位 1 個の場合である。
+
+   実行は全体を `Builtin.with_runtime`(第13章)の中で走らせる。
    `with_runtime` はランタイムが提供するエフェクトのハンドラで、
    `Console.write` を出力先へ送る。
    ここにも届かなかった操作は `Effect.Unhandled` になり、driver が操作名を含めて報告する。
    プログラムのいちばん外側にハンドラを置き、
    エフェクトを未処理として扱う場所をここ 1 か所に決めている。
 
-   冒頭では、3 つの表 `user_instances`、`resolution_cache`、`positions_cache` を空にする。
+   `start_program` は、3 つの表 `user_instances`、`resolution_cache`、`positions_cache` を空にする。
    同じプロセスで `run` を繰り返し呼ぶ場合(第16章の `eval_string`)に、
    前回の実行の痕跡を次の実行に残さないためである。
    痕跡が残ると、同じプログラムの結果が、それより前に何を実行したかに依存する。
@@ -1371,18 +1377,29 @@ let exec_decl env ((_, d) as node : T.decl) =
    返り値は捨てる。
    暗黙の main は無く、トップレベルの式文は順に実行されるだけで、その値は誰も見ない。 *)
 
-let run ~sink decls =
+(* 大域の環境を作る。組み込みの値と、その時点で宣言表にあるクラスのメソッドのラッパを置く *)
+let start_program () =
   Hashtbl.reset user_instances;
   Hashtbl.reset resolution_cache;
   Hashtbl.reset positions_cache;
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
-  let env = { globals; locals = SMap.empty; resume = None } in
+  { globals; locals = SMap.empty; resume = None }
+
+(* 単位 1 個の宣言を、前の単位までの大域の環境の上で実行する。
+   値の参照は型検査が木に書いた実体で引くので、単位をまたいでも名前は衝突しない *)
+let exec_unit env decls = List.fold_left exec_decl env decls
+
+(* 単位の列(プレリュードが先頭)を順に実行する *)
+let run_units ~sink units =
+  let env = start_program () in
   ignore
     (Builtin.with_runtime ~sink (fun () ->
-         ignore (List.fold_left exec_decl env decls);
+         ignore (List.fold_left exec_unit env units);
          unit))
+
+let run ~sink decls = run_units ~sink [ decls ]
 
 (* ## 14.15 本章の限界
 
@@ -1477,16 +1494,10 @@ let rec pat_names ((_, p) : T.pat) =
   | T.PWildcard | T.PBool _ | T.PNumber _ | T.PText _ -> []
 
 let start_session ?(print = false) ~sink prelude =
-  Hashtbl.reset user_instances;
-  Hashtbl.reset resolution_cache;
-  Hashtbl.reset positions_cache;
-  let globals = Hashtbl.create 512 in
-  register_builtin_values globals;
-  register_class_methods globals;
-  let s = { s_env = { globals; locals = SMap.empty; resume = None } } in
+  let s = { s_env = start_program () } in
   ignore
     (Builtin.with_runtime ~print ~sink (fun () ->
-         s.s_env <- List.fold_left exec_decl s.s_env prelude;
+         s.s_env <- exec_unit s.s_env prelude;
          unit));
   s
 

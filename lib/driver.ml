@@ -662,7 +662,7 @@ let repl options =
             `Undo
         | Ok (lines, env') -> (
             print_lines lines;
-            (* 束縛の型は実体で引く。名前で引くと、1 入力の中で同じ名前を束縛し直したとき、
+            (* 束縛の型は実体で引く。名前で引くと、1 入力の中で同じ名前を 2 回束縛したとき、
                前の束縛に後の束縛の型が付く *)
             let show shown =
               List.iter
