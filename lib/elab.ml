@@ -3890,7 +3890,14 @@ let instance_head (i : T.instance_decl') =
 
    インスタンス本体に書けるのは、`let` と `let rec` だけである。
    `Functor[List[_]]` の `map` は自分自身を再帰呼び出しするので、
-   `let rec` が要る(sample.kel:443-446)。 *)
+   `let rec` が要る(sample.kel:443-446)。
+
+   インスタンスは、クラスか型構成子を宣言したファイルにだけ書ける(孤児規則。sample.kel:358)。
+   実体の出身の単位は、綴りの印から引き、印が無ければ、標準環境のものなら標準環境、
+   それ以外は起点とする(第6章の `entity_unit`)。
+   標準環境どうしの組は、標準環境だけが持つ。
+   同じ組がすでに表にあるときは、孤児規則より先に重複の診断(第6章の `add_instance`)に任せる。
+   重複のほうが原因に近いからである。 *)
 
 let register_instance (i : T.instance_decl') =
   let cls, con, holes = instance_head i in
@@ -4884,7 +4891,13 @@ let toplevel_value_names (decls : T.decl list) =
    利用者のプログラムと同じように拒否される(`test/visibility.t` の visbipre)。
    `module` を含まない同梱のプレリュードでは、この条件が効かないことを観測できない。
    組み込みの操作をプレリュードのソースへ移す場合は、
-   この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。 *)
+   この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。
+
+   平坦化は単位ごとに呼ぶ(§11.45)。
+   起点でない単位では、型、コンストラクタ、エフェクト、クラス、module の名前に単位の印を付け、
+   単位の同義語を張る(第6章 §6.4)。
+   module の中とトップレベルの同名の禁止は、その単位が import した値と型の名前も対象にする。
+   同名の禁止の範囲はファイルだからである。 *)
 
 let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?(unit = Decls.root_unit) (decls : T.decl list)
     : T.decl list =
