@@ -546,7 +546,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    | 矢印の位置 | 書いたラベル付きの行 | `@ {}` | `@` 省略 |
    |---|---|---|---|
-   | 束縛の最外(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開する型では行変数で開く(§11.26。クラスメソッドは §11.33) | 閉じたまま(両方向) | `let` は推論、`pub let` は純粋、メソッドは実装が純粋で公開が行多相、`extern` は行変数 |
+   | 束縛の最外(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開する型では行変数で開く(§11.26。クラスメソッドは §11.33) | 閉じたまま(両方向) | `let` は推論、`pub let` は純粋、メソッドは実装が純粋で公開が行多相、C リンケージの `extern` は `@ Blocking`(左の列と同じく公開する型で開く)、prim リンケージの `extern` は行変数 |
    | 入れ子(引数の型、返り値の中、newtype のフィールド、レコード型のフィールド、タプル型の要素、effect の操作型の引数、エイリアスの展開先) | 書いたとおり閉じたまま(開かない) | 閉じたまま | `@ {}`(純粋) |
 
    表の 1 行目の「束縛の最外の矢印」がどれを指すかは、束縛の書き方で変わる。
@@ -4724,11 +4724,17 @@ let process_decls env ~emit decls =
           let param_tys = List.map (fun _ -> new_var lvl) ex.T.ex_params in
           ignore (List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty ex.T.ex_params param_tys);
           let fn_eff, eff_rigids =
-            match ex.T.ex_eff with Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e) | None -> (new_row_var lvl, [])
+            match ex.T.ex_eff with
+            | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+            | None when ex.T.ex_abi = "C" ->
+                (* C リンケージの省略は `@ Blocking` と読む(sample.kel:494、:796) *)
+                open_explicit_eff lvl (TRowExtend (Type.eff_blocking, Type.t_unit, TRowEmpty))
+            | None -> (new_row_var lvl, [])
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
           (* C の既知名は、型の契約を照合する(第6章 §6.2b)。行は照合しない。
-             @ Blocking を付けるかは、バインディングを書く側の判断である(sample.kel:796) *)
+             行は `@ Blocking`(省略を含む)でも行変数でもよく、どちらを選ぶかは
+             バインディングを書く側の判断である(sample.kel:796-797) *)
           (if ex.T.ex_abi = "C" then
              match Decls.c_known_signature ex.T.ex_prim with
              | None -> ()
