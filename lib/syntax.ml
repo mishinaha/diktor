@@ -1060,7 +1060,7 @@ module Make (Data : Data) = struct
 
   and field_decl = { fd_label : string option; fd_ty : type_exp }
 
-  type newtype_rhs = NtCtors of ctor_decl list (* Never は [] *) | NtHole (* = ??? *)
+  type newtype_rhs = NtCtors of ctor_decl list (* Never は [] *)
 
   type newtype' = { nt_pub : bool; nt_name : string; nt_params : type_param list; nt_rhs : newtype_rhs }
 

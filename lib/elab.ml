@@ -3407,7 +3407,6 @@ let newtype_param_env env (n : T.newtype') =
    §11.3 の読み分けが `{…}` を型として読む(`test/kinds.t` の fwdrow) *)
 let speculate_newtype env (n : T.newtype') =
   match n.T.nt_rhs with
-  | T.NtHole -> ()
   | T.NtCtors ctors ->
       let _, env' = newtype_param_env env n in
       (* 例外はフィールドごとに握り潰す。effect の操作の登録は 1b なので、投機の時点では
@@ -3428,8 +3427,6 @@ let register_newtype env (n : T.newtype') =
      F[_] と書いてあればその場で確定する。既定化は 1b の後始末で行う *)
   let params, env' = newtype_param_env env n in
   match n.T.nt_rhs with
-  | T.NtHole ->
-      Decls.add_data { Decls.dd_name = intern n.T.nt_name; dd_params = params; dd_ctors = []; dd_opaque = true }
   | T.NtCtors ctors ->
       let ctors =
         List.map

@@ -353,7 +353,7 @@ let rec sexp_of_decl (_, d) =
   | DNewtype n ->
       let base = [ A (if n.nt_pub then "newtype-pub" else "newtype"); A n.nt_name ] in
       let base = match n.nt_params with [] -> base | ps -> base @ [ L (List.map sexp_of_tparam ps) ] in
-      let rhs = match n.nt_rhs with NtHole -> [ A "???" ] | NtCtors cs -> List.map sexp_of_ctor_decl cs in
+      let rhs = match n.nt_rhs with NtCtors cs -> List.map sexp_of_ctor_decl cs in
       L (base @ rhs)
   | DEffect e ->
       let base = [ A (if e.ef_pub then "effect-pub" else "effect"); A e.ef_name ] in

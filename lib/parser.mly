@@ -434,7 +434,7 @@ let set_pub = function
   | DInstance _ -> raise (Syntax_error "type instance に pub は付けられません")
   | DExp _ -> raise (Syntax_error "式文に pub は付けられません")
 
-type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl list | RhsHole
+type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl list
 %}
 
 (* ## 3.11 トークン表
@@ -603,7 +603,6 @@ decl_body:
       { let rhs =
           match $4 with
           | RhsNone -> NtCtors []
-          | RhsHole -> NtHole
           | RhsCtors cs -> NtCtors cs
           (* newtype UserId(Int32) は newtype UserId = UserId(Int32) の略記 *)
           | RhsShort fields -> NtCtors [ { cd_name = $2; cd_fields = fields } ]
@@ -736,7 +735,6 @@ newtype_rhs:
   |                           { RhsNone }
   | LPAREN ctor_fields RPAREN { RhsShort $2 }
   | EQ ctors                  { RhsCtors $2 }
-  | EQ HOLE                   { RhsHole }
 
 ctors: ctor { [ $1 ] } | ctor VERTICAL ctors { $1 :: $3 }
 ctor:
