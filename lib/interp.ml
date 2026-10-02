@@ -1261,10 +1261,22 @@ let register_class_methods globals =
    値を作らない宣言で、必要な情報は第6章の表に入っている。
    `module` は、平坦化を通っていればここには来ない。 *)
 
+(* globals とインスタンス表への書き込みの記録(§14.16)。journaling が真の間、
+   書き込む前の中身を戻す閉包を journal に積む *)
+let journaling = ref false
+
+let journal : (unit -> unit) list ref = ref []
+
+let jreplace t k v =
+  (if !journaling then
+     let old = Hashtbl.find_opt t k in
+     journal := (fun () -> match old with Some o -> Hashtbl.replace t k o | None -> Hashtbl.remove t k) :: !journal);
+  Hashtbl.replace t k v
+
 (* トップレベルの束縛を、実体の鍵で globals に置く。鍵は束縛ノードごとに別なので、
    同名の再束縛も前の束縛を上書きしない *)
 let bind_globals env names_values =
-  List.iter (fun (g, v) -> Hashtbl.replace env.globals g v) names_values;
+  List.iter (fun (g, v) -> jreplace env.globals g v) names_values;
   env
 
 let exec_decl env ((_, d) as node : T.decl) =
@@ -1284,7 +1296,7 @@ let exec_decl env ((_, d) as node : T.decl) =
       List.iter
         (fun ((_, b) as bnode : T.let_binding) ->
           let x = match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです" in
-          Hashtbl.replace env.globals (Tree.GDecl (Tree.oid_of bnode, x)) (eval_binding_value env bnode))
+          jreplace env.globals (Tree.GDecl (Tree.oid_of bnode, x)) (eval_binding_value env bnode))
         bs;
       env
   | T.DExp e ->
@@ -1319,7 +1331,7 @@ let exec_decl env ((_, d) as node : T.decl) =
             | _ -> [])
           i.T.ins_body
       in
-      Hashtbl.replace user_instances (cls, con) methods;
+      jreplace user_instances (cls, con) methods;
       (* 解決のキャッシュを無効化する。宣言より前の呼び出しが覚えた None を残すと、
          この宣言が二度と見えない *)
       Hashtbl.reset resolution_cache;
@@ -1429,3 +1441,111 @@ let run ~sink decls =
       ただし引数の評価は包む。包み忘れると資源が漏れる)
    4. クラスパラメータの位置だけを使うディスパッチ(外すとコヒーレンスが破れる)
    5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)
+
+(* ## 14.16 対話的な実行
+
+   対話的な実行(第16章)は、プレリュードを 1 回だけ実行し、その後は入力ごとに宣言を実行する。
+   `start_session` は globals を作ってプレリュードを実行し、セッションを返す。
+   `exec_input` は 1 入力分の宣言を `with_runtime` の中で実行し、表示する(名前、式、値)の列を返す。
+   `with_runtime` を入力ごとに呼ぶのは、継続が入力の境界をまたがないからである。
+   `handle` は式で、トップレベルの `with` も入力の末尾で閉じる。
+   `inst` の採番は大域の `new_oid` なので、`with_runtime` を何度呼んでも衝突しない。
+
+   実行時エラーで落ちた入力は、入力の単位で戻す。
+   `exec_input` は、globals とインスタンス表への書き込みを `jreplace` で記録し、
+   例外で落ちたら記録を逆順に戻し、環境を入力の前に戻して、例外を投げ直す。
+   解決のキャッシュ 2 つは空にする(キャッシュなので、空にしても意味は変わらない)。
+   出力と、Ref や可変配列の中身の書き換えは戻さない。
+
+   後の入力で宣言したクラスには、
+   `start_session` の `register_class_methods` がラッパを置いていない。
+   そこで `DClass` を実行するときに、そのクラスのメソッドのラッパを `GMethod` の鍵で置く。
+   鍵はクラスごとに別なので、先にある同名の値を覆わない(§14.12)。 *)
+type session = { mutable s_env : env }
+
+(* 束縛パターンの変数の名前を、書いた順に返す *)
+let rec pat_names ((_, p) : T.pat) =
+  match p with
+  | T.PVar x -> [ x ]
+  | T.PAnnot (q, _) -> pat_names q
+  | T.PRecord (fs, tail) -> List.concat_map (fun (_, q) -> pat_names q) fs @ Option.fold ~none:[] ~some:pat_names tail
+  | T.PCtor (_, args) -> List.concat_map (fun (a : T.ctor_arg_pat) -> pat_names a.T.cap_pat) args
+  | T.PVariant (_, q) -> pat_names q
+  | T.PWildcard | T.PBool _ | T.PNumber _ | T.PText _ -> []
+
+let start_session ~sink prelude =
+  Hashtbl.reset user_instances;
+  Hashtbl.reset resolution_cache;
+  Hashtbl.reset positions_cache;
+  let globals = Hashtbl.create 512 in
+  register_builtin_values globals;
+  register_class_methods globals;
+  let s = { s_env = { globals; locals = SMap.empty; resume = None } } in
+  ignore
+    (Builtin.with_runtime ~sink (fun () ->
+         s.s_env <- List.fold_left exec_decl s.s_env prelude;
+         unit));
+  s
+
+let exec_input s ~sink decls =
+  journaling := true;
+  journal := [];
+  let saved_env = s.s_env in
+  let shown = ref [] in
+  let step env ((_, d) as node : T.decl) =
+    match d with
+    | T.DClass c -> (
+        match Decls.find_class (Type.intern c.T.cls_name) with
+        | Some ci ->
+            let cls_name = Type.name_of ci.Decls.ci_name in
+            bind_globals env
+              (List.map
+                 (fun (m, _) ->
+                   ( Tree.GMethod (cls_name ^ "." ^ m),
+                     VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } ))
+                 ci.Decls.ci_methods)
+        | None -> env)
+    | T.DExp e ->
+        let v = eval env e in
+        shown := ("_", Some e, v) :: !shown;
+        env
+    | T.DLet ((_, b) as bnode) ->
+        let env' = exec_decl env node in
+        let bound =
+          List.filter_map
+            (fun x -> Option.map (fun v -> (x, None, v)) (Hashtbl.find_opt env'.globals (Tree.GDecl (Tree.oid_of bnode, x))))
+            (pat_names b.T.lb_name)
+        in
+        shown := List.rev_append bound !shown;
+        env'
+    | T.DLetRec bs ->
+        let env' = exec_decl env node in
+        List.iter
+          (fun ((_, b) as bnode : T.let_binding) ->
+            match snd b.T.lb_name with
+            | T.PVar x -> (
+                match Hashtbl.find_opt env'.globals (Tree.GDecl (Tree.oid_of bnode, x)) with
+                | Some v -> shown := (x, None, v) :: !shown
+                | None -> ())
+            | _ -> ())
+          bs;
+        env'
+    | _ -> exec_decl env node
+  in
+  match
+    Builtin.with_runtime ~sink (fun () ->
+        s.s_env <- List.fold_left step s.s_env decls;
+        unit)
+  with
+  | _ ->
+      journaling := false;
+      journal := [];
+      List.rev !shown
+  | exception ex ->
+      List.iter (fun f -> f ()) !journal;
+      journal := [];
+      journaling := false;
+      s.s_env <- saved_env;
+      Hashtbl.reset resolution_cache;
+      Hashtbl.reset positions_cache;
+      raise ex
