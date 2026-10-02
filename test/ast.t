@@ -154,14 +154,14 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   bad.kel:1:9: パースエラー(付近のトークンを確認してください)
   [2]
 
-sample.kel 全文がパースできること(M3 完了条件。行数は改訂後の写し — M25 で 332 から 368 に):
+sample.kel 全文がパースできること(M3 完了条件。行数は親 d8c872a の写しのもの):
 
   $ diktor --dump-ast sample/sample.kel | wc -l
-  368
+  351
   $ diktor --dump-ast sample/sample.kel | sed -n '1,3p'
   (type MyInt = Int32)
-  (type Unit = (row))
   (type Point = (row (x: Float64) (y: Float64)))
+  (type Pair = (row (_item: Int32) (_item: String)))
 
 二項演算子の字面(第7章の表 1 枚から出る。M19 / G2。§4.2 / §7.2):
 

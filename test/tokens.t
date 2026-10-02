@@ -663,7 +663,7 @@ sample.kel 全文のトークン化(2741 トークン。スパイク 260829-1 �
 改訂前 — 親 2fd2d2e — の写しに対するもので、2026-09-12 の改訂で 776 行になった):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
-  2741
+  2599
   $ diktor --dump-tokens sample/sample.kel | tail -6
    842  .
    842  parse

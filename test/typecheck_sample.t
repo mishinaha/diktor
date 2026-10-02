@@ -43,8 +43,12 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   _ : {}
   capture : (() => A @ {Print extends R1}) => {value: A, output: String}
   try_ : (() => A @ {Fail extends R1}) => #Ok(A) | #Err(String)
-  with_file : (String, () => A @ {File, Fs extends R1}) => A @ {Fs extends R1}
-  copy : (String, String) => {} @ {Console, Fs extends R1}
+  file_open : (String) => Int32 @ {Blocking extends R1}
+  file_read : (Int32) => String @ {Blocking extends R1}
+  file_write : (Int32, String) => {} @ {Blocking extends R1}
+  file_close : (Int32) => {} @ {Blocking extends R1}
+  with_file : (String, () => A @ {File, Blocking extends R1}) => A @ {Blocking extends R1}
+  copy : (String, String) => {} @ {Console, Blocking extends R1}
   Parser.bind : (Parser.Parser[A], (A) => Parser.Parser[B]) => Parser.Parser[B]
   Parser.pure : (A) => Parser.Parser[A]
   Parser.token : (String) => Parser.Parser[String]
