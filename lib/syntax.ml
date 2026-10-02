@@ -1033,8 +1033,8 @@ module Make (Data : Data) = struct
      module に包んだ既知名の FFI の実装も黙って見つからなくなる。
      二重宣言の検査だけは修飾名で行う(§6.2)。
      別々の module が同じ C シンボルを包む形を許すためである。
-   - `nt_rhs` の `NtHole` は `= ???` である。
-     `Never` はコンストラクタが 0 個、すなわち `NtCtors []` である。
+   - `newtype X` のように右辺を省いた宣言と `Never` は、コンストラクタが 0 個、
+     すなわち `NtCtors []` である。
    - `DModule` の平坦化は第11章が行う(改名と、修飾する前の名前から修飾名への同義語表)。
      module の入れ子と、module の中の effect 宣言、type class 宣言、式文は、
      Diktor が実装していない。

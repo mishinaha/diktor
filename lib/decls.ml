@@ -440,9 +440,8 @@ let add_alias info =
 
    ### `dd_ctors = []` には 2 つの意味がある
 
-   `dd_opaque` が真なら、その型は `newtype X = ???` である。
-   未実装のホールと、`Ref` / `Array` のような組み込みの不透明型がこれにあたる。
-   偽なら `Never`、つまりコンストラクタが 0 個であることが確定した型である。
+   `dd_opaque` が真なら、その型は `Ref` / `Array` / `MutableArray` のような組み込みの不透明型である。
+   偽なら `Never` や `newtype X`、つまりコンストラクタが 0 個であることが確定した型である。
    第10章(exhaust.ml)の `complete_sig` は、この型に `Some []` を返す。
    完全性の判定(`sig_complete`)は、パターンの根が 1 つも無くても `Some []` を完全とみなす。
    そのため、`Never` に対する節が 0 個の `match` は網羅していると判定される。
@@ -476,7 +475,7 @@ type data_info = {
   dd_name : oid;
   dd_params : Type.var_info list; (* Generic 変数の情報(vid を鍵に subst_params する) *)
   dd_ctors : ctor_info list; (* Never は [] *)
-  dd_opaque : bool; (* newtype X = ??? *)
+  dd_opaque : bool; (* 組み込みの不透明型(Ref / Array / MutableArray) *)
 }
 
 let datas : (oid, data_info) Hashtbl.t = Hashtbl.create 64

@@ -1285,8 +1285,9 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
    ラベルの並べ替えを 3 か所で実装すると、3 か所がずれたときに、
    型検査は通るのに値が入れ替わってしまう。
 
-   `dd_opaque` が真の型(`newtype T = ???`)をパターンで分解することをここで拒み、表現を隠す。
-   そのような型は型としては使えるが、パターンで中身を見ることはできない。 *)
+   `dd_opaque` が真の型をパターンで分解することをここで拒む。
+   `dd_opaque` が真の型は組み込みの不透明型だけで、どれもコンストラクタを持たないので、
+   コンストラクタの名前からこの分岐に着くことは無い。拒否は防御のために残してある。 *)
 
   | T.PCtor (li, args) -> (
       let (LongId comps) = li in
@@ -1827,6 +1828,8 @@ and elab_construct env level node cname ?eff args =
       (* コンストラクタの可視性は、所属する newtype の pub に従う *)
       Decls.check_ctor_visible ctor dname;
       let dd = Hashtbl.find Decls.datas dname in
+      (* dd_opaque の型は組み込みの不透明型だけで、コンストラクタを持たないので、
+         ここには来ない。拒否は防御のために残してある *)
       if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
       else
         let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in
@@ -3331,8 +3334,8 @@ let initial_env () =
    これらの形も通すには、投機の中だけ `elab_con_args` の `same_kind` を止めて、
    投機を張らない読みにする必要がある。
 
-   `newtype T = ???`(`NtHole`)は表現を隠す。
-   コンストラクタを持たない不透明なデータ型として登録するので、構築も分解もできない。
+   右辺を省いた `newtype T` は、コンストラクタが 0 個のデータ型として登録する。
+   値の無い型になるので、`match {}` は網羅的で、`case _` には一致する値が無い。
 
    フィールド型の精緻化はこの登録時に済ませるので、
    パス 2 で newtype に出会っても何もすることがない。
