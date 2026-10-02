@@ -115,12 +115,12 @@ let tycon_of_value = function
   | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
 
 (* `cancel_log` は、cancel 節で抑制した例外の行き先である。
-   仕様 sample.kel:583 は、cancel 節について次のように定めている。
+   仕様 sample.kel:585 は、cancel 節について次のように定めている。
    「cancel 節から外へは脱出できない。例外に相当するものが起きるとその cancel 節は打ち切るが、
    脱出は抑制してログに記録し、外側の後始末を続ける」。
    ライブラリが stderr に直接書かないよう、関数を 1 段はさみ、driver(第16章)がそれを差し替える。 *)
 
-(* cancel 節の中の例外を記録する関数(sample.kel:583)。driver が差し替える *)
+(* cancel 節の中の例外を記録する関数(sample.kel:585)。driver が差し替える *)
 let cancel_log : (string -> unit) ref = ref (fun _ -> ())
 
 (* ## 14.2 パターン照合
@@ -337,7 +337,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.BinOp (l, op, r) -> (
       match Prims.bin_op_sem op with
       | Prims.OpBool -> (
-          (* 短絡評価(sample.kel:368) *)
+          (* 短絡評価(sample.kel:369) *)
           match op with
           | And -> if Builtin.as_bool (eval env l) then eval env r else VBool false
           | Or -> if Builtin.as_bool (eval env l) then VBool true else eval env r
@@ -509,8 +509,8 @@ and dispatch_positions ci meth =
    Diktor が構造的に導出するのは `Eq` だけで、
    組み込みの `Eq` のクラス表の印 `ci_derive_structural` が、構造的導出を有効にする。
    仕様は構造的な型へのインスタンスについて「利用者には書かせない。コヒーレンスを守るため、
-   組み込みの自動導出だけがインスタンスを与える」と定め(sample.kel:383)、
-   導出が閉じた行にしか効かないことも定めている(sample.kel:391-395)。
+   組み込みの自動導出だけがインスタンスを与える」と定め(sample.kel:384)、
+   導出が閉じた行にしか効かないことも定めている(sample.kel:392-396)。
 
    ここでは次の不変条件が効いている。
    elab 側(第8章(unify.ml))は、構造的導出を閉じた行のレコードとヴァリアントにしか適用しない。
@@ -728,7 +728,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからである。
    評価器には、順序を管理するコードが無い。
-   仕様(sample.kel:570-583)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
+   仕様(sample.kel:572-585)は defer 構文を持たず、後始末をハンドラの cancel 節に書くと定めている。
    実装では、その規則がこの 4 段階に対応する。
 
    ### 3 つの経路
@@ -845,7 +845,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    ログに記録するだけで外へは出さない。
    回帰テストは `test/eval.t` の cancelouter と cancelnores である。
 
-   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:583)の規則である。
+   cancel 節の中の例外をすべて抑制してログに記録するのは、仕様(sample.kel:585)の規則である。
    既知の例外(`Runtime_error`、`Unwind`、`Sys_error`)は日本語のメッセージにし、
    それ以外の例外は `Printexc.to_string` で文字列にしてからログに渡す。
 
@@ -865,14 +865,14 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    素の raise にしないのは、3 つの経路の規約どおり、捨てた継続の cancel 節を走らせるためである。
 
    Diktor は、ハンドラの外への後送り(re-perform)を実装していない。
-   仕様も、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たない(sample.kel:513)。
+   仕様も、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たない(sample.kel:515)。
    機構としては実装できる。
    `effc` のハンドラ関数は fiber の外で走るので、そこから `Effect.perform` すれば、
    自分を飛ばして外側のハンドラに届く。
    実装しないのは型の都合である。
    handle の型付けは対象のエフェクト E を行から消すので(§11.24)、
    ガードが偽の `E.op` を外へ流すと、E を持たない行の文脈に操作が漏れ、型が実行と合わなくなる。
-   仕様は行の部分型付け(サブエフェクティング)を持たないので(sample.kel:473)、
+   仕様は行の部分型付け(サブエフェクティング)を持たないので(sample.kel:475)、
    E を消す型付けと、E の操作を外へ流す実行を両立させる手段がない。 *)
 
 (* resume の引数を評価し、アフィン性と second-class の検査を済ませて、継続を消費済みにする。
@@ -966,7 +966,7 @@ and eval_handle env body clauses =
     match cancel_clause with
     | None -> ()
     | Some (_, c) -> (
-        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:583) *)
+        (* cancel 節の中の例外は抑制してログに記録する(sample.kel:585) *)
         try ignore (eval { env with resume = None } c.T.cl_body)
         with
         | Runtime_error msg -> !cancel_log msg
@@ -1418,7 +1418,7 @@ let run ~sink decls = run_units ~sink [ decls ]
    ### 残している穴
 
    ハンドラの外への後送り(re-perform)は、残している穴に数えない。
-   仕様は、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たず(sample.kel:513)、
+   仕様は、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たず(sample.kel:515)、
    第11章の総和性の検査(§11.23)が、すべての節が外れうるハンドラを型検査で拒否するからである。
    同じハンドラの中の節どうしはフォールスルーする。
    後送りの機構と、それを実装しない型の理由は §14.10 にある。

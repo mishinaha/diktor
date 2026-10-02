@@ -1,4 +1,4 @@
-ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:536 が
+ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:538 が
 Console を名指しで定める。かつては出力を黙って消す恒等ハンドラが書けた。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
@@ -77,7 +77,7 @@ Console はハンドル候補からも外れるので、File のつもりの cas
   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
   [1]
 
-perform は禁止しない(sample.kel:660 がトップレベルの perform write を
+perform は禁止しない(sample.kel:662 がトップレベルの perform write を
 書いており、プレリュードの echo / echoln も同じ):
 
   $ printf 'perform write("direct\\n")\n' > pw.kel

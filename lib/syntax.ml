@@ -230,7 +230,7 @@ module Type = struct
    `R` が行だと分かるのは `extends` の右に現れたときで、
    `E` が行だと分かるのは `@` の右に現れたときである。
    つまり、カインドは使われた位置からしか決まらない。
-   唯一の例外が `F[_]`(sample.kel:437)で、これだけは字句でカインドが確定する。
+   唯一の例外が `F[_]`(sample.kel:439)で、これだけは字句でカインドが確定する。
    この扱いは `let` の束縛子に限らず、newtype の型パラメータにも当てはまる。
    仕様 §6 は、型パラメータのカインドを
    「宣言群の中の型の本体での使われ方から推論する。使われ方がなければ Type とする」と定めている。
@@ -665,8 +665,8 @@ module Type = struct
    それでも §6.11 がこれらの操作の型をまとめて組み立てるのは、実装が OCaml 側の値と切り離せず、
    プレリュードに置くと二重管理になるからである。
    `Blocking` は同じ組み込みの表に入るラベルで、
-   `extern` がブロックしうることを表明するために名指しする(sample.kel:794, :810)。
-   C リンケージの `extern` の `@` の省略の既定にもなる(sample.kel:494, :796)。
+   `extern` がブロックしうることを表明するために名指しする(sample.kel:796, :812)。
+   C リンケージの `extern` の `@` の省略の既定にもなる(sample.kel:496, :798)。
 
    ### 予約型名
 
@@ -735,7 +735,7 @@ end
    この判定は実行時の照合より細かいので、違う値を同じパターンとみなすことはない。
    その代わり、実行時には同じ値になる組の重複を見逃す(Int32 の列の `0xFFFFFFFF` と `-1`)。
 
-   `bin_op` は、仕様の演算子表(sample.kel:365-369)の縮小版である。
+   `bin_op` は、仕様の演算子表(sample.kel:366-370)の縮小版である。
    演算子は `Apply` に脱糖しない。
    理由は 2 つある。
    `&&` と `||` は短絡評価するので関数呼び出しにできないこと、
@@ -776,9 +776,9 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
    `tp_arity` が 0 なら `KStar` に固定する(§11.33)。
    クラスのパラメータでも、`[F[_]]` と書けばカインドは `[_] Type` になる。
    インスタンスは型構成子のタグで選ぶので、行をパラメータに取るクラスは意味を持たない。
-   仕様 §8 がこれを定めている(sample.kel:358-360)。
+   仕様 §8 がこれを定めている(sample.kel:359-361)。
    エフェクトについて量化したいときは、クラスのパラメータではなく、
-   メソッドの型パラメータに行変数を取る(sample.kel:361-362)。
+   メソッドの型パラメータに行変数を取る(sample.kel:362-363)。
    第11章は、クラスのパラメータを行として使う形を拒否し(`test/kinds.t` の classrow / classrow2)、
    メソッドの型パラメータに行変数を取る形は受理する(classrowok)。
 
@@ -786,7 +786,7 @@ type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
    `tp_arity` が 0 の束縛子のカインドは、
    宣言群の中の型の本体での使われ方からしか決まらない(sample.kel:246-247)。
    使われ方が無ければ `KStar` に既定化されるので、行カインドの phantom パラメータを書く手段は無い。
-   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:872-874)。
+   仕様 §14 は、この注記の構文を TODO として残している(sample.kel:879-881)。
    カインドを書けるのはエイリアスの側だけである(`type Request: EffectRow`)。
 
    `tp_classes` は `long_id list` である。
@@ -1084,7 +1084,7 @@ module Make (Data : Data) = struct
    - `DModule` の平坦化は第11章が行う(改名と、修飾する前の名前から修飾名への同義語表)。
      module の入れ子と、module の中の effect 宣言、type class 宣言、式文は、
      Diktor が実装していない。
-   - `DExp` はトップレベルの式文である(sample.kel:660)。
+   - `DExp` はトップレベルの式文である(sample.kel:662)。
    - `ins_args` は通常 1 個で、`List[_]` のように `EHole` を含められる。
      本体が `let` だけであることは第11章が検査する。
    - `ins_tparams` は前提つきインスタンスの束縛子で、頭の `_` に左から順に対応する(仕様 §8)。
@@ -1147,7 +1147,7 @@ module Make (Data : Data) = struct
     | DLetRec of let_binding list
     | DModule of bool * string * decl list (* pub * 名前 * 本体 *)
     | DExtern of extern_decl'
-    | DExp of exp (* トップレベル式文(sample.kel:660) *)
+    | DExp of exp (* トップレベル式文(sample.kel:662) *)
 
   and decl = Data.t * decl'
 

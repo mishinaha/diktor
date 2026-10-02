@@ -170,7 +170,7 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
 
 cancel 節の中で例外が起きると、その cancel 節は打ち切る(後ろの文は実行しない)。
 脱出は外へ伝えずログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
-(仕様 sample.kel:583、LangSpec.md §13.6):
+(仕様 sample.kel:585、LangSpec.md §13.6):
 
   $ cat > cancelabort.kel <<'EOF2'
   > effect A = { a: () => Unit }
@@ -392,7 +392,7 @@ Run モードでも網羅性警告は stderr に出る:
   1
 
 コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの操作節は、
-取りこぼさない節に数える(sample.kel:514)。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
+取りこぼさない節に数える(sample.kel:516)。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
 
   $ cat > soleop.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -479,7 +479,7 @@ Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Optio
   [1]
 
 絞り込みの節を複数合わせると引数を網羅できる場合も、
-取りこぼさない節が 1 つも無ければ拒否する(sample.kel:514):
+取りこぼさない節が 1 つも無ければ拒否する(sample.kel:516):
 
   $ cat > opcover.kel <<'EOF2'
   > effect Ask = { ask: (Option[Int32]) => Int32 }

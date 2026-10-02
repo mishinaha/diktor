@@ -146,14 +146,14 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    `Ord` クラスは順序の公理を何も約束しない。
 
    全順序が必要な場面の書き方は、仕様でも未定である。
-   仕様は §14(sample.kel:861-866)で、
+   仕様は §14(sample.kel:868-873)で、
    `Ord[Float64]` と `Eq[Float64]` と NaN の扱いを未決の課題として 2 つの案に整理している。
    案(1)は「newtype で包んだ TotalFloat64 だけが Ord と Eq を実装する」で、
    sample.kel:259 の `newtype TotalFloat64(Float64)` がその例である。
    ただし仕様は、`TotalFloat64` に `Ord` を実装するかどうかを未定と注記している(sample.kel:259)。
    仕様が `Eq[Float64]` も並べて挙げているのは、等価でも反射律が成り立たないからである。
    構造的な `Eq` はフィールドへ再帰するので、
-   `Float64` のフィールドを 1 つ持つレコードも反射律を失う(sample.kel:863)。
+   `Float64` のフィールドを 1 つ持つレコードも反射律を失う(sample.kel:870)。
    たとえば `{x = 0.0 / 0.0}` は自分自身と等しくない。
 
    `__string_sub` は範囲外の指定を捕まえる。

@@ -56,7 +56,7 @@
 // そのため、処理系は、利用者の宣言を型検査する前に、
 // `newtype`、`effect`、`extern`、`handle`、`resume`、行多相を一度は処理する。
 // ここで誤りが出れば、diktor は利用者のプログラムを型検査も実行もせずに終わる。
-// とくに §15.7 の `with_stdout` は、仕様 sample.kel:548-551 のハンドラをそのまま関数にしたもので、
+// とくに §15.7 の `with_stdout` は、仕様 sample.kel:550-553 のハンドラをそのまま関数にしたもので、
 // エフェクト機構のテストも兼ねる。
 //
 // ## 15.2 埋め込みと、プレリュード所有の印
@@ -80,7 +80,7 @@
 //   二重宣言ではなく「標準環境の … は再宣言できません」で拒否する
 //   (種別の違う宣言と extern は、第6章が別の文言で拒否する)。
 //   仕様 sample.kel は、標準ライブラリが持つ `type Unit`(:59)、`newtype Option` / `newtype List`(:238-239)、
-//   `effect Console`(:464)、`type class Add`(:372)をコメントで示し、宣言し直さない。
+//   `effect Console`(:466)、`type class Add`(:373)をコメントで示し、宣言し直さない。
 //
 // 標準環境の名前に数えるのは、次の 2 つである。
 //
@@ -135,11 +135,11 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 //
 // | エフェクト | 出所 | 最後に受け取るもの |
 // |---|---|---|
-// | `Console` | ランタイム(仕様 sample.kel:464) | 第13章の最外周のハンドラ `with_runtime` |
+// | `Console` | ランタイム(仕様 sample.kel:466) | 第13章の最外周のハンドラ `with_runtime` |
 // | `Print` | ユーザ層 | 利用者の `handle`。§15.7 の `with_stdout` が `Console` へ翻訳する |
 //
 // `Console` は、利用者にハンドルさせないエフェクトである。
-// 仕様 sample.kel:536 は、利用者が `handle` で処理できないエフェクトとして、
+// 仕様 sample.kel:538 は、利用者が `handle` で処理できないエフェクトとして、
 // 特別な印を設けずに Console を名前で定める。
 // 利用者にハンドルさせないのは、標準出力の実体を Keleut の側に書かせないためである。
 // 実装では、第13章の `with_runtime` のハンドラが評価のいちばん外側に 1 枚だけあり、
@@ -168,23 +168,23 @@ newtype List[A] = Nil | Cons(head: A, tail: List[A])
 //
 // `Print` を別に立てるのは、出力の意図と出力の実体を分けるためである。
 // プログラムは `println`、すなわち `@ Print` で書き、ハンドラを取り替えるだけで出力先を変えられる。
-// 文字列にためて返す `capture`(仕様 sample.kel:555)も、ファイルへの書き出しも、
+// 文字列にためて返す `capture`(仕様 sample.kel:557)も、ファイルへの書き出しも、
 // テストでのバッファへの収集も、本体を書き換えずに実現できる。
 //
-// ファイル入出力のエフェクトとプリミティブは、標準環境に置かない(仕様 sample.kel:465)。
+// ファイル入出力のエフェクトとプリミティブは、標準環境に置かない(仕様 sample.kel:467)。
 // Diktor はホストのファイルを読み書きする手段を持たない。
 // 仕様の `with_file` は、ファイル操作を C リンケージの `extern` として `@ Blocking` を付けて宣言する
-// (仕様 sample.kel:595-599)。
+// (仕様 sample.kel:597-601)。
 //
 // `effect File` と `with_file` は、プレリュードに置かない。
 // これらは仕様の用例であり、プレリュードに置くと、
 // 仕様の字面が変わるたびにプレリュードを追随させる二重管理になる。
 //
-// 並行処理のエフェクト(仕様 sample.kel:731 の `Async`)は、標準環境に置かない。
+// 並行処理のエフェクト(仕様 sample.kel:733 の `Async`)は、標準環境に置かない。
 // 実行時の意味を与えられないからである。
 // 利用者が宣言した `Async` は普通のエフェクトで、利用者がハンドルする。
 
-// ランタイムが提供する Console(仕様 sample.kel:464)と、ユーザ層の Print
+// ランタイムが提供する Console(仕様 sample.kel:466)と、ユーザ層の Print
 effect Console = { write: (String) => Unit }
 effect Print   = { print: (String) => Unit }
 
@@ -326,7 +326,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 
 // ## 15.7 with_stdout
 //
-// 仕様 sample.kel:548-551 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
+// 仕様 sample.kel:550-553 は、`handle` がエフェクトを別のエフェクトに翻訳する例を示している。
 // `with_stdout` は、この例の式を再利用できる関数にしたものである。
 // この定義では、本体よりも型のほうに多くの情報がある。
 //
@@ -382,7 +382,7 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 // 一方、ハンドラの張り直しと `resume` のアフィン検査は実行時の処理なので、
 // `with_stdout` を呼んだときにはじめて働く(第14章)。
 
-// 仕様 sample.kel:548-551 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
+// 仕様 sample.kel:550-553 のハンドラを関数にしたもの(エフェクト機構のテストを兼ねる)
 let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console extends E} =
   body() handle {
     case print(message) => resume(perform write(message))
@@ -395,7 +395,7 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
 // String / Boolean / Int32 / Int64 / Float64 の 5 つの型だけである(`def_class`)。
 // `List` と `Option` はプレリュードが宣言するので、
 // その 2 つの `Show` インスタンスもプレリュードが持つ。
-// 仕様も、標準ライブラリがこの 2 つを持つことと、出力の形を定めている(sample.kel:449-450)。
+// 仕様も、標準ライブラリがこの 2 つを持つことと、出力の形を定めている(sample.kel:451-452)。
 //
 // どちらも前提つきインスタンスである。
 // 頭の `[A: Show]` は、要素が `Show` のときだけインスタンスが効くという条件である。
@@ -403,7 +403,7 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
 // たとえば `show(Cons(Op(1), Nil))` は、
 // 「Opaque は Show のインスタンスではありません」で落ちる(`Op` は `Opaque` のコンストラクタ)。
 // 前提つきインスタンスの書き方は、仕様 §8 にある。
-// sample.kel:410-420 が細部を規則として定め、:421 の `Eq[List[_]]` が用例を示す。
+// sample.kel:411-421 が細部を規則として定め、:421 の `Eq[List[_]]` が用例を示す。
 //
 // 出力の形は `[1, 2, 3]` と `Some(1)` / `None` である。
 // 要素の区切りは `, ` で、空のリストは `[]` になる。

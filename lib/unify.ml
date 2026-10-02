@@ -226,7 +226,7 @@ let rec occurs_adjust tv lvl t =
 
    注釈を経由する `let f[A](x: A): A = 1` でも、予約述語の分岐に到達する。
 
-   構造的導出の分岐は sample.kel:391-395 の規則を実装する。
+   構造的導出の分岐は sample.kel:392-396 の規則を実装する。
    カインドが `* -> *` のクラスはこの分岐に到達しない。
    構造的導出を持つのは組み込みの `Eq` だけで、そのパラメータのカインドは Type だからである。
    `Eq` のように構造的導出を持つクラスなら、レコードやヴァリアントを分解し、
@@ -326,7 +326,7 @@ let rec add_class t c =
           List.iter (fun (i, c2) -> if i < List.length args then add_class (List.nth args i) c2) ii_premises
       | None -> type_error (display_of n ^ " は " ^ display_of c ^ " のインスタンスではありません"))
   | (TRecord row | TVariant row) when ci.ci_derive_structural ->
-      (* 閉じた行への構造的導出(sample.kel:391-395)。開いた行は不可 *)
+      (* 閉じた行への構造的導出(sample.kel:392-396)。開いた行は不可 *)
       let fields, tail = row_fields row in
       (match repr tail with
       | TRowEmpty -> List.iter (fun (_, f) -> add_class f c) fields
@@ -389,7 +389,7 @@ let unbound_var t = match t with TVar ({ contents = Unbound _ } as r) -> Some r 
    レコードでは手前のフィールドが勝ち、エフェクト行では最も左のラベルが選ばれ、
    `run` の入れ子では内側のヒープが優先される。
    修飾なしで書いた操作名の解決も、行の最左優先で決まる(第11章 §11.20)。
-   sample.kel:622 の `copy` の中の `write` は File と Console の両方の操作に該当するが、
+   sample.kel:624 の `copy` の中の `write` は File と Console の両方の操作に該当するが、
    最左を採ると、handle の入れ子から推論で組み立てた行では最も内側のハンドラと一致する。
    ただし、注釈で行を明示したときの最左は書かれた順序で決まるので、
    実行時の入れ子の順序と食い違うことがある(§11.20)。

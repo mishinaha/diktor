@@ -39,7 +39,7 @@ open Syntax
 (* ## 7.1 演算子は糖衣だが脱糖しない
 
    Keleut は利用者定義の演算子を持たない。
-   代わりに sample.kel:364-369 が、
+   代わりに sample.kel:365-370 が、
    組み込みの演算子は標準ライブラリの型クラスのメソッドを呼ぶと定めている。
 
    | 演算子 | 意味 |
@@ -150,8 +150,8 @@ let show_bin_op = function
 
    | 名簿 | 問い | 仕様 |
    |---|---|---|
-   | `runtime_effects` | ランタイムが実装を持つのはどれか(利用者がハンドルできないのはどれか) | sample.kel:536 |
-   | `toplevel_effects` | トップレベルの行に残してよいのはどれか | sample.kel:657 |
+   | `runtime_effects` | ランタイムが実装を持つのはどれか(利用者がハンドルできないのはどれか) | sample.kel:538 |
+   | `toplevel_effects` | トップレベルの行に残してよいのはどれか | sample.kel:659 |
 
    `runtime_effects` は `Console` の 1 つである。
    仕様は特別な印を設けず、名前で定めている。
@@ -166,7 +166,7 @@ let show_bin_op = function
    `Blocking` は型の上にしか存在せず、そのラベルを行に持たない文脈から、
    特定の関数の呼び出しを締め出すことだけが役目である。
    締め出すのは、`@ Blocking` を付けた `extern`(C リンケージで `@` を省略したものを含む)の
-   バインディングである(仕様 sample.kel:494、:794)。
+   バインディングである(仕様 sample.kel:496、:796)。
    このラベルを行から取り除くのは `pinned` の仕事である。
 
    ### `Blocking` を `runtime_effects` に入れない理由
@@ -182,9 +182,9 @@ let show_bin_op = function
    操作が無いことを伝えなくなる。
 
    `Blocking` は `toplevel_effects` には入っているので、`@ Blocking` の付いた関数は、
-   `pinned` を使わずにトップレベルから呼べる(仕様 §12、sample.kel:807)。
+   `pinned` を使わずにトップレベルから呼べる(仕様 §12、sample.kel:809)。
    `Heap` はどちらの名簿にも無い。
-   その理由は仕様が書いている(sample.kel:658-659)。
+   その理由は仕様が書いている(sample.kel:660-661)。
    `Heap[h]` はリージョン変数を引数に取るラベルで、トップレベルには渡せる `h` が無い。
    `h` を導入するのは `run` だけで、`run` はその `Heap[h]` を自分で取り除く。
 
