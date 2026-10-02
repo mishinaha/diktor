@@ -84,7 +84,7 @@ perform は禁止しない(sample.kel:660 がトップレベルの perform write
   $ diktor pw.kel
   direct
 
-ランタイム行に載るのは名簿 toplevel_effects(Console / Fs / Blocking)のうち
+ランタイム行に載るのは名簿 toplevel_effects(Console / Blocking)のうち
 プレリュード所有のものだけ(M20 検証。Blocking だけは組み込み登録なので
 --no-prelude でも所有のまま — test/blocking_top.t の bnp。
 かつては名前だけで張られ、--no-prelude や差し替えプレリュードの世界で
@@ -118,8 +118,8 @@ perform は禁止しない(sample.kel:660 がトップレベルの perform write
   quiet : (() => A @ {Console extends R1}) => A
   n : Int32
 
---no-prelude で自前の Fs(操作つき)を自前でハンドルする形は従来どおり通る
-(Console と対称。M27):
+Fs はランタイムの名簿に無い普通の名前なので、操作つきで宣言して自前で
+ハンドルできる:
 
   $ cat > ownfs.kel <<'KEL'
   > effect Fs = { touch: (String) => Int32 }

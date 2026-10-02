@@ -118,3 +118,14 @@ test/parallel.t が固定している):
 
 (スーパークラスの拒否は test/classes.t、Zero / One が無いことは型クラス表に
 そもそも項目が無いことで、Char が無いことは test/numeric.t で固定している。)
+
+仮想のファイル操作は無い(LangSpec §16):
+
+  $ printf 'let h = __open("a")\n' > fsprim.kel
+  $ diktor --type-check fsprim.kel
+  ! fsprim.kel:1:9: 型エラー: 未束縛の変数: __open
+  [1]
+  $ printf 'let f(): Unit @ Fs = ()\n' > fs.kel
+  $ diktor --type-check fs.kel
+  ! fs.kel:1:17: 型エラー: 未知のエフェクト: Fs
+  [1]

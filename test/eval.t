@@ -527,20 +527,6 @@ tell(0) しか無いが、報告するのは、その後ろにある ask の節�
   ! oporder.kel:4:12: 型エラー: コンストラクタ MkBox のパターンは 1 個のフィールドを取ります(2 個与えられました)
   [1]
 
-ハンドル番号は 1 から単調増加(C14 の観測点。リセット漏れが入ると
-再入 API で番号が実行回数に依存する):
-
-  $ cat > handle.kel <<'EOF2'
-  > let h = __open("a.txt")
-  > echoln(show(h))
-  > let _ = __close(h)
-  > let h2 = __open("b.txt")
-  > echoln(show(h2))
-  > EOF2
-  $ diktor handle.kel
-  1
-  2
-
 操作節のガードで起きた例外も 3 径路の規約に乗る(260829-5 M13 検証修正。
 かつては素の raise で cancel が一切走らなかった):
 
