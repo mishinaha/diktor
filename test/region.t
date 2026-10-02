@@ -68,7 +68,7 @@ sample.kel:694 のとおり):
   >   pmap(xs, fn(x) => MutableArray.get(a, 0) + x)
   > KEL
   $ diktor --type-check parget.kel
-  pmap : (Array[A], (A) => B) => Array[B]
+  pmap : (Array[A], (A) => B @ {}) => Array[B]
   ! parget.kel:3:21: 型エラー: ラベル Heap がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -191,7 +191,7 @@ run で包めば書けた — M20 の動機 (a)):
   >   pmap(xs, fn(x) => run h2 { MutableArray.set(a, 0, x); x })
   > KEL
   $ diktor --type-check pardet.kel
-  pmap : (Array[A], (A) => B) => Array[B]
+  pmap : (Array[A], (A) => B @ {}) => Array[B]
   ! pardet.kel:3:47: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
@@ -204,7 +204,7 @@ run で包めば書けた — M20 の動機 (a)):
   > echoln(show(Array.get(f(mk()), 1)))
   > KEL
   $ diktor --type-check parread.kel
-  pmap : (Array[A], (A) => B) => Array[B]
+  pmap : (Array[A], (A) => B @ {}) => Array[B]
   mk : () => Array[Int32]
   f : (Array[Int32]) => Array[Int32]
   _ : {}

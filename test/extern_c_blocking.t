@@ -82,7 +82,7 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。@ {} �
   sin : (Float64) => Float64
   cos : (Float64) => Float64
   pure : (Float64) => Float64
-  callp : (() => A) => A
+  callp : (() => A @ {}) => A
   loud : (Float64) => Float64 @ {Console extends R1}
   wrap : (Float64) => Float64
   _ : {}

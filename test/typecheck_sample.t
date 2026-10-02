@@ -56,8 +56,8 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   _ : {}
   sum : (Array[Int32]) => Int32
   doubled : (Array[Int32]) => Array[Int32]
-  par_map : (Array[A], (A) => B) => Array[B]
-  par : (() => A, () => B) => (A, B)
+  par_map : (Array[A], (A) => B @ {}) => Array[B]
+  par : (() => A @ {}, () => B @ {}) => (A, B)
   scope : (() => A @ {Nursery, Async extends R1}) => A @ {Async extends R1}
   serve : (List[Conn]) => {} @ {Async extends R1}
   with_timeout : (Int64, () => A @ {Deadline extends R1}) => Option[A] @ {Async extends R1}

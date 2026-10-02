@@ -15,7 +15,7 @@
   > let mk_a(): Unit @ A = perform opa()
   > KEL
   $ diktor --type-check --no-prelude nested1.kel
-  call_pure : (() => {}) => {}
+  call_pure : (() => {} @ {}) => {}
   call_a : (() => {}) => {}
   mk_a : () => {} @ {A extends R1}
 
@@ -26,7 +26,7 @@
   > let bad(): Unit @ A = call_pure(fn() => perform opa())
   > KEL
   $ diktor --type-check --no-prelude nested2.kel
-  call_pure : (() => {}) => {}
+  call_pure : (() => {} @ {}) => {}
   ! nested2.kel:4:41: 型エラー: エフェクト A をここでは実行できません(ラベル A がありません(行は閉じています))
   [1]
 
@@ -40,8 +40,8 @@
   > let mkt(): (() => Unit @ Console, Int32) = (fn() => echoln("hi"), 1)
   > KEL
   $ diktor --type-check nestrec.kel
-  use : ({go: () => {}}) => {}
-  pair : ((() => {}, Int32)) => Int32
+  use : ({go: () => {} @ {}}) => {}
+  pair : ((() => {} @ {}, Int32)) => Int32
   mk : () => {go: () => {} @ {Console}}
   mkt : () => (() => {} @ {Console}, Int32)
 
@@ -50,7 +50,7 @@
   > let main(): Unit @ Console = use({go = fn() => echoln("x")})
   > KEL
   $ diktor --type-check nestrec2.kel
-  use : ({go: () => {}}) => {}
+  use : ({go: () => {} @ {}}) => {}
   ! nestrec2.kel:2:48: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -62,7 +62,7 @@
   > let main(): Int32 @ Console = pair((fn() => echoln("x"), 1))
   > KEL
   $ diktor --type-check nestrec3.kel
-  pair : ((() => {}, Int32)) => Int32
+  pair : ((() => {} @ {}, Int32)) => Int32
   ! nestrec3.kel:2:45: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -87,7 +87,7 @@
   > let bad(): Thunk = fn() => perform opa()
   > KEL
   $ diktor --type-check --no-prelude alias.kel
-  pure_ok : (() => {}) => {}
+  pure_ok : (() => {} @ {}) => {}
   ! alias.kel:5:5: 型エラー: 注釈された返り値型を満たしません(ラベル A がありません(行は閉じています))
   [1]
 
@@ -128,7 +128,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > echoln(show(go(wrap(fn(x) => { echo("side!"); x + 1 }))))
   > KEL
   $ diktor --type-check launder.kel
-  pmap : (Array[A], (A) => B) => Array[B]
+  pmap : (Array[A], (A) => B @ {}) => Array[B]
   ! launder.kel:3:47: 型エラー: ラベル Console がありません(行は閉じています)(コンストラクタ Cb のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -202,7 +202,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > let user(): Int32 @ Console = k(1)
   > KEL
   $ diktor --type-check alval.kel
-  k : (Int32) => Int32
+  k : (Int32) => Int32 @ {}
   ! alval.kel:3:31: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
   $ cat > alval2.kel <<'KEL'
@@ -219,7 +219,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > let pure_use(): Int32 @ {} = k(1)
   > KEL
   $ diktor --type-check alval3.kel
-  k : (Int32) => Int32
+  k : (Int32) => Int32 @ {}
   pure_use : () => Int32
   $ cat > alval4.kel <<'KEL'
   > type G = (Int32) => Int32 @ {}
@@ -227,7 +227,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   > let user(): Int32 @ Console = k(1)
   > KEL
   $ diktor --type-check alval4.kel
-  k : (Int32) => Int32
+  k : (Int32) => Int32 @ {}
   ! alval4.kel:3:31: 型エラー: ラベル Console がありません(行は閉じています)(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -286,7 +286,7 @@ let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
   > let r(): Int32 @ Console = loop(fn(x) => x, 3)
   > KEL
   $ diktor --type-check rec2.kel
-  loop : ((Int32) => Int32, Int32) => Int32
+  loop : ((Int32) => Int32 @ {}, Int32) => Int32
   r : () => Int32 @ {Console extends R1}
 
 値束縛の注釈の頭の矢印も束縛の最外として読む(§9 / D116)。ラベル付きの行を書いたら

@@ -462,4 +462,4 @@ M26 より前は g の @ 省略だけで「未束縛の変数: helper」だっ�
   > KEL
   $ diktor --type-check fwdsig.kel
   user : () => Int32 @ {Console extends R1}
-  helper : (() => {}, (Int32) => Int32) => Int32 @ {Console extends R1}
+  helper : (() => {}, (Int32) => Int32 @ {}) => Int32 @ {Console extends R1}

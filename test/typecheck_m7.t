@@ -349,7 +349,7 @@ M19 / G3c / G3d / G7c):
   > let r = apply2(fn(true) => 1, false)
   > KEL
   $ diktor --type-check v10d.kel
-  apply2 : ((Boolean) => Int32, Boolean) => Int32
+  apply2 : ((Boolean) => Int32 @ {}, Boolean) => Int32
   r : Int32
   ⚠ match が非網羅的です。例えば false が漏れています
 

@@ -100,7 +100,7 @@ g(1)(2) { k } では、末尾ブロックは 2 つ目の呼び出しに加わる
   > let r = apply2(1, 2) { case (a, b) => a + b }
   > EOF
   $ diktor --type-check tuple2.kel
-  apply2 : (Int32, Int32, (Int32, Int32) => Int32) => Int32
+  apply2 : (Int32, Int32, (Int32, Int32) => Int32 @ {}) => Int32
   ! tuple2.kel:2:22: 型エラー: 型が一致しません: (_A, _A) と Int32
   [1]
 
