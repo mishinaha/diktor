@@ -11,6 +11,7 @@
     --repl               対話的に実行する(FILE は不要)
     --no-prelude / --prelude PATH
     --strict-exhaustive  網羅性・到達不能警告をエラー化
+    --import-path DIR    import の検索パスに DIR を足す(繰り返せる)
   exit: 64
 
 最小の正常終了:
