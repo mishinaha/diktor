@@ -1282,11 +1282,9 @@ let bind_globals env names_values =
   env
 
 let exec_decl env ((_, d) as node : T.decl) =
-  (* インスタンスの頭の resolve_con は宣言の出身 module のスコープで引くので、
-     Decls 側の current_module を一時的に立てる *)
-  let saved = !Decls.current_module in
-  Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
-  Fun.protect ~finally:(fun () -> Decls.current_module := saved) @@ fun () ->
+  (* インスタンスの頭の resolve_con は宣言の出身の module と単位のスコープで引くので、
+     Decls 側の current_module と current_unit を一時的に立てる *)
+  Decls.with_decl_scope (Tree.oid_of node) @@ fun () ->
   match d with
   | T.DLet ((_, b) as bnode) ->
       let v = eval_binding_value env bnode in
@@ -1305,7 +1303,7 @@ let exec_decl env ((_, d) as node : T.decl) =
       ignore (eval env e);
       env
   | T.DInstance i ->
-      let cls = Type.intern i.T.ins_class in
+      let cls = Decls.resolve_class (Type.intern i.T.ins_class) in
       (* module の平坦化で作った同義語を通す(BigInt.BigInt など)。組み込みと同じ鍵の
          利用者の宣言は elab が拒否するので、ここに来る宣言は組み込みを差し替えない *)
       let con =

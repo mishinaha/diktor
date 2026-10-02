@@ -313,8 +313,13 @@ let unit_paths : (unit_id, string) Hashtbl.t = Hashtbl.create 8
 (* 宣言ノードの oid → 宣言した単位 *)
 let decl_unit : (oid, unit_id) Hashtbl.t = Hashtbl.create 64
 
-(* 単位の同義語。(単位, 非修飾名) → 綴り。型、コンストラクタ、エフェクト、クラスを載せる *)
+(* 単位の同義語。(単位, 非修飾名) → 綴り。型の名前空間(型、型エイリアス、エフェクト)、
+   コンストラクタ、クラスで表を分ける。型とコンストラクタは同じ名前を持てるからである *)
 let unit_synonyms : (unit_id * oid, oid) Hashtbl.t = Hashtbl.create 16
+
+let unit_ctors : (unit_id * oid, oid) Hashtbl.t = Hashtbl.create 16
+
+let unit_classes : (unit_id * oid, oid) Hashtbl.t = Hashtbl.create 16
 
 (* 修飾名の頭。(単位, module 名かクラス名) → 綴り *)
 let unit_qualifiers : (unit_id * string, string) Hashtbl.t = Hashtbl.create 16
@@ -331,7 +336,13 @@ let unit_of_spelling name =
     | None -> None
   else None
 
-let resolve_unit c = match Hashtbl.find_opt unit_synonyms (!current_unit, c) with Some q -> q | None -> c
+let resolve_in tbl c = match Hashtbl.find_opt tbl (!current_unit, c) with Some q -> q | None -> c
+
+let resolve_unit c = resolve_in unit_synonyms c
+
+let resolve_ctor c = resolve_in unit_ctors c
+
+let resolve_class c = resolve_in unit_classes c
 
 (* 修飾名 M.x の頭を、現在の単位の綴りに置き換える *)
 let qualify name =
@@ -347,11 +358,11 @@ let qualify name =
 (* 現在の単位から見える実体か。印の無い綴りは標準環境か起点のもので、どの単位からも見える
    (起点の宣言は、起点より前に処理する単位からは表に無い)。印の付いた綴りは、
    現在の単位の同義語の先になっているものだけが見える *)
-let visible_in_unit oid =
+let visible_in_unit tbl oid =
   let name = Type.name_of oid in
   match unit_of_spelling name with
   | None -> true
-  | Some _ -> Hashtbl.find_opt unit_synonyms (!current_unit, Type.intern (Type.display name)) = Some oid
+  | Some _ -> Hashtbl.find_opt tbl (!current_unit, Type.intern (Type.display name)) = Some oid
 
 (* コンパニオン型だけを載せる大域の同義語。値は候補の列で、
    resolve_con は候補が 1 つのときだけ使う *)
@@ -406,6 +417,18 @@ let con_visibility : (oid, visibility) Hashtbl.t = Hashtbl.create 16
 (* 宣言ノードの oid(Tree.oid_of で取り出す)→ 出身 module。
    第11章の 4 つのパスと第14章の exec_decl が、この表から current_module を復元する *)
 let decl_module : (oid, string) Hashtbl.t = Hashtbl.create 16
+
+(* 宣言ノードの出身の module と単位を current_module と current_unit に立てて f を呼ぶ。
+   出身の単位の記録が無い宣言は起点のものとして扱う *)
+let with_decl_scope oid f =
+  let cm = !current_module and cu = !current_unit in
+  current_module := Hashtbl.find_opt decl_module oid;
+  current_unit := Option.value ~default:root_unit (Hashtbl.find_opt decl_unit oid);
+  Fun.protect
+    ~finally:(fun () ->
+      current_module := cm;
+      current_unit := cu)
+    f
 
 let visible_here (v : visibility) = v.vis_pub || !current_module = Some v.vis_module
 
@@ -634,7 +657,10 @@ let add_effect info =
 
 let find_effect e = Hashtbl.find_opt effects e
 
-let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
+(* 現在の単位から見えるエフェクトに限る。op_index の鍵は印を付けない短い操作名なので、
+   別の単位のエフェクトの同名の操作も同じ鍵に載る *)
+let op_candidates op =
+  List.filter (visible_in_unit unit_synonyms) (Option.value ~default:[] (Hashtbl.find_opt op_index op))
 
 (* ## 6.8 クラス表
 
@@ -1111,6 +1137,8 @@ let reset () =
   Hashtbl.reset unit_paths;
   Hashtbl.reset decl_unit;
   Hashtbl.reset unit_synonyms;
+  Hashtbl.reset unit_ctors;
+  Hashtbl.reset unit_classes;
   Hashtbl.reset unit_qualifiers;
   current_module := None;
   current_unit := root_unit;
@@ -1122,7 +1150,7 @@ let () = register_builtins ()
 (* ## 6.14 宣言表の写し
 
    対話的な実行(第16章)は、型検査が失敗した入力の宣言を表に残さない。
-   `snapshot` は、本章の大域の表 25 個と参照 4 つの中身を写し、写した時点の中身に戻す閉包を返す。
+   `snapshot` は、本章の大域の表 27 個と参照 4 つの中身を写し、写した時点の中身に戻す閉包を返す。
    戻すときは、表を空にしてから写しを書き戻す。
    `Hashtbl.fold` は同じ鍵の束縛を新しい順に渡すので、リストに積んでから順に `add` すれば、
    隠れた束縛の順序も戻る。
@@ -1157,6 +1185,8 @@ let snapshot () =
       snapshot_tbl unit_paths;
       snapshot_tbl decl_unit;
       snapshot_tbl unit_synonyms;
+      snapshot_tbl unit_ctors;
+      snapshot_tbl unit_classes;
       snapshot_tbl unit_qualifiers;
       snapshot_tbl aliases;
       snapshot_tbl datas;

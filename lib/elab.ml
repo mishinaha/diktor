@@ -869,7 +869,7 @@ and find_alias n =
   let found =
     match find_row_alias n with
     | Some _ as r -> r
-    | None when Hashtbl.mem Decls.effects c -> None
+    | None when Hashtbl.mem Decls.effects (Decls.resolve_unit c) -> None
     | None ->
         List.find_map
           (fun oid -> Option.map (fun info -> (oid, info)) (Hashtbl.find_opt Decls.aliases oid))
@@ -1127,8 +1127,8 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
           else type_error ("エフェクト位置に Type エイリアス " ^ n ^ " は使えません(: EffectRow を付けてください)")
       | None ->
           (* @ Print = @ {Print} の略記 *)
-          if Hashtbl.mem Decls.effects (intern n) then TRowExtend (intern n, t_unit, TRowEmpty)
-          else type_error (unknown_effect n))
+          let e = Decls.resolve_unit (intern n) in
+          if Hashtbl.mem Decls.effects e then TRowExtend (e, t_unit, TRowEmpty) else type_error (unknown_effect n))
   | T.EApply ((_, T.EIdent (LongId [ n ])), args)
     when (not (SMap.mem n env.types)) && Option.is_some (find_row_alias n) ->
       (* EffectRow エイリアスの適用(@ W[E])。波括弧の中の要素と同じく find_row_alias で引き、
@@ -1137,11 +1137,11 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
       let oid, info = Option.get (find_row_alias n) in
       Decls.check_con_visible oid;
       expand_alias env level ~expanding info args
-  | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (intern n) ->
+  | T.EApply ((_, T.EIdent (LongId [ n ])), args) when Hashtbl.mem Decls.effects (Decls.resolve_unit (intern n)) ->
       (* @ Heap[h] = @ {Heap[h]} の略記。sample.kel:467 の略記の規則は、
          引数つきのラベルを除外していない *)
       TRowExtend
-        ( intern n,
+        ( Decls.resolve_unit (intern n),
           (match args with
           | [ a ] -> elab_type env level ~expanding a
           | _ -> type_error "エフェクトラベルの引数は1個までです"),
@@ -1177,9 +1177,9 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
                        引数つきのときに env.types を見ないのは、型パラメータへの適用が
                        行の要素になれないからである *)
                     type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
-                  else if Hashtbl.mem Decls.effects (intern n) then
+                  else if Hashtbl.mem Decls.effects (Decls.resolve_unit (intern n)) then
                     TRowExtend
-                      ( intern n,
+                      ( Decls.resolve_unit (intern n),
                         (match args with
                         | [] -> t_unit
                         | [ a ] -> elab_type env level ~expanding a
@@ -1331,10 +1331,10 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
       if not (cname.[0] >= 'A' && cname.[0] <= 'Z') then
         type_error ("未知のコンストラクタパターン: " ^ show_long_id li ^ "(操作節は handle の中でのみ使えます)")
       else
-        match Hashtbl.find_opt Decls.ctor_owner (intern cname) with
+        let ctor = Decls.resolve_ctor (intern cname) in
+        match Hashtbl.find_opt Decls.ctor_owner ctor with
         | None -> type_error ("未知のコンストラクタ: " ^ show_long_id li)
         | Some dname ->
-            let ctor = intern cname in
             Decls.check_ctor_visible ctor dname;
             let dd = Hashtbl.find Decls.datas dname in
             if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
@@ -1461,7 +1461,7 @@ and elab_exp' env level eff node e =
    呼び出しの扱いは §11.12 で述べる。 *)
 
   | T.Ident li -> (
-      let name = show_long_id li in
+      let name = Decls.qualify (show_long_id li) in
       match SMap.find_opt name env.values with
       | Some sch ->
           (* 修飾名で module の値に触るときの可視性検査。module M の値 x の修飾名 M.x が、
@@ -1859,7 +1859,7 @@ and elab_exp' env level eff node e =
    行に由来する失敗かどうかは、§11.12 と同じ `row_failure` で判定する。 *)
 
 and elab_construct env level node cname ?eff args =
-  let ctor = intern cname in
+  let ctor = Decls.resolve_ctor (intern cname) in
   match Hashtbl.find_opt Decls.ctor_owner ctor with
   | None -> type_error ("未知のコンストラクタ: " ^ cname)
   | Some dname ->
@@ -2036,7 +2036,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 and resolve_perform eff li =
   match li with
   | LongId [ ename; op ] -> (
-      let e = intern ename in
+      let e = Decls.resolve_unit (intern ename) in
       match Decls.find_effect e with
       | None -> type_error ("未知のエフェクト: " ^ ename)
       | Some info -> (
@@ -2215,7 +2215,11 @@ and elab_handle env level eff clauses body =
             | [ { T.cap_label = None; cap_pat } ] -> `Return (cap_pat, cnode)
             | _ -> type_error "return 節は case return(x) の形で書いてください")
         | op :: quals when op <> "" && op.[0] >= 'a' && op.[0] <= 'z' ->
-            `Op (intern op, (match quals with [] -> None | _ -> Some (intern (String.concat "." (List.rev quals)))), args, cnode)
+            `Op
+              ( intern op,
+                (match quals with [] -> None | _ -> Some (Decls.resolve_unit (intern (String.concat "." (List.rev quals))))),
+                args,
+                cnode )
         | _ -> type_error ("handle の節は操作名 / return / cancel で始めてください: " ^ show_long_id (LongId comps)))
     | _ -> type_error "handle の節は操作名 / return / cancel で始めてください"
   in
@@ -2566,7 +2570,7 @@ and method_scheme cls m =
 and class_names_of tp =
   List.map
     (fun li ->
-      let c = intern (show_long_id li) in
+      let c = Decls.resolve_class (intern (show_long_id li)) in
       if Decls.find_class c = None then type_error ("未知のクラス: " ^ show_long_id li);
       (* 予約述語は制約にも書けない。書けると [A: Integral] の A が既定化の
          対象に見え、数値リテラルが解決されないまま実行に到達する *)
@@ -3698,7 +3702,7 @@ let register_class env (c : T.class_decl') =
               (* カインドは使われた位置から推論し、メソッドの型を一般化した直後に
                  KStar へ既定化する(第1章 §1.6) *)
               let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
-              let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
+              let classes = List.map (fun li -> Decls.resolve_class (intern (show_long_id li))) tp.tp_classes in
               (tp.tp_name, TVar (ref (Generic { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes }))))
             v.T.cv_tparams
         in
@@ -3757,7 +3761,11 @@ let register_class env (c : T.class_decl') =
     (fun (m, _) ->
       Hashtbl.iter
         (fun _ (other : Decls.class_info) ->
-          if other.Decls.ci_name <> cls && List.mem_assoc m other.Decls.ci_methods then
+          if
+            other.Decls.ci_name <> cls
+            && Decls.visible_in_unit Decls.unit_classes other.Decls.ci_name
+            && List.mem_assoc m other.Decls.ci_methods
+          then
             type_error
               ("メソッド名 " ^ m ^ " は型クラス " ^ name_of other.Decls.ci_name
              ^ " が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)"))
@@ -3821,7 +3829,7 @@ let register_class env (c : T.class_decl') =
    仕様がこれを書いているので、この制限は実装の都合ではなく言語の規則である。 *)
 
 let instance_head (i : T.instance_decl') =
-  let cls = intern i.T.ins_class in
+  let cls = Decls.resolve_class (intern i.T.ins_class) in
   let head =
     match i.T.ins_args with
     | [ h ] -> h
@@ -4354,19 +4362,21 @@ let check_instance_bodies env (i : T.instance_decl') =
    利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
 let register_companion tyname =
   match !Decls.current_module with
-  | Some m when tyname = m ^ "." ^ m ->
-      if
-        Hashtbl.mem Decls.con_kinds (intern m)
-        || Hashtbl.mem Decls.aliases (intern m)
-        || Hashtbl.mem Decls.reserved_type_names (intern m)
-      then
+  | Some sm when tyname = sm ^ "." ^ Type.display sm ->
+      (* sm は module の綴り(起点でない単位では印付き)、m は表示名である。既存の名前は、
+         同じ単位の綴り(sm)と標準環境の綴り(m)の両方で照合する *)
+      let m = Type.display sm in
+      let taken tbl = Hashtbl.mem tbl (intern sm) || Hashtbl.mem tbl (intern m) in
+      if taken Decls.con_kinds || taken Decls.aliases || Hashtbl.mem Decls.reserved_type_names (intern m) then
         type_error
           ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存の型 " ^ m
          ^ " と同名です(module 内の型とトップレベルの型は同名にできません)")
-      else if Hashtbl.mem Decls.effects (intern m) then
+      else if taken Decls.effects then
         type_error
           ("module " ^ m ^ " のコンパニオン型 " ^ m ^ " は既存のエフェクト " ^ m
          ^ " と同名です(型とエフェクトは同名にできません)")
+      else if Decls.marks_unit !Decls.current_unit then
+        Hashtbl.replace Decls.unit_synonyms (!Decls.current_unit, intern m) (intern tyname)
       else Decls.add_con_synonym (intern m) (intern tyname)
   | _ -> ()
 
@@ -4375,10 +4385,7 @@ let register_companion tyname =
    1b の newtype のフィールド型や、1c の signature_of_binding も、
    module 内の型を非修飾で参照するので、包み忘れたパスだけが「未知の型」になる。
    §11.41 の in_prelude と同じく、Fun.protect で元に戻す *)
-let with_decl_module node f =
-  let saved = !Decls.current_module in
-  Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
-  Fun.protect ~finally:(fun () -> Decls.current_module := saved) f
+let with_decl_module node f = Decls.with_decl_scope (Tree.oid_of node) f
 
 (* 型エイリアスと newtype の型パラメータには、型クラスの制約を書けない(§11.5 の規則 3)。
    型パラメータの構文は関数、クラス、インスタンスと共有しているので、文法ではなくここで拒否する *)
