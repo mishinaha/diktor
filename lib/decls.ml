@@ -225,6 +225,21 @@ let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | Non
    newtype、エイリアス、effect の再宣言検査がどれも引くので、ここに置く *)
 let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
+(* 起点でない単位の宣言の綴りには単位の印が付くので、標準環境の宣言と表の鍵が重ならない。
+   印を外した綴りで標準環境の型の名前空間を引き、起点の宣言と同じ診断で拒否する。
+   起点より前に処理する単位から見て、印の無い綴りは標準環境のものだけである *)
+let check_std_type_twin kind name =
+  let s = Type.name_of name in
+  let dn = Type.display s in
+  if dn <> s then (
+    let d = Type.intern dn in
+    if Hashtbl.mem reserved_type_names d then type_error ("組み込み型 " ^ dn ^ " は " ^ kind ^ " で再宣言できません");
+    match Hashtbl.find_opt type_namespace d with
+    | Some prev when prev <> kind ->
+        type_error (dn ^ " は既に " ^ prev ^ " として宣言されています(" ^ kind ^ " では再宣言できません)")
+    | Some _ -> type_error ("標準環境の " ^ kind ^ " " ^ dn ^ " は再宣言できません")
+    | None -> ())
+
 (* ## 6.4 module の平坦化のための同義語表と可視性台帳
 
    Diktor は Keleut の `module` を平坦化として実装する。
@@ -496,7 +511,8 @@ let add_alias info =
      照合は Float64 と書いた宣言に、Float64 でなければならないという自己矛盾した診断を出す *)
   if Hashtbl.mem reserved_type_names info.al_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.al_name ^ " は型エイリアスで再宣言できません")
-  else claim_type_name "型エイリアス" info.al_name;
+  else check_std_type_twin "型エイリアス" info.al_name;
+  claim_type_name "型エイリアス" info.al_name;
   if Hashtbl.mem aliases info.al_name then
     if prelude_owned "alias" info.al_name then
       type_error ("標準環境の型エイリアス " ^ Type.name_of info.al_name ^ " は再宣言できません")
@@ -570,7 +586,8 @@ let ctor_owner : (oid, oid) Hashtbl.t = Hashtbl.create 128 (* コンストラク
 let add_data info =
   if Hashtbl.mem reserved_type_names info.dd_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.dd_name ^ " は newtype で再宣言できません")
-  else claim_type_name "newtype" info.dd_name;
+  else check_std_type_twin "newtype" info.dd_name;
+  claim_type_name "newtype" info.dd_name;
   if Hashtbl.mem datas info.dd_name then
     if prelude_owned "data" info.dd_name then
       type_error ("標準環境の newtype " ^ Type.name_of info.dd_name ^ " は再宣言できません")
@@ -580,8 +597,9 @@ let add_data info =
     mark "data" info.dd_name;
     List.iter
       (fun ct ->
-        if Hashtbl.mem ctor_owner ct.ct_name then
-          type_error ("コンストラクタ " ^ Type.name_of ct.ct_name ^ " が二重に宣言されています(コンストラクタ名は大域一意)")
+        let s = Type.name_of ct.ct_name in
+        if Hashtbl.mem ctor_owner ct.ct_name || Hashtbl.mem ctor_owner (Type.intern (Type.display s)) then
+          type_error ("コンストラクタ " ^ Type.display s ^ " が二重に宣言されています(コンストラクタ名は大域一意)")
         else Hashtbl.add ctor_owner ct.ct_name info.dd_name)
       info.dd_ctors)
 
@@ -641,7 +659,8 @@ let add_effect info =
      §6.1 の後の type_namespace) *)
   if Hashtbl.mem reserved_type_names info.ef_name && not !in_prelude then
     type_error ("組み込み型 " ^ Type.name_of info.ef_name ^ " は effect で再宣言できません")
-  else claim_type_name "effect" info.ef_name;
+  else check_std_type_twin "effect" info.ef_name;
+  claim_type_name "effect" info.ef_name;
   if Hashtbl.mem effects info.ef_name then
     if prelude_owned "effect" info.ef_name then
       type_error ("標準環境の effect " ^ Type.name_of info.ef_name ^ " は再宣言できません")
@@ -695,6 +714,12 @@ let find_class c = Hashtbl.find_opt classes c
 
 (* 組み込みと同名の宣言は標準環境の名前の再宣言、それ以外の重複は二重宣言として拒否する *)
 let add_class_decl info =
+  let s = Type.name_of info.ci_name in
+  (match Hashtbl.find_opt classes (Type.intern (Type.display s)) with
+  | Some _ when Type.display s <> s ->
+      (* 起点でない単位のクラスの綴りには印が付く。印の無い同名のクラスは標準環境のものである *)
+      type_error ("標準環境の type class " ^ Type.display s ^ " は再宣言できません")
+  | _ -> ());
   match Hashtbl.find_opt classes info.ci_name with
   | Some prev when prev.ci_builtin ->
       type_error ("標準環境の type class " ^ Type.name_of info.ci_name ^ " は再宣言できません")
