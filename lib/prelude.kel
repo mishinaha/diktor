@@ -403,7 +403,7 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
 // たとえば `show(Cons(Op(1), Nil))` は、
 // 「Opaque は Show のインスタンスではありません」で落ちる(`Op` は `Opaque` のコンストラクタ)。
 // 前提つきインスタンスの書き方は、仕様 §8 にある。
-// sample.kel:411-421 が細部を規則として定め、:421 の `Eq[List[_]]` が用例を示す。
+// sample.kel:411-421 が細部を規則として定め、:422-429 が `Eq[List[_]]` の形を示す。
 //
 // 出力の形は `[1, 2, 3]` と `Some(1)` / `None` である。
 // 要素の区切りは `, ` で、空のリストは `[]` になる。

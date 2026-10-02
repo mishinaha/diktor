@@ -806,10 +806,12 @@ let add_class_decl info =
    宣言の頭は `Show[List[_]]` と `Show[Option[_]]` である。
    この前提により、`show` は、要素の型が `Show` である `List` や `Option` にも効く。
    仕様も、標準ライブラリが `List` と `Option` に `Show` のインスタンスを持つと定めている(sample.kel:451-452)。
-   `List` の `Eq` は、利用者が宣言する(sample.kel:421 の `type instance[A: Eq] Eq[List[_]]`)。
+   `List` と `Option` の `Eq` も、プレリュードが宣言する(第15章 §15.9。sample.kel:422-429 が
+   `Eq[List[_]]` の形を示す)。
 
-   コヒーレンスの規則は、sample.kel:357 のとおり、重複したキーを拒否することだけである。
-   インスタンスは常に大域で見え、隠すことも選び直すこともできない。 *)
+   コヒーレンスの規則は、sample.kel:357 のとおり、重複したキーを拒否することである。
+   インスタンスを書けるファイルは孤児規則(sample.kel:358)で限られ、第11章 §11.35 が検査する。
+   インスタンスは隠すことも選び直すこともできない。 *)
 
 type instance_info = {
   ii_premises : (int * oid) list; (* 引数位置 → 要求クラス *)

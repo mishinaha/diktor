@@ -1,6 +1,6 @@
 前提つきインスタンス(仕様 §8。細部の 6 項目は sample.kel:411-421 が規則として
-書いている — M22 / D93〜D97 / D142)。sample.kel:421 の Eq[List[_]] がそのまま
-通ること:
+書いている — M22 / D93〜D97 / D142)。sample.kel:422-429 が示す形の Eq[List[_]] が、
+--no-prelude で自前の List に対して通ること:
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
