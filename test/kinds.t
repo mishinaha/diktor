@@ -350,18 +350,6 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   Cb.mk : (() => {}) => Cb.Callback[R1]
   g : (Cb.Callback[{Print}]) => Int32
 
-プレリュード所有名の再宣言はプレリュードが決めたカインドを引き継ぐ(D80。
-別のセルを作ると構造照合で KVar と KStar が食い違う):
-
-  $ printf 'type Unit = {}\nnewtype Callback[E] = Callback(() => Unit @ E)\n' > tinypre.kel
-  $ printf 'newtype Callback[E] = Callback(() => Unit @ E)\nlet f[E](c: Callback[E]): Callback[E] = c\n' > redecl.kel
-  $ diktor --prelude tinypre.kel --type-check redecl.kel
-  f : (Callback[R1]) => Callback[R1]
-  $ printf 'newtype Callback[E] = Callback(E)\n' > redecl2.kel
-  $ diktor --prelude tinypre.kel --type-check redecl2.kel
-  ! redecl2.kel:1:32: 型エラー: コンストラクタ Callback のフィールドの型のカインドが Type ではありません: R1 :: Row
-  [1]
-
 行カインドのパラメータを持つ型は Functor のインスタンスにできない(D126)。
 頭のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と
 合わないためで、仕様 §8 が derive structural の制限(sample.kel:397-399)と

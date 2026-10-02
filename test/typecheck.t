@@ -216,58 +216,28 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! mix.kel:2:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   [4]
 
-プレリュード宣言の構造照合(C1 / D35。かつては名前しか見ず、嘘の再宣言が
-宣言ごと黙って消えた — 260829-3 課題 5):
+標準環境の名前は再宣言できない(LangSpec §16.1。種別ごとに 1 つ。
+かつては構造を照合して同じ宣言を受理していた):
 
   $ printf 'newtype Option[A] = None(Int32) | Some\n' > d1.kel
   $ diktor --type-check d1.kel
-  ! d1.kel:1:1: 型エラー: newtype Option の宣言がプレリュードの宣言と一致しません(コンストラクタ None のフィールド数が違います: プレリュードは 0、宣言は 1)
-  [1]
-
-  $ printf 'newtype List[A, B] = Nil | Cons(head: A, tail: List[A])\n' > d3.kel
-  $ diktor --type-check d3.kel
-  ! d3.kel:1:1: 型エラー: newtype List の宣言がプレリュードの宣言と一致しません(型パラメータの個数が違います: プレリュードは 1、宣言は 2)
-  [1]
-
-  $ printf 'newtype List[A] = Nil | Cons(A, tail: List[A])\n' > d4.kel
-  $ diktor --type-check d4.kel
-  ! d4.kel:1:1: 型エラー: newtype List の宣言がプレリュードの宣言と一致しません(コンストラクタ Cons の第1フィールドのラベルが違います: プレリュードは head、宣言は ラベルなし)
+  ! d1.kel:1:1: 型エラー: 標準環境の newtype Option は再宣言できません
   [1]
 
   $ printf 'type Unit = Int32\n' > d5.kel
   $ diktor --type-check d5.kel
-  ! d5.kel:1:1: 型エラー: 型エイリアス Unit の宣言がプレリュードの宣言と一致しません(本体が違います)
-  [1]
-
-  $ printf 'type Unit = NoSuchType\n' > d6.kel
-  $ diktor --type-check d6.kel
-  ! d6.kel:1:1: 型エラー: 型エイリアス Unit の宣言がプレリュードの宣言と一致しません(本体が違います)
+  ! d5.kel:1:1: 型エラー: 標準環境の型エイリアス Unit は再宣言できません
   [1]
 
   $ printf 'effect Console = { write: (Int32) => Unit }\n' > d7.kel
   $ diktor --type-check d7.kel
-  ! d7.kel:1:1: 型エラー: effect Console の宣言がプレリュードの宣言と一致しません(操作 write の型が違います)
+  ! d7.kel:1:1: 型エラー: 標準環境の effect Console は再宣言できません
   [1]
 
   $ printf 'type class Add[A] { val add: (A, A) => Boolean }\n' > d8.kel
   $ diktor --type-check d8.kel
-  ! d8.kel:1:1: 型エラー: type class Add の宣言が組み込みの宣言と一致しません(メソッド add の型が違います)
+  ! d8.kel:1:1: 型エラー: 標準環境の type class Add は再宣言できません
   [1]
-
-受理側 — 順序違いは許し、ラベルは照合する(仕様どおりの再宣言が全部通り、
-仕様の Cons(head = ...) が書けるようになった = prelude §15.2 の宿題の回収):
-
-  $ cat > d9.kel <<'KEL'
-  > newtype Option[A] = Some(A) | None
-  > newtype List[A] = Cons(head: A, tail: List[A]) | Nil
-  > type Unit = {}
-  > effect Console = { write: (String) => Unit }
-  > type class Add[A] { val add: (A, A) => A }
-  > let l = Cons(head = 1, tail = Nil)
-  > echoln(show(l match { case Cons(head = h) => h case Nil => 0 }))
-  > KEL
-  $ diktor d9.kel
-  1
 
 同じファイルを 2 回渡すと二重宣言(CLI 経路の連結処理の回帰。C11):
 
@@ -312,44 +282,15 @@ Int32 がプレリュードの List を黙って奪った):
   ! ns4.kel:1:1: 型エラー: 組み込み型 Int32 は effect で再宣言できません
   [1]
 
-プレリュード所有名の「照合の上で受理」(D35)は 1 プログラム 1 回まで。
-2 本目はユーザ同士の重複として拒否する:
+標準環境の名前を 2 回宣言しても、1 本目で落ちる:
 
   $ printf 'newtype List[A] = Nil | Cons(head: A, tail: List[A])\nnewtype List[A] = Nil | Cons(head: A, tail: List[A])\necholn("x")\n' > rd1.kel
   $ diktor --type-check rd1.kel
-  ! rd1.kel:2:1: 型エラー: newtype List が二重に宣言されています
+  ! rd1.kel:1:1: 型エラー: 標準環境の newtype List は再宣言できません
   [1]
   $ printf 'type class Add[A] { val add: (A, A) => A }\ntype class Add[A] { val add: (A, A) => A }\nlet main(): Int32 = 1\n' > rd2.kel
   $ diktor --type-check rd2.kel
-  ! rd2.kel:2:1: 型エラー: type class Add が二重に宣言されています
-  [1]
-
-エイリアスの構造照合は行・ヴァリアント・制約の並び順を見ない(型として
-同一のものを受理する)。一方でパラメータ名の付け替えは全単射 — 宣言側の
-名前が相手の自由な型名を捕獲する形は「本体が違います」で拒否する:
-
-  $ cat > alias_pre.kel <<'EOF2'
-  > newtype G = MkG
-  > type Cap[A] = (A, G)
-  > type Rec = {x: Int32, y: String}
-  > type Par = #Even | #Odd
-  > EOF2
-  $ printf 'type Rec = {y: String, x: Int32}\ntype Par = #Odd | #Even\nlet main(): Int32 = 1\n' > al1.kel
-  $ diktor --prelude alias_pre.kel --type-check al1.kel
-  main : () => Int32
-  $ printf 'type Cap[G] = (G, G)\nlet main(): Int32 = 1\n' > al2.kel
-  $ diktor --prelude alias_pre.kel --type-check al2.kel
-  ! al2.kel:1:1: 型エラー: 型エイリアス Cap の宣言がプレリュードの宣言と一致しません(本体が違います)
-  [1]
-  $ printf 'type Cap[B] = (B, G)\nlet main(): Int32 = 1\n' > al3.kel
-  $ diktor --prelude alias_pre.kel --type-check al3.kel
-  main : () => Int32
-
-Never の照合不一致はコンストラクタゼロを明示する:
-
-  $ printf 'newtype Never = Nope\necholn("ok")\n' > nv1.kel
-  $ diktor --type-check nv1.kel
-  ! nv1.kel:1:1: 型エラー: newtype Never の宣言がプレリュードの宣言と一致しません(コンストラクタが違います: プレリュードはコンストラクタを持ちません)
+  ! rd2.kel:1:1: 型エラー: 標準環境の type class Add は再宣言できません
   [1]
 
 ブレース無しの引数付きエフェクトラベル @ Heap[h] は @ {Heap[h]} の略記

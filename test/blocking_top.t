@@ -49,11 +49,11 @@ Blocking は操作を持たないので handle の対象にできない(禁止�
   ! bh.kel:2:3: 型エラー: 操作 nope はエフェクト Blocking に属しません
   [1]
 
-操作を足した再宣言は照合で落ちる(Heap と同じ組み込みラベル):
+Blocking に操作を足す宣言は拒否する(標準環境の名前なので再宣言できない):
 
   $ printf 'effect Blocking = { block: (String) => Int32 }\n' > bbad.kel
   $ diktor --type-check bbad.kel
-  ! bbad.kel:1:1: 型エラー: effect Blocking の宣言がプレリュードの宣言と一致しません(操作が違います: プレリュードは操作を持ちません)
+  ! bbad.kel:1:1: 型エラー: 標準環境の effect Blocking は再宣言できません
   [1]
 
 --no-prelude でも Blocking は組み込み登録なのでトップレベル行に残る:

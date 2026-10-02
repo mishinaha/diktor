@@ -221,14 +221,16 @@ A を使える:
   $ diktor pick.kel
   0
 
-組み込みインスタンスは実行時に差し替わらない(コヒーレンス):
+組み込みインスタンスは差し替えられない(コヒーレンス。標準環境のインスタンスと
+同じ組のインスタンスは宣言の時点で拒否する):
 
   $ cat > coh.kel <<'EOF'
   > type instance Add[Int32] { let add(x, y) = __int32_sub(x, y) }
   > echoln(show(2 + 3))
   > EOF
   $ diktor coh.kel
-  5
+  ! coh.kel:1:1: 型エラー: 標準環境のインスタンス Add[Int32] は再宣言できません
+  [1]
 
 module 内の type instance が実行時に見つかる(sample.kel §13 の形):
 
@@ -460,12 +462,6 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   ! mclash2.kel:1:1: 型エラー: メソッド名 show は型クラス Show が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)
   [1]
 
-組み込みと同名のクラス再宣言は従来どおり受理(照合の上で組み込みを使う):
-
-  $ printf 'type class Add[A] { val add: (A, A) => A }\necholn(show(2 + 3))\n' > readd.kel
-  $ diktor readd.kel
-  5
-
 操作節のガードでは resume が使えない(interp はガードを resume 無しで
 評価する。かつては型検査を通って実行時に落ちた):
 
@@ -599,16 +595,15 @@ handle の操作節の resume は通る:
   ! lfinbody.kel:6:16: 型エラー: resume は second-class です(クロージャに閉じ込める・節の外へ持ち出すことはできません)
   [1]
 
-組み込みキーへのユーザ instance の「受理するが採用しない」は 1 回まで。
-2 回目はコヒーレンス違反(「同じキーを 2 度登録したらエラー」を組み込み
-キーでも守る):
+組み込みキーへのユーザ instance は、1 回目で拒否する(2 回書いても
+1 本目の位置で落ちる):
 
   $ cat > dupinst.kel <<'KEL'
   > type instance Add[Int32] { let add(x, y) = x }
   > type instance Add[Int32] { let add(x, y) = y }
   > KEL
   $ diktor --type-check dupinst.kel
-  ! dupinst.kel:2:1: 型エラー: インスタンス Add[Int32] が二重に宣言されています(コヒーレンス違反)
+  ! dupinst.kel:1:1: 型エラー: 標準環境のインスタンス Add[Int32] は再宣言できません
   [1]
 
 既定の節が無い操作節は型検査で拒否(B2 / D29。仕様は、どの節にも一致しなかった
