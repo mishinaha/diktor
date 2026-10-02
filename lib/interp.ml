@@ -304,24 +304,14 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       match SMap.find_opt name env.locals with
       | Some v -> v
       | None -> (
-          match Hashtbl.find_opt env.globals name with
-          | Some v -> v
-          | None -> (
-              (* module スコープの値同義語。elab と同じく、見つからなかったときだけの
-                 フォールバックで、引けるのはこの閉包が属する module の同義語だけ *)
-              match
-                Option.bind
-                  (match env.mod_scope with
-                  | Some m -> Hashtbl.find_opt Decls.module_val_synonyms (m, Type.intern name)
-                  | None -> None)
-                  (fun q -> Hashtbl.find_opt env.globals (Type.name_of q))
-              with
+          match Tree.get_resolved node with
+          | Some (Tree.RVar g) -> (
+              match Hashtbl.find_opt env.globals g with
               | Some v -> v
-              | None -> (
-                  (* 裸の引数なしコンストラクタ *)
-                  match Tree.get_resolved node with
-                  | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
-                  | _ -> runtime_error ("未束縛の変数: " ^ name)))))
+              | None -> runtime_error ("未束縛の変数: " ^ name))
+          (* 裸の引数なしコンストラクタ *)
+          | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
+          | _ -> bug ("Ident が解決されていません: " ^ name)))
   | T.Lambda { l_params; l_body } -> VClosure { c_env = env; c_params = l_params; c_body = l_body }
   | T.Apply (f, arg) ->
       (* 左から右に評価する。OCaml の未規定の評価順に任せない(規約 2) *)
@@ -1143,7 +1133,7 @@ and eval_handle env body clauses =
    組み込み関数をエフェクトが通り抜けられるようにするための特別な仕掛けは要らない。 *)
 
 let register_builtin_values globals =
-  let reg n f = Hashtbl.replace globals n (VPrim { p_name = n; p_fn = f }) in
+  let reg n f = Hashtbl.replace globals (Tree.GBuiltin n) (VPrim { p_name = n; p_fn = f }) in
   reg "Ref.new" (fun args -> VRef (ref (Builtin.arg1 args)));
   reg "Ref.get" (fun args -> match Builtin.arg1 args with VRef r -> !r | v -> runtime_error ("Ref ではありません: " ^ show v));
   reg "Ref.set" (fun args ->
@@ -1246,8 +1236,7 @@ let register_class_methods globals =
          List.iter
            (fun (m, _) ->
              let wrapper = VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } in
-             Hashtbl.replace globals m wrapper;
-             Hashtbl.replace globals (cls_name ^ "." ^ m) wrapper)
+             Hashtbl.replace globals (Tree.GMethod (cls_name ^ "." ^ m)) wrapper)
            ci.Decls.ci_methods)
 
 (* ## 14.13 宣言の実行
@@ -1292,57 +1281,31 @@ let register_class_methods globals =
    パス 1c で署名を登録した前方参照は、古い閉包からも見えるべきだからである。
    複製は再束縛のときだけ走るので、再束縛の無いプログラムでは一度も起きない。
    その代わり、病的な入力では、再束縛 K 回と新しい名前 N 個に対して O(K × N) の時間とメモリを使う *)
-let bind_globals versions env names_values =
-  let env =
-    if List.exists (fun (n, _) -> Hashtbl.mem env.globals n) names_values then (
-      let t2 = Hashtbl.copy env.globals in
-      versions := t2 :: !versions;
-      { env with globals = t2 })
-    else env
-  in
-  List.iter
-    (fun (n, v) ->
-      if Hashtbl.mem env.globals n then Hashtbl.replace env.globals n v
-      else List.iter (fun t -> Hashtbl.replace t n v) !versions)
-    names_values;
+let bind_globals env names_values =
+  List.iter (fun (g, v) -> Hashtbl.replace env.globals g v) names_values;
   env
 
-let exec_decl versions env ((_, d) as node : T.decl) =
+let exec_decl env ((_, d) as node : T.decl) =
   (* 宣言の出身 module を環境に立てる。この宣言から作られる閉包が mod_scope を
      捕まえるので、実行時の非修飾名の解決が elab の current_module と同じスコープの
      規則になる。インスタンスの頭の resolve_con も同じスコープで引くので、
      Decls 側の current_module も一時的に立てる *)
-  let env = { env with mod_scope = Hashtbl.find_opt Decls.decl_module (Tree.oid_of node) } in
   let saved = !Decls.current_module in
-  Decls.current_module := env.mod_scope;
+  Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
   Fun.protect ~finally:(fun () -> Decls.current_module := saved) @@ fun () ->
   match d with
   | T.DLet ((_, b) as bnode) ->
       let v = eval_binding_value env bnode in
       let bound = bind_pat_exn SMap.empty b.T.lb_name v in
-      bind_globals versions env (SMap.bindings bound)
+      bind_globals env (List.map (fun (n, v) -> (Tree.GDecl (Tree.oid_of bnode, n), v)) (SMap.bindings bound))
   | T.DLetRec bs ->
       (* 再束縛があるなら、本体を評価する前に表を差し替える。閉包が新しい表を
          捕まえないと、自己再帰が古い実体を呼ぶ *)
-      let names =
-        List.map
-          (fun ((_, b) : T.let_binding) ->
-            match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです")
-          bs
-      in
-      let env =
-        if List.exists (fun n -> Hashtbl.mem env.globals n) names then (
-          let t2 = Hashtbl.copy env.globals in
-          versions := t2 :: !versions;
-          { env with globals = t2 })
-        else env
-      in
-      List.iter2
-        (fun ((_, _) as bnode : T.let_binding) x ->
-          let v = eval_binding_value env bnode in
-          if Hashtbl.mem env.globals x then Hashtbl.replace env.globals x v
-          else List.iter (fun t -> Hashtbl.replace t x v) !versions)
-        bs names;
+      List.iter
+        (fun ((_, b) as bnode : T.let_binding) ->
+          let x = match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです" in
+          Hashtbl.replace env.globals (Tree.GDecl (Tree.oid_of bnode, x)) (eval_binding_value env bnode))
+        bs;
       env
   | T.DExp e ->
       ignore (eval env e);
@@ -1396,7 +1359,7 @@ let exec_decl versions env ((_, d) as node : T.decl) =
                 ("未実装のプリミティブ: " ^ ex.T.ex_name
                 ^ if ex.T.ex_name = ex.T.ex_prim then "" else "(実装名 " ^ ex.T.ex_prim ^ " が見つかりません)")
       in
-      bind_globals versions env [ (ex.T.ex_name, VPrim { p_name = ex.T.ex_name; p_fn = impl }) ]
+      bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), VPrim { p_name = ex.T.ex_name; p_fn = impl }) ]
   | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> env
   | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
 
@@ -1424,11 +1387,10 @@ let run ~sink decls =
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
-  let env = { globals; locals = SMap.empty; resume = None; mod_scope = None } in
-  let versions = ref [ globals ] in
+  let env = { globals; locals = SMap.empty; resume = None } in
   ignore
     (Builtin.with_runtime ~sink (fun () ->
-         ignore (List.fold_left (exec_decl versions) env decls);
+         ignore (List.fold_left exec_decl env decls);
          unit))
 
 (* ## 14.15 本章の限界

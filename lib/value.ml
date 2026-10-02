@@ -151,13 +151,9 @@ and prim = { p_name : string; p_fn : t -> t (* 引数レコードを受け取る
    深い再帰ではわずかに遅いが、クロージャによる環境の捕獲を O(1) で正しく行える。 *)
 
 and env = {
-  globals : (string, t) Hashtbl.t;
+  globals : (Tree.gref, t) Hashtbl.t;
   locals : t SMap.t;
   resume : resume option;
-  (* 出身の module。module 内の宣言から作ったクロージャはこれを覚えておき、
-     非修飾名が globals に無かったとき、module スコープの値同義語を引く。
-     第6章(decls.ml)の current_module に対応する評価器の側の情報 *)
-  mod_scope : string option;
 }
 
 (* ## 12.4 `resume` が値でない理由
