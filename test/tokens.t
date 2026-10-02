@@ -659,7 +659,7 @@ effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行�
   ! effield.kel:1:15: 型エラー: エフェクト行にフィールド x は書けません
   [1]
 
-sample.kel 全文のトークン化(2599 トークン。親 d8c872a の写しのもの):
+sample.kel 全文のトークン化(2599 トークン。親 33c803f の写しのもの):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
   2599

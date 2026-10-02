@@ -2,11 +2,12 @@
 
 - コピー元: 親リポジトリ `keleut` の `doc/sample.kel`(2026-09-12 に旧 `reference/` から `doc/` へ移動し、
   追跡対象になった。移動コミットは親の 2fd2d2e)
-- コピー元リビジョン: d8c872a(親の `spec: sample.kel を削除、Blocking 既定、末尾ブロックに合わせて改訂する`。
-  876 行のまま 54 行を置き換えた。コメントのほかに、標準環境の名前を再宣言していた行、`derive structural`、
-  `newtype X = ???`、`Fs` と `__open` などのファイルのプリミティブを除き、ファイルの例を `extern "C"` の
-  `file_open` などで書き直し、`extern "C"` の `sin` の型を `[E] … @ E` に書き換えた)
-- コピー元 blob: 41f6883fbdb342c64597d7ade54b592c46b0a244(md5: 9326fd9bf55f0a0a46383dd21c296135)
+- コピー元リビジョン: 33c803f(親の `spec: 何もしない Async と仮想の Fs を標準環境から除く(§2.2 / §13.7 / §16.5)`。
+  726 行のコメントだけを書き換えた)。その前の d8c872a(親の `spec: sample.kel を削除、Blocking 既定、
+  末尾ブロックに合わせて改訂する`)は、876 行のまま 54 行を置き換えた。コメントのほかに、標準環境の名前を
+  再宣言していた行、`derive structural`、`newtype X = ???`、`Fs` と `__open` などのファイルのプリミティブを除き、
+  ファイルの例を `extern "C"` の `file_open` などで書き直し、`extern "C"` の `sin` の型を `[E] … @ E` に書き換えた。
+- コピー元 blob: dd9d2c8d44c03e0247848a4ed8e5065d119d4338(md5: c7845fc812c76a049b5410e31db609d1)
 - 同期手順:
 
       git -C .. show <親のリビジョン>:doc/sample.kel > test/sample/sample.kel
