@@ -928,9 +928,6 @@ and expand_alias env level ~expanding info args =
        展開後の型に制約の痕跡も残らないので、その場で調べるしかない。これは newtype より
        早い時点である。newtype の制約は値の構築時に効くので、Box[NoShow] は型として
        書けるが Box(v) で落ちる *)
-    List.iter2
-      (fun (tp : type_param) t -> List.iter (fun li -> Unify.add_class t (intern (show_long_id li))) tp.tp_classes)
-      info.Decls.al_params arg_tys;
     let types =
       List.fold_left2 (fun m tp t -> SMap.add tp.tp_name t m) SMap.empty info.Decls.al_params arg_tys
     in
@@ -3392,8 +3389,7 @@ let newtype_param_env env (n : T.newtype') =
     List.map2
       (fun (tp : type_param) hk ->
         let kind = if tp.tp_arity > 0 then k_arrow tp.tp_arity else hk in
-        let classes = List.map (fun li -> intern (show_long_id li)) tp.tp_classes in
-        { vid = new_oid (); vlevel = 0; vkind = kind; vcls = classes })
+        { vid = new_oid (); vlevel = 0; vkind = kind; vcls = [] })
       n.T.nt_params head_kinds
   in
   let types =
@@ -4378,23 +4374,12 @@ let with_decl_module node f =
   Decls.current_module := Hashtbl.find_opt Decls.decl_module (Tree.oid_of node);
   Fun.protect ~finally:(fun () -> Decls.current_module := saved) f
 
-(* 行カインドのパラメータには、型クラスの制約を書けない。
-   型クラスは Type のクラスなので、行に要求しても満たす手段が無い。
-   宣言の位置で拒否しないと、エイリアスでは使用点ごとに落ち、
-   newtype では構築点が行を見ないので素通りする。
-   カインドが決まった後(1b の後始末の 2 周目)に、宣言の位置で確かめる *)
-let check_row_constraints (tparams : type_param list) (kinds : kind list) =
-  if List.length tparams = List.length kinds then
-    List.iter2
-      (fun (tp : type_param) k ->
-        match kind_repr k with
-        | KRow when tp.tp_classes <> [] ->
-            type_error
-              ("型パラメータ " ^ tp.tp_name ^ " は行カインドなので、型クラス "
-              ^ String.concat ", " (List.map show_long_id tp.tp_classes)
-              ^ " の制約は書けません(型クラスは Type のクラス)")
-        | _ -> ())
-      tparams kinds
+let no_param_constraints what (tparams : type_param list) =
+  List.iter
+    (fun (tp : type_param) ->
+      if tp.tp_classes <> [] then
+        type_error (what ^ " の型パラメータ " ^ tp.tp_name ^ " には型クラスの制約を書けません"))
+    tparams
 
 let process_decls env ~emit decls =
   let eff0 = toplevel_eff () in
@@ -4405,6 +4390,7 @@ let process_decls env ~emit decls =
       with_decl_module node @@ fun () ->
       match d with
       | T.DType t ->
+          no_param_constraints "型エイリアス" t.T.ta_params;
           register_companion t.T.ta_name;
           Decls.add_alias
             {
@@ -4421,6 +4407,7 @@ let process_decls env ~emit decls =
               al_module = !Decls.current_module;
             }
       | T.DNewtype n ->
+          no_param_constraints "newtype" n.T.nt_params;
           (* 型の名前空間の主張はここ(宣言順)で行う。add_data も add_effect も 1b なので、
              種別の交差の検出を各 add に任せると、1a の add_alias が常に先回りし、後に
              書かれたエイリアスが、先に書かれた newtype を再宣言として逆向きに咎める *)
@@ -4490,10 +4477,7 @@ let process_decls env ~emit decls =
       match d with
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
-      | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
-      (* DType もここで、パラメータの制約に書いたクラスが実在するかを AST の側で確かめる *)
       | T.DType t -> (
-          List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params;
           (* エイリアス本体のカインドの推論。ここで一度、本体を投機的に精緻化し、
              パラメータのカインドだけを決めて結果は捨てる。パス 2 の実在検査より前に
              行わないと、エイリアスを先に使う宣言があったときに、カインドが宣言順で変わる。
@@ -4529,14 +4513,12 @@ let process_decls env ~emit decls =
           default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
           match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
           | Some dd ->
-              List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params;
-              check_row_constraints n.T.nt_params (List.map (fun (i : var_info) -> i.vkind) dd.Decls.dd_params)
+              List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params
           | None -> ())
       | T.DType t -> (
           match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
           | Some info ->
-              List.iter default_kind info.Decls.al_kinds;
-              check_row_constraints t.T.ta_params info.Decls.al_kinds
+              List.iter default_kind info.Decls.al_kinds
           | None -> ())
       | _ -> ())
     decls;
