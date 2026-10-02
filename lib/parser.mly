@@ -293,7 +293,14 @@ let call sloc callee args =
 
    最後の分岐は、`items` をすべての位置で共有した代償である。
    `module` や `type` はブロックの中では式に落とせないので、ここで構文エラーにするしかない。
-   文脈の違反は elab が検査するという原則に対して、この 1 行は例外である。 *)
+   文脈の違反は elab が検査するという原則に対して、この 1 行は例外である。
+
+   `pub` を付けた `let` と `let rec` も、ブロックの中では構文エラーにする。
+   公開できるのはファイルのトップレベルの宣言だけで、ブロックの中の宣言は外から見えない。
+   トップレベルの `with` より後ろの文もブロックになる(§3.8)ので、
+   `with` より後ろの `pub let` もここで拒否される。
+   黙って受理すると、公開したつもりの宣言が import できない理由を利用者が探すことになる。
+   位置は最後の分岐と同じく、パーサが最後に読んだトークンになる。 *)
 let rec block_of_items sloc items =
   match items with
   | [] -> mk sloc RecordEmpty
@@ -302,6 +309,10 @@ let rec block_of_items sloc items =
       match block_of_items sloc rest with
       | (_, Seq es) -> mk sloc (Seq (e :: es))
       | r -> mk sloc (Seq [ e; r ]))
+  | (_, DLet (_, b)) :: _ when b.lb_pub ->
+      raise (Syntax_error "ブロックの中の let には pub を付けられません(with より後ろの宣言は公開できません)")
+  | (_, DLetRec bs) :: _ when List.exists (fun (_, b) -> b.lb_pub) bs ->
+      raise (Syntax_error "ブロックの中の let rec には pub を付けられません(with より後ろの宣言は公開できません)")
   | (d, DLet b) :: rest -> (d, Let (b, block_of_items sloc rest))
   | (d, DLetRec bs) :: rest -> (d, LetRec (bs, block_of_items sloc rest))
   | _ :: _ -> raise (Syntax_error "この宣言はブロック内では使えません(let / let rec / 式のみ)")
