@@ -370,8 +370,7 @@ let rec sexp_of_decl (_, d) =
             L (vb @ [ A ":"; sexp_of_ty v.cv_ty ]))
           c.cls_vals
       in
-      let derives = List.map (fun d -> L [ A "derive"; A d ]) c.cls_derives in
-      L (base @ vals @ derives)
+      L (base @ vals)
   | DInstance i ->
       (* 束縛子があるときだけ tparams のリストを先に出す。既定値を出さないという
          本章の方針に従う *)

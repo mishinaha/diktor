@@ -458,7 +458,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 
 %token LBRACE_BLOCK LBRACE_RECORD LBRACE_TYPE RBRACE
 %token BACKSLASH DOTDOTDOT LESS_EQ GREATER_EQ HOLE
-%token CLASS INSTANCE DERIVE EXTENDS EXTERN NEWTYPE PERFORM PUB RESUME RUN
+%token CLASS INSTANCE EXTENDS EXTERN NEWTYPE PERFORM PUB RESUME RUN
 %token <string> HASH_IDENT
 
 (* ## 3.12 開始記号の型と、`Error` という名前の衝突
@@ -596,8 +596,7 @@ decl_body:
   | TYPE upper_id typarams_opt kind_annot_opt EQ ty
       { DType { ta_pub = false; ta_name = $2; ta_params = $3; ta_kind = $4; ta_body = $6 } }
   | TYPE CLASS upper_id typarams class_body
-      { let vals, derives = $5 in
-        DClass { cls_pub = false; cls_name = $3; cls_params = $4; cls_vals = vals; cls_derives = derives } }
+      { DClass { cls_pub = false; cls_name = $3; cls_params = $4; cls_vals = $5 } }
   | TYPE INSTANCE typarams_opt upper_id LBRACKET ty_args RBRACKET instance_body
       { DInstance { ins_tparams = $3; ins_class = $4; ins_args = $6; ins_body = $8 } }
   | NEWTYPE upper_id typarams_opt newtype_rhs
@@ -728,15 +727,12 @@ instance_body: lbrace items RBRACE { $2 }
 
 class_body: lbrace class_items RBRACE { $2 }
 class_items:
-  |                             { ([], []) }
+  |                             { [] }
   | semi class_items            { $2 }
-  | class_item                  { (match $1 with Either.Left v -> ([ v ], []) | Either.Right d -> ([], [ d ])) }
-  | class_item semi class_items
-      { let vals, derives = $3 in
-        match $1 with Either.Left v -> (v :: vals, derives) | Either.Right d -> (vals, d :: derives) }
+  | class_item                  { [ $1 ] }
+  | class_item semi class_items { $1 :: $3 }
 class_item:
-  | VAL lower_id typarams_opt COLON ty { Either.Left { cv_name = $2; cv_tparams = $3; cv_ty = $5 } }
-  | DERIVE lower_id                    { Either.Right $2 }
+  | VAL lower_id typarams_opt COLON ty { { cv_name = $2; cv_tparams = $3; cv_ty = $5 } }
 
 newtype_rhs:
   |                           { RhsNone }

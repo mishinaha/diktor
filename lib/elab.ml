@@ -3684,31 +3684,6 @@ let register_class env (c : T.class_decl') =
        "クラスパラメータに制約は書けません(スーパークラスは入れない裁定です。両方が要るときは [A: Eq + Ord] のように並べて書いてください)");
   let pinfo = { vid = new_oid (); vlevel = 0; vkind = param_kind; vcls = [ cls ] } in
   let pvar = TVar (ref (Generic pinfo)) in
-  List.iter
-    (fun d -> if d <> "structural" then type_error ("未知の導出規則: " ^ d ^ "(v0 は derive structural のみ)"))
-    c.T.cls_derives;
-  (* derive structural は、利用者が新しく宣言するクラスには書けない。sample.kel:383 は
-     「利用者には書かせない。コヒーレンスを守るため、組み込みの自動導出だけがインスタンスを与える」
-     と定める。受理すると、elab は任意のクラスで閉じた行に構造的導出を認めるのに、
-     実行時の構造的フォールバック(§14.7)は Eq.eq に決め打ちなので、
-     型検査を通ったプログラムが実行時に落ちる。
-     クラス表に既にある名前の宣言は、ここでは弾かない。組み込み表が登録したクラスの
-     再宣言なら add_class_decl が標準環境の名前の再宣言として、それ以外の名前なら
-     二重宣言として拒否する。この検査はカインドの検査より先に置く。
-     逆の順だと、新しいクラスに、カインドを直せという直しようのない案内が出る
-     (直すと、今度はこちらの検査に当たる) *)
-  (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
-     type_error "derive structural はユーザ宣言のクラスには書けません(構造的な型へのインスタンスは組み込みの自動導出のみが与えます)");
-  (* derive structural のカインドの検査。sample.kel:397-399 は、derive structural を
-     書けるのはパラメータのカインドが Type のクラスだけで、カインドで判別できるので宣言の
-     時点でエラーにする、と定める。構造的導出はレコードやヴァリアントの各フィールドへ制約を
-     配る規則なので、Type のクラスにしか意味が無い。上の全面的な拒否があるので、この検査が
-     単独で効くのは、プレリュード(--prelude で差し替えたものを含む)を処理している間と、
-     クラス表に既にある名前でクラスを宣言したときだけ *)
-  (if List.mem "structural" c.T.cls_derives && not (same_kind param_kind KStar) then
-     type_error
-       ("derive structural は Type のクラスにしか付けられません(" ^ c.T.cls_name ^ " のパラメータは "
-      ^ show_kind param_kind ^ " です)"));
   let methods =
     List.map
       (fun (v : T.class_val) ->
@@ -3788,7 +3763,7 @@ let register_class env (c : T.class_decl') =
       Decls.ci_name = cls;
       ci_param = pinfo;
       ci_param_kind = param_kind;
-      ci_derive_structural = List.mem "structural" c.T.cls_derives;
+      ci_derive_structural = false;
       ci_builtin = false;
       ci_methods = methods;
     };

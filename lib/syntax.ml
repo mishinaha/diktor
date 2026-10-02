@@ -1078,7 +1078,6 @@ module Make (Data : Data) = struct
     cls_name : string;
     cls_params : type_param list; (* 1 個であることは elab が検査する *)
     cls_vals : class_val list;
-    cls_derives : string list; (* derive structural *)
   }
 
   type extern_decl' = {

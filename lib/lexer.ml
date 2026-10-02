@@ -234,7 +234,6 @@ module Make (Data : Syntax.Data) = struct
     | "and" -> AND
     | "case" -> CASE
     | "class" -> CLASS
-    | "derive" -> DERIVE
     | "effect" -> EFFECT
     | "extends" -> EXTENDS
     | "extern" -> EXTERN
@@ -839,7 +838,7 @@ module Make (Data : Syntax.Data) = struct
   (* NL の後で文を始められるトークン。AND / CASE / MATCH / HANDLE / DOT / BACKSLASH /
      EXTENDS / VERTICAL / 二項演算子は、前の行の続きにするために除いている *)
   let can_begin_statement = function
-    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | DERIVE | WITH | PERFORM | RESUME | RUN | FN
+    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | WITH | PERFORM | RESUME | RUN | FN
     | LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ | HASH_IDENT _ | NUMBER _ | TEXT _ | BOOL _ | HOLE | EXCLAMATION
     | LBRACE_BLOCK | LBRACE_RECORD | LBRACE_TYPE | LPAREN ->
         true
@@ -945,7 +944,6 @@ module Make (Data : Syntax.Data) = struct
     | CLASS -> "class"
     | COLON -> ":"
     | COMMA -> ","
-    | DERIVE -> "derive"
     | DOT -> "."
     | DOTDOTDOT -> "..."
     | EFFECT -> "effect"
