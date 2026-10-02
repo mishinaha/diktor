@@ -1487,7 +1487,7 @@ and elab_exp' env level eff node e =
    この順序が必要になる例が、sample.kel:618-623 の `copy` である。
 
    ```
-   let copy(src: String, dst: String): Unit @ {Console, Fs} = {
+   let copy(src: String, dst: String): Unit @ {Console, Blocking} = {
      with _ = with_file(src)
      let text = perform read()                   // 最も左の File は src のもの
      with _ = with_file(dst)
@@ -1497,8 +1497,8 @@ and elab_exp' env level eff node e =
 
    `with` は呼び出しの末尾に継続を加える構文糖(第3章)なので、
    これは `with_file(src, fn(_) => ...)` に脱糖される。
-   `with_file` の宣言は `body: () => A @ {File, Fs extends E}` なので、
-   期待型を先に押し込めば、ラムダの行が `{File, Fs extends E}` に確定した状態で、
+   `with_file` の宣言は `body: () => A @ {File, Blocking extends E}` なので、
+   期待型を先に押し込めば、ラムダの行が `{File, Blocking extends E}` に確定した状態で、
    ラムダの本体を推論できる。
    すると `write` を解決するときに、行に `File` が見えている。
    順序を入れ替えると、ここは `write` が Console と File の両方にある、という曖昧さのエラーになる。
@@ -2226,16 +2226,14 @@ and elab_handle env level eff clauses body =
    `File` のほかに `read` / `write` / `close` を持つエフェクトがあっても、
    `read` と `write` の節だけを書けば `File` に決まる。
 
-   ランタイムが提供するエフェクト(プレリュードの `Console` / `Fs`)はハンドルできない。
-   これらは手順 1 の候補からも外す。
+   ランタイムが提供するエフェクト(プレリュードの `Console`)はハンドルできない。
+   これは手順 1 の候補からも外す。
    `Console` を候補に残すと、`write` 節だけを書いた handle は、
    全操作が書かれている `Console` に手順 2 で決まる。
    候補から外すので、この handle は `Console` には決まらず、
    「File の read が漏れています」で落ちる。
    `File` のつもりで `write` 節だけを書いた誤りは、この診断でそのまま分かる。
    `File` を意図していたなら、`File.write` と修飾するか、`read` 節も書けばよい。
-   `Fs` は操作を持たないので候補には現れず、修飾して名指ししたときだけ、
-   ハンドルできないという診断になる。
    網羅漏れのエラーになるのは、どの候補も自分の全操作を覆えていないときである。
    2 つの操作を持つエフェクトの片方だけを書いた場合などが、これにあたる。
 
@@ -2253,15 +2251,14 @@ and elab_handle env level eff clauses body =
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:536 が
-     Console を名指しで定める。Diktor は第7章の名簿の Fs も同じに扱う。許すと、出力を黙って消す
+     Console を名指しで定める。許すと、出力を黙って消す
      恒等ハンドラが書け、File.write のつもりの case write(s) が Console を
      消すことも起きる。判定は、ランタイムの名簿に名前があり、かつプレリュードが
-     宣言したものであること。--no-prelude で利用者が自分の effect Console / Fs を
+     宣言したものであること。--no-prelude で利用者が自分の effect Console を
      宣言した場合は禁止しない。修飾された節では、この判定が
      「操作 X はエフェクト Y に属しません」より先に走る。Heap / Blocking は名簿に
      無いので禁止されない。名簿に入れると case Blocking.nope() の診断がこちらに
-     すり替わる(第7章 §7.3)。Fs は操作を持たないので、修飾しなければ候補に
-     挙がらず、修飾したときだけここに届く *)
+     すり替わる(第7章 §7.3) *)
   let runtime_provided e = List.mem (name_of e) Prims.runtime_effects && Decls.prelude_owned "effect" e in
   let runtime_msg e =
     match name_of e with
@@ -3176,14 +3173,11 @@ and elab_rec_bindings env level eff bs : env =
 (* ## 11.30 トップレベルで許されるエフェクト
 
    トップレベルの初期エフェクト行は、ランタイムが提供する**閉じた**行である。
-   中身は `{Console, Fs, Blocking}` の 3 つで、名簿は第7章の `toplevel_effects` にある。
-   3 つがこの行にある理由は、それぞれ異なる。
+   中身は `{Console, Blocking}` の 2 つで、名簿は第7章の `toplevel_effects` にある。
+   2 つがこの行にある理由は、それぞれ異なる。
 
    - `Console`：出力の最終的な行き先である。
      ランタイムが実装を持ち、利用者はハンドルできない(§11.23)。
-   - `Fs`：4 つのファイルプリミティブが `@ Fs` を課すので、
-     トップレベルから `__open` を呼べるように置く。
-     操作は持たない。
    - `Blocking`：操作を持たないので、行に残っていても `perform` で起こせるものが無い。
      仕様 §12 は、`Blocking` を締め出す役目を `pinned` に任せている。
      ハンドル禁止の名簿(`runtime_effects`)には入れない。
@@ -3194,16 +3188,11 @@ and elab_rec_bindings env level eff bs : env =
    行に載るのは `Heap[Unit]` である。
    これは、`run h` が導入する剛定数 `h` を持つ `Heap[h]` とは単一化しない。
 
-   4 つのうち、`--no-prelude` でも行に残るのは `Blocking` だけである。
-   ほかの 3 つはプレリュードが宣言する名前で、下の `toplevel_eff` の所有のガードは、
-   利用者が同じ名前を宣言してもそれを行に載せない。
-   `Fs` もその 3 つに入るので、`--no-prelude` のもとでは、
-   `effect Fs = {}` と `@ Fs` を持つ `extern` を自前で書いても、
-   トップレベルからその `extern` を呼ぶ手段が無い(`test/fs_effect.t` の npfs)。
-   `--prelude` で差し替えたプレリュードが `Fs` を宣言するなら、`Fs` はプレリュードの所有になり、
-   行に載る(`test/fs_effect.t` の withpre)。
+   2 つのうち、`--no-prelude` でも行に残るのは `Blocking` だけである。
+   `Console` はプレリュードが宣言する名前で、下の `toplevel_eff` の所有のガードは、
+   利用者が同じ名前を宣言してもそれを行に載せない(`test/runtime_effects.t` の np3)。
    この非対称は、宣言の場所の違いから来る。
-   `Blocking` は §6.12 の組み込み登録が宣言し、`Fs` は第15章のプレリュードが宣言する。
+   `Blocking` は §6.12 の組み込み登録が宣言し、`Console` は第15章のプレリュードが宣言する。
 
    行が閉じているので、`perform print(...)` をトップレベルに書くと、
    「エフェクト Print をここでは実行できません」で落ちる。
