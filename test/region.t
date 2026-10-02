@@ -218,9 +218,8 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   ! pubpure.kel:1:78: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
-閉じた行 @ {} のコールバックを run の中の each に渡す形は、each とは無関係に
-落ちる(run が体の行に Heap[h] を要求し、閉じた行はそれを受けられない —
-非サブエフェクティングの既存規則。旧 spec_gaps.t の eachclosed):
+最外の矢印に @ {} と書いた関数 g は、公開の型で行を開くので、run の中の each に
+渡せる(LangSpec §13.2。旧 spec_gaps.t の eachclosed):
 
   $ cat > eachclosed.kel <<'KEL'
   > let g(x: Int32): {} @ {} = {}

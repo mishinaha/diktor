@@ -1,7 +1,7 @@
-注釈した行の読み方(仕様 §9 の改訂、M26 / D75〜D78)。入れ子の矢印の省略 @ は
-@ {}、純粋と判明した let の行は公開で開き直す。型表示では改訂の前後で 1 文字も
-変わらないので(空行と裸の行変数はどちらも表示されない)、ゴールデンは必ず
-「通る / 通らない」で書く。
+注釈した行の読み方(仕様 §9、M26 / D75〜D78)。入れ子の矢印の省略 @ は @ {}。
+最外の矢印に書いた閉じた行は、@ {} を含めて公開の型で開き、@ を省略した let の
+推論した閉じた行も公開で開き直す。空行と裸の行変数はどちらも表示されないので、
+ゴールデンは必ず「通る / 通らない」で書く。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -66,7 +66,8 @@
   ! nestrec3.kel:2:45: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-入れ子のラベル付き行は開かない(I8 の提案は仕様が却下した。正道は行変数の明示):
+入れ子のラベル付き行は開かない(I8 の提案は仕様が却下した。正道は行変数の明示)。
+本体の閉じた行と一致すれば、本体から呼べる:
 
   $ cat > nested3.kel <<'KEL'
   > type Unit = {}
@@ -146,8 +147,8 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   $ diktor spec9.kel
   fired
 
-@ を省略した let の行が本体で空に固まっても、公開の型は行多相(§9 の
-「純粋な本体なら行変数として一般化される」— D76)。@ {} と**書いた**ときは開かない:
+@ を省略した let の行が本体で空に固まっても、公開の型は行多相(§9。D76)。
+@ {} と**書いた**ときも、公開の型で開く:
 
   $ cat > val2.kel <<'KEL'
   > let k: (Int32) => Int32 = fn(x) => x
@@ -165,8 +166,33 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   k : (Int32) => Int32
   use : () => Int32 @ {Console extends R1}
 
+@ を省略した sum と、@ {} と書いた sum2 は、表示が同じ (Array[Int32]) => Int32 で、
+どちらも Console の下から呼べる(LangSpec §13.2。旧 spec_gaps.t の sumgen と sumclosed):
+
+  $ cat > sumgen.kel <<'KEL'
+  > let sum(xs: Array[Int32]): Int32 = run h {
+  >   let acc = Ref.new(0)
+  >   Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
+  >   Ref.get(acc)
+  > }
+  > let effectful(xs: Array[Int32]): Int32 @ {Console} = { echoln("go"); sum(xs) }
+  > let pure_ok(xs: Array[Int32]): Int32 @ {} = sum(xs)
+  > KEL
+  $ diktor --type-check sumgen.kel
+  sum : (Array[Int32]) => Int32
+  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
+  pure_ok : (Array[Int32]) => Int32
+
+  $ cat > sumclosed.kel <<'KEL'
+  > let sum2(xs: Array[Int32]): Int32 @ {} = 1
+  > let effectful(xs: Array[Int32]): Int32 @ {Console} = { echoln("go"); sum2(xs) }
+  > KEL
+  $ diktor --type-check sumclosed.kel
+  sum2 : (Array[Int32]) => Int32
+  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
+
 注釈の頭が型エイリアスの値束縛は開き直さない — 展開先の矢印は入れ子(D75)なので
-省略は @ {}、書かれた @ {} は両方向。パス 1c の署名(§11.37)も同じ閉じた行を
+省略は @ {}、書かれた @ {} も閉じたまま公開する。パス 1c の署名(§11.37)も同じ閉じた行を
 作るので、宣言順のどちらでも同じ結果になる(M26 の検証で、パス 2 だけが開いて
 宣言順で受理 / 拒否が割れる食い違いが見つかった):
 
@@ -239,7 +265,7 @@ V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。
   use : (Box) => Int32 @ {Print, Log extends R1}
 
 エイリアスで書いたメソッドにも呼び方はある。呼び出し側が @ を省略すれば行が
-推論され、公開される型は閉じた {Print} になる:
+推論され、推論した閉じた行 {Print} は公開の型で開く:
 
   $ cat > clsalias3ok.kel <<'KEL'
   > type Unit = {}
@@ -302,9 +328,9 @@ let rec も同じ(群のうち @ を書いた束縛と pub は対象外):
   user : () => Int32 @ {Console, Print extends R1}
   k : (Int32) => Int32 @ {Console extends R1}
 
-上限は単一化で掛けるので、本体の行が閉じたまま固まっていると頭の注釈と合わない。
-下の 2 つは値束縛と関数束縛の書き分けだけが違い、どちらも同じ理由で落ちる(行の
-部分型付けを持たない設計の帰結)。注釈をエイリアスで書けば入れ子の読みになって通る:
+本体の行が閉じたまま固まっていても、頭の注釈の閉じた行と一致すれば通る。
+下の 2 つは値束縛と関数束縛の書き分けだけが違う。注釈をエイリアスで書けば
+入れ子の読みになり、閉じた行のまま公開する:
 
   $ cat > valclosed.kel <<'KEL'
   > type F = (Int32) => Int32 @ Console
@@ -486,9 +512,8 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   a : (Int32) => Int32 @ {Console extends R1}
   b : (Int32) => Int32 @ {Console, Print extends R1}
 
-群の 2 本以上が最外の矢印に @ をリテラルで書き、先行する束縛が後続を呼ぶと通らない。
-診断が名指しする 2 つの行(ς1 と ς2)が別々の剛定数だからで、値束縛でも関数束縛でも
-同じ制限になる。まず互いを呼び合う形:
+群の 2 本以上が最外の矢印に同じ閉じた行を書けば、互いを呼び合える(値束縛でも
+関数束縛でも同じ):
 
   $ cat > recandboth.kel <<'KEL'
   > let rec f: (Int32) => Int32 @ Console = fn(x) => g(x)
@@ -505,8 +530,10 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   a : (Int32) => Int32 @ {Console extends R1}
   b : (Int32) => Int32 @ {Console extends R1}
 
-決めるのは呼ぶ向きで、互いを呼び合うことではない。先行が後続を呼ぶだけの形も落ち、
-同じ 2 本で後続が先行を呼ぶだけの形は通る(M33 の検証):
+先行が後続を呼ぶときは、群の中の単相の変数を通るので、呼ぶ側の本体の行と
+呼ばれる側の閉じた行が一致しなければならない。行が同じなら通り、違えば落ちる。
+後続が先行を呼ぶときは、先行の公開の型(尾部を開いた型)を通すので、行が違っても
+ラベルが含まれていれば通る(上の recandeff も同じ):
 
   $ cat > recandfwd.kel <<'KEL'
   > let rec a: (Int32) => Int32 @ Console = fn(n) => b(n)
@@ -522,6 +549,13 @@ let rec の値束縛も頭を最外として読む。pub の省略 @ の枝だ�
   $ diktor --type-check recandfwdfn.kel
   a : (Int32) => Int32 @ {Console extends R1}
   b : (Int32) => Int32 @ {Console extends R1}
+  $ cat > recandfwddiff.kel <<'KEL'
+  > let rec b(n: Int32): Int32 @ {Console, Print} = a(n)
+  > and a(n: Int32): Int32 @ Console = { echo("a "); n }
+  > KEL
+  $ diktor --type-check recandfwddiff.kel
+  ! recandfwddiff.kel:2:5: 型エラー: ラベル Print がありません(行は閉じています)
+  [1]
   $ cat > recandback.kel <<'KEL'
   > let rec a: (Int32) => Int32 @ Console = fn(n) => { echo("a"); n }
   > and b: (Int32) => Int32 @ Console = fn(n) => a(n)

@@ -83,8 +83,9 @@ MiniLang より厳しくなる点):
   ! alc.kel:1:1: 型エラー: 型エイリアス P の型パラメータ A には型クラスの制約を書けません
   [1]
 
-instance 本体にも宣言終端の掃き出しが掛かる(M17 検証。値制限で
-一般化されない本体 let は all=false 検査を通らない):
+instance 本体にも宣言終端の掃き出しが掛かる(M17 検証)。値でない式で書いた実装は、
+メソッドの @ {} を公開の型で開くので、純粋性の検査で先に落ちる(LangSpec §13.2)。
+関数として書いた実装なら、曖昧な制約が掃き出しで落ちる(inam2):
 
   $ cat > inam.kel <<'KEL'
   > type class C[A] { val cm: (A) => A @ {} }
@@ -96,6 +97,17 @@ instance 本体にも宣言終端の掃き出しが掛かる(M17 検証。値制
   read_ : [A: Show] (String) => A
   idf : (A) => A
   ! inam.kel:4:30: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド cm の本体がエフェクトを起こしています。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+  $ cat > inam2.kel <<'KEL'
+  > type class C[A] { val cm: (A) => A @ {} }
+  > let read_[A: Show](s: String): A = ???
+  > let idf[A](x: A): A = x
+  > type instance C[Int32] { let cm(x) = { show(read_("z")); idf(x) } }
+  > KEL
+  $ diktor --type-check --no-prelude inam2.kel
+  read_ : [A: Show] (String) => A
+  idf : (A) => A
+  ! inam2.kel:4:30: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
   [1]
 
 スーパークラスは入れない裁定(§8 / D98)。クラスパラメータの制約は宣言時に

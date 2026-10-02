@@ -14,38 +14,12 @@ test/region.t へ(M24)、cancelre は test/eval.t の cancelouter / cancelnores 
 test/typecheck_sample.t が持つ。M25)。2026-09-19 の改訂で §14 の TODO は
 12 件から 14 件になった。増えた 2 件は、リージョンの専用カインド(§14:870-871。
 現状は台帳 V21 として test/kinds.t の regionkind2 が見張る)と、型パラメータの
-カインド注記(§14:874-876。注記構文は入れないと決めたので観測点は無い — D124)。
-以下は 14 件のうち、このファイルが観測点を置く 4 件。Chan の署名(§14:859)、
+カインド注記(§14:872-874。注記構文は入れないと決めたので観測点は無い — D124)。
+§13.2 の単純化で「非 pub の let で、本体は純粋、呼び出しはどの行からでも可、を注釈で
+書く手段」の TODO が決着し、13 件になった(観測点は test/annot_rows.t の sumgen と
+sumclosed へ移した)。以下は 13 件のうち、このファイルが観測点を置く 3 件。Chan の署名(§14:859)、
 module の入れ子(:860)、Ord[Float64] / Eq[Float64] と NaN(:861-866)は cram では
 観測できないので記録のみ。
-
-非 pub の let で「本体は純粋、呼び出しはどの行からでも可」を注釈で書く手段
-(§14:872-873、§9)。現状は @ を省略した let が行変数に一般化され、@ {} と
-明示すると呼び出し側の行まで空に縛る。sum と sum2 は表示が同じ
-(Array[Int32]) => Int32 なのに、片方だけが Console の下から呼べる(第9章 §9.6
-の「正直な代償」の観測点):
-
-  $ cat > sumgen.kel <<'KEL'
-  > let sum(xs: Array[Int32]): Int32 = run h {
-  >   let acc = Ref.new(0)
-  >   Array.each(xs, fn(x) => Ref.set(acc, Ref.get(acc) + x))
-  >   Ref.get(acc)
-  > }
-  > let effectful(xs: Array[Int32]): Int32 @ {Console} = { echoln("go"); sum(xs) }
-  > let pure_ok(xs: Array[Int32]): Int32 @ {} = sum(xs)
-  > KEL
-  $ diktor --type-check sumgen.kel
-  sum : (Array[Int32]) => Int32
-  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
-  pure_ok : (Array[Int32]) => Int32
-
-  $ cat > sumclosed.kel <<'KEL'
-  > let sum2(xs: Array[Int32]): Int32 @ {} = 1
-  > let effectful(xs: Array[Int32]): Int32 @ {Console} = { echoln("go"); sum2(xs) }
-  > KEL
-  $ diktor --type-check sumclosed.kel
-  sum2 : (Array[Int32]) => Int32
-  effectful : (Array[Int32]) => Int32 @ {Console extends R1}
 
 非有限値(NaN、無限大)のリテラル(§14:867、§2)。現状は無く、文字列化の字面
 nan / inf は読み戻せない(表示側は test/numeric.t の infnan):
