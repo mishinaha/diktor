@@ -68,6 +68,7 @@
    | `signature_of_binding` | パス 1c の前方参照の署名 |
    | `check_instance_bodies` | インスタンス本体の包摂検査 |
    | `process_decls` / `type_check_decls` / `type_check` | 入口 |
+   | `start_session` / `check_input` | 対話的な実行の入口 |
    | `flatten_modules` | module の平坦化 |
 
    本章で繰り返し現れる形は多くない。
@@ -3197,7 +3198,7 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
 
    初期の値環境は、第6章の組み込み表から作る。 *)
 
-let toplevel_eff () =
+let toplevel_eff ?(extra = []) () =
   (* トップレベルの行に載せるのは、名簿 toplevel_effects のうちプレリュードが所有するものだけ。
      名前だけで載せると、--no-prelude やプレリュードを差し替えた環境で利用者が自分の
      effect Console を宣言したとき、型は利用者の署名、実行はランタイムの実装になり、
@@ -3209,7 +3210,7 @@ let toplevel_eff () =
      外れる。test/blocking_top.t の btop がこれを見張っている *)
   List.fold_right
     (fun n acc -> if Decls.prelude_owned "effect" (intern n) then TRowExtend (intern n, t_unit, acc) else acc)
-    Prims.toplevel_effects TRowEmpty
+    (Prims.toplevel_effects @ extra) TRowEmpty
 
 let initial_env () =
   let refs = Decls.builtin_value_refs () in
@@ -4380,8 +4381,8 @@ let no_param_constraints what (tparams : type_param list) =
         type_error (what ^ " の型パラメータ " ^ tp.tp_name ^ " には型クラスの制約を書けません"))
     tparams
 
-let process_decls env ~emit decls =
-  let eff0 = toplevel_eff () in
+let process_decls ?(toplevel_extra = []) env ~emit decls =
+  let eff0 = toplevel_eff ~extra:toplevel_extra () in
   (* パス 1a: 型エイリアスの登録と newtype の頭(カインド) *)
   List.iter
     (fun ((_, d) as node : T.decl) ->
@@ -4733,6 +4734,17 @@ let type_check_decls ?(prelude = []) decls =
   let _env = process_decls env ~emit decls in
   List.rev !out
 
+(* 宣言列のトップレベル(module の外)の値の名前。パターン束縛の束縛子も含む *)
+let toplevel_value_names (decls : T.decl list) =
+  List.concat_map
+    (fun ((_, d) : T.decl) ->
+      match d with
+      | T.DLet (_, b) -> pat_var_names b.T.lb_name
+      | T.DLetRec bs -> List.concat_map (fun ((_, b) : T.let_binding) -> pat_var_names b.T.lb_name) bs
+      | T.DExtern ex -> [ ex.T.ex_name ]
+      | _ -> [])
+    decls
+
 (* ## 11.42 module の平坦化
 
    Diktor の module は、名前空間ではなく**改名の規則**である。
@@ -4820,7 +4832,7 @@ let type_check_decls ?(prelude = []) decls =
    組み込みの操作をプレリュードのソースへ移す場合は、
    この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。 *)
 
-let flatten_modules (decls : T.decl list) : T.decl list =
+let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
   (* トップレベル(module の外)の値の名前を先に集める。module 内の値の名前がこれと同名に
      なるのを禁止するため(§6.4)。禁止しないと、宣言順と呼び出し時刻の組み合わせで、
      elab と評価器のフォールバックが働くかどうかが食い違い、黙って別の実体を選ぶ。
@@ -4859,6 +4871,30 @@ let flatten_modules (decls : T.decl list) : T.decl list =
       | T.DClass c -> Hashtbl.replace class_methods c.T.cls_name (List.map (fun (v : T.class_val) -> v.T.cv_name) c.T.cls_vals)
       | _ -> ())
     decls;
+  (* 対話的な実行では、前の入力の名前とも突き合わせる。このプログラムのトップレベルの値が、
+     前の入力の module の中の値と同名でないかを確かめ、前の入力のトップレベルの値の名前を
+     toplevel_vals に足して、この入力の module の中の値と突き合わせる *)
+  (match session_vals with
+  | None -> ()
+  | Some (prev : (string, unit) Hashtbl.t) ->
+      List.iter
+        (fun (node : T.decl) ->
+          at_node node @@ fun () ->
+          List.iter
+            (fun x ->
+              match
+                Hashtbl.fold
+                  (fun (m, y) _ acc -> if acc = None && Type.name_of y = x then Some m else acc)
+                  Decls.module_val_synonyms None
+              with
+              | Some m ->
+                  type_error
+                    ("トップレベルの " ^ x ^ " は、前の入力の module " ^ m ^ " の " ^ x
+                   ^ " と同名です(module 内の名前とトップレベル名は同名にできません)")
+              | None -> ())
+            (toplevel_value_names [ node ]))
+        decls;
+      Hashtbl.iter (fun x () -> Hashtbl.replace toplevel_vals x ()) prev);
   List.concat_map
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
@@ -5017,3 +5053,48 @@ let type_check ?(prelude = []) decls =
      NotImplemented の 2 系統だけ *)
   | NotImplemented_at (loc, feat) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })
   | NotImplemented feat -> (List.rev !current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })
+
+(* ## 11.44 対話的な実行の入口
+
+   対話的な実行(第16章)は、プレリュードを 1 回だけ処理し、その後は入力ごとに宣言を処理する。
+   `start_session` はプレリュードを処理した環境を返し、`check_input` は渡された環境の上で
+   1 入力分の宣言を処理して、出力行と新しい環境を返す。
+   型エラーは `Error` で返し、例外を外へ出さない。
+
+   型エラーの入力の書き換えを戻すのは、呼び出し側である。
+   宣言表は第6章 §6.14 の写しで、単一化のセルは第1章 §1.5 の記録で戻す。
+   環境は不変の Map なので、呼び出し側が前の環境を持っていれば、それに戻せる。
+
+   `toplevel_extra` は、トップレベルの行に足すエフェクトの名前である。
+   対話的な実行は `Print` を足し、トップレベルの `println` をそのまま印字する。
+   足すのはプレリュードが所有する名前だけである(§11.30 の所有のガード)。 *)
+let start_session ?(prelude = []) () =
+  warnings := [];
+  warnings_count := 0;
+  Unify.reset ();
+  Exhaust.reset ();
+  pub_pure_cells := [];
+  Decls.in_prelude := true;
+  Fun.protect
+    ~finally:(fun () -> Decls.in_prelude := false)
+    (fun () -> process_decls (initial_env ()) ~emit:(fun _ -> ()) prelude)
+
+let check_input ?(toplevel_extra = []) env decls =
+  current_out := [];
+  warnings := [];
+  warnings_count := 0;
+  Unify.reset ();
+  Exhaust.reset ();
+  let emit s = current_out := s :: !current_out in
+  let fail e = Error (List.rev !current_out, e) in
+  try
+    let env' = process_decls ~toplevel_extra env ~emit decls in
+    Ok (List.rev !current_out, env')
+  with
+  | Type_error_at (loc, msg) -> fail { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | Type_error msg -> fail { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | NotImplemented_at (loc, feat) -> fail { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  | NotImplemented feat -> fail { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+
+(* 値環境から名前の型を引く(対話的な実行の :type と結果の表示に使う) *)
+let lookup_value_type env x = SMap.find_opt x env.values
