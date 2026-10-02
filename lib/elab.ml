@@ -4886,7 +4886,8 @@ let toplevel_value_names (decls : T.decl list) =
    組み込みの操作をプレリュードのソースへ移す場合は、
    この条件を効かせる場所(平坦化を呼ぶ第16章の側)を先に決める必要がある。 *)
 
-let flatten_modules ?session_vals ?(imported_vals = []) ?(unit = Decls.root_unit) (decls : T.decl list) : T.decl list =
+let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?(unit = Decls.root_unit) (decls : T.decl list)
+    : T.decl list =
   (* 起点でない単位では、型、コンストラクタ、エフェクト、クラス、module の名前に単位の印を付け、
      印の無い名前から印付きの綴りへの同義語を単位の表に張る(§6.4)。トップレベルの値の名前には
      印を付けない。module の値は、印付きの module 名を頭に持つ綴りになる *)
@@ -4952,8 +4953,9 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(unit = Decls.root_unit
   (* 対話的な実行では、前の入力の名前とも突き合わせる。このプログラムのトップレベルの値が、
      前の入力の module の中の値と同名でないかを確かめ、前の入力のトップレベルの値の名前を
      toplevel_vals に足して、この入力の module の中の値と突き合わせる *)
-  (* import した値の名前も、module の中の値と同名にできない(§15.3 の範囲はファイル) *)
+  (* import した値と型の名前も、module の中の値やコンパニオン型と同名にできない(§15.3 の範囲はファイル) *)
   List.iter (fun x -> Hashtbl.replace toplevel_vals x ()) imported_vals;
+  List.iter (fun x -> Hashtbl.replace toplevel_types x ()) imported_types;
   (match session_vals with
   | None -> ()
   | Some (prev : (string, unit) Hashtbl.t) ->
@@ -5468,7 +5470,8 @@ let type_check_units ~prelude (units : src_unit list) =
         in
         let seen = import_claims binds in
         let imported_vals = List.filter_map (function x, PValue _, _, _ -> Some x | _ -> None) binds in
-        let decls = flatten_modules ~imported_vals ~unit su.su_decls in
+        let imported_types = List.filter_map (function x, (PType _ | PEffect _), _, _ -> Some x | _ -> None) binds in
+        let decls = flatten_modules ~imported_vals ~imported_types ~unit su.su_decls in
         check_own_clashes seen su.su_decls;
         let env = apply_imports ~unit env_std binds in
         let emit = if unit = Decls.root_unit then emit_all else emit_warnings unit in
