@@ -641,7 +641,7 @@ let add_data info =
       (fun ct ->
         let s = Type.name_of ct.ct_name in
         if Hashtbl.mem ctor_owner ct.ct_name || Hashtbl.mem ctor_owner (Type.intern (Type.display s)) then
-          type_error ("コンストラクタ " ^ Type.display s ^ " が二重に宣言されています(コンストラクタ名は大域一意)")
+          type_error ("コンストラクタ " ^ Type.display s ^ " が二重に宣言されています(コンストラクタ名はファイルの中で一意)")
         else Hashtbl.add ctor_owner ct.ct_name info.dd_name)
       info.dd_ctors)
 
