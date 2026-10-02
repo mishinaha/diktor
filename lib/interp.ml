@@ -1279,8 +1279,8 @@ let exec_decl env ((_, d) as node : T.decl) =
       let bound = bind_pat_exn SMap.empty b.T.lb_name v in
       bind_globals env (List.map (fun (n, v) -> (Tree.GDecl (Tree.oid_of bnode, n), v)) (SMap.bindings bound))
   | T.DLetRec bs ->
-      (* 再束縛があるなら、本体を評価する前に表を差し替える。閉包が新しい表を
-         捕まえないと、自己再帰が古い実体を呼ぶ *)
+      (* 群の閉包は globals を共有し、自己参照と相互参照は呼び出し時に実体の鍵で引くので、
+         バックパッチは要らない(§14.9) *)
       List.iter
         (fun ((_, b) as bnode : T.let_binding) ->
           let x = match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです" in
@@ -1292,9 +1292,8 @@ let exec_decl env ((_, d) as node : T.decl) =
       env
   | T.DInstance i ->
       let cls = Type.intern i.T.ins_class in
-      (* module の平坦化で作った同義語を通す(BigInt.BigInt など)。
-         組み込み(Add[Int32] など)と同じ鍵の利用者の宣言は、実体を差し替えない。
-         elab は組み込みを使うので、実行時だけ差し替わるとコヒーレンスが破れる *)
+      (* module の平坦化で作った同義語を通す(BigInt.BigInt など)。組み込みと同じ鍵の
+         利用者の宣言は elab が拒否するので、ここに来る宣言は組み込みを差し替えない *)
       let con =
         match i.T.ins_args with
         | [ (_, T.EIdent (LongId comps)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
