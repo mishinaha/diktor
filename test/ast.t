@@ -130,7 +130,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   >   let eq(a, b) = true
   > }
   > extern "prim" let __int32_add(x: Int32, y: Int32): Int32
-  > pub newtype Parser[A] = ???
+  > pub newtype Parser[A]
   > EOF
   $ diktor --dump-ast decls.kel
   (type Pair = (row (_item: Int32) (_item: String)))
@@ -142,7 +142,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   (instance Eq (Point) (dlet (binding eq (params a b) = true)))
   (extern "prim" __int32_add (params (pannot x Int32) (pannot y Int32)) :
    Int32)
-  (newtype-pub Parser (A) ???)
+  (newtype-pub Parser (A))
 
 パースエラー(exit 2):
 

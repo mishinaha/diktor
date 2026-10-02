@@ -175,3 +175,10 @@ par と par_map は標準環境に無い(LangSpec §16):
   > KEL
   $ diktor fncons.kel
   2
+
+newtype の右辺に ??? は書けない(LangSpec §10.1):
+
+  $ printf 'newtype Hidden = ???\n' > nthole.kel
+  $ diktor --type-check nthole.kel
+  nthole.kel:1:18: パースエラー(付近のトークンを確認してください)
+  [2]

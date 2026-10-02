@@ -7,7 +7,6 @@ newtype 一式(sample.kel §6)と MiniLang §16-2(let rec とデータ宣言):
   > newtype Option[A] = None | Some(A)
   > newtype List[A] = Nil | Cons(A, tail: List[A])
   > newtype UserId(Int32)
-  > newtype Opaque = ???
   > let rec length[A](xs: List[A]): Int32 = xs match {
   >   case Nil => 0
   >   case Cons(_, tail) => 1 + length(tail)
@@ -147,14 +146,6 @@ Never は節ゼロの match で網羅(§7.5):
   > EOF
   $ diktor --type-check --no-prelude ctorbad2.kel
   ! ctorbad2.kel:2:11: 型エラー: コンストラクタ Cons の引数が不足しています(式では全フィールド必須)
-  [1]
-
-  $ cat > ctorbad3.kel <<'EOF'
-  > newtype Opaque = ???
-  > let bad = fn(o) => o match { case Opaque(x) => x }
-  > EOF
-  $ diktor --type-check --no-prelude ctorbad3.kel
-  ! ctorbad3.kel:2:35: 型エラー: 未知のコンストラクタ: Opaque
   [1]
 
 1 要素タプルは反例でも実行時値でも (x,) と出る(§4 の再糖衣化は型だけでなく

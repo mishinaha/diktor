@@ -37,7 +37,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
 
 仕様の形(sample.kel:794 相当)が通り続けること:
 
-  $ printf 'newtype Stmt = ???\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
+  $ printf 'newtype Stmt\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
   $ diktor --type-check cblk2.kel
   sqlite_step : (Stmt) => Int32 @ {Blocking extends R1}
 

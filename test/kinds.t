@@ -99,12 +99,6 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
   ! phantomtype.kel:4:14: 型エラー: エフェクトラベルはこの位置(レコード型)では使えません
   [1]
 
-表現を隠した newtype(= ???)でもパラメータは登録され既定化される:
-
-  $ printf 'newtype X[A] = ???\nlet f[A](x: X[A]): X[A] = x\n' > hole.kel
-  $ diktor --type-check --no-prelude hole.kel
-  f : (X[A]) => X[A]
-
 Type のパラメータに行を渡すと宣言の時点で落ちる(かつては構築点まで
 「カインドが一致しません」が出なかった。D82):
 
