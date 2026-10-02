@@ -5446,7 +5446,11 @@ let type_check_units ~prelude (units : src_unit list) =
   current_out := [];
   let out = current_out in
   let emit_all s = out := s :: !out in
-  let emit_warnings = function Warning _ as s -> emit_all s | Binding _ -> () in
+  (* 起点でない単位の警告には、どのファイルのものかを前置する。警告は位置を持たない *)
+  let emit_warnings unit = function
+    | Warning w -> emit_all (Warning (Decls.unit_path unit ^ ": " ^ w))
+    | Binding _ -> ()
+  in
   let tables : (Decls.unit_id, unit_table) Hashtbl.t = Hashtbl.create 8 in
   let flat = ref [] in
   let fail e = (List.rev !out, Some e, List.rev !flat) in
@@ -5467,7 +5471,7 @@ let type_check_units ~prelude (units : src_unit list) =
         let decls = flatten_modules ~imported_vals ~unit su.su_decls in
         check_own_clashes seen su.su_decls;
         let env = apply_imports ~unit env_std binds in
-        let emit = if unit = Decls.root_unit then emit_all else emit_warnings in
+        let emit = if unit = Decls.root_unit then emit_all else emit_warnings unit in
         let env' = check_unit ~unit env ~emit decls in
         if unit <> Decls.root_unit then Hashtbl.replace tables unit (public_table ~unit env' su.su_decls);
         flat := decls :: !flat)
