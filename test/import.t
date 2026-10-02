@@ -78,3 +78,17 @@ from と import は予約語である:
   [2]
   $ printf 'from "./a" import b\n' | diktor --repl
   <stdin>:1:1: 構文エラー: import は対話的な実行では書けません
+
+## ブロックの中の pub
+
+ブロックの中の let と let rec に pub を付けると構文エラーになる。トップレベルの with より後ろの
+文もブロックなので、同じく拒否する。位置はパーサが最後に読んだトークンである:
+
+  $ printf 'let z = { pub let x: Int32 = 1; x }\n' > pb1.kel
+  $ diktor pb1.kel
+  pb1.kel:2:1: 構文エラー: ブロックの中の let には pub を付けられません(with より後ろの宣言は公開できません)
+  [2]
+  $ printf 'with x = 1\npub let rec f(n: Int32): Int32 = n\n' > pb2.kel
+  $ diktor pb2.kel
+  pb2.kel:3:1: 構文エラー: ブロックの中の let rec には pub を付けられません(with より後ろの宣言は公開できません)
+  [2]
