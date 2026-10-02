@@ -865,8 +865,8 @@ and find_row_alias n =
 (* エフェクト位置に書いた名前 n を、エイリアスとして引く。
    EffectRow エイリアスが見つかれば、それを返す。
    見つからず、effect の宣言表に n があれば、None を返して effect として読ませる。
-   effect の宣言表は、書かれた名前のまま引く。
-   effect は module の中に宣言できない(§11.42)ので、同義語をたどる必要が無い。
+   effect の宣言表は、単位の同義語だけを通して引く(`Decls.resolve_unit`)。
+   effect は module の中に宣言できない(§11.42)ので、module の同義語をたどる必要が無い。
    どちらでもなければ、行にならないエイリアスを同じ 2 つの場所で探して返す。
    呼び出し側はそれを、エフェクト位置に置いた Type エイリアスの誤りとして報告する。
    返すエイリアスには、elab_type と同じ可視性の検査を課す *)
@@ -990,7 +990,7 @@ and expand_alias env level ~expanding info args =
       そのため module の中では、同じ module のエイリアスを修飾せずに書ける。
       2 つ目は大域の名前で、トップレベルのエイリアスとコンパニオンが当たる。
    3. effect の宣言表にあれば、`@ Print` は `@ {Print}` の略記なので、ラベル 1 つの閉じた行にする。
-      effect の宣言表は、書かれた名前のまま引く。
+      effect の宣言表は、単位の同義語だけを通して引く。
 
    エフェクト位置で、module の宣言が同名の大域の名前を覆うのは、
    その宣言が EffectRow エイリアスのときだけである。
@@ -1500,8 +1500,8 @@ and elab_exp' env level eff node e =
               | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
                   let last = List.nth comps (List.length comps - 1) in
                   if last.[0] >= 'A' && last.[0] <= 'Z' then elab_construct env level node last []
-                  else unbound_value name scoped
-              | _ -> unbound_value name scoped)))
+                  else unbound_value (show_long_id li) scoped
+              | _ -> unbound_value (show_long_id li) scoped)))
   | T.Hole -> new_var level
   | T.Lambda { l_params; l_body } ->
       let param_tys = List.map (fun _ -> new_var level) l_params in
@@ -4386,7 +4386,7 @@ let register_companion tyname =
       else Decls.add_con_synonym (intern m) (intern tyname)
   | _ -> ()
 
-(* 宣言の出身 module を current_module に立てて処理する。
+(* 宣言の出身 module と単位を current_module と current_unit に立てて処理する。
    process_decls で宣言列をなめるループは、すべてこれで包む。
    1b の newtype のフィールド型や、1c の signature_of_binding も、
    module 内の型を非修飾で参照するので、包み忘れたパスだけが「未知の型」になる。
@@ -4655,7 +4655,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           (* pub の完全注釈検査。let の側(§11.28)と同じ規則 *)
           (if ex.T.ex_pub then check_pub_annots ~value_head_outer:true ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
           (* プレリュード保護は実装名(非修飾)で、二重宣言の検査は修飾名で行う(§6.2) *)
-          Decls.add_extern ~prim:ex.T.ex_prim ex.T.ex_name;
+          Decls.add_extern ~unit:!Decls.current_unit ~prim:ex.T.ex_prim ex.T.ex_name;
           let lvl = 1 in
           let rigids = make_rigids lvl ex.T.ex_tparams in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
@@ -4876,7 +4876,8 @@ let toplevel_value_names (decls : T.decl list) =
 
 let flatten_modules ?session_vals ?(unit = Decls.root_unit) (decls : T.decl list) : T.decl list =
   (* 起点でない単位では、型、コンストラクタ、エフェクト、クラス、module の名前に単位の印を付け、
-     印の無い名前から印付きの綴りへの同義語を単位の表に張る(§6.4)。値の名前には印を付けない *)
+     印の無い名前から印付きの綴りへの同義語を単位の表に張る(§6.4)。トップレベルの値の名前には
+     印を付けない。module の値は、印付きの module 名を頭に持つ綴りになる *)
   let marked = Decls.marks_unit unit in
   let spell tbl name =
     let q = Decls.mark_spelling unit name in

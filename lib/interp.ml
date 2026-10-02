@@ -600,7 +600,7 @@ and dispatch cls_name meth args =
       | true, "eq", [ a; b ] -> VBool (structural_eq a b)
       | _ ->
           runtime_error
-            (cls_name ^ "." ^ meth ^ " のインスタンスが見つかりません: "
+            (Type.display cls_name ^ "." ^ meth ^ " のインスタンスが見つかりません: "
             ^ String.concat ", " (List.map show vals)))
 
 (* ## 14.8 構造的等価

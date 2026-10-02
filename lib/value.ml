@@ -459,7 +459,7 @@ let rec show v =
       if Array.length d_fields = 0 then Type.display_of d_ctor
       else Type.display_of d_ctor ^ "(" ^ String.concat ", " (Array.to_list (Array.map show d_fields)) ^ ")"
   | VClosure _ -> "<fn>"
-  | VPrim p -> "<prim " ^ p.p_name ^ ">"
+  | VPrim p -> "<prim " ^ Type.display p.p_name ^ ">"
   | VRef _ -> "<ref>"
   | VArray a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
   | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"

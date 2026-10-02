@@ -154,13 +154,15 @@ let claim_type_name kind name =
    それぞれの名前で束縛する正当な形が書けなくなる。 *)
 let externs : (oid, unit) Hashtbl.t = Hashtbl.create 64
 
-let add_extern ~prim name =
-  let o = Type.intern name in
+let add_extern ~unit ~prim name =
+  (* 二重宣言の鍵は、宣言した単位と Keleut 側の名前の組である。値の名前には単位の印が付かない
+     (§6.4)ので、別々のファイルの同名の extern を区別するために単位を足す *)
+  let o = Type.intern (if unit > 0 then "%" ^ string_of_int unit ^ "." ^ name else name) in
   let po = Type.intern prim in
   (* プレリュードの保護は実装名(非修飾の prim)で、二重宣言は Keleut 側の名前(修飾名)で見る。
      鍵を使い分ける理由は §6.2 で述べた *)
   if prelude_owned "extern" po then type_error ("プレリュードの extern " ^ prim ^ " は再宣言できません")
-  else if Hashtbl.mem externs o then type_error ("extern " ^ name ^ " が二重に宣言されています")
+  else if Hashtbl.mem externs o then type_error ("extern " ^ Type.display name ^ " が二重に宣言されています")
   else (
     Hashtbl.add externs o ();
     mark "extern" po)
@@ -323,8 +325,9 @@ let check_std_type_twin kind name =
    module の中の宣言は `%3.M.T` になる。
    型の同一性は綴りで決まるので、印を付けた綴りは、この章の表でも、型の単一化でも、
    実行時のインスタンスの選択でも、別の単位の同名の宣言と区別される。
-   値の名前には印を付けない。
+   トップレベルの値の名前には印を付けない。
    値は第11章が解決した実体(束縛ノードの oid)で区別される。
+   module の値は、印付きの module 名を頭に持つ綴り(`%3.M.x`)になる。
 
    起点と標準環境には印を付けない。
    単位は依存される側から順に処理するので、起点でない単位を検査する時点では、
@@ -446,7 +449,11 @@ let add_con_hint short qual =
   let prev = Option.value ~default:[] (Hashtbl.find_opt con_hints short) in
   if not (List.mem qual prev) then Hashtbl.replace con_hints short (prev @ [ qual ])
 
-let con_synonym_candidates c = Option.value ~default:[] (Hashtbl.find_opt con_hints c)
+(* 案内の候補は、現在の単位から見える module のものに限る。別の単位の module を案内すると、
+   そのとおりに修飾しても名前が見つからない *)
+let here q = match unit_of_spelling (Type.name_of q) with None -> true | Some u -> u = !current_unit
+
+let con_synonym_candidates c = List.filter here (Option.value ~default:[] (Hashtbl.find_opt con_hints c))
 
 let val_synonyms : (oid, oid list) Hashtbl.t = Hashtbl.create 16
 
@@ -454,7 +461,7 @@ let add_val_synonym short qual =
   let prev = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short) in
   if not (List.mem qual prev) then Hashtbl.replace val_synonyms short (prev @ [ qual ])
 
-let val_synonym_candidates short = Option.value ~default:[] (Hashtbl.find_opt val_synonyms short)
+let val_synonym_candidates short = List.filter here (Option.value ~default:[] (Hashtbl.find_opt val_synonyms short))
 
 (* 可視性台帳。鍵は修飾名 *)
 type visibility = { vis_module : string; vis_pub : bool }
