@@ -512,3 +512,17 @@ import したクラスのメソッドの非修飾名は、値の名前として�
   $ printf 'from "./lib/a" import x\nlet y = x\n' > twice/m1.kel
   $ (cd twice && diktor --type-check m1.kel)
   y : String
+
+import した型クラスのメソッドの名前は値の名前として数えるので、同じ名前の値を別の import で
+束縛することはできない。トップレベルで宣言した値は、メソッドの修飾しない名前を覆える:
+
+  $ printf 'pub let pp(x: Int32): String = "value"\n' > mth/lib/v.kel
+  $ printf 'from "./lib/a" import P\nfrom "./lib/v" import pp\n' > mth/m2.kel
+  $ (cd mth && diktor m2.kel)
+  ! m2.kel:2:23: import エラー: pp は ./lib/a からも import しています(別の宣言です)
+  [1]
+  $ printf 'type instance P[Int32] { let pp(x: Int32): String = "method" }\n' >> mth/lib/a.kel
+  $ printf 'from "./lib/a" import P\nlet pp(x: Int32): String = "own"\necholn(pp(1))\necholn(P.pp(1))\n' > mth/m3.kel
+  $ (cd mth && diktor m3.kel)
+  own
+  method
