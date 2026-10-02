@@ -443,3 +443,22 @@ import M.n は module M の公開の宣言 n だけを束縛し、M 自身は束
   $ diktor --type-check c1.kel c2.kel
   x0 : Int32
   z : Int32
+
+module と同じ名前の型(コンパニオン)は、import した型と同じ名前にできない。別々のファイルは、
+同じ名前の extern を宣言できる:
+
+  $ mkdir -p co/lib
+  $ printf 'pub newtype C = C1\n' > co/lib/c.kel
+  $ printf 'from "./lib/c" import C\nmodule C { pub newtype C = C2 }\n' > co/m1.kel
+  $ (cd co && diktor m1.kel)
+  ! m1.kel:2:12: 型エラー: module C のコンパニオン型 C は既存の型 C と同名です(module 内の型とトップレベルの型は同名にできません)
+  [1]
+  $ printf 'pub extern "C" let sqrt(x: Float64): Float64 @ Blocking\npub let one: Int32 = 1\n' > co/lib/e.kel
+  $ printf 'from "./lib/e" import one\nextern "C" let sqrt(x: Float64): Float64 @ Blocking\nlet r: Int32 = one\n' > co/m2.kel
+  $ (cd co && diktor --type-check m2.kel)
+  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  r : Int32
+  $ printf 'from "./lib/e" import sqrt\nmodule N { pub extern "C" let sqrt(x: Float64): Float64 @ Blocking }\n' > co/m3.kel
+  $ (cd co && diktor m3.kel)
+  ! m3.kel:2:12: 型エラー: module N の sqrt はトップレベルの sqrt と同名です(module 内の名前とトップレベル名は同名にできません)
+  [1]
