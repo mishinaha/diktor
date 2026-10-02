@@ -276,7 +276,8 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
 
    値を大域から先に引く規則では、プレリュードの名前も大域の側に入る。
    そのため、module 内で `__string_concat` と同名の let を宣言しても、
-   module 内からの非修飾の参照はプレリュードの `__string_concat` を指す(elab と評価器で一致する)。
+   module 内からの非修飾の参照はプレリュードの `__string_concat` を指す。
+   評価器は elab が解決した値の実体を使うので(第14章 §14.4)、両者は一致する。
    module 内の自分の束縛を参照するには、`M.名前` と修飾する。
 
    `con_hints` / `val_synonyms` は診断専用の候補列である。
@@ -294,8 +295,8 @@ let reserved_type_names : (oid, unit) Hashtbl.t = Hashtbl.create 8
    第14章(interp.ml)も、`type instance Add[BigInt]` の頭を解決するときに同じ表を通る。
    名前を oid に落とす経路が 2 つあるので、両方が同じ表を通らないと、
    型検査と実行で名前の指す実体が食い違う。
-   評価器の側で `current_module` にあたるのは、
-   環境の `mod_scope`(閉包が出身の module を覚える)である。 *)
+   第14章は、宣言の出身 module を `decl_module` から引いて `current_module` に立ててから解決する。
+   値の名前は、第11章が解決した実体を木に書くので、第14章は同義語表を引かない。 *)
 let current_module : string option ref = ref None
 
 (* コンパニオン型だけを載せる大域の同義語。値は候補の列で、
@@ -345,7 +346,7 @@ let value_visibility : (oid, visibility) Hashtbl.t = Hashtbl.create 16
 let con_visibility : (oid, visibility) Hashtbl.t = Hashtbl.create 16
 
 (* 宣言ノードの oid(Tree.oid_of で取り出す)→ 出身 module。
-   第11章の 4 つのパスと第14章の exec_decl が、この表から current_module / mod_scope を復元する *)
+   第11章の 4 つのパスと第14章の exec_decl が、この表から current_module を復元する *)
 let decl_module : (oid, string) Hashtbl.t = Hashtbl.create 16
 
 let visible_here (v : visibility) = v.vis_pub || !current_module = Some v.vis_module
