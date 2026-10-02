@@ -225,10 +225,17 @@ let rec irrefutable_pat ((_, p) : T.pat) =
       && (match rest with None -> true | Some rp -> irrefutable_pat rp)
   | T.PCtor _ | T.PVariant _ | T.PBool _ | T.PNumber _ | T.PText _ -> false
 
-(* pub で @ を省略した宣言の、本体の行(Rigid)の vid。
+(* pub で @ を省略した宣言の本体の行。空の行へのリンクを持つセルで、意味は TRowEmpty と同じ。
    perform や関数呼び出し(§11.12)がこの行と衝突したとき、単一化の一般的な文言ではなく、
-   pub の規則を名指しして案内するため *)
-let pub_pure_rows : (oid, unit) Hashtbl.t = Hashtbl.create 8
+   pub の規則を名指しして案内するために、セルの同一性を印に使う *)
+let pub_pure_cells : tvar ref list ref = ref []
+
+let new_pub_pure_row () =
+  let r = ref (Link TRowEmpty) in
+  pub_pure_cells := r :: !pub_pure_cells;
+  TVar r
+
+let is_pub_pure_row eff = match eff with TVar r -> List.memq r !pub_pure_cells | _ -> false
 
 (* 失敗が行の単一化に由来するかどうか(エラー文言を言い換えるかどうかの判定)。
    引数の型の不一致まで、仕様 §9 の行の話にしないために使う。
@@ -242,23 +249,23 @@ let row_failure msg =
   in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
 
-(* @ を省略した let で本体が純粋だと分かったものは、公開するときに本体の行を行変数へ開き直す。
-   仕様 §9 の表は、let について
-   「本体から推論する。本体が純粋なら行変数として一般化するので、どこからでも呼べる」と定める。
-   行が空に固まるのは、本体が @ {} の関数(入れ子の省略 @ を含む)を呼んだときだけである。
-   何も呼ばなければ行変数のまま残るので、この後処理が要るのはその場合に限る。
-   純粋な関数にどんな行を名乗らせても、起こすエフェクトは増えないので健全である
-   (open_explicit_eff がラベル付きの行に対して行うことの、空の行の版にあたる)。
-   注釈で @ {} と書いたときは開かず、呼び出し側にも純粋を要求する意図を残す
-   (仕様 §9「@ {} だけは両方向に効く」)。
-   矢印そのものを組み直すので、Tree.set_ty より前に呼ぶ *)
+(* @ を省略した let で、推論した最外の行が閉じていたものは、公開するときに尾部を行変数で開く。
+   仕様 §9 の表は、let について、推論した行が閉じていれば公開される型で開くと定める
+   (sample.kel:489-491)。行が閉じるのは、本体が閉じた行の関数(@ {} の関数と、入れ子の
+   省略 @ を含む)を呼んだときである。閉じた行は本体が起こすエフェクトの上限なので、
+   尾部を開いても起こすエフェクトは増えず、健全である(publish_open が明示の閉じた行に
+   行うことと同じ)。矢印そのものを組み直すので、Tree.set_ty より前に呼ぶ *)
 let reopen_pure_row level ty =
-  match repr ty with TArrow (a, r, e) when repr e = TRowEmpty -> TArrow (a, r, new_row_var level) | _ -> ty
+  match repr ty with
+  | TArrow (a, r, e) -> (
+      let _, tail = row_fields e in
+      match repr tail with TRowEmpty -> TArrow (a, r, row_append e (new_row_var level)) | _ -> ty)
+  | _ -> ty
 
 (* 最外の @ が書かれているか(reopen_pure_row で開き直すかどうかの判定)。
    関数束縛は lb_eff を見る。値束縛は、注釈の頭が矢印リテラルならその @ を見る。
    頭が矢印リテラルでない注釈(型エイリアスなど)では、展開先の矢印を入れ子として読むので、
-   省略した @ は @ {}(両方向に効く)になる。
+   省略した @ は @ {}(閉じたまま公開する)になる。
    そこでこの形は @ が書かれている側に倒し、開き直さない。
    1c の署名(§11.37)も同じ閉じた行を作るので、結果は宣言順に依存しない *)
 let outer_eff_written (b : T.let_binding') =
@@ -302,8 +309,7 @@ let rec fully_effected ((_, te) : T.type_exp) =
    関数束縛の `lb_ret` は返り値の型、つまり入れ子の位置なので、すべての矢印に `@` が要る。
 
    頭を数えずに済むのは、頭の省略に意味を与える分岐を持つ呼び出し側だけである。
-   `let` の値束縛(§11.28)はその分岐を持つが、`let rec` の値束縛は持たない。
-   その分岐は、群が Rigid の行を 1 本共有する設計(§11.29)と噛み合わないからである。
+   `let` の値束縛(§11.28)はその分岐を持つが、`let rec` の値束縛は持たない(§11.29)。
    そこで `value_head_outer` を呼び出し側から受け取り、`let rec` では頭にも `@` を要求する。
    ここをまとめて緩めると、`pub let rec k: (Int32) => Int32 = …` が、
    本体の純粋性を問われないまま行多相として公開される。 *)
@@ -545,7 +551,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    | 矢印の位置 | 書いたラベル付きの行 | `@ {}` | `@` 省略 |
    |---|---|---|---|
-   | 束縛の最外(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開する型では行変数で開く(§11.26。クラスメソッドは §11.33) | 閉じたまま(両方向) | `let` は推論、`pub let` は純粋、メソッドは実装が純粋で公開が行多相、C リンケージの `extern` は `@ Blocking`(左の列と同じく公開する型で開く)、prim リンケージの `extern` は行変数 |
+   | 束縛の最外(`let` / `pub let` / `extern` / クラスメソッド) | 本体には上限、公開する型では行変数で開く(§11.26。クラスメソッドは §11.33) | 本体は空の行、公開する型では開く | `let` は推論、`pub let` は `@ {}` と同じ、メソッドは実装が純粋で公開が行多相、C リンケージの `extern` は `@ Blocking`(左の列と同じく公開する型で開く)、prim リンケージの `extern` は行変数 |
    | 入れ子(引数の型、返り値の中、newtype のフィールド、レコード型のフィールド、タプル型の要素、effect の操作型の引数、エイリアスの展開先) | 書いたとおり閉じたまま(開かない) | 閉じたまま | `@ {}`(純粋) |
 
    表の 1 行目の「束縛の最外の矢印」がどれを指すかは、束縛の書き方で変わる。
@@ -1500,7 +1506,8 @@ and elab_exp' env level eff node e =
    操作名の解決に必要な行を先に決めるためである。
 
    単一化が行の不一致で落ちたときは、文言を 3 通りに言い換える。
-   `pub` で `@` を省略した宣言の Rigid の行と衝突した形では、pub の規則を名指しする。
+   `pub` で `@` を省略した宣言の本体の行(§11.26 の印のセル)と衝突した形では、
+   pub の規則を名指しする。
    呼び出し先の行が空(純粋な関数)で、それを空でない行の下から呼ぶ形と、
    この位置の行が空(高階の引数の行が `@ {}`)である形では、
    仕様 §9 の、入れ子の矢印で省略した `@` を `@ {}`(純粋)と読む規則を案内する。
@@ -1520,15 +1527,10 @@ and elab_exp' env level eff node e =
       (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(§11.12) *)
       (try Unify.unify tf (TArrow (pvar, tr, eff))
        with Type_error msg ->
-         (* pub の @ 省略は純粋を意味する。エフェクトつき関数の呼び出しが Rigid の行と
+         (* pub の @ 省略は純粋を意味する。エフェクトつき関数の呼び出しが本体の行と
             衝突する形は perform よりよく起きるのに、一般的な文言「行型ではありません: ς1」では
             原因にたどり着けない。そこで perform の側(§11.15)と同じ言い換えをここにも置く *)
-         let pub_pure =
-           let _, tail = row_fields eff in
-           match repr tail with
-           | TVar r -> ( match !r with Rigid i -> Hashtbl.mem pub_pure_rows i.vid | _ -> false)
-           | _ -> false
-         in
+         let pub_pure = is_pub_pure_row eff in
          if pub_pure && row_failure msg then
            type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
          else if row_failure msg && callee_pure then
@@ -1696,15 +1698,10 @@ and elab_exp' env level eff node e =
       Unify.unify (elab_exp env level eff arg) args_row;
       (try Unify.unify eff (TRowExtend (eff_name, t_unit, new_row_var level))
        with Type_error msg ->
-         (* pub で @ を省略した宣言の本体の行は、純粋を表す Rigid である。その行と
+         (* pub で @ を省略した宣言の本体の行は、純粋を表す印のセルである(§11.26)。その行と
             衝突したときだけ、規則を名指しで案内する(一般の文言
             「行型ではありません: ς1」では原因に結びつかない) *)
-         let pub_pure =
-           let _, tail = row_fields eff in
-           match repr tail with
-           | TVar r -> ( match !r with Rigid i -> Hashtbl.mem pub_pure_rows i.vid | _ -> false)
-           | _ -> false
-         in
+         let pub_pure = is_pub_pure_row eff in
          if pub_pure then type_error "pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)"
          else type_error ("エフェクト " ^ name_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
       op_ret
@@ -2569,117 +2566,105 @@ and make_rigids ?kinds level tparams =
    行が `{Print}` ではなく `{Print, Console}` でなければならない。
    閉じた行のままでは、このハンドラの下で呼べない。
 
-   そこで、最外の矢印に書かれた、ラベルのある閉じた行の注釈を開く。
+   そこで、最外の矢印に書かれた閉じた行の注釈を、公開する型で開く。
    開くかどうかは、注釈の位置で決まる(仕様 §9、sample.kel:470-502)。
 
    | 位置と注釈 | 本体の検査で | 公開スキーマで |
    |---|---|---|
-   | 最外 `@ Print` / `@ {A, B}` | 尾部に Rigid を足して開く(本体の上限) | 尾部を Generic にして開く |
-   | 最外 `@ {}` | 閉じたまま | 閉じたまま(純粋。両方向に効く) |
-   | 最外 `@` 省略(`let`) | 新しい行変数(初めから開いている) | 一般化する。本体が空に固まっていれば開き直す |
-   | 最外 `@` 省略(`pub`) | Rigid の行(perform を拒む。純粋) | Generic にして開く |
+   | 最外の閉じた行(`@ {}`、`@ Print`、`@ {A, B}`) | 閉じたまま(本体の上限) | 尾部を開く |
+   | 最外 `@` 省略(`let`) | 新しい行変数(初めから開いている) | 一般化する。推論した行が閉じていれば開く |
+   | 最外 `@` 省略(`pub`) | 閉じた空の行(`@ {}` と同じ) | 尾部を開く |
    | 入れ子の `@ Print` / `@ {A, B}` | 書いたとおり閉じたまま | 開かない |
    | 入れ子の `@` 省略 | `@ {}` と同じ(純粋) | 閉じたまま |
 
-   4 行目は、1 行目と同じ非対称(本体には剛く、公開には寛く)を、空の行にも当てはめたものである。
-   仕様 §13 も、この省略では本体が純粋でなければならず、
-   公開される型は行多相になると定める(sample.kel:817-823)。
-   省略を閉じた空の行と読むと、sample.kel 自身が型付かない。
-   `Db.query` が `handle_request` から呼べなくなる。
-   4 行目の読みでは、`pub let f(): Unit`(省略)と `pub let f(): Unit @ {}`(明示)は別の型になる。
-   後ろの 2 行(入れ子)は、§11.4 の表と同じ規則である。
+   本体は、書いた閉じた行の文脈で検査する。
+   本体が注釈に書いていないエフェクトを起こすと、単一化で落ちる。
+   本体から閉じた行の関数を呼ぶこともでき、その呼び出しで決まる行が本体の行と一致すればよい
+   (`test/annot_rows.t` の nested3、valclosed、valclosedfn)。
 
-   pub の `@` 省略には、次の制限がある。
-   その本体が、一般化されていないトップレベルの束縛(パターン束縛や非値の束縛)を呼ぶと、
-   本体が純粋でも、その束縛の単相な行変数を Rigid に結ぼうとして落ちる。
-   診断は pub の規則を名指しして元の報告を添えるので、利用者は直し方にたどり着ける。
-   直し方は、束縛を関数として宣言し直すか、`@` を明示することである。
-   また、通常の行と同じく、Rigid の行から `@ {}` の関数を呼ぶこともできない。
-   これは行の部分型付けを持たない設計の帰結である。
+   公開する型では、`publish_open` が最外の矢印の閉じた行の尾部に新しい剛定数を足し、
+   束縛のスコープを出るところで `release_rigids` がそれを Generic に変える(§11.27)。
+   そのため、呼び出し側は好きな行を尾部に継ぎ足せる。
+   本体が起こすエフェクトは書いた閉じた行に含まれ、
+   足した尾部はほかのどの型変数とも共有されないので、
+   尾部を開いても型と実際の振る舞いは食い違わない。
+   閉じた行の関数を、使う位置で開く規則である。
 
-   本体の検査で尾部を剛定数にするのは、注釈の約束を守らせるためである。
-   未定変数で開くと、本体が注釈に書いていないエフェクトを起こしたときに、
-   それが尾部に足されて通ってしまう。
-   剛定数には何も足せないので、そうした本体は単一化で落ちる。
-   スコープを出るところで Generic に変えるので、呼び出し側は好きな行を尾部に継ぎ足せる。
-
-   `@ {}` は閉じたままにするので、
-   純粋を強制する意図は書ける(sample.kel:481「`@ {}` だけは両方向に効く」)。
-   `@ Print` は、最外なら Print を含む上限を表し(sample.kel:476-479)、
+   `@ {}` も同じく開くので、`@ {}` の関数はどの行の文脈からも呼べる(sample.kel:481)。
+   一方、入れ子の矢印の `@ {}` は書いたとおり閉じたままなので、
+   `@ {}` のコールバックを受け取る高階関数には、エフェクトのある関数を渡せない。
+   `@ Print` も、最外なら Print を含む上限を表し(sample.kel:476-479)、
    入れ子なら書いたとおり Print だけの閉じた行を表す(sample.kel:496-498)。
 
-   空に固まった行は公開の前に開き直すが、書かれた `@ {}` は開かない(sample.kel:490-491)。
+   `pub` の `@` 省略は、`@ {}` と同じに読む(仕様 §13、sample.kel:492)。
+   本体の行は、空の行へのリンクを持つ専用のセル(`new_pub_pure_row`)で、意味は空の行と同じである。
+   セルの同一性は、本体が起こしたエフェクトを `pub` の規則を名指しして報告するための印に使う
+   (§11.12、§11.15)。
+   省略を空の行と読んでも、公開する型では開くので、`Db.query` は `handle_request` から呼べる
+   (sample.kel:652-655)。
+   本体から、一般化されていないトップレベルの束縛(パターン束縛や非値の束縛)を呼ぶと、
+   その束縛の単相な行変数は空の行に決まる。
+
+   ### 推論した閉じた行の開き直し
+
    `@` を省略した `let` の行は、最初は行変数である。
-   しかし本体が `@ {}` の関数(入れ子の省略 `@` を含む)を呼ぶと、単一化で空に固まる。
-   入れ子の省略 `@` を `@ {}` と読むので、これは普通に起きる。
+   本体が閉じた行の関数を呼ぶと、単一化でその行に固まる。
+   `@ {}` の関数(入れ子の省略 `@` を含む)を呼べば空の行に、
+   `{Print}` のような閉じた行の関数を呼べばその行に固まる。
    そのままでは、`count_if` のような関数が、エフェクトのある文脈から呼べない関数になる。
-   そこで `reopen_pure_row` が、公開の直前に、空に固まった最外の行を新しい行変数に組み直す。
-   行が空に固まったことは、本体がエフェクトを起こさないことの証明なので、
-   開き直しても健全である(`test/annot_rows.t` の val1 / val2 / rec2 / alval)。
+   そこで `reopen_pure_row` が、公開の直前に、閉じた最外の行の尾部を新しい行変数で開く
+   (sample.kel:489-491)。
+   閉じた行は本体が起こすエフェクトの上限なので、明示した閉じた行を開くのと同じく健全である
+   (`test/annot_rows.t` の val1 / val2 / rec2 / alval / clsalias3ok)。
 
    開き直しには 3 つのガードがある。
 
    - 値制限：一般化しない束縛の行を開くと、`run` の剛定数が漏れる経路に乗る。
-   - 明示の `@`：`let k: (Int32) => Int32 @ {}` を開くと、`@ {}` が両方向に効くという約束が破れ、
-     `k(1)` が `@ Console` の文脈から通ってしまう。
-   - `pub`：pub の省略 `@` には Rigid の行を置く別の経路があるので、開き直しの対象から外す。
-     Rigid の行は空に固まらないので、このガードが効く形は無く、保険である。
+   - 明示の `@`：明示した閉じた行は `publish_open` が開くので、ここでは扱わない。
+   - `pub`：`pub` の省略も `publish_open` が開くので、ここでは扱わない。
 
-   頭が型エイリアスの値束縛も開き直さない。
-   展開先の矢印は入れ子なので、省略は `@ {}` と読み、書かれた `@ {}` は両方向に効く。
+   頭が型エイリアスの値束縛は開かない。
+   展開先の矢印は入れ子なので、省略は `@ {}` と読み、閉じたまま公開する。
    パス 1c の署名(§11.37)も同じ閉じた行を公開するので、公開される型は宣言の順序に依存しない。
 
-   ### 表の 1 行目と 4 行目は値束縛にも当てはまる
+   ### 値束縛
 
    値束縛(引数リストを持たない `let`)の注釈の頭の矢印も、
    束縛の最外として扱う(sample.kel:485 と :492)。
    そのため、`let kf(x: Int32): Int32 @ Print` と `let k: (Int32) => Int32 @ Print` は、
    どちらも開いた行 `{Print extends R1}` を公開し、`{Print, Log}` の文脈から呼べる。
-   仕様 §9 は、公開される型では行変数で行を開くと定めており(sample.kel:478)、
-   引数リストの有無で扱いを分ける理由はない。
+   値束縛では、注釈の型と初期化式の型を単一化してから、注釈の頭の矢印の行を開く。
+   初期化式の型の行が一般化されない行変数なら、その行変数は注釈の閉じた行に決まる
+   (`test/verify_fixes.t` の vrleak4)。
+   その後、同じ行変数を別の行で使うと落ちる(vrleak、vrleak2、vrleak3)。
 
-   `open_explicit_eff` を呼ぶのは、次の 8 か所である。
-
-   - 値束縛以外の 5 か所：関数束縛、`let rec` の関数束縛、パス 1c の関数束縛の署名、
-     クラスメソッドの型、`extern`
-   - 値束縛の 3 か所：`elab_binding` と `elab_rec_bindings` の値束縛の分岐、
-     パス 1c の `signature_of_binding`(§11.37)の値束縛の分岐
-
-   値束縛の 3 か所は、注釈の頭が矢印リテラルかどうかを表層の構文(`snd t`)で調べてから開く。
+   値束縛で開くのは、注釈の頭が矢印リテラルのときだけで、表層の構文(`snd t`)で調べる。
    頭が型エイリアスなら、展開先の矢印は入れ子なので開かない。
    クラスメソッドが `snd v.T.cv_ty` を調べるのと同じ規則である(§11.33)。
 
-   表の 4 行目の `pub` の省略 `@` では、本体を検査する `elab_binding` と、
-   本体を見ないパス 1c の署名とで、行に置くものが違う。
-   `elab_binding` は、`pub_pure_rows` に載せた Rigid を置いて本体に純粋を要求し、
-   公開のときに Generic へ解放する。
-   値束縛でその Rigid が載るのは注釈の頭の矢印の行なので、純粋を要求されるのも頭の矢印の本体である。
-   初期化式そのものは、束縛の外側の行で推論する(§11.28)。
-   パス 1c の署名は、値束縛では行変数をそのまま置き、
-   `Unify.generalize 0` がそれを Generic に変える。
-   関数束縛の署名では、`pub_pure_rows` に載せない Rigid を置き、
-   `release_rigids` ですぐ Generic に変える。
-   `let rec` の値束縛では、`elab_rec_bindings` が頭の矢印の行に `pub_pure_rows` の Rigid を置かず、
-   頭の `@` の省略を `check_pub_annots` が拒否する(§11.29)。
-
-   関数束縛と値束縛では、注釈の行で上限を掛ける仕組みが違う。
-   関数束縛では、注釈の行が本体を検査する行になるので、本体が起こすエフェクトがそこへ足される。
-   値束縛では、注釈の型と本体の型を単一化するので、本体の行が閉じたまま固まっていると、
-   尾部の Rigid と一致しない。
-   `type F = (Int32) => Int32 @ Console` を注釈にして束縛した関数 `g` を、
-   `let k: (Int32) => Int32 @ Console = g` へ入れ直す形がこれにあたる。
-   同じ `g` を関数束縛の本体から呼んでも同じ理由で落ちるので、
-   この点で値束縛と関数束縛の振る舞いは同じである。
-   これも行の部分型付けを持たない設計の帰結である。
-   注釈をエイリアスで書けば、入れ子の読みになって通る(`test/annot_rows.t` の valclosed / valclosedfn / valclosedok)。 *)
+   `open_explicit_eff` は閉じた行に剛定数の尾部を足し、
+   `publish_open` は矢印の最外の行にそれを当てる。
+   本体を検査した後で公開の型を開くのは、
+   `elab_binding` と `elab_rec_bindings` の関数束縛と値束縛である。
+   本体を見ずに型を作るパス 1c の `signature_of_binding`(§11.37)、クラスメソッドの型(§11.33)、
+   `extern` は、`open_explicit_eff` で開いた行をそのまま解放する。
+   パス 1c の署名は、`pub` の省略 `@` には最初から開いた行を置く。 *)
 
 and open_explicit_eff lvl eff =
-  let fields, tail = row_fields eff in
+  let _fields, tail = row_fields eff in
   match repr tail with
-  | TRowEmpty when fields <> [] ->
+  | TRowEmpty ->
       let r = new_rigid_ref ~kind:KRow lvl in
       (row_append eff (TVar r), [ ("", TVar r, r) ])
   | _ -> (eff, [])
+
+(* 公開する型の最外の矢印の閉じた行に、剛定数の尾部を足して開く(§11.26) *)
+and publish_open lvl ty =
+  match repr ty with
+  | TArrow (a, r, e) ->
+      let e', rig = open_explicit_eff lvl e in
+      (TArrow (a, r, e'), rig)
+  | _ -> (ty, [])
 
 (* ## 11.27 剛定数の解放
 
@@ -2740,29 +2725,29 @@ and release_rigids rigids =
    未定変数を多相にしてよいことを示すのは、値であることだけである。
    一般に、非値の束縛の型に残った未定変数を一般化すると、可変参照を通じて不健全になる。
 
-   例外は 2 つある。
-   値束縛の注釈の頭の矢印に書いた閉じた空でない行の尾部と、
-   `pub` の値束縛で頭の `@` を省略したときに置く行である(§11.26)。
-   どちらも注釈から作った剛定数なので、
+   例外は、値束縛の注釈の頭の矢印に書いた閉じた行(`pub` の省略を含む)を、
+   公開の型で開くときに足す尾部である(§11.26)。
+   この尾部は注釈から作った剛定数なので、
    束縛を一般化しなくても `release_rigids` が Generic にする(§11.27)。
-   本体はこの剛定数を抽象的な行のまま検査を通っているので、
+   初期化式は注釈の閉じた行と単一化した後なので、尾部はどの型変数とも共有されず、
    使うたびに別の行へ具体化しても健全である。
-   本体の型の行が外側の単相の型変数と共有されていれば、
-   剛定数の漏れとして本体の検査で落ちる(§11.25)。
+   初期化式の型の行が外側の単相の型変数と共有されていれば、
+   その型変数は注釈の閉じた行に決まるだけである。
 
    同じ理由で、非値の束縛に型パラメータを書くことも拒否する。
    型パラメータを書くことは多相化の要求であり、値制限に反する。
    ただし、パーサが型パラメータを付けるのは関数束縛だけなので、この拒否に至るプログラムは無い。
    値束縛に型パラメータを書けるように文法を広げたときの防御である。
 
-   一方、本体が純粋であることは、行を多相にしてよいことの証明になる(§11.26 の `reopen_pure_row`)。
+   一方、本体の行が閉じていることは、
+   その尾部を開いてよいことの証明になる(§11.26 の `reopen_pure_row`)。
    値であることが型の多相の根拠であるのに対し、こちらは行の多相の根拠である。
    ただし、行を開き直すのも一般化する束縛に限る(§11.26 の 1 つ目のガード)。
 
    ### 一般化しないときは、レベルを下げて単相に戻す
 
    本体は、一般化するかどうかにかかわらず、レベルを 1 つ上げて推論する(`lvl = level + 1`)。
-   注釈の頭の行の尾部と `pub` の省略 `@` の剛定数も、このレベルで作る。
+   公開の型で開く尾部の剛定数も、このレベルで作る。
    一般化しない束縛でレベルを上げないと、剛定数が束縛と同じレベルになり、
    同じレベルにある外側の単相の型変数への入り込みを、脱出検査が捕まえない(§11.27)。
 
@@ -2794,8 +2779,8 @@ and release_rigids rigids =
    ### 値束縛の注釈は、頭の矢印だけ扱いが違う
 
    値束縛の注釈は `elab_value_type_outer` で読む。
-   頭の矢印は束縛の最外なので、そこに書いたラベルのある行は開き、
-   `pub` の省略 `@` には Rigid の行を置く(表は §11.26)。
+   頭の矢印は束縛の最外なので、そこに書いた閉じた行は公開の型で開き、
+   `pub` の省略 `@` は `@ {}` と読む(表は §11.26)。
    開くかどうかは、`elab_value_type_outer` の結果ではなく、
    注釈の表層の構文 `snd t` が矢印リテラルかどうかで決める。
    頭が型エイリアスなら、展開先の矢印は入れ子で、書いた行は閉じたまま読むからである。
@@ -2847,16 +2832,8 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
         let fn_eff, eff_rigids =
           match b.T.lb_eff with
-          | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
-          | None when b.T.lb_pub ->
-              (* pub の @ 省略は純粋を表す。閉じた空の行にすると sample.kel 自身が
-                 落ちる(Db.query が handle_request から呼べない)。本体には Rigid を
-                 見せて perform を拒み、公開スキーマでは Generic に解放して、どんな
-                 行の文脈からも呼べるようにする。open_explicit_eff が空でない行に
-                 することを、空の行にもする形である *)
-              let r = new_rigid_ref ~kind:KRow lvl in
-              (match !r with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
-              (TVar r, [ ("", TVar r, r) ])
+          | Some e -> (elab_eff env_ty lvl e, [])
+          | None when b.T.lb_pub -> (new_pub_pure_row (), [])
           | None -> (new_row_var lvl, [])
         in
         extra_rigids := eff_rigids @ !extra_rigids;
@@ -2868,31 +2845,24 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         (try Unify.unify ret_ty body_ty
          with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された返り値型を満たしません(" ^ msg ^ ")"));
         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
-        TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+        let t = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
+        if b.T.lb_eff <> None || b.T.lb_pub then (
+          let t', rig = publish_open lvl t in
+          extra_rigids := rig @ !extra_rigids;
+          t')
+        else t
     | None ->
-        (* 値束縛の注釈の頭の矢印は、束縛の最外である。ラベルのある閉じた行を
-           書いたときは関数束縛と同じく、本体には Rigid を足して開き、公開
-           スキーマでは Generic にする(§11.26 の表の 1 行目)。書かれた @ {} と、
-           pub でない束縛の省略された @ には触らない。注釈は
-           elab_value_type_outer で読み、値の型の位置のカインドの照合を先に
-           掛けてから、その結果の型に行の開き方を掛ける *)
+        (* 値束縛の注釈の頭の矢印は、束縛の最外である。注釈は elab_value_type_outer で
+           読み、値の型の位置のカインドの照合を先に掛ける。pub の省略 @ は @ {} と読む。
+           書いた閉じた行は、初期化式と単一化した後で、公開の型で開く(§11.26) *)
         let vty =
           match b.T.lb_ret with
           | None -> new_var lvl
           | Some t -> (
               let ty = elab_value_type_outer env_ty lvl "型注釈" t in
               match (snd t, repr ty) with
-              | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
-                  let e', eff_rigids = open_explicit_eff lvl e in
-                  extra_rigids := eff_rigids @ !extra_rigids;
-                  TArrow (a, r, e')
-              | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
-                  (* pub の省略 @ は、本体は純粋、公開は行多相と読む(仕様 §13。
-                     関数束縛の lb_eff = None と同じ扱い) *)
-                  let rr = new_rigid_ref ~kind:KRow lvl in
-                  (match !rr with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
-                  extra_rigids := ("", TVar rr, rr) :: !extra_rigids;
-                  TArrow (a, r, TVar rr)
+              | T.EArrow (_, _, Some _), TArrow _ -> ty
+              | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub -> TArrow (a, r, TRowEmpty)
               | _ -> ty)
         in
         (* 値束縛の初期化式は外側の eff で推論する *)
@@ -2904,13 +2874,17 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
            if b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg then
              type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
            else type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
-        vty
+        (match b.T.lb_ret with
+         | Some (_, T.EArrow (_, _, eff)) when eff <> None || b.T.lb_pub ->
+             let t', rig = publish_open lvl vty in
+             extra_rigids := rig @ !extra_rigids;
+             t'
+         | _ -> vty)
   in
-  (* @ を省略した let の行が本体で空に固まったら、公開のときに開き直す
-     (§11.26)。明示の @ と pub(Rigid の経路)は対象外。値束縛は、注釈の頭の
-     矢印リテラルに @ が書かれていないときだけ開き直す。
-     let k: (Int32) => Int32 @ {} の @ {} を開くと、両方向に効くという約束が
-     破れる。頭がエイリアスなら展開先は入れ子なので開かない(outer_eff_written) *)
+  (* @ を省略した let の行が本体で閉じた行に固まったら、公開のときに開き直す
+     (§11.26)。明示の @ と pub は publish_open が開くので対象外。値束縛は、注釈の
+     頭の矢印リテラルに @ が書かれていないときだけ開き直す。頭がエイリアスなら
+     展開先は入れ子なので開かない(outer_eff_written) *)
   let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
   Tree.set_ty node fn_ty;
   let rigids = rigids @ !extra_rigids in
@@ -2966,10 +2940,8 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
    片方だけ先に一般化すると、相互再帰の相手が見ている変数がすでに一般化されていて、
    単一化に失敗する。
 
-   値束縛の注釈の頭にラベルのある行を書いたときの開き方は、`let` と同じである(§11.26)。
-   `pub` の省略 `@` だけは扱いが違い、`let rec` の値束縛には Rigid の行を置く分岐が無い。
-   群では Rigid の行を 1 本共有し、束縛ごとに頭から Rigid を作る経路とは噛み合わないからである。
-   そのため、頭の矢印の `@` を省略した `pub let rec` の値束縛は、
+   値束縛の注釈の頭に閉じた行を書いたときの開き方は、`let` と同じである(§11.26)。
+   頭の矢印の `@` を省略した `pub let rec` の値束縛は、
    `check_pub_annots` が拒否する(頭に `@` を書けば受理する)。
    この拒否は仕様と食い違わない。
    仕様は、`let rec` の値束縛を認める形を書いていない。
@@ -3014,21 +2986,20 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
    `test/annot_rows.t` の recand / recandfn / recandtp が前者を、
    recandpoly / recandeff が後者を確かめる。
 
-   群には制限が 1 つ残る。
-   2 本以上の束縛が最外の矢印に `@` をリテラルで書き、先行する束縛が後続の束縛を呼ぶと、通らない。
-   開いた行の尾部が、束縛の本数だけ別々の剛定数になるからである。
-   先行する束縛の本体が後続を呼ぶと、後続の `pre` は先行の剛定数を掴む。
-   後続の番が来ると、後続の注釈が作った別の剛定数とその `pre` を単一化しようとして、
-   「スコープ付きの型が一致しません」で落ちる。
-   通るかどうかは呼ぶ向きで決まり、落ちるのは互いを呼び合う形に限らない。
-   後続が先行を呼ぶだけの形は通る。
-   先行の剛定数はすでに Generic に解放されていて、呼び出しのたびに具体化されるからである。
-   これは値束縛でも関数束縛でも同じである。
-   `pub` の省略 `@` は群で 1 本の行を共有する(`shared_pub_row`)が、
-   明示された `@` は書いた本数だけ別々の行を表すので、共有にはできない。
-   `test/annot_rows.t` の recandboth / recandbothfn が互いを呼び合う形を、
-   recandfwd / recandfwdfn が先行が後続を呼ぶだけの形を、
-   recandeff / recandback が通る向きを確かめる。 *)
+   ### 群の中の呼び出しと公開の型
+
+   群の中の呼び出しは、名前を先に束縛した単相の `pre` を通る。
+   `pre` は、本体を検査した閉じた行の型(公開の型で開く前の型)と単一化する。
+   そのため、先行する束縛の本体が後続を呼ぶときは、
+   呼ぶ側の本体の行と、呼ばれる側の注釈の閉じた行が一致しなければならない。
+   行が同じ形(`test/annot_rows.t` の recandboth、recandbothfn、recandfwd、recandfwdfn)は通り、
+   行が違う形は落ちる。
+
+   後続の束縛の本体が先行を呼ぶときは、先行の公開の型を通す。
+   検査し終えて公開の型(尾部を開いた型)が決まった束縛は、後続の本体の環境(`env_now`)で、
+   その型に置き換える。
+   尾部は解放で Generic になっているので、呼び出しのたびに具体化され、
+   ラベルが呼ぶ側の行に含まれていれば呼べる(recandeff、recandback)。 *)
 
 and elab_rec_bindings env level eff bs : env =
   (* 事前に割り当てた単相の変数で束縛 → 本体を推論 → unify → 一般化。多相再帰はできない *)
@@ -3047,12 +3018,6 @@ and elab_rec_bindings env level eff bs : env =
       bs
   in
   let env_rec = { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names } in
-  (* pub の @ 省略の Rigid の行は、群で 1 本を共有する。束縛ごとに別の Rigid を
-     作ると、相互再帰の呼び出しが 2 本の Rigid を単一化しようとして
-     「スコープ付きの型が一致しません: R1 と ς1」で落ちる。pub を外せば通る、
-     意味の同じ宣言が落ちることになる。群は全体として純粋なので、同じ行で
-     よい。解放も群の終わりに 1 度だけ行う *)
-  let shared_pub_row = ref None in
   (* 注釈が作った剛定数(型パラメータと、書かれた @ を開いた行)のうち、群のほかの
      束縛の pre に入り込んだものは群の終わりに、それ以外は束縛ごとに解放する(§11.29) *)
   let group_rigids = ref [] in
@@ -3067,24 +3032,18 @@ and elab_rec_bindings env level eff bs : env =
     | TRowExtend (_, f, rest) -> mentions r f || mentions r rest
   in
   let rec_arg_queue = ref [] in
-  let pub_pure_row lvl =
-    match !shared_pub_row with
-    | Some (t, r) -> (t, [ ("", t, r) ])
-    | None ->
-        let r = new_rigid_ref ~kind:KRow lvl in
-        (match !r with Rigid i -> Hashtbl.replace pub_pure_rows i.vid () | _ -> ());
-        shared_pub_row := Some (TVar r, r);
-        (TVar r, [ ("", TVar r, r) ])
-  in
+  let published = ref [] in
+  (* 検査し終えて公開の型が決まった束縛は、後続の本体からその型で見せる *)
+  let env_now = ref env_rec in
   List.iter2
-    (fun ((_, b) as bnode) (_, pre) ->
+    (fun ((_, b) as bnode) (x, pre) ->
       at_node bnode @@ fun () ->
       (* pub の完全注釈検査と、関数束縛の @ の省略を純粋と読む規則は、let(§11.28)と同じ。
          ただし完全注釈検査では値束縛の頭を最外として扱わない(値束縛に pub の省略 @ の
          分岐が無いため。§11.29) *)
       (if b.T.lb_pub then check_pub_annots ~value_head_outer:false ~params:b.T.lb_params ~ret:b.T.lb_ret);
       let rigids = make_rigids lvl b.T.lb_tparams in
-      let env_ty = { env_rec with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env_rec.types rigids } in
+      let env_ty = { !env_now with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) !env_now.types rigids } in
       let extra_rigids = ref [] in
       let fn_ty =
         match b.T.lb_params with
@@ -3094,11 +3053,8 @@ and elab_rec_bindings env level eff bs : env =
             let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
             let fn_eff, eff_rigids =
               match b.T.lb_eff with
-              | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
-              | None when b.T.lb_pub ->
-                  (* 共有 Rigid は群の終わりに解放するので、束縛ごとの
-                     解放リストには入れない *)
-                  (fst (pub_pure_row lvl), [])
+              | Some e -> (elab_eff env_ty lvl e, [])
+              | None when b.T.lb_pub -> (new_pub_pure_row (), [])
               | None -> (new_row_var lvl, [])
             in
             extra_rigids := eff_rigids;
@@ -3112,24 +3068,30 @@ and elab_rec_bindings env level eff bs : env =
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
             (* 値束縛の注釈の頭の矢印は最外である(§11.28 と同じ)。注釈は、値の型の
-               位置のカインドの照合を通してから読む。pub の分岐は入れない。群が
-               共有の Rigid の行を持つ設計と噛み合わないため(§11.29) *)
+               位置のカインドの照合を通してから読む。頭の @ を省略した pub は
+               check_pub_annots が拒否するので、pub の分岐は無い(§11.29) *)
             let vty =
               match b.T.lb_ret with
               | None -> new_var lvl
               | Some t -> (
-                  let ty = elab_value_type_outer env_ty lvl "型注釈" t in
-                  match (snd t, repr ty) with
-                  | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
-                      let e', eff_rigids = open_explicit_eff lvl e in
-                      extra_rigids := eff_rigids @ !extra_rigids;
-                      TArrow (a, r, e')
-                  | _ -> ty)
+                  elab_value_type_outer env_ty lvl "型注釈" t)
             in
             Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
             vty
       in
       Unify.unify pre fn_ty;
+      let fn_ty =
+        if outer_eff_written b || b.T.lb_pub then (
+          match (b.T.lb_params, b.T.lb_ret) with
+          | Some _, _ | None, Some (_, T.EArrow _) ->
+              let t', rig = publish_open lvl fn_ty in
+              extra_rigids := rig @ !extra_rigids;
+              published := (bnode, t') :: !published;
+              env_now := { !env_now with values = SMap.add x t' !env_now.values };
+              t'
+          | _ -> fn_ty)
+        else fn_ty
+      in
       Tree.set_ty bnode fn_ty;
       let shared, own =
         List.partition
@@ -3140,7 +3102,6 @@ and elab_rec_bindings env level eff bs : env =
       group_rigids := shared @ !group_rigids)
     bs names;
   release_rigids !group_rigids;
-  (match !shared_pub_row with Some (t, r) -> release_rigids [ ("", t, r) ] | None -> ());
   (* @ を省略した let rec も、本体が純粋だと分かったら、公開の行を開き直す
      (§11.26 と同じ規則。群のうち @ を書いた束縛と pub は対象外)。本体の
      再帰呼び出しが見ていた pre は古い矢印のままだが、本体はすでに {} で
@@ -3148,6 +3109,9 @@ and elab_rec_bindings env level eff bs : env =
   let names =
     List.map2
       (fun (((_, b) as bnode) : T.let_binding) (x, t) ->
+        match List.assq_opt bnode !published with
+        | Some t' -> (x, t')
+        | None ->
         if (not (outer_eff_written b)) && not b.T.lb_pub then (
           let t' = reopen_pure_row lvl t in
           if t' != t then Tree.set_ty bnode t';
@@ -4031,8 +3995,8 @@ let signature_of_binding env (b : T.let_binding') : ty option =
               match b.T.lb_eff with
               | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
               | None ->
-                  (* ここに来るのは pub のときだけ(full の条件)。本体の側と同じく、
-                     Rigid を Generic に変える *)
+                  (* ここに来るのは pub のときだけ(full の条件)。本体の側が公開の型で
+                     尾部を開くのと同じく、開いた行を置いて Generic に変える *)
                   let r = new_rigid_ref ~kind:KRow lvl in
                   (TVar r, [ ("", TVar r, r) ])
             in
@@ -4120,9 +4084,9 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 
    この言い分けのために、`subsume` は最外の行の単一化だけを別の `try` で包む。
    引数と返り値の単一化の失敗は、`wrap` を通って「クラス宣言の型を満たしません」の文言になる。
-   `pub` の側が `pub_pure_rows` という台帳を持つのに対し、ここは台帳を持たない。
+   `pub` の側が本体の行の印のセル(§11.26)を持つのに対し、ここは印を持たない。
    名指しの判定に要る材料は宣言の側の行 `se` だけで、包摂のこの 1 か所で揃うからである。
-   台帳を増やせば、そのぶんリセット漏れ(§11.41 の `Hashtbl.reset`)の危険も増える。
+   印を増やせば、そのぶんリセット漏れ(§11.41)の危険も増える。
 
    判定の材料が宣言の側だけなので、名指しは本来の対象より少し広く働く。
    実装が自分の注釈に `@ Print` と書き、その本体は何も起こしていないときも、
@@ -4190,7 +4154,7 @@ let check_instance_bodies env (i : T.instance_decl') =
        公開される型は行多相であると定める。引数と返り値を先に合わせたあと、
        実装の行が空(純粋)なら、宣言の行(剛定数)と単一化せずに受理する。
        純粋な実装はどの行の下からでも呼べるので、公開の型として行多相を名乗ってよい。
-       pub の @ 省略は Rigid を Generic に変えて同じ非対称を作るが、ここではそれを
+       pub の @ 省略は公開の型で尾部を開いて同じ非対称を作るが、ここではそれを
        推論された空の行に対して行う。メソッドの引数に @ を省略した矢印があると、
        実装の行は {} に固まるので、この扱いが無いと、宣言できるのに実装できない
        メソッドが生じる *)
@@ -4719,7 +4683,7 @@ let type_check_decls ?(prelude = []) decls =
   warnings_count := 0;
   Unify.reset ();
   Exhaust.reset ();
-  Hashtbl.reset pub_pure_rows;
+  pub_pure_cells := [];
   let out = current_out in
   out := [];
   (* 先頭に積んで最後に反転する。末尾に @ で連結すると、宣言数の二乗の時間がかかる *)
