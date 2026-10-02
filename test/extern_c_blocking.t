@@ -63,11 +63,12 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   ! cpub.kel:2:34: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Blocking がありません(行は閉じています))
   [1]
 
-ブロックしない外部関数は、行変数を明示して行多相にする。@ {} と注釈した関数の本体、
-@ Console の本体、@ を省略した pub let の本体のどれからも呼べる:
+ブロックしない外部関数は @ {} と書く(sin)。行変数を明示してもよい(cos)。どちらも
+公開の型では行を開くので、@ {} と注釈した関数の本体、@ Console の本体、@ を省略した
+pub let の本体のどれからも呼べる:
 
   $ cat > cpure.kel <<'KEL'
-  > extern "C" let sin[E](x: Float64): Float64 @ E
+  > extern "C" let sin(x: Float64): Float64 @ {}
   > pub extern "C" let cos[E](x: Float64): Float64 @ E
   > let pure(x: Float64): Float64 @ {} = sin(x)
   > let loud(x: Float64): Float64 @ Console = { echo("x "); cos(x) }
