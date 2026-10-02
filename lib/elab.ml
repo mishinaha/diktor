@@ -113,7 +113,14 @@ type env = {
   values : ty SMap.t;
   types : ty SMap.t; (* 型パラメータの束縛(リージョン変数 h を含む) *)
   resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でだけ Some *)
+  tops : Tree.gref SMap.t; (* values のうちトップレベルの実体を指す名前 → 実体。局所束縛は取り除く *)
 }
+
+(* 局所束縛を足す。同名のトップレベルの実体は覆われる *)
+let add_local env x t = { env with values = SMap.add x t env.values; tops = SMap.remove x env.tops }
+
+(* トップレベルの実体を足す *)
+let add_top env x t g = { env with values = SMap.add x t env.values; tops = SMap.add x g env.tops }
 
 let warnings : string list ref = ref []
 
@@ -1233,6 +1240,15 @@ let elab_eff env level t = at_node t (fun () -> elab_eff env level ~expanding:[]
 
    `elab_pat` は、式のノードと同じく、すべてのパターンのノードに期待型を `set_ty` で書き込む。 *)
 
+let rec pat_var_names ((_, p) : T.pat) =
+  match p with
+  | T.PVar x -> [ x ]
+  | T.PAnnot (q, _) -> pat_var_names q
+  | T.PRecord (fs, tail) -> List.concat_map (fun (_, q) -> pat_var_names q) fs @ Option.fold ~none:[] ~some:pat_var_names tail
+  | T.PCtor (_, args) -> List.concat_map (fun a -> pat_var_names a.T.cap_pat) args
+  | T.PVariant (_, q) -> pat_var_names q
+  | T.PWildcard | T.PBool _ | T.PNumber _ | T.PText _ -> []
+
 let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
   Tree.set_ty node expected;
   at_node node @@ fun () ->
@@ -1242,7 +1258,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
       if List.mem x !seen then type_error ("同じパターン内で変数 " ^ x ^ " が重複しています")
       else (
         seen := x :: !seen;
-        { env with values = SMap.add x expected env.values })
+        add_local env x expected)
   | T.PAnnot (sub, te) ->
       Unify.unify expected (elab_value_type env level "型注釈" te);
       elab_pat env level seen expected sub
@@ -1435,6 +1451,7 @@ and elab_exp' env level eff node e =
              綴りによる免除は要らない。綴りで免除すると、同名のクラスを 1 行宣言するだけで、
              任意の非 pub の値を外から呼べてしまう *)
           Decls.check_value_visible (intern name);
+          (match SMap.find_opt name env.tops with Some g -> Tree.set_resolved node (Tree.RVar g) | None -> ());
           Unify.instantiate level sch
       | None -> (
           (* 環境に無かったときだけ、module スコープの値の同義語を引く。フォールバック専用
@@ -1447,7 +1464,12 @@ and elab_exp' env level eff node e =
             | None -> None
           in
           match Option.bind scoped (fun q -> SMap.find_opt (name_of q) env.values) with
-          | Some sch -> Unify.instantiate level sch
+          | Some sch ->
+              (* 同義語の先は module の中のトップレベルの値で、局所束縛にはならない *)
+              (match Option.bind scoped (fun q -> SMap.find_opt (name_of q) env.tops) with
+              | Some g -> Tree.set_resolved node (Tree.RVar g)
+              | None -> bug ("同義語の先が実体を持ちません: " ^ name));
+              Unify.instantiate level sch
           | None -> (
               match li with
               | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
@@ -2899,7 +2921,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         Unify.generalize level fn_ty)
       else Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
-      { env with values = SMap.add x fn_ty env.values }
+      add_local env x fn_ty
   | T.PWildcard ->
       List.iter warn (Exhaust.drain ());
       if gen then (
@@ -3001,7 +3023,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
    尾部は解放で Generic になっているので、呼び出しのたびに具体化され、
    ラベルが呼ぶ側の行に含まれていれば呼べる(recandeff、recandback)。 *)
 
-and elab_rec_bindings env level eff bs : env =
+and elab_rec_bindings ?(top = false) env level eff bs : env =
   (* 事前に割り当てた単相の変数で束縛 → 本体を推論 → unify → 一般化。多相再帰はできない *)
   let lvl = level + 1 in
   let names =
@@ -3017,7 +3039,13 @@ and elab_rec_bindings env level eff bs : env =
         | _ -> type_error "let rec の束縛はパターンにできません")
       bs
   in
-  let env_rec = { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names } in
+  (* トップレベルの let rec の自己参照と相互参照は、トップレベルの実体を指す *)
+  let bind_names env names =
+    List.fold_left2
+      (fun env bn (x, t) -> if top then add_top env x t (Tree.GDecl (Tree.oid_of bn, x)) else add_local env x t)
+      env bs names
+  in
+  let env_rec = bind_names env names in
   (* 注釈が作った剛定数(型パラメータと、書かれた @ を開いた行)のうち、群のほかの
      束縛の pre に入り込んだものは群の終わりに、それ以外は束縛ごとに解放する(§11.29) *)
   let group_rigids = ref [] in
@@ -3128,7 +3156,7 @@ and elab_rec_bindings env level eff bs : env =
      到達できればよい *)
   Unify.check_ambiguity ~all:false ~level (List.map snd names);
   List.iter (fun (_, t) -> Unify.generalize level t) names;
-  { env with values = List.fold_left (fun m (x, t) -> SMap.add x t m) env.values names }
+  bind_names env names
 
 (* ## 11.30 トップレベルで許されるエフェクト
 
@@ -3176,10 +3204,12 @@ let toplevel_eff () =
     Prims.toplevel_effects TRowEmpty
 
 let initial_env () =
+  let refs = Decls.builtin_value_refs () in
   {
-    values = List.fold_left (fun m (n, t) -> SMap.add n t m) SMap.empty (Decls.builtin_values ());
+    values = List.fold_left (fun m (n, t, _) -> SMap.add n t m) SMap.empty refs;
     types = SMap.empty;
     resume_ty = None;
+    tops = List.fold_left (fun m (n, _, g) -> SMap.add n g m) SMap.empty refs;
   }
 
 (* ## 11.31 newtype の登録
@@ -4409,21 +4439,15 @@ let process_decls env ~emit decls =
             env
         | T.DClass c ->
             let methods = register_class env c in
-            {
-              env with
-              values =
-                (* 非修飾名は先勝ち(既存の束縛は上書きしない)。実行時は、プレリュードの
-                   let / extern の再束縛が register_class_methods のラッパを版複製で覆う
-                   ので、非修飾名の勝者は先にいた側になる。elab も同じ側を選ばないと、
-                   型検査と実行が別の実体を選び、echo や println のようなプレリュードの
-                   名前をクラスメソッドが乗っ取る。修飾名 Cls.m はクラスの所有なので、
-                   常に登録する *)
-                List.fold_left
-                  (fun m (mn, ty) ->
-                    let m = SMap.add (c.T.cls_name ^ "." ^ mn) ty m in
-                    if SMap.mem mn m then m else SMap.add mn ty m)
-                  env.values methods;
-            }
+            (* 非修飾名は先勝ち(既存の束縛は上書きしない)。修飾名 Cls.m はクラスの所有なので、
+               常に登録する。どちらも実体は GMethod Cls.m で、評価器は型検査が書いた実体で
+               引くので、型検査と実行が別の実体を選ぶことは無い *)
+            List.fold_left
+              (fun env (mn, ty) ->
+                let q = c.T.cls_name ^ "." ^ mn in
+                let env = add_top env q ty (Tree.GMethod q) in
+                if SMap.mem mn env.values then env else add_top env mn ty (Tree.GMethod q))
+              env methods
         | _ -> env)
       env decls
   in
@@ -4493,20 +4517,20 @@ let process_decls env ~emit decls =
         | T.DInstance i ->
             register_instance i;
             env
-        | T.DLet (_, b) -> (
+        | T.DLet ((_, b) as bn) -> (
             (* 先勝ち: 既に環境にある名前(先行する 1c の署名、クラスメソッド、プレリュードの
                束縛)は上書きしない。実行時の版複製(§14.13)は、再束縛より前に作られた閉包に
                古い実体を見せるので、前方参照の勝者も、最初にその名前を持った側になる。
                後勝ちにすると、前方参照する関数だけ型検査と実行が別の実体を選び、同名の
                let 2 つと前方参照を含むプログラムが、黙って別の型の値を返す *)
             match (binding_name b, signature_of_binding env b) with
-            | Some x, Some ty when not (SMap.mem x env.values) -> { env with values = SMap.add x ty env.values }
+            | Some x, Some ty when not (SMap.mem x env.values) -> add_top env x ty (Tree.GDecl (Tree.oid_of bn, x))
             | _ -> env)
         | T.DLetRec bs ->
             List.fold_left
-              (fun env ((_, b) : T.let_binding) ->
+              (fun env ((_, b) as bn : T.let_binding) ->
                 match (binding_name b, signature_of_binding env b) with
-                | Some x, Some ty when not (SMap.mem x env.values) -> { env with values = SMap.add x ty env.values }
+                | Some x, Some ty when not (SMap.mem x env.values) -> add_top env x ty (Tree.GDecl (Tree.oid_of bn, x))
                 | _ -> env)
               env bs
         | _ -> env)
@@ -4567,6 +4591,12 @@ let process_decls env ~emit decls =
           env
       | T.DLet b ->
           let env' = elab_binding env 0 eff0 b in
+          (* トップレベルの束縛子は、束縛ノードと名前の組を実体にする *)
+          let env' =
+            List.fold_left
+              (fun e x -> { e with tops = SMap.add x (Tree.GDecl (Tree.oid_of b, x)) e.tops })
+              env' (pat_var_names (snd b).T.lb_name)
+          in
           (* 宣言の終わりの曖昧性検査(all=true。宣言の型から到達できない制約は、誰にも
              決められない)。既定化の直前に行う。逆の順だと、述語つきの変数が先に消えて
              免除の判定が要らなくなる代わりに、Eq / Show だけが乗った変数の検出が遅れる *)
@@ -4575,7 +4605,7 @@ let process_decls env ~emit decls =
           show_binding env' b;
           env'
       | T.DLetRec bs ->
-          let env' = elab_rec_bindings env 0 eff0 bs in
+          let env' = elab_rec_bindings ~top:true env 0 eff0 bs in
           Unify.check_ambiguity ~all:true ~level:0 (List.map Tree.get_ty bs);
           Unify.default_numerics ();
           List.iter (show_binding env') bs;
@@ -4630,7 +4660,7 @@ let process_decls env ~emit decls =
           Unify.generalize 0 ty;
           release_rigids (rigids @ eff_rigids);
           emit (Binding (ex.T.ex_name ^ " : " ^ Show.show ty));
-          { env with values = SMap.add ex.T.ex_name ty env.values }
+          add_top env ex.T.ex_name ty (Tree.GDecl (Tree.oid_of node, ex.T.ex_name))
       | T.DNewtype _ -> env (* パス 1 で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> env (* パス 1 で登録済み *)
       | T.DClass _ -> env (* パス 1 で登録済み *)

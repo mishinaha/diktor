@@ -122,7 +122,15 @@ open Aux
    向きが違うのは、使い方が違うからでもある。
    式の評価は引数を順にたどり、各引数の格納先を表で引く。
    パターンの照合はフィールドを順にたどり、各フィールドの部分パターンを表で引く。 *)
+(* トップレベルの値の実体。組み込みの値は名前で、クラスメソッドは修飾名で、
+   宣言した値は束縛ノードの oid と束縛した名前の組で指す *)
+type gref =
+  | GBuiltin of string
+  | GMethod of string (* Cls.m *)
+  | GDecl of oid * string
+
 type resolved =
+  | RVar of gref (* Ident。トップレベルの値の参照 *)
   | ROp of oid (* perform と handle の操作節。Console.write のような完全な操作名の oid *)
   | RReturnClause (* handle の return 節 *)
   | RCancelClause (* handle の cancel 節 *)

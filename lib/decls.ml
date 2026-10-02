@@ -1007,14 +1007,19 @@ let register_builtins () =
    表がモジュールの状態なので、この副作用を伴う初期化が要る。
    第16章(driver.ml)が何かをする前に、組み込みはすでに表に載っている。 *)
 
-let builtin_values () =
+(* 名前、型、実体の 3 つ組。クラスメソッドは非修飾名も修飾名も同じ実体 GMethod Cls.m を指す *)
+let builtin_value_refs () =
   Hashtbl.fold
     (fun _ ci acc ->
       List.fold_left
-        (fun acc (m, ty) -> (m, ty) :: (Type.name_of ci.ci_name ^ "." ^ m, ty) :: acc)
+        (fun acc (m, ty) ->
+          let q = Type.name_of ci.ci_name ^ "." ^ m in
+          (m, ty, Tree.GMethod q) :: (q, ty, Tree.GMethod q) :: acc)
         acc ci.ci_methods)
     classes []
-  @ !builtin_ops
+  @ List.map (fun (n, ty) -> (n, ty, Tree.GBuiltin n)) !builtin_ops
+
+let builtin_values () = List.map (fun (n, ty, _) -> (n, ty)) (builtin_value_refs ())
 
 (* 組み込みが値環境に置く名前かどうか(修飾名 Ref.new / MutableArray.set と、
    クラスメソッドの Show.show / show の両方を含む)。
