@@ -154,21 +154,23 @@
   ! pr9.kel:2:1: 型エラー: Integral は予約されたリテラル述語です(制約には書けません、D8)
   [1]
 
-実行時のディスパッチは値の頭だけを見る(前提は運ばない — D95)。入れ子も通る:
+実行時のディスパッチは値の頭だけを見る(前提は運ばない — D95)。入れ子も通る。
+標準環境の List の Eq は標準環境が持つ(孤児規則)ので、自前のリスト型で示す:
 
   $ cat > pr10.kel <<'EOF'
-  > type instance[A: Eq] Eq[List[_]] {
+  > newtype Lst[A] = LNil | LCons(A, Lst[A])
+  > type instance[A: Eq] Eq[Lst[_]] {
   >   let rec eq(xs, ys) = (xs, ys) match {
-  >     case (Nil, Nil)                 => true
-  >     case (Cons(x, xt), Cons(y, yt)) => x == y && eq(xt, yt)
-  >     case _                          => false
+  >     case (LNil, LNil)                 => true
+  >     case (LCons(x, xt), LCons(y, yt)) => x == y && eq(xt, yt)
+  >     case _                            => false
   >   }
   > }
-  > echoln(show(Cons(1i32, Cons(2i32, Nil)) == Cons(1i32, Cons(2i32, Nil))))
-  > echoln(show(Cons(1i32, Nil) == Cons(2i32, Nil)))
-  > echoln(show(Cons(Cons("a", Nil), Nil) == Cons(Cons("a", Nil), Nil)))
-  > echoln(show(Cons(Cons("a", Nil), Nil) == Cons(Cons("b", Nil), Nil)))
-  > echoln(show(Nil == Cons(1i32, Nil)))
+  > echoln(show(LCons(1i32, LCons(2i32, LNil)) == LCons(1i32, LCons(2i32, LNil))))
+  > echoln(show(LCons(1i32, LNil) == LCons(2i32, LNil)))
+  > echoln(show(LCons(LCons("a", LNil), LNil) == LCons(LCons("a", LNil), LNil)))
+  > echoln(show(LCons(LCons("a", LNil), LNil) == LCons(LCons("b", LNil), LNil)))
+  > echoln(show(LNil == LCons(1i32, LNil)))
   > EOF
   $ diktor pr10.kel
   true
