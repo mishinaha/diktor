@@ -3796,8 +3796,7 @@ let register_class env (c : T.class_decl') =
              ^ " が既に宣言しています(非修飾名が衝突するため、v0 では同名メソッドを複数のクラスに宣言できません)"))
         Decls.classes)
     methods;
-  match
-    Decls.add_class_decl
+  Decls.add_class_decl
       {
         Decls.ci_name = cls;
         ci_param = pinfo;
@@ -3805,13 +3804,8 @@ let register_class env (c : T.class_decl') =
         ci_derive_structural = List.mem "structural" c.T.cls_derives;
         ci_builtin = false;
         ci_methods = methods;
-      }
-  with
-  | `Added -> methods
-  | `Builtin prev ->
-      (* 組み込みと同名のクラス。構造の照合は第6章の add_class_decl が済ませている。
-         実体は組み込みを使う *)
-      prev.Decls.ci_methods
+      };
+  methods
 
 (* ## 11.34 インスタンスの頭
 
@@ -4469,7 +4463,8 @@ let process_decls env ~emit decls =
              書かれたエイリアスが、先に書かれた newtype を再宣言として逆向きに咎める *)
           Decls.claim_type_name "newtype" (intern n.T.nt_name);
           register_companion n.T.nt_name;
-          if not (Decls.prelude_owned "data" (intern n.T.nt_name)) || !Decls.in_prelude then
+          if Decls.prelude_owned "data" (intern n.T.nt_name) && not !Decls.in_prelude then
+            type_error ("標準環境の newtype " ^ n.T.nt_name ^ " は再宣言できません");
             (* 頭のカインドは、パラメータごとにカインド変数を積む。1b の register_newtype が
                このセルを剥がして dd_params の vkind に据えるので、本体で決まったカインドが
                そのまま頭に反映される *)

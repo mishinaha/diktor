@@ -1395,11 +1395,6 @@ let exec_decl versions env ((_, d) as node : T.decl) =
         | [ (_, T.EApply ((_, T.EIdent (LongId comps)), _)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
         | _ -> bug "インスタンス頭が解決できません"
       in
-      if
-        (match Decls.find_class cls with Some ci -> ci.Decls.ci_builtin | None -> false)
-        && Decls.builtin_instance_exists cls con
-      then env (* 組み込みインスタンスは差し替えない(elab と一致させる) *)
-      else
       let methods =
         List.concat_map
           (fun ((_, d) : T.decl) ->
