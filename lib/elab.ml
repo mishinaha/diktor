@@ -3950,6 +3950,14 @@ let register_instance (i : T.instance_decl') =
       if not (List.mem_assoc (intern m) methods) then
         type_error ("インスタンスがメソッドを網羅していません: " ^ m ^ " が漏れています"))
     ci.Decls.ci_methods;
+  (* 孤児規則:インスタンスは、クラスか型構成子を宣言したファイルにだけ書ける。
+     標準環境どうしの組は標準環境だけが持つ *)
+  (* 同じ組がすでにあれば、表の重複の診断(add_instance)のほうが原因に近いので、そちらに任せる *)
+  (if (not !Decls.in_prelude) && Decls.find_instance ~cls ~con = None then
+     let cur = !Decls.current_unit in
+     if Decls.entity_unit cls <> cur && Decls.entity_unit con <> cur then
+       let c = display_of cls and t = display_of con in
+       type_error (c ^ "[" ^ t ^ "] のインスタンスは、" ^ c ^ " か " ^ t ^ " を宣言したファイルにだけ書けます"));
   Decls.add_instance ~builtin:false ~methods ~cls ~con premises
 
 (* ## 11.36 前方参照できる束縛の条件

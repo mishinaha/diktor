@@ -451,3 +451,39 @@ type instance[A: Show] Show[Option[_]] {
     case Some(x) => "Some(" + Show.show(x) + ")"
   }
 }
+
+// ## 15.9 List と Option の Eq
+//
+// `Eq` のインスタンスは、クラスか型を宣言したファイルにだけ書ける(孤児規則。第11章)。
+// `Eq` も `List` も `Option` も標準環境のものなので、`Eq[List[_]]` と `Eq[Option[_]]` は
+// 標準環境のほかには書けない。
+// 利用者が最もよく書く組なので、ここに置く。
+//
+// 2 つのリストは、長さが同じで、同じ位置の要素がすべて等しいときに等しい。
+// 要素の比較は `Eq.eq` で行うので、要素の型にも `Eq` が要る(前提 `[A: Eq]`)。
+
+type instance[A: Eq] Eq[List[_]] {
+  let eq(xs, ys) = xs match {
+    case Nil => ys match {
+      case Nil => true
+      case _   => false
+    }
+    case Cons(head = x, tail = xt) => ys match {
+      case Nil => false
+      case Cons(head = y, tail = yt) => Eq.eq(x, y) && eq(xt, yt)
+    }
+  }
+}
+
+type instance[A: Eq] Eq[Option[_]] {
+  let eq(a, b) = a match {
+    case None => b match {
+      case None => true
+      case _    => false
+    }
+    case Some(x) => b match {
+      case None    => false
+      case Some(y) => Eq.eq(x, y)
+    }
+  }
+}
