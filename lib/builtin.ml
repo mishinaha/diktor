@@ -499,7 +499,7 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
    第14章 §14.10 の 3 つの経路の規約は、この最も外側のハンドラにも同じく当てはまる。
    `sink` への書き込みが例外で落ちたら、`discontinue` を使って、その例外を捨てる継続に届ける。
    素の `raise` にすると、捨てた継続の中の cancel 節が走らない。
-   第14章の末尾 resume の速い経路が、引数の評価で起きた例外を `discontinue` するのと同じ理由である。
+   第14章の、節本体が resume そのものの短い経路が、引数の評価で起きた例外を `discontinue` するのと同じ理由である。
 
    `sink` が落ちる現実の経路は、標準出力への書き込みの失敗である。
    このとき cancel 節の出力は同じ壊れた標準出力へ行くので観測できないが、
