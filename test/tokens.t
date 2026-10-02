@@ -247,12 +247,12 @@ ASI の基本(既存バグ 0.2-12 の回帰: let 2連続の間に区切りが入
      8  }
      9  <EOF>
 
-クラス本体(val / derive が行頭に来られること。spike の FIX-11):
+クラス本体(2 つ目の val が行頭に来られること。spike の FIX-11):
 
   $ cat > cls.kel <<'EOF'
   > type class Eq[A] {
   >   val eq: (A, A) => Boolean
-  >   derive structural
+  >   val ne: (A, A) => Boolean
   > }
   > EOF
   $ diktor --dump-tokens cls.kel
@@ -274,8 +274,16 @@ ASI の基本(既存バグ 0.2-12 の回帰: let 2連続の間に区切りが入
      2  =>
      2  Boolean
      2  <NL>
-     3  derive
-     3  structural
+     3  val
+     3  ne
+     3  :
+     3  (
+     3  A
+     3  ,
+     3  A
+     3  )
+     3  =>
+     3  Boolean
      4  }
      5  <EOF>
 

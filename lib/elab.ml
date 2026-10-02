@@ -1287,7 +1287,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
 
    `dd_opaque` が真の型をパターンで分解することをここで拒む。
    `dd_opaque` が真の型は組み込みの不透明型だけで、どれもコンストラクタを持たないので、
-   コンストラクタの名前からこの分岐に着くことは無い。拒否は防御のために残してある。 *)
+   コンストラクタの名前からこの分岐に着くことは無い。拒否は防御のための分岐である。 *)
 
   | T.PCtor (li, args) -> (
       let (LongId comps) = li in
@@ -1490,7 +1490,7 @@ and elab_exp' env level eff node e =
    ```
 
    `with` は呼び出しの末尾に継続を加える構文糖(第3章)なので、
-   これは `with_file(src, fn(_) => ...)` に脱糖される。
+   これは `with_file(src, fn() => ...)` に脱糖される(`_` の継続は 0 引数である。第3章 §3.8)。
    `with_file` の宣言は `body: () => A @ {File, Blocking extends E}` なので、
    期待型を先に押し込めば、ラムダの行が `{File, Blocking extends E}` に確定した状態で、
    ラムダの本体を推論できる。
@@ -1829,7 +1829,7 @@ and elab_construct env level node cname ?eff args =
       Decls.check_ctor_visible ctor dname;
       let dd = Hashtbl.find Decls.datas dname in
       (* dd_opaque の型は組み込みの不透明型だけで、コンストラクタを持たないので、
-         ここには来ない。拒否は防御のために残してある *)
+         ここには来ない。拒否は防御のための分岐である *)
       if dd.Decls.dd_opaque then type_error ("newtype " ^ name_of dname ^ " の表現は ??? で隠されています")
       else
         let ct = List.find (fun c -> c.Decls.ct_name = ctor) dd.Decls.dd_ctors in

@@ -216,8 +216,8 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! mix.kel:2:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
   [4]
 
-標準環境の名前は再宣言できない(LangSpec §16.1。種別ごとに 1 つ。
-かつては構造を照合して同じ宣言を受理していた):
+標準環境の名前は再宣言できない(LangSpec §16.1。newtype、型エイリアス、effect、
+type class の 4 種別で 1 つずつ。インスタンスは test/verify_fixes.t の coh):
 
   $ printf 'newtype Option[A] = None(Int32) | Some\n' > d1.kel
   $ diktor --type-check d1.kel

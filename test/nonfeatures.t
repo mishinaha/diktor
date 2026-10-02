@@ -125,6 +125,18 @@ test/parallel.t が固定している):
   $ diktor --type-check fsprim.kel
   ! fsprim.kel:1:9: 型エラー: 未束縛の変数: __open
   [1]
+  $ printf 'let h = __read\n' > fsprim2.kel
+  $ diktor --type-check fsprim2.kel
+  ! fsprim2.kel:1:9: 型エラー: 未束縛の変数: __read
+  [1]
+  $ printf 'let h = __write\n' > fsprim3.kel
+  $ diktor --type-check fsprim3.kel
+  ! fsprim3.kel:1:9: 型エラー: 未束縛の変数: __write
+  [1]
+  $ printf 'let h = __close\n' > fsprim4.kel
+  $ diktor --type-check fsprim4.kel
+  ! fsprim4.kel:1:9: 型エラー: 未束縛の変数: __close
+  [1]
   $ printf 'let f(): Unit @ Fs = ()\n' > fs.kel
   $ diktor --type-check fs.kel
   ! fs.kel:1:17: 型エラー: 未知のエフェクト: Fs
@@ -153,6 +165,10 @@ par と par_map は標準環境に無い(LangSpec §16):
   $ printf 'let p = par(fn() => 1, fn() => 2)\n' > par.kel
   $ diktor --type-check par.kel
   ! par.kel:1:9: 型エラー: 未束縛の変数: par
+  [1]
+  $ printf 'let q = par_map\n' > parmap.kel
+  $ diktor --type-check parmap.kel
+  ! parmap.kel:1:9: 型エラー: 未束縛の変数: par_map
   [1]
 
 型エイリアスと newtype のパラメータには制約を書けない(LangSpec §12.1):

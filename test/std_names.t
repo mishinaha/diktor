@@ -1,4 +1,5 @@
-標準環境の名前は、トップレベルの宣言に使えない(LangSpec §16.1、§12.2)。
+標準環境の型、エフェクト、クラスの名前と、標準環境のインスタンスの組は、トップレベルの
+同じ種別の宣言に使えない(LangSpec §16.1、§12.2)。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 

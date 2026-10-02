@@ -23,6 +23,9 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
   sin : (Float64) => Float64 @ {Blocking extends R1}
+  $ printf 'extern "C" let sin(x: Float64): Float64 @ Console\n' > cblk3.kel
+  $ diktor --type-check cblk3.kel
+  sin : (Float64) => Float64 @ {Console extends R1}
 
 未知名は従来どおり受理(宣言は通り、呼ぶと落ちる。本物の C FFI は
 検証不能な宣言なのでこの線引きは意図的):

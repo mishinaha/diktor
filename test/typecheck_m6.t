@@ -1,8 +1,9 @@
 M6(エフェクト行 / perform / handle / run / Rigid)のゴールデン。
 変更時は dune promote で更新し、必ず目視レビューすること。
 
-sample.kel §9 の核心(println / capture / try_ / with_file / copy。改訂後の
-§9 — Fs は自前で宣言し、prim も自前で @ Fs を付ける)。
+sample.kel §9 の核心(println / capture / try_ / with_file / copy)。ファイル操作は、
+自前で宣言した effect Fs と、@ Fs を付けた prim で書く(sample.kel は extern "C" と
+@ Blocking で書く)。
 with_file の handle は write が Console と File の両方に宣言されていても
 「全節が属し全操作が網羅される」File に解決される(D22)。
 copy の perform write は行の最左の File に解決される(この例では最内

@@ -130,6 +130,6 @@ Fs はランタイムの名簿に無い普通の名前なので、操作つき�
   >   }
   > let n = with_fs(fn() => perform touch("x"))
   > KEL
-  $ diktor --type-check --no-prelude ownfs.kel
+  $ diktor --type-check ownfs.kel
   with_fs : (() => A @ {Fs extends R1}) => A
   n : Int32
