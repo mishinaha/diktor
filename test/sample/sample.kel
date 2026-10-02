@@ -56,7 +56,7 @@
 // ============================================================
 
 type MyInt = Int32
-type Unit  = {}                      // 空レコード。`()` も同じものを指す
+// type Unit = {}                   // 標準ライブラリが持つ空レコード。`()` も同じものを指す
 
 type Point = {x: Float64, y: Float64}
 type Pair  = (Int32, String)
@@ -234,10 +234,10 @@ let report(e: IoError | ParseError): String =
 // ============================================================
 
 // newtype の右辺は型式ではなく、コンストラクタ宣言の並びである。
-// コンストラクタは複数の値を取れるので、値を二重に包まずに済む。右辺全体を穴 `???` にもできる（§13 の BigInt）。
-newtype Option[A] = Some(A) | None
-newtype List[A]   = Cons(head: A, tail: List[A]) | Nil
-newtype Never                                 // コンストラクタを持たない型
+// コンストラクタは複数の値を取れるので、値を二重に包まずに済む。右辺を省略すると、コンストラクタを持たない型になる（§13 の BigInt）。下の 3 つは標準ライブラリが持ち、宣言し直せない。
+// newtype Option[A] = Some(A) | None
+// newtype List[A]   = Cons(head: A, tail: List[A]) | Nil
+// newtype Never                                 // コンストラクタを持たない型
 
 // コンストラクタのフィールドは常に順序を持つ。ラベルは付けても付けなくてもよい。
 //   Some(A)                       … 無名。位置指定でだけ束縛できる
@@ -369,24 +369,24 @@ and is_odd(n: Int32): Boolean =
 //   \               行の制限（組み込み構文）
 //
 // Num のような 1 つのクラスにまとめないのは、String のように `+` だけを持つ型があるためである。
-type class Add[A] { val add: (A, A) => A }
-type class Mul[A] { val mul: (A, A) => A }
-
-type instance Add[Int32]  { let add(x, y) = __int32_add(x, y) }
-type instance Mul[Int32]  { let mul(x, y) = __int32_mul(x, y) }
-type instance Add[String] { let add(x, y) = __string_concat(x, y) }
+// type class Add[A] { val add: (A, A) => A }
+// type class Mul[A] { val mul: (A, A) => A }
+// （上の 2 つのクラスと下の 3 つのインスタンスは標準ライブラリが持ち、宣言し直せない）
+// type instance Add[Int32]  { let add(x, y) = __int32_add(x, y) }
+// type instance Mul[Int32]  { let mul(x, y) = __int32_mul(x, y) }
+// type instance Add[String] { let add(x, y) = __string_concat(x, y) }
 
 let fma[A: Add + Mul](x: A, y: A, z: A): A = x * y + z   // add(mul(x, y), z) に変換される
 
 // --- 構造的な型へのインスタンス ---
 //
 // 利用者には書かせない。コヒーレンスを守るため、組み込みの自動導出だけがインスタンスを与える。
-// 導出規則は、クラス宣言に 1 つだけ付ける。誰でも任意のクラスに導出を書けるようにすると、
+// 構造的な導出を持つのは標準ライブラリの Eq だけで、導出を指定する構文はない。誰でも任意のクラスに導出を書けるようにすると、
 // 2 つのパッケージが、同じ構造型に別々の Eq を導出するおそれがある。
-type class Eq[A] {
-  val eq: (A, A) => Boolean
-  derive structural                           // 組み込みの構造的導出を有効にする
-}
+// 標準ライブラリの宣言（構造的な導出は組み込みで、宣言には現れない）：
+//   type class Eq[A] {
+//     val eq: (A, A) => Boolean
+//   }
 
 // 導出は閉じた行にだけ適用する。行変数を含む型は比較できない。
 // （フィールドごとの行制約 `[R: Eq]` を導入すれば比較できるが、カインドと制約解決に手を入れる必要があるので採用しない）
@@ -394,9 +394,9 @@ let same_point(p: Point, q: Point): Boolean = p == q
 let same_pair(p: Pair, q: Pair): Boolean = p == q         // タプルも閉じた行なので比較できる
 // let same[R](p: {x: Int32 extends R}, q: {x: Int32 extends R}) = p == q   // エラー
 //
-// `derive structural` を書けるのは、クラスパラメータのカインドが Type のクラスだけである。
+// 構造的導出を持つ Eq のクラスパラメータのカインドは Type である。
 // 構造的導出は、行の各フィールドの型へ再帰する規則なので、Functor のように型引数を取るクラスには適用できない。
-// カインドで判別できるので、宣言の時点でエラーにする。
+// 利用者は導出を指定できないので、型引数を取るクラスに構造的導出が付くことはない。
 // 同じカインドの規則により、インスタンスの頭部のカインドは、クラスパラメータのカインドと一致しなければならない。
 // §9 の Callback[E] の頭部は、EffectRow を取って Type を返すカインドである。これは Functor[F[_]] が要求する
 // 「Type を取って Type を返す」カインドと合わないので、Callback は Functor のインスタンスになれない。これも宣言の時点でエラーにする。
@@ -460,9 +460,9 @@ let user_names[E](xs: List[User]): List[String] @ {Print extends E} =
 // 9. エフェクト
 // ============================================================
 
-effect Print   = { print: (String) => Unit }
-effect Console = { write: (String) => Unit }   // ランタイムが提供する低レベルのエフェクト
-effect Fs      = {}                            // ランタイムが提供するファイル I/O のエフェクトラベル。操作を持たない
+// effect Print   = { print: (String) => Unit }
+// effect Console = { write: (String) => Unit }   // ランタイムが提供する低レベルのエフェクト
+// （上の 2 つは標準ライブラリが持ち、宣言し直せない。ファイル入出力のエフェクトは標準ライブラリにない）
 
 // `@` の右側はエフェクト行である。`@ Print` は `@ {Print}` の略記
 // 複数なら `@ {Print, Console}`、行変数を含むなら `@ {Print extends E}` と書く
@@ -491,7 +491,7 @@ effect Fs      = {}                            // ランタイムが提供する
 //                       「純粋な本体」に含める。空行は行の最小元なので、そこから一般化しても型と実際の振る舞いは食い違わない
 //   pub let             本体は純粋でなければならず、公開される型は行多相になる（§13）。値束縛の先頭の矢印も同じ
 //   型クラスのメソッド   インスタンスの実装は純粋でなければならず、公開される型は行多相になる
-//   extern              本体がないので、公開される型が行多相になる
+//   extern              "C" では `@ Blocking` と読み、公開される型では尾部を開く。"prim" では本体がないので、公開される型が行多相になる
 //
 // 入れ子の矢印に書いた行は、書いたとおりに読み、行変数で開かない。入れ子の矢印とは、最外以外のすべての矢印である。
 // 具体的には、引数の型や返り値の中の矢印、newtype のフィールド、レコード型のフィールド、タプル型の要素、
@@ -533,12 +533,12 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 // 同じエフェクトを二重に積むと、非修飾でも修飾でも、操作は内側のハンドラにしか届かない。
 // copy が src を読み終えてから dst を開くのは、そのためである。
 //
-// ランタイムが実装を持つエフェクト（Console、Async、Fs）は、利用者が handle で処理できない。
-// 「ランタイムが実装を持つ」には 2 通りある。1 つは、操作の実装をランタイムが持つ場合（Console の write、Async の yield_ と sleep）である。
-// もう 1 つは、操作を持たず、ランタイムのプリミティブだけがそのラベルを行に加える場合
-// （Fs と、§9 の `__open`、`__read`、`__write`、`__close` の 4 つ）である。
-// perform はできる（ただし Fs は操作を持たないので、perform できる操作がない）。出力先を差し替えたいときは、
-// Print のような自前のエフェクトを処理する（下の capture が例）。特別な印は設けず、この 3 つを名前で定める。
+// ランタイムが実装を持つエフェクト（Console）は、利用者が handle で処理できない。
+// 利用者の handle で横取りできると、出力を握りつぶすハンドラが書けてしまうからである。
+// 操作を持たないラベル（Heap、Blocking）は、handle の節を書けないので、この規則とは関係しない。
+// Blocking は §12 の pinned で取り除く。
+// perform はできる。出力先を差し替えたいときは、
+// Print のような自前のエフェクトを処理する（下の capture が例）。特別な印は設けず、名前で定める。
 // 標準ライブラリが宣言していても、Fail や Nursery のように実装が言語の中にあるエフェクトは、利用者が処理できる。
 //
 // resume は継続を表す。resume は第二級（second-class）の値であり、節の外へ持ち出せない
@@ -592,20 +592,20 @@ effect File = {
   write: (String) => Unit,
 }
 
-// ファイルのプリミティブはランタイムが提供し、行に Fs を加える。純粋な文脈からは呼べない。
-//   __open  : (String) => Int32 @ Fs
-//   __read  : (Int32) => String @ Fs
-//   __write : (Int32, String) => Unit @ Fs
-//   __close : (Int32) => Unit @ Fs
+// ファイル入出力は標準ライブラリにない。ここでは C のバインディングとして宣言し、ブロックしうるので @ Blocking を付ける（§12）。
+extern "C" let file_open(path: String): Int32 @ Blocking
+extern "C" let file_read(h: Int32): String @ Blocking
+extern "C" let file_write(h: Int32, s: String): Unit @ Blocking
+extern "C" let file_close(h: Int32): Unit @ Blocking
 // サブエフェクティングがないので、ハンドラの外側の行は、body の行から File を除いたものと一致する。
-// with_file 自身が __open と __close で Fs を起こすので、外側の行には Fs が含まれる。そのため、body の行にも Fs を書く。
-let with_file[A, E](path: String, body: () => A @ {File, Fs extends E}): A @ {Fs extends E} = {
-  let h = __open(path)
+// with_file 自身が file_open と file_close で Blocking を起こすので、外側の行には Blocking が含まれる。そのため、body の行にも Blocking を書く。
+let with_file[A, E](path: String, body: () => A @ {File, Blocking extends E}): A @ {Blocking extends E} = {
+  let h = file_open(path)
   body() handle {
-    case read()    => resume(__read(h))
-    case write(s)  => resume(__write(h, s))
-    case return(x) => { __close(h); x }
-    case cancel    => __close(h)
+    case read()    => resume(file_read(h))
+    case write(s)  => resume(file_write(h, s))
+    case return(x) => { file_close(h); x }
+    case cancel    => file_close(h)
   }
 }
 
@@ -614,8 +614,8 @@ let with_file[A, E](path: String, body: () => A @ {File, Fs extends E}): A @ {Fs
 // `with x = f(a)` は、`f(a, fn(x) => 残りの文)` の単なる糖衣構文である。
 // 束縛側が `_` のときは、引数のない継続 `f(a, fn() => 残りの文)` に脱糖する。
 // 「呼び出しの末尾に継続を加える」という 1 つの規則で、defer に相当する処理も、逐次合成も表せる。
-// ppx_let の `let%name` のような別の構文は用意しない。
-let copy(src: String, dst: String): Unit @ {Console, Fs} = {
+// 残りの文全体ではなく `}` までを最後の引数にするときは、末尾ブロック `f(a) { x => 式 }` を使う。ppx_let の `let%name` のような別の構文は用意しない。
+let copy(src: String, dst: String): Unit @ {Console, Blocking} = {
   with _ = with_file(src)
   let text = perform read()                   // 最も左の File は src のもの
   with _ = with_file(dst)
@@ -654,8 +654,8 @@ pub let handle_request(r: Req): Resp @ {Request, Db, Async} = {
   Db.query(r.query)
 }
 
-// トップレベルに残せるエフェクトは、ランタイムが提供するもの（Console、Async、Fs、Blocking）だけである。
-// Heap がこの 4 つに含まれないのは、Heap[h] がリージョン変数を引数に取るラベルであり、トップレベルには渡せる h がないためである。
+// トップレベルに残せるエフェクトは、ランタイムが提供するもの（Console、Blocking）だけである。
+// Heap がこの 2 つに含まれないのは、Heap[h] がリージョン変数を引数に取るラベルであり、トップレベルには渡せる h がないためである。
 // h を導入するのは run だけで、run はその Heap[h] を自分で取り除く（§10）。
 perform write(capture(fn() => println("test")).output)
 
@@ -719,11 +719,11 @@ let doubled(xs: Array[Int32]): Array[Int32] = run h {
 // 11. 並行性・並列性
 // ============================================================
 
-// 並列処理は純粋な計算に限るので、結果は決定的である。
+// 並列処理は純粋な計算に限るので、結果は決定的である。標準ライブラリはまだ持たないので、署名だけを示す。
 let par_map[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
 let par[A, B](fa: () => A @ {}, fb: () => B @ {}): (A, B) = ???
 
-// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。
+// 並行処理は、ランタイムが提供するエフェクトで表す。利用者はこれを処理できない（スケジューラを利用者に書かせない）。標準ライブラリはまだ Async を持たないので、ここで宣言する。
 //
 // yield_ は、キャンセルが届く地点（配送点）である。キャンセルは協調的で、
 // 中断点でだけ届く。純粋な長いループは中断できないので、
@@ -790,20 +790,20 @@ let recv[A](c: Chan[A]): A @ Async = ???
 // 12. FFI
 // ============================================================
 
-extern "C" let sin(x: Float64): Float64                  // ブロックしない
+extern "C" let sin[E](x: Float64): Float64 @ E           // ブロックしない
 extern "C" let sqlite_step(s: Stmt): Int32 @ Blocking    // ブロックすることがある
 
-// 関数がブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。
-// 行多相により、この印は呼び出し元の署名へ自動的に伝わる。
+// 関数がブロックするかどうかを知っているのはバインディングの作者なので、印は宣言側に付ける。"C" で `@` を省略すると `@ Blocking` と読むので、付け忘れても印は消えない。
+// ブロックしない関数は、sin のように行変数を明示して行多相にする。行多相により、Blocking の印は呼び出し元の署名へ自動的に伝わる。
 //
 // 仕様には観測できる契約だけを書き、実装戦略は書かない：
 //   「Blocking 領域の実行は、他のタスクが利用できる並列度を
 //     （実装定義の上限まで）減らさない」
 //
 // Blocking は、ランタイムが実装を持つ、操作のないエフェクトラベルである。
-// 操作を持たないラベル（Heap、Blocking、Fs）は、どれも宣言が要らない。標準ライブラリが同じ宣言を持つ場合は、
-// 利用者が同じ宣言をもう一度書いてもよい（§9 のエフェクト宣言の並びにある `effect Fs = {}` がその例である。
-// 構造が異なる再宣言は拒否する）。
+// 操作を持たないラベル（Heap、Blocking）は、どれも宣言が要らない。
+// 標準ライブラリにある名前なので、利用者が同じ名前を宣言することはできない。
+// ファイル入出力のように標準ライブラリにない機能は、§9 の with_file のように C のバインディングと Blocking で表す。
 // Blocking はトップレベルに残してよく、下の pinned で取り除くこともできる。
 // Blocking 領域はキャンセルの配送点ではない（ネイティブコードは中断できない）。
 // pinned はタスクを専用のスレッドに固定する。スレッド親和性のあるライブラリには必須である。
@@ -828,7 +828,7 @@ let pinned[A, E](body: () => A @ {Blocking extends E}): A @ E = ???
 // module 宣言で作れない。黙って覆い隠すと組み込み側の署名が使えなくなり、診断も原因から遠い位置に出るためである。
 // module 名そのものは予約しない。module Array { pub let sum(…) } のように、組み込みにない名前を追加するのは構わない。
 module BigInt {
-  pub newtype BigInt = ???                    // `???` は未実装を表す穴
+  pub newtype BigInt                          // 表現はまだ与えない（コンストラクタを持たない型）
   pub let parse(str: String): BigInt = ???    // 省略すると、本体は純粋で、公開される型は行多相
   let normalize(x: BigInt): BigInt = ???      // pub なし。注釈は自由に書ける
 
@@ -860,7 +860,7 @@ let big_sum(): MyBigInt = BigInt.parse("123") + BigInt.parse("456")
 // TODO: モジュールの入れ子。名前解決と可視性の規則（外側の pub でない束縛が内側から見えるか）が未定である。
 // TODO: Ord[Float64]、Eq[Float64] と NaN。IEEE 754 に従うと、eq、lt、le、gt、ge は NaN を含むと偽になる。
 //       その結果、Ord は全順序でなくなり、Eq は同値関係でなくなる（どちらも反射律が成り立たない）。
-//       derive structural の Eq も同様で、Float64 のフィールドを 1 つ持つだけで、レコードの Eq が反射律を失う。
+//       構造的な Eq も同様で、Float64 のフィールドを 1 つ持つだけで、レコードの Eq が反射律を失う。
 //       全順序と同値関係が必要な場面をどう書くかは未定で、将来の課題とする。案は 2 つある。
 //       (1) newtype で包んだ TotalFloat64 だけが Ord と Eq を実装する（§6 の TotalFloat64 はこの案の例）。
 //       (2) Ord とは別に、全順序の compare を用意する（Julia の isless に近い。以前の自作言語ではこちらを採用した）。
