@@ -394,16 +394,17 @@ let module_val_synonyms : (string * oid, oid) Hashtbl.t = Hashtbl.create 16
 
 (* module スコープを飛ばし、大域の同義語(コンパニオン)だけをたどる。
    エフェクト位置の名前の解決(第11章 §11.6)が、module の名前が行にならないときに引き直すのに使う *)
-let resolve_con_global c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
+let resolve_con_global_only c = match Hashtbl.find_opt con_synonyms c with Some [ c' ] -> c' | _ -> c
+
+let resolve_con_global c =
+  let c = Type.intern (qualify (Type.name_of c)) in
+  match Hashtbl.find_opt unit_synonyms (!current_unit, c) with Some q -> q | None -> resolve_con_global_only c
 
 let resolve_con c =
   let c = Type.intern (qualify (Type.name_of c)) in
-  let in_unit () =
-    match Hashtbl.find_opt unit_synonyms (!current_unit, c) with Some q -> q | None -> resolve_con_global c
-  in
   match !current_module with
-  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> in_unit ())
-  | None -> in_unit ()
+  | Some m -> ( match Hashtbl.find_opt module_con_synonyms (m, c) with Some q -> q | None -> resolve_con_global c)
+  | None -> resolve_con_global c
 
 (* 診断専用の候補列。解決には使わない *)
 let con_hints : (oid, oid list) Hashtbl.t = Hashtbl.create 16
