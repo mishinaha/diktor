@@ -1,7 +1,5 @@
 ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:536 が
-Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明文。Console は
-かつて提案中だった — 2026-09-12 の改訂で明文化)。かつては出力を黙って消す
-恒等ハンドラが書けた。
+Console を名指しで定める。かつては出力を黙って消す恒等ハンドラが書けた。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -29,16 +27,25 @@ Console / Async / Fs の 3 つを名指しで定めた(Async は :726 にも明�
   ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :536)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
-  $ cat > sched.kel <<'KEL'
+Async は標準環境に無い。利用者が宣言したものは普通のエフェクトで、ハンドルできる:
+
+  $ cat > asyncuser.kel <<'KEL'
+  > effect Async = { yield_: () => Unit, sleep: (Int64) => Unit }
   > let sched[A, E](body: () => A @ {Async extends E}): A @ E =
   >   body() handle {
   >     case yield_() => resume({})
   >     case sleep(ms) => resume({})
-  >     case return(x) => x
   >   }
+  > echoln(show(sched(fn() => { perform yield_(); 1 })))
   > KEL
-  $ diktor --type-check sched.kel
-  ! sched.kel:2:3: 型エラー: エフェクト Async はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:726。スケジューラは書けません)
+  $ diktor asyncuser.kel
+  1
+
+トップレベルには残せない:
+
+  $ printf 'effect Async = { yield_: () => Unit, sleep: (Int64) => Unit }\nperform yield_()\n' > asynctop.kel
+  $ diktor --type-check asynctop.kel
+  ! asynctop.kel:2:1: 型エラー: エフェクト Async をここでは実行できません(ラベル Async がありません(行は閉じています))
   [1]
 
 --no-prelude で自前の effect Console を宣言した場合は禁止しない
@@ -77,7 +84,7 @@ perform は禁止しない(sample.kel:660 がトップレベルの perform write
   $ diktor pw.kel
   direct
 
-ランタイム行に載るのは名簿 toplevel_effects(Console / Async / Fs / Blocking)のうち
+ランタイム行に載るのは名簿 toplevel_effects(Console / Fs / Blocking)のうち
 プレリュード所有のものだけ(M20 検証。Blocking だけは組み込み登録なので
 --no-prelude でも所有のまま — test/blocking_top.t の bnp。
 かつては名前だけで張られ、--no-prelude や差し替えプレリュードの世界で
