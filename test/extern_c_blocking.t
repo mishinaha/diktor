@@ -41,14 +41,13 @@ Blocking はトップレベルに残せるので、注釈のない sqrt をト�
   ! cclosed.kel:2:35: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-pinned で包めば Blocking が除かれ、同じ呼び出しが通る。@ {} の関数はトップレベルから
-直接は呼べないので、@ {} のコールバックを受ける callp を通して呼ぶ:
+pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外の @ {} は公開の型で
+開くので、f はトップレベルから呼べる:
 
   $ cat > cpin.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
   > let f(x: Float64): Float64 @ {} = pinned(fn() => sqrt(x))
-  > let callp[A](g: () => A @ {}): A = g()
-  > echoln(show(callp(fn() => f(4.0))))
+  > echoln(show(f(4.0)))
   > KEL
   $ diktor cpin.kel
   2.0
@@ -71,10 +70,9 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。@ {} �
   > extern "C" let sin[E](x: Float64): Float64 @ E
   > pub extern "C" let cos[E](x: Float64): Float64 @ E
   > let pure(x: Float64): Float64 @ {} = sin(x)
-  > let callp[A](g: () => A @ {}): A = g()
   > let loud(x: Float64): Float64 @ Console = { echo("x "); cos(x) }
   > pub let wrap(x: Float64): Float64 = sin(x) + cos(x)
-  > echoln(show(callp(fn() => pure(0.0))))
+  > echoln(show(pure(0.0)))
   > echoln(show(loud(0.0)))
   > echoln(show(wrap(0.0)))
   > KEL
@@ -82,7 +80,6 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。@ {} �
   sin : (Float64) => Float64
   cos : (Float64) => Float64
   pure : (Float64) => Float64
-  callp : (() => A @ {}) => A
   loud : (Float64) => Float64 @ {Console extends R1}
   wrap : (Float64) => Float64
   _ : {}
