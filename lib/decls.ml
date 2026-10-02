@@ -585,9 +585,9 @@ let op_candidates op = Option.value ~default:[] (Hashtbl.find_opt op_index op)
      全メソッドが同じ変数を共有する。
      この変数がインスタンス検査の代入点で、頭の型を 1 回代入すれば、
      クラス内の全メソッドの型が同時に具体化される。
-   - `ci_derive_structural`：`derive structural`(sample.kel:388)の有無。
+   - `ci_derive_structural`：組み込みの構造的導出を持つかどうか(sample.kel:383)。
      真なら、閉じた行の `TRecord` / `TVariant` について、同じ制約を各フィールドへ再帰的に要求する。
-     Diktor で真になるのは `Eq` だけである(利用者は新しいクラスに `derive structural` を書けない)。
+     真になるのは組み込みの `Eq` だけで、利用者の宣言では常に偽である(導出を指定する構文が無い)。
      閉じた行にしか適用しないのは仕様の規則である(sample.kel:391-395)。
      行変数を含む型を比較できるようにするにはフィールドごとの行制約 `[R: Eq]` が要り、
      カインドと制約の解決の両方に手を入れることになる。

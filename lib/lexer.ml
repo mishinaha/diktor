@@ -212,11 +212,11 @@ module Make (Data : Syntax.Data) = struct
 
    識別子はまとめて読んでから表を引く。
    表に無ければ `LOWER_IDENTIFIER` である。
-   `return`、`cancel`、`structural`、`Type`、`EffectRow` はキーワードにせず、
+   `return`、`cancel`、`Type`、`EffectRow` はキーワードにせず、
    普通の識別子として読む。
    予約語を増やさないためである。
    これらの語の意味は、使われた位置で決まる。
-   たとえば `case return(x)` や `derive structural` を解釈するのは第11章(elab.ml)である。
+   たとえば `case return(x)` を解釈するのは第11章(elab.ml)である。
 
    表の 1 行目は `_` である。
    `case _ =>` も `List[_]` も `LOWLINE` を使う。
@@ -749,8 +749,8 @@ module Make (Data : Syntax.Data) = struct
 
    逆に `LPAREN` は `can_begin_statement` に含めている。
    これは、行頭の `(` を前の行の続きとみなさないという sample.kel:295 の規則の実装である。
-   `VAL` と `DERIVE` も含めている。
-   これらが無いと、クラスの本体の `derive structural` の前で改行が捨てられ、パースエラーになる。
+   `VAL` も含めている。
+   これが無いと、クラスの本体の 2 つ目の `val` の前で改行が捨てられ、パースエラーになる。
 
    末尾ブロックの `{` を直前のトークンと同じ行に書く規則は、この層では扱わない。
    `{` が次の行にあれば、この層の規則どおりに改行を区切りにするか捨てるかを決め、

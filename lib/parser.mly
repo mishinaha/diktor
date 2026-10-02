@@ -442,7 +442,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
    トークンの宣言は 2 段に分かれていて、上段が 44 個、下段が 20 個である。
    下段には、この言語に特有の構文のトークンが多い。
    `{` の 3 分割、`\`(レコードからのフィールドの除去)、`...`(尾部の束縛)、`???`(穴)と、
-   `class`、`instance`、`derive`、`extends`、`extern`、`newtype`、`perform`、`resume`、`run`、
+   `class`、`instance`、`extends`、`extern`、`newtype`、`perform`、`resume`、`run`、
    `pub` のキーワード群がそれにあたる。
 
    トークンは位置のペイロードを**持たない**(§3.3)。
@@ -675,10 +675,8 @@ extern_sig: lower_id typarams_opt LPAREN params RPAREN sig_tail { ($1, $2, $4, $
 
    `module_body` と `instance_body` は `items` を使い、
    `class_body` と `eff_decl_body` は専用の非終端を使う。
-   前の 2 つは中身が普通の宣言の列だが、クラスの本体は `val` と `derive` しか、
+   前の 2 つは中身が普通の宣言の列だが、クラスの本体は `val` しか、
    `effect` の本体は `op: ty` しか取れないからである。
-   `class_items` が `Either` で 2 種類を仕分けているのは、
-   1 回の走査で `cls_vals` と `cls_derives` に振り分けるためである。
 
    カンマ区切りのリストは、**最後の要素の後の末尾カンマを許す**。
    仕様 §0 は、カンマ区切りのリストならどの種類でも末尾カンマを置けると書いている。

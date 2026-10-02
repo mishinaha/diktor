@@ -352,7 +352,7 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
 
 行カインドのパラメータを持つ型は Functor のインスタンスにできない(D126)。
 頭のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と
-合わないためで、仕様 §8 が derive structural の制限(sample.kel:397-399)と
+合わないためで、仕様 §8 が構造的導出を持つ Eq のカインド(sample.kel:397-399)と
 並べて帰結として書いている(sample.kel:400-402):
 
   $ cat > nofunctor.kel <<'EOF'

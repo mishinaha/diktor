@@ -152,7 +152,7 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    sample.kel:259 の `newtype TotalFloat64(Float64)` がその例である。
    ただし仕様は、`TotalFloat64` に `Ord` を実装するかどうかを未定と注記している(sample.kel:259)。
    仕様が `Eq[Float64]` も並べて挙げているのは、等価でも反射律が成り立たないからである。
-   `derive structural` の `Eq` はフィールドへ再帰するので、
+   構造的な `Eq` はフィールドへ再帰するので、
    `Float64` のフィールドを 1 つ持つレコードも反射律を失う(sample.kel:863)。
    たとえば `{x = 0.0 / 0.0}` は自分自身と等しくない。
 

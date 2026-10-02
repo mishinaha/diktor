@@ -3809,7 +3809,7 @@ let register_class env (c : T.class_decl') =
    `newtype Callback[E]` の頭のカインドは `EffectRow -> Type` なので、
    `Functor[F[_]]` が要求する `Type -> Type` と合わず、
    `type instance Functor[Callback[_]]` は宣言の時点で落ちる(`test/kinds.t` の nofunctor)。
-   仕様 §8 はこれを、`derive structural` を Type のクラスに限る規則(sample.kel:397-399)と並べて、
+   仕様 §8 はこれを、構造的導出を持つ `Eq` のパラメータのカインドが Type であること(sample.kel:397-399)と並べて、
    同じカインドの規律から出る帰結として書いている(sample.kel:400-402)。
    条文の主語は「インスタンスの頭部のカインド」で、上の段落の照合そのものである。
    利用者から見えるのは `Callback` を `Functor` にできないという制限だけだが、
