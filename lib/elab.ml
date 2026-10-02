@@ -2310,7 +2310,7 @@ and elab_handle env level eff clauses body =
   let runtime_msg e =
     match name_of e with
     | "Console" ->
-        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:464, :536)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
     | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません"
   in
   let target =
