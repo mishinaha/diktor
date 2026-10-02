@@ -462,3 +462,45 @@ module と同じ名前の型(コンパニオン)は、import した型と同じ�
   $ (cd co && diktor m3.kel)
   ! m3.kel:2:12: 型エラー: module N の sqrt はトップレベルの sqrt と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
+
+公開されるのは pub の宣言だけである。pub の束縛の後ろに同名の非公開の束縛を置いても、
+import されるのは pub の束縛である:
+
+  $ mkdir -p pubv/lib
+  $ printf 'pub let x: Int32 = 1\nlet x: String = "private"\n' > pubv/lib/a.kel
+  $ printf 'from "./lib/a" import x\nlet y = x\n' > pubv/m1.kel
+  $ (cd pubv && diktor --type-check m1.kel)
+  y : Int32
+
+module を import すると、コンパニオン型の名前も型として束縛する。同じ名前の型は宣言できない:
+
+  $ mkdir -p cmp/lib
+  $ printf 'pub module M { pub newtype M = Ma(Int32) }\n' > cmp/lib/a.kel
+  $ printf 'from "./lib/a" import M\nnewtype M = Mine(String)\n' > cmp/m1.kel
+  $ (cd cmp && diktor m1.kel)
+  ! m1.kel:2:1: 型エラー: M は import した名前と同じです
+  [1]
+
+import したクラスのメソッドの非修飾名は、値の名前として数える。同名のメソッドを持つ 2 つの
+クラスは、同じファイルで宣言できないのと同じく、両方を import できない:
+
+  $ mkdir -p mth/lib
+  $ printf 'pub type class P[A] { val pp: (A) => String }\n' > mth/lib/a.kel
+  $ printf 'pub type class Q[A] { val pp: (A) => Int32 }\n' > mth/lib/b.kel
+  $ printf 'from "./lib/a" import P\nfrom "./lib/b" import Q\n' > mth/m1.kel
+  $ (cd mth && diktor m1.kel)
+  ! m1.kel:2:23: import エラー: pp は ./lib/a からも import しています(別の宣言です)
+  [1]
+
+シンボリックリンクの下の .. は、綴りの上で相殺すると別のファイルを指すことがある。そのときは
+相殺しない綴りで報告する:
+
+  $ mkdir -p sym/real/deep/lib
+  $ printf 'pub let v: Int32 = "s"\n' > sym/real/deep/b.kel
+  $ printf 'from "../b" import v\npub let w: Int32 = v\n' > sym/real/deep/lib/a.kel
+  $ printf 'pub let v: Int32 = 1\n' > sym/b.kel
+  $ ln -s real/deep/lib sym/lib
+  $ printf 'from "./lib/a" import w\n' > sym/main.kel
+  $ (cd sym && diktor main.kel)
+  ! lib/../b.kel:1:9: 型エラー: 注釈された型を満たしません(型が一致しません: Int32 と String)
+  [1]
