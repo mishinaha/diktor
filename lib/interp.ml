@@ -1446,7 +1446,10 @@ let run ~sink decls =
 
    対話的な実行(第16章)は、プレリュードを 1 回だけ実行し、その後は入力ごとに宣言を実行する。
    `start_session` は globals を作ってプレリュードを実行し、セッションを返す。
-   `exec_input` は 1 入力分の宣言を `with_runtime` の中で実行し、表示する(名前、式、値)の列を返す。
+   `exec_input` は 1 入力分の宣言を `with_runtime` の中で実行し、表示する(名前、式か実体、値)の列を
+   `show` に渡す。
+   `show` も `with_runtime` の中で呼ぶ。
+   表示が Show のインスタンスを呼んで実行時エラーになったら、その入力ごと取り消すためである。
    `with_runtime` を入力ごとに呼ぶのは、継続が入力の境界をまたがないからである。
    `handle` は式で、トップレベルの `with` も入力の末尾で閉じる。
    `inst` の採番は大域の `new_oid` なので、`with_runtime` を何度呼んでも衝突しない。
@@ -1487,7 +1490,7 @@ let start_session ?(print = false) ~sink prelude =
          unit));
   s
 
-let exec_input ?(print = false) s ~sink decls =
+let exec_input ?(print = false) ?(show = fun _ -> ()) s ~sink decls =
   journaling := true;
   journal := [];
   let saved_env = s.s_env in
@@ -1507,13 +1510,15 @@ let exec_input ?(print = false) s ~sink decls =
         | None -> env)
     | T.DExp e ->
         let v = eval env e in
-        shown := ("_", Some e, v) :: !shown;
+        shown := ("_", `Exp e, v) :: !shown;
         env
     | T.DLet ((_, b) as bnode) ->
         let env' = exec_decl env node in
         let bound =
           List.filter_map
-            (fun x -> Option.map (fun v -> (x, None, v)) (Hashtbl.find_opt env'.globals (Tree.GDecl (Tree.oid_of bnode, x))))
+            (fun x ->
+              let g = Tree.GDecl (Tree.oid_of bnode, x) in
+              Option.map (fun v -> (x, `Ref g, v)) (Hashtbl.find_opt env'.globals g))
             (pat_names b.T.lb_name)
         in
         shown := List.rev_append bound !shown;
@@ -1524,9 +1529,8 @@ let exec_input ?(print = false) s ~sink decls =
           (fun ((_, b) as bnode : T.let_binding) ->
             match snd b.T.lb_name with
             | T.PVar x -> (
-                match Hashtbl.find_opt env'.globals (Tree.GDecl (Tree.oid_of bnode, x)) with
-                | Some v -> shown := (x, None, v) :: !shown
-                | None -> ())
+                let g = Tree.GDecl (Tree.oid_of bnode, x) in
+                match Hashtbl.find_opt env'.globals g with Some v -> shown := (x, `Ref g, v) :: !shown | None -> ())
             | _ -> ())
           bs;
         env'
@@ -1535,12 +1539,14 @@ let exec_input ?(print = false) s ~sink decls =
   match
     Builtin.with_runtime ~print ~sink (fun () ->
         s.s_env <- List.fold_left step s.s_env decls;
+        (* 結果の表示も実行時の中で行う。表示が呼ぶ Show のインスタンスが実行時エラーを
+           出したら、この入力の書き込みと一緒に取り消す *)
+        show (List.rev !shown);
         unit)
   with
   | _ ->
       journaling := false;
-      journal := [];
-      List.rev !shown
+      journal := []
   | exception ex ->
       List.iter (fun f -> f ()) !journal;
       journal := [];

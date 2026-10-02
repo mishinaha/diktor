@@ -58,7 +58,7 @@ open Aux
    | `--repl` | `Repl` | 標準入力から入力を読み、入力ごとに型検査して実行する(§16.6b) |
    | `--no-prelude` | `o_no_prelude` | プレリュードを空にする |
    | `--prelude PATH` | `o_prelude` | 埋め込みのプレリュードの代わりに PATH を読む |
-   | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする |
+   | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする(`--repl` では効かない) |
 
    `usage` の文字列は、使い方の唯一の説明である。
    テスト test/smoke.t は、この文字列をそのまま期待値に持つ。
@@ -130,6 +130,7 @@ let parse_args args =
   let rec go opts = function
     | [] ->
         if opts.o_files = [] && opts.o_mode <> Repl then Error "no input files"
+        else if opts.o_files <> [] && opts.o_mode = Repl then Error "--repl takes no input files"
         else Ok { opts with o_files = List.rev opts.o_files }
     | "--type-check" :: rest -> go { opts with o_mode = TypeCheck } rest
     | "--repl" :: rest -> go { opts with o_mode = Repl } rest
@@ -543,9 +544,10 @@ let type_check_files ?(quiet = false) options =
 
 type parse_result = Complete of Tree.Tree.decl list | Incomplete | Failed of string
 
-let try_parse ~line source =
+let try_parse ~line ?(col = 0) source =
   let lexbuf = Sedlexing.Utf8.from_string source in
-  Sedlexing.set_position lexbuf { Lexing.pos_fname = "<stdin>"; pos_lnum = line; pos_bol = 0; pos_cnum = 0 };
+  (* col は、入力の行の中で source が始まる位置(:type の後ろの式なら、:type の長さ) *)
+  Sedlexing.set_position lexbuf { Lexing.pos_fname = "<stdin>"; pos_lnum = line; pos_bol = -col; pos_cnum = 0 };
   Sedlexing.set_filename lexbuf "<stdin>";
   let lx = Lexer'.from_sedlex lexbuf in
   match Lexer'.parse Parser'.program lx with
@@ -616,12 +618,13 @@ let repl options =
   let start_line = ref 1 in
   (* 宣言表の写しと単一化の記録を取って f を呼び、f が `Undo を返したら戻す *)
   let with_undo f =
-    let restore = Decls.snapshot () in
+    let restore = Decls.snapshot () and restore_elab = Elab.snapshot () in
     Syntax.Type.trailing := true;
     Syntax.Type.trail := [];
     let undo () =
       List.iter (fun g -> g ()) !Syntax.Type.trail;
-      restore ()
+      restore ();
+      restore_elab ()
     in
     let finish () =
       Syntax.Type.trailing := false;
@@ -659,43 +662,51 @@ let repl options =
             `Undo
         | Ok (lines, env') -> (
             print_lines lines;
-            match Interp.exec_input ~print:(print_owned ()) !sess ~sink:print_string decls with
-            | shown ->
+            (* 束縛の型は実体で引く。名前で引くと、1 入力の中で同じ名前を束縛し直したとき、
+               前の束縛に後の束縛の型が付く *)
+            let show shown =
+              List.iter
+                (fun (x, src, v) ->
+                  let ty =
+                    match src with
+                    | `Exp e -> Tree.get_ty e
+                    | `Ref g -> (
+                        match Elab.lookup_top_type g with Some t -> t | None -> bug ("REPL の束縛の型が見つかりません: " ^ x))
+                  in
+                  let unit_ty = match Syntax.Type.repr ty with Syntax.Type.TRecord r -> Syntax.Type.repr r = Syntax.Type.TRowEmpty | _ -> false in
+                  if not (x = "_" && unit_ty) then
+                    Printf.printf "%s : %s = %s\n" (Syntax.Type.display x) (Show.show ty) (show_value ty v))
+                shown
+            in
+            match Interp.exec_input ~print:(print_owned ()) ~show !sess ~sink:print_string decls with
+            | () ->
                 tenv := env';
                 List.iter (fun x -> Hashtbl.replace session_vals x ()) (Elab.toplevel_value_names decls);
-                List.iter
-                  (fun (x, e, v) ->
-                    let ty =
-                      match e with
-                      | Some e -> Tree.get_ty e
-                      | None -> ( match Elab.lookup_value_type env' x with Some t -> t | None -> bug ("REPL の束縛の型が見つかりません: " ^ x))
-                    in
-                    let unit_ty = match Syntax.Type.repr ty with Syntax.Type.TRecord r -> Syntax.Type.repr r = Syntax.Type.TRowEmpty | _ -> false in
-                    if not (x = "_" && unit_ty) then Printf.printf "%s : %s = %s\n" (Syntax.Type.display x) (Show.show ty) (show_value ty v))
-                  shown;
                 `Keep
             | exception ex ->
                 flush_stdout_or_die ();
                 print_endline (runtime_message ex);
                 `Undo))
   in
-  let type_of_expr src =
-    match try_parse ~line:!line_no src with
-    | Complete [ ((_, Tree.Tree.DExp e) as d) ] ->
+  let type_of_expr col src =
+    match try_parse ~line:!line_no ~col src with
+    | Complete [ (_, Tree.Tree.DExp e) ] ->
         with_undo (fun () ->
-            (match Elab.check_input ~toplevel_extra !tenv [ d ] with
-            | Ok _ ->
-                let t = Tree.get_ty e in
-                Unify.generalize 0 t;
-                print_endline (Show.show t)
-            | Error (_, err) -> print_endline (render_error err));
+            (match Elab.type_of_expr ~toplevel_extra !tenv e with
+            | Ok t -> print_endline (Show.show t)
+            | Error err -> print_endline (render_error err));
             `Undo)
     | Complete _ -> print_endline ":type には式を 1 つ書いてください"
     | Incomplete -> print_endline ":type の式が途中で終わっています"
     | Failed msg -> print_endline msg
   in
   let command line =
-    let n = String.length line in
+    (* 行末の空白と CR は読み飛ばす *)
+    let n = ref (String.length line) in
+    while !n > 0 && match line.[!n - 1] with ' ' | '\t' | '\r' -> true | _ -> false do
+      decr n
+    done;
+    let line = String.sub line 0 !n and n = !n in
     if line = ":quit" || line = ":q" then `Quit
     else if line = ":reset" then (
       Decls.reset ();
@@ -705,7 +716,7 @@ let repl options =
       sess := s;
       `Go)
     else if n > 6 && String.sub line 0 6 = ":type " then (
-      type_of_expr (String.sub line 6 (n - 6));
+      type_of_expr 6 (String.sub line 6 (n - 6));
       `Go)
     else (
       print_endline ("未知のコマンド: " ^ line);

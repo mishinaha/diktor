@@ -124,7 +124,13 @@ type env = {
 let add_local env x t = { env with values = SMap.add x t env.values; tops = SMap.remove x env.tops }
 
 (* トップレベルの実体を足す *)
-let add_top env x t g = { env with values = SMap.add x t env.values; tops = SMap.add x g env.tops }
+(* トップレベルの実体ごとの型。環境は名前で引くので、同じ名前を束縛し直すと前の束縛の型を
+   引けない。対話的な実行が、1 入力の中の同名の束縛の型を実体で引くために使う *)
+let top_types : (Tree.gref, ty) Hashtbl.t = Hashtbl.create 64
+
+let add_top env x t g =
+  Hashtbl.replace top_types g t;
+  { env with values = SMap.add x t env.values; tops = SMap.add x g env.tops }
 
 let warnings : string list ref = ref []
 
@@ -4615,7 +4621,10 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           (* トップレベルの束縛子は、束縛ノードと名前の組を実体にする *)
           let env' =
             List.fold_left
-              (fun e x -> { e with tops = SMap.add x (Tree.GDecl (Tree.oid_of b, x)) e.tops })
+              (fun e x ->
+                let g = Tree.GDecl (Tree.oid_of b, x) in
+                Option.iter (Hashtbl.replace top_types g) (SMap.find_opt x e.values);
+                { e with tops = SMap.add x g e.tops })
               env' (pat_var_names (snd b).T.lb_name)
           in
           (* 宣言の終わりの曖昧性検査(all=true。宣言の型から到達できない制約は、誰にも
@@ -5111,7 +5120,7 @@ let type_check ?(prelude = []) decls =
    対話的な実行(第16章)は、プレリュードを 1 回だけ処理し、その後は入力ごとに宣言を処理する。
    `start_session` はプレリュードを処理した環境を返し、`check_input` は渡された環境の上で
    1 入力分の宣言を処理して、出力行と新しい環境を返す。
-   型エラーは `Error` で返し、例外を外へ出さない。
+   型エラーと未実装は `Error` で返し、例外を外へ出さない。
 
    型エラーの入力の書き換えを戻すのは、呼び出し側である。
    宣言表は第6章 §6.14 の写しで、単一化のセルは第1章 §1.5 の記録で戻す。
@@ -5131,22 +5140,53 @@ let start_session ?(prelude = []) () =
     ~finally:(fun () -> Decls.in_prelude := false)
     (fun () -> process_decls (initial_env ()) ~emit:(fun _ -> ()) prelude)
 
-let check_input ?(toplevel_extra = []) env decls =
+let catch_input_errors f =
+  try Ok (f ()) with
+  | Type_error_at (loc, msg) -> Error { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | Type_error msg -> Error { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
+  | NotImplemented_at (loc, feat) -> Error { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  | NotImplemented feat -> Error { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+
+let start_input () =
   current_out := [];
   warnings := [];
   warnings_count := 0;
+  Hashtbl.reset top_types;
   Unify.reset ();
-  Exhaust.reset ();
+  Exhaust.reset ()
+
+let check_input ?(toplevel_extra = []) env decls =
+  start_input ();
   let emit s = current_out := s :: !current_out in
-  let fail e = Error (List.rev !current_out, e) in
-  try
-    let env' = process_decls ~toplevel_extra env ~emit decls in
-    Ok (List.rev !current_out, env')
-  with
-  | Type_error_at (loc, msg) -> fail { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg }
-  | Type_error msg -> fail { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
-  | NotImplemented_at (loc, feat) -> fail { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
-  | NotImplemented feat -> fail { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  match catch_input_errors (fun () -> process_decls ~toplevel_extra env ~emit decls) with
+  | Ok env' -> Ok (List.rev !current_out, env')
+  | Error e -> Error (List.rev !current_out, e)
+
+(* 式を let の右辺と同じく 1 段深いレベルで推論し、let と同じ値制限で一般化した型を返す
+   (対話的な実行の :type)。値でない式の型変数は一般化せず、弱い型変数として表示される *)
+let type_of_expr ?(toplevel_extra = []) env (e : T.exp) =
+  start_input ();
+  catch_input_errors (fun () ->
+      let eff0 = toplevel_eff ~extra:toplevel_extra () in
+      let mark = Unify.class_mark () in
+      let t = elab_exp env 1 eff0 e in
+      List.iter warn (Exhaust.drain ());
+      if is_value e then (
+        Unify.check_ambiguity ~all:false ~level:0 [ t ];
+        Unify.generalize 0 t)
+      else (
+        Unify.lower_levels ~since:mark 0 t;
+        Unify.check_ambiguity ~all:true ~level:0 [ t ];
+        Unify.default_numerics ());
+      t)
+
+(* 実体の型を引く(対話的な実行の結果の表示に使う。直前の check_input の束縛に限る) *)
+let lookup_top_type g = Hashtbl.find_opt top_types g
+
+(* 型検査の側の、宣言表と単一化の記録の外にある状態の写し *)
+let snapshot () =
+  let cells = !pub_pure_cells in
+  fun () -> pub_pure_cells := cells
 
 (* 値環境から名前の型を引く(対話的な実行の :type と結果の表示に使う) *)
 let lookup_value_type env x = SMap.find_opt x env.values
