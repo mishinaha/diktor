@@ -95,17 +95,26 @@ Ref は入力をまたいで持てない(§13.7):
   > EOF2
   ! <stdin>:1:9: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
 
-:type と :reset:
+:type は、式を let の右辺と同じ規則で一般化した型を表示する。値でない式の型変数は弱い型変数のまま
+表示する。:reset の後は、前の束縛が残らない:
 
   $ diktor --repl <<'EOF2'
   > :type fn(a) => a
+  > let id[A](x: A): A = x
+  > :type id
+  > :type id(None)
+  > :type       zzz
   > let x = 1
   > :reset
   > x
   > EOF2
   (A) => A
+  id : (A) => A = <fn>
+  (A) => A
+  Option[_A]
+  ! <stdin>:5:13: 型エラー: 未束縛の変数: zzz
   x : Int32 = 1
-  ! <stdin>:4:1: 型エラー: 未束縛の変数: x
+  ! <stdin>:8:1: 型エラー: 未束縛の変数: x
 
 前の入力の module の中の値と同じ名前のトップレベルの値は、入力の順によらず拒否する。
 ファイルでは同じ組み合わせを平坦化が拒否する:
@@ -183,3 +192,37 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   $ printf 'let x = (1 +\n' | diktor --repl
   <stdin>: 入力が途中で終わっています
 
+
+1 入力の中で同じ名前を束縛し直しても、それぞれの束縛を自分の型で表示する:
+
+  $ diktor --repl <<'EOF2'
+  > let a = 1; let a = "s"
+  > let r = {x = 1}; let r = Some(2)
+  > EOF2
+  a : Int32 = 1
+  a : String = "s"
+  r : {x: Int32} = {x = 1}
+  r : Option[Int32] = Some(2)
+
+結果の表示で Show のインスタンスが実行時エラーを出すと、その入力を取り消し、セッションは続く:
+
+  $ diktor --repl <<'EOF2'
+  > newtype Bad = Bad(Int32)
+  > type instance Show[Bad] { let show(b) = b match { case Bad(x) => show(x / 0) } }
+  > let bb = Bad(1)
+  > bb
+  > let ok = 3
+  > EOF2
+  実行時エラー: ゼロ除算です
+  ! <stdin>:4:1: 型エラー: 未束縛の変数: bb
+  ok : Int32 = 3
+
+コマンドの行末の空白と CR は読み飛ばす。--repl にはファイルを渡せない:
+
+  $ printf 'let x = 1\n:reset  \nx\n:q\r\nlet y = 2\n' | diktor --repl
+  x : Int32 = 1
+  ! <stdin>:3:1: 型エラー: 未束縛の変数: x
+  $ diktor --repl x.kel 2>&1 | head -1
+  diktor: --repl takes no input files
+  $ diktor --repl x.kel > /dev/null 2>&1
+  [64]
