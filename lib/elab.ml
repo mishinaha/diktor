@@ -4772,9 +4772,9 @@ let toplevel_value_names (decls : T.decl list) =
      module 内の相互参照と `let rec` の自己再帰は、
      フォールバック(環境に無かったときだけスコープの同義語を引く)で通る。
      module 内の値の名前が、トップレベルの値の名前と同じになることは禁止する。
-     elab は宣言時点の環境を、評価器は呼び出し時点の環境を見るので、同名を許すと、
-     フォールバックが働くかどうかが両者で食い違い、黙って別の実体を選ぶ。
-     この禁止が、2 つの名前解決が一致するための前提である。
+     これは言語の規則である。
+     名前の解決は elab だけが行い、評価器は木に書いた実体を使うので、
+     同名を許しても 2 つの解決が食い違うことはない。
    - `pub`：可視性の台帳(第6章の `value_visibility` / `con_visibility`)へ写す。
      検査は使用点(§11.3 / §11.11 / §11.8)で行い、可視性の境界は module だけである。
      コンストラクタは、所属する newtype の `pub` に従う。
@@ -4842,10 +4842,9 @@ let toplevel_value_names (decls : T.decl list) =
 
 let flatten_modules ?session_vals (decls : T.decl list) : T.decl list =
   (* トップレベル(module の外)の値の名前を先に集める。module 内の値の名前がこれと同名に
-     なるのを禁止するため(§6.4)。禁止しないと、宣言順と呼び出し時刻の組み合わせで、
-     elab と評価器のフォールバックが働くかどうかが食い違い、黙って別の実体を選ぶ。
+     なるのを禁止するため(§6.4)。
      パターン束縛の束縛子もすべて拾う。binding_name(PVar だけ)で集めると、
-     let (a, b) = … の a が検査をすり抜け、同じ食い違いが起きる *)
+     let (a, b) = … の a が検査をすり抜ける *)
   let toplevel_vals = Hashtbl.create 32 in
   let rec pat_names ((_, p) : T.pat) =
     match p with
