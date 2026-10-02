@@ -156,7 +156,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
 sample.kel 全文がパースできること(M3 完了条件。行数は親 0527b65 の写しのもの):
 
   $ diktor --dump-ast sample/sample.kel | wc -l
-  351
+  343
   $ diktor --dump-ast sample/sample.kel | sed -n '1,3p'
   (type MyInt = Int32)
   (type Point = (row (x: Float64) (y: Float64)))

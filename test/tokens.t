@@ -670,14 +670,14 @@ effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行�
 sample.kel 全文のトークン化(2597 トークン。親 0527b65 の写しのもの):
 
   $ diktor --dump-tokens sample/sample.kel | wc -l
-  2597
+  2524
   $ diktor --dump-tokens sample/sample.kel | tail -6
-   842  .
-   842  parse
-   842  (
-   842  "456"
-   842  )
-   875  <EOF>
+   850  .
+   850  parse
+   850  (
+   850  "456"
+   850  )
+   882  <EOF>
 
 小数部の省略(1. / 2.e3)と、その後の ASI(D25。行末の 1. は NUMBER で
 文を終えられる — 以前は DOT で継続していた):
