@@ -355,8 +355,7 @@ let check_pub_annots ~value_head_outer ~params ~ret =
    カインドは原則として `same_kind` で比べる(第1章 §1.6)が、読み分けの判定はその例外である。
    `same_kind` は `KVar` を張るので、判定に使うと、
    未確定のパラメータがすべて `Row` に固定されてしまう。
-   同じ理由で `same_kind` を避ける箇所は、ほかに第6章 §6.4b の `kind_equiv` と、
-   §11.6 の `elab_eff` の最後の分岐にある。
+   同じ理由で `same_kind` を避ける箇所は、ほかに §11.6 の `elab_eff` の最後の分岐にある。
    照合の側が `KVar` を張るのはむしろ望ましい。
    パス 1b の中(相互再帰する newtype が互いを参照する形)では、これがカインドの伝播路として働く。
 
@@ -772,7 +771,7 @@ and elab_value_type env level ~expanding what t =
    subst_params を経て使用点で bind が落とすより早く、診断も読みやすい。
    読み分けの判定は kind_repr の構造の一致で行い、same_kind は使わない。
    same_kind は KVar を張るので、判定に使うと、未確定のパラメータをすべて Row に固定してしまう
-   (§1.6 の原則の例外。同じ理由の例外が §6.4b の kind_equiv にある)。
+   (§1.6 の原則の例外)。
    照合の側は same_kind でよく、パス 1b ではこれがカインドの伝播路になる。
    elab_eff を ~check_row:false で呼ぶのは、行にならなかったことを、
    すぐ下の照合が構成子名と引数の位置を添えて報告するからである。
@@ -991,10 +990,9 @@ and expand_alias env level ~expanding info args =
    構造の一致で `KRow` かどうかを調べると、まだ `KVar` のままの行変数を取りこぼす。
    第8章の `rewrite_row` も、同じ理由で `same_kind` を使う(§8.6)。
 
-   カインドを `same_kind` で比べるという原則には、例外が 3 つある。
-   §11.3 の `elab_con_args` の読み分け(§11.5 の `expand_alias` も同じ規則で読み分ける)、
-   第6章 §6.4b の `kind_equiv`、
-   そして下で述べる最後の分岐の照合である。
+   カインドを `same_kind` で比べるという原則には、例外が 2 つある。
+   §11.3 の `elab_con_args` の読み分け(§11.5 の `expand_alias` も同じ規則で読み分ける)と、
+   下で述べる最後の分岐の照合である。
    どれも、`same_kind` が `KVar` を張ると未確定のカインドが固定されてしまう位置で、
    構造で比べてよい理由をそれぞれの箇所に書いてある。
 
@@ -1950,8 +1948,8 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
 (* ## 11.20 操作名の解決
 
    Keleut は操作名の重複を許す。
-   仕様の sample.kel 自身が `Console.write`(:464)と `File.write`(:592)を両方宣言しているので、
-   操作名が大域で一意だとは仮定できない。
+   標準環境の `Console.write`(sample.kel:464)と、仕様の sample.kel が宣言する `File.write`(:592)は、
+   同じ操作名を持つので、操作名が大域で一意だとは仮定できない。
 
    修飾された操作名は、宣言表を直接引く。
    修飾されていない操作名は、次の 2 段の規則で解決する。
@@ -3241,9 +3239,6 @@ let initial_env () =
    パス 1b の `register_newtype` がそれを剥がして `dd_params` の `vkind` に据える。
    本体の精緻化がそのセルを `same_kind` で張れば、頭にも反映される。
    頭と本体で別のセルを作ると、本体で決まったカインドが、1a で登録した頭のカインドと食い違う。
-   プレリュード所有名の再宣言では 1a が頭を差し替えないので、
-   剥がすのはプレリュードが決めたカインドになり、利用者の宣言はそれを引き継ぐ。
-   この場合に別のセルを作ると、`data_match` の照合で `KVar` と `KStar` が食い違う。
 
    カインドを決める材料は、自分の宣言の本体に限らない。
    宣言群の中の型の本体すべてが材料になる(sample.kel:246-249)。
@@ -3383,10 +3378,6 @@ let initial_env () =
 
 (* 1a が頭に積んだカインドのセルをそのまま剥がして、パラメータの型環境を作る。
    頭と本体で別のセルを作ると、本体で決まったカインドが頭に反映されない。
-   プレリュード所有名の再宣言では 1a が頭を差し替えないので、
-   ここで剥がすのはプレリュードが決めたカインドになる。
-   利用者の宣言はそれを引き継ぐ。
-   このときも別のセルを作ると、data_match の kind_equiv で KVar と KStar が食い違う。
    register_newtype と、1a の後の投機が同じセルを共有するための共通部分である *)
 let newtype_param_env env (n : T.newtype') =
   let head_kinds =
@@ -3575,13 +3566,8 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    ここはそれを引くだけである。
    インスタンス宣言の側の入口にも、同じ表を引く検査がある(§6.12)。
 
-   組み込みと同名のクラスを利用者が宣言したときは、組み込みの宣言と照合して受理し、
-   実体は組み込みを使う。
-   照合は第6章の `add_class_decl` が行い、パラメータのカインド、`derive structural` の有無、
-   メソッド名の集合、各メソッドの型がすべて一致することを求める。
-   組み込みの `Ord` の 4 つのメソッドのうち `lt` だけを書いた宣言は、
-   「メソッドが違います」で落ちる。
-   sample.kel 自身がプレリュード相当の宣言を含んでいるので、それを受理するための扱いである。
+   組み込みと同名のクラスを利用者が宣言すると、第6章の `add_class_decl` が、
+   標準環境の名前の再宣言として拒否する。
 
    ### 最外の行を開くのは、注釈の頭が矢印リテラルのときだけ
 
@@ -3707,8 +3693,8 @@ let register_class env (c : T.class_decl') =
      実行時の構造的フォールバック(§14.7)は Eq.eq に決め打ちなので、
      型検査を通ったプログラムが実行時に落ちる。
      クラス表に既にある名前の宣言は、ここでは弾かない。組み込み表が登録したクラスの
-     再宣言なら、導出の指定が一致するかを add_class_decl が照合し、それ以外の名前なら
-     add_class_decl が二重宣言として拒否する。この検査はカインドの検査より先に置く。
+     再宣言なら add_class_decl が標準環境の名前の再宣言として、それ以外の名前なら
+     二重宣言として拒否する。この検査はカインドの検査より先に置く。
      逆の順だと、新しいクラスに、カインドを直せという直しようのない案内が出る
      (直すと、今度はこちらの検査に当たる) *)
   (if List.mem "structural" c.T.cls_derives && (not !Decls.in_prelude) && not (Hashtbl.mem Decls.classes cls) then
@@ -3784,7 +3770,8 @@ let register_class env (c : T.class_decl') =
   (* 非修飾名の所有者は高々 1 クラス、という不変条件をここで守る。破れると、elab(宣言順の先勝ち)と
      interp(クラス名の順の後勝ち)が別の規則で勝者を選ぶ。両者が別のクラスを選ぶと、
      誤った実体を呼ぶか、偽の「インスタンスが見つかりません」を出す。組み込みと同名の
-     クラスの再宣言は同じ oid なので素通しになる。不変条件が帰納的に保たれるので、
+     クラスの宣言は同じ oid なので素通しになり、下の add_class_decl が拒否する。
+     不変条件が帰納的に保たれるので、
      候補は高々 1 つで、文言も決定的 *)
   List.iter
     (fun (m, _) ->
@@ -3797,14 +3784,14 @@ let register_class env (c : T.class_decl') =
         Decls.classes)
     methods;
   Decls.add_class_decl
-      {
-        Decls.ci_name = cls;
-        ci_param = pinfo;
-        ci_param_kind = param_kind;
-        ci_derive_structural = List.mem "structural" c.T.cls_derives;
-        ci_builtin = false;
-        ci_methods = methods;
-      };
+    {
+      Decls.ci_name = cls;
+      ci_param = pinfo;
+      ci_param_kind = param_kind;
+      ci_derive_structural = List.mem "structural" c.T.cls_derives;
+      ci_builtin = false;
+      ci_methods = methods;
+    };
   methods
 
 (* ## 11.34 インスタンスの頭
@@ -3834,9 +3821,8 @@ let register_class env (c : T.class_decl') =
    探索は表を 1 回引くだけである。
    重なり合うインスタンスは存在しないので、
    コヒーレンスは「同じキーを 2 度登録したらエラー」という 1 つの規則で保証できる(sample.kel:357)。
-   組み込みのキーに対する利用者の 1 度目の宣言は、受理するが採用しない(§6.9)。
-   そのため、組み込みのキーでエラーになるのは、利用者の 2 度目の宣言からである。
-   この数え方は、第6章の `builtin_redecls` 表が持つ。
+   組み込みのキーに対する利用者の宣言は、
+   1 度目から標準環境のインスタンスの再宣言として拒否する(§6.9)。
 
    頭のカインドは、クラスのパラメータのカインドと一致していなければならない(sample.kel:400)。
    `Functor` は `[_] Type` のクラスなので、`Functor[Int32]` はここで落ちる。
@@ -4288,7 +4274,9 @@ let check_instance_bodies env (i : T.instance_decl') =
    **1a**：エイリアスと newtype の頭を登録する。
    型の本体を精緻化するには、その中に出てくるすべての型構成子のカインドが引けなければならない。
    そこで、名前とカインドだけを先に登録する。
-   プレリュードが持っている名前を利用者が再宣言したときは、プレリュードの側を残す。
+   プレリュードが持っている名前の newtype は、ここで標準環境の名前の再宣言として拒否する。
+   頭のカインドを登録する前に拒否するので、
+   プレリュードの型の頭が利用者の宣言で書き換わることはない。
 
    **1a の後始末**：newtype の本体を投機する。
    1a が終わった直後に宣言列をもう一度なめ、newtype の本体を一度だけ投機的に精緻化する。
@@ -4465,13 +4453,13 @@ let process_decls env ~emit decls =
           register_companion n.T.nt_name;
           if Decls.prelude_owned "data" (intern n.T.nt_name) && not !Decls.in_prelude then
             type_error ("標準環境の newtype " ^ n.T.nt_name ^ " は再宣言できません");
-            (* 頭のカインドは、パラメータごとにカインド変数を積む。1b の register_newtype が
-               このセルを剥がして dd_params の vkind に据えるので、本体で決まったカインドが
-               そのまま頭に反映される *)
-            Hashtbl.replace Decls.con_kinds (intern n.T.nt_name)
-              (List.fold_right
-                 (fun (tp : type_param) acc -> KArrow ((if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()), acc))
-                 n.T.nt_params KStar)
+          (* 頭のカインドは、パラメータごとにカインド変数を積む。1b の register_newtype が
+             このセルを剥がして dd_params の vkind に据えるので、本体で決まったカインドが
+             そのまま頭に反映される *)
+          Hashtbl.replace Decls.con_kinds (intern n.T.nt_name)
+            (List.fold_right
+               (fun (tp : type_param) acc -> KArrow ((if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var ()), acc))
+               n.T.nt_params KStar)
       | T.DEffect e -> Decls.claim_type_name "effect" (intern e.T.ef_name)
       | _ -> ())
     decls;
@@ -4528,9 +4516,7 @@ let process_decls env ~emit decls =
       | T.DClass c ->
           List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
       | T.DNewtype n -> List.iter (fun tp -> ignore (class_names_of tp)) n.T.nt_params
-      (* DType もここで確かめる。プレリュード所有名の再宣言は add_alias が黙って捨てるので、
-         パス 2 の make_rigids には AST が届かない。AST の側で確かめないと、
-         type Unit[A: Bogus] = A が素通りする *)
+      (* DType もここで、パラメータの制約に書いたクラスが実在するかを AST の側で確かめる *)
       | T.DType t -> (
           List.iter (fun tp -> ignore (class_names_of tp)) t.T.ta_params;
           (* エイリアス本体のカインドの推論。ここで一度、本体を投機的に精緻化し、
@@ -4539,9 +4525,7 @@ let process_decls env ~emit decls =
              診断は出さない。本物の検査は、パス 2 が同じ本体でやり直す。
              捕まえる例外は with 節に並べた 4 つだけで、Panic は捕まえない。
              本体が途中で落ちる宣言では、落ちた先の使われ方が推論に届かず Type に
-             既定化されるが、そのプログラムはどのみちパス 2 の同じ箇所で落ちる。
-             プレリュード所有名の再宣言では、表にプレリュードの本体が残っているので、
-             読むのもそちら *)
+             既定化されるが、そのプログラムはどのみちパス 2 の同じ箇所で落ちる *)
           match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
           | None -> ()
           | Some info -> (

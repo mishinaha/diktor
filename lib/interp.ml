@@ -1287,9 +1287,7 @@ let register_class_methods globals =
    バックパッチが要らないのは、§14.9 で述べたとおりである。
 
    本章でインスタンス表(`user_instances`)に書き込むのは、`type instance` の処理だけである。
-   この処理では、次の 2 点に注意している。
-
-   1 つ目は、同義語の表を引くことである。
+   この処理では、同義語の表を引くことに注意している。
    第11章の `flatten_modules` は、型検査の前に module を平坦化し、
    `module BigInt { newtype BigInt … }` の型を `BigInt.BigInt` に改名する。
    インスタンスの頭に書かれた非修飾名をそのまま鍵にすると、宣言した実体が実行時に見つからない。
@@ -1298,12 +1296,8 @@ let register_class_methods globals =
    `exec_decl` の冒頭で宣言の出身 module を `Decls.current_module` に立ててから引く。
    これは elab の `with_decl_module` と同じ規律である。
    回帰テストは `test/verify_fixes.t` の modinst.kel である。
-
-   2 つ目は、組み込みのインスタンスを差し替えないことである。
-   利用者が `type instance Add[Int32]` を再宣言して実体を差し替えると、
-   elab は組み込みの `Add[Int32]` で型検査するのに、実行時だけ利用者の実体が使われる。
-   そこで、組み込みクラスの組み込みの鍵と同じ `(cls, con)` を持つ宣言は、
-   受理したうえで実体を差し替えない。
+   組み込みのインスタンスと同じ `(cls, con)` を持つ宣言は、elab が宣言の時点で拒否するので、
+   ここに来る宣言が組み込みの実体を差し替えることはない。
 
    `extern` は、実装が無ければ、呼ばれた時点で落ちる prim を登録する。
    宣言だけして呼ばないプログラムを通すためである。
