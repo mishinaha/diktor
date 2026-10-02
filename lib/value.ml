@@ -289,7 +289,7 @@ let runtime_error msg = raise (Runtime_error msg)
    `unit` が `VRecord []` であることも、本節の規則の一部である。
    Unit は特別な値ではなく、フィールドを 1 つも持たないレコードである。
    第14章の評価器は、ブロックに末尾の式が無いときにこの値を返す。
-   `with_runtime`(§13.6)は、`Async.sleep` を何もせずに再開するときにこの値を渡す。 *)
+   `with_runtime`(§13.6)は、`Console.write` を処理した後の継続にこの値を渡す。 *)
 
   (* ---- レコード演算(Scoped Labels) ---- *)
 

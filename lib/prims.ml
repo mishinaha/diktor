@@ -153,14 +153,14 @@ let show_bin_op = function
    | `runtime_effects` | ランタイムが実装を持つのはどれか(利用者がハンドルできないのはどれか) | sample.kel:536 |
    | `toplevel_effects` | トップレベルの行に残してよいのはどれか | sample.kel:657 |
 
-   `runtime_effects` は `Console` / `Async` / `Fs` の 3 つである。
-   仕様は特別な印を設けず、この 3 つを名前で定めている。
+   `runtime_effects` は `Console` / `Fs` の 2 つである。
+   仕様は特別な印を設けず、名前で定めている。
    第11章 §11.23 のハンドル禁止の判定がこの名簿を引く。
-   `toplevel_effects` は、`runtime_effects` に `Blocking` を足した 4 つである。
+   `toplevel_effects` は、`runtime_effects` に `Blocking` を足した 3 つである。
 
    ### 操作を持たないラベル
 
-   `Console` と `Async` は操作を持ち、その操作は第13章の `with_runtime` が実際に捕まえる。
+   `Console` は操作を持ち、その操作は第13章の `with_runtime` が実際に捕まえる。
    `Fs` と `Blocking` は操作を 1 つも持たない。
    `perform` できる操作が無く、`handle` の節も書けない。
    この 2 つは型の上にしか存在せず、そのラベルを行に持たない文脈から、
@@ -173,9 +173,9 @@ let show_bin_op = function
      `extern` のバインディングである(仕様 sample.kel:494、:794)。
      このラベルを行から取り除くのは `pinned` の仕事である。
 
-   `runtime_effects` の 3 つのうち、操作を持たないのは `Fs` だけである。
+   `runtime_effects` の 2 つのうち、操作を持たないのは `Fs` である。
    仕様も「ランタイムが実装を持つ」を 2 通りに分けている(sample.kel:537-539)。
-   1 つは操作の実装をランタイムが持つもの(`Console` / `Async`)で、
+   1 つは操作の実装をランタイムが持つもの(`Console`)で、
    もう 1 つは操作を持たず、ランタイムのプリミティブだけがそのラベルを行に載せるもの(`Fs`)である。
 
    ### `Blocking` を `runtime_effects` に入れない理由
@@ -202,17 +202,9 @@ let show_bin_op = function
    `Heap[h]` はリージョン変数を引数に取るラベルで、トップレベルには渡せる `h` が無い。
    `h` を導入するのは `run` だけで、`run` はその `Heap[h]` を自分で取り除く。
 
-   ### `Async` を名簿に入れる理由
-
-   `toplevel_effects` に `Async` が無いと、sample.kel:774 の `crunch` をトップレベルから呼べない。
-   型の上で `@ Async` を持つ関数を認める以上、トップレベルの行も `Async` を認めていなければ、
-   その関数を呼べる場所が無くなる。
-   Diktor は `Async` を型の上では本物のエフェクトとして扱い、実行時には何もしない。
-   第13章の `with_runtime` は、`yield_` と `sleep` をその場で再開する。
-
    ### 守るべき不変条件
 
-   `runtime_effects` のうち操作を持つもの(`Console` / `Async`)について、
+   `runtime_effects` のうち操作を持つもの(`Console`)について、
    その操作の集合は、第13章(builtin.ml)の `with_runtime` が実際に捕まえる集合と一致していなければならない。
    片方だけに足すと、何のエラーも出ないまま一致が崩れる。
 

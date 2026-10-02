@@ -2226,7 +2226,7 @@ and elab_handle env level eff clauses body =
    `File` のほかに `read` / `write` / `close` を持つエフェクトがあっても、
    `read` と `write` の節だけを書けば `File` に決まる。
 
-   ランタイムが提供するエフェクト(プレリュードの `Console` / `Async` / `Fs`)はハンドルできない。
+   ランタイムが提供するエフェクト(プレリュードの `Console` / `Fs`)はハンドルできない。
    これらは手順 1 の候補からも外す。
    `Console` を候補に残すと、`write` 節だけを書いた handle は、
    全操作が書かれている `Console` に手順 2 で決まる。
@@ -2253,8 +2253,7 @@ and elab_handle env level eff clauses body =
   let quals = List.filter_map (fun (_, q, _, _) -> q) ops in
   let op_names = List.map (fun (op, _, _, _) -> op) ops in
   (* ランタイムが提供するエフェクトはハンドルさせない。仕様 sample.kel:536 が
-     Console / Async / Fs の 3 つを名指しで定める(Async については :726 にも
-     「スケジューラを利用者に書かせない」とある)。許すと、出力を黙って消す
+     Console を名指しで定める。Diktor は第7章の名簿の Fs も同じに扱う。許すと、出力を黙って消す
      恒等ハンドラが書け、File.write のつもりの case write(s) が Console を
      消すことも起きる。判定は、ランタイムの名簿に名前があり、かつプレリュードが
      宣言したものであること。--no-prelude で利用者が自分の effect Console / Fs を
@@ -3179,15 +3178,11 @@ and elab_rec_bindings env level eff bs : env =
 (* ## 11.30 トップレベルで許されるエフェクト
 
    トップレベルの初期エフェクト行は、ランタイムが提供する**閉じた**行である。
-   中身は `{Console, Async, Fs, Blocking}` の 4 つで、名簿は第7章の `toplevel_effects` にある。
-   4 つがこの行にある理由は、それぞれ異なる。
+   中身は `{Console, Fs, Blocking}` の 3 つで、名簿は第7章の `toplevel_effects` にある。
+   3 つがこの行にある理由は、それぞれ異なる。
 
    - `Console`：出力の最終的な行き先である。
      ランタイムが実装を持ち、利用者はハンドルできない(§11.23)。
-   - `Async`：sample.kel:774 の `crunch` が、
-     `@ Async` を持ったままトップレベルから呼ばれるからである。
-     `yield_` は型検査を通り、実行時には何もしない。
-     Diktor はこの振る舞いを、`Async` をランタイムが提供するエフェクトとして行に置くことで表している。
    - `Fs`：4 つのファイルプリミティブが `@ Fs` を課すので、
      トップレベルから `__open` を呼べるように置く。
      操作は持たない。

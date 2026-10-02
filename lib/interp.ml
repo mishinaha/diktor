@@ -1200,7 +1200,7 @@ let register_builtin_values globals =
       | _ -> runtime_error "MutableArray ではありません");
   (* par と par_map。逐次実装が並列実行と観測上同値である根拠は、スケジューラが
      無いことではなく、コールバックの行が @ {} に閉じていることにある。コールバックは
-     Heap も Console も Async も起こせないので、実行順序を観測できない(§6.11b)。
+     Heap も Console も起こせないので、実行順序を観測できない(§6.11b)。
      並列に実行した場合と違うのは 1 点だけで、コールバックが例外で脱出したとき、
      逐次実装では後続を評価しない(素の OCaml と同じ)。
      par_map の返り値は不変の Array[B] で、可変配列とは型が違う。
@@ -1232,8 +1232,8 @@ let register_builtin_values globals =
       | _ -> runtime_error "par の引数が不正です");
   (* pinned は恒等関数として実装する。Diktor が Blocking について守る観測できる
      契約は、並列度を減らさないことと、キャンセルの配送点にならないことの 2 つである。
-     Diktor はタスクを 1 つしか持たず(Async の操作はすぐに継続を再開する)、配送点は
-     yield_ だけなので、恒等関数がどちらの契約も満たす。スケジューラを持たないので、
+     Diktor はタスクを 1 つしか持たず、キャンセルの配送点も持たないので、
+     恒等関数がどちらの契約も満たす。スケジューラを持たないので、
      専用のスレッドへの束縛も行わない。Blocking はトップレベルに残せる(仕様 §12)ので、
      pinned を通さないプログラムも実行できるが、ランタイムが受け取るものは何も無い *)
   reg "pinned" (fun args -> apply (Builtin.arg1 args) unit)
@@ -1447,7 +1447,7 @@ let exec_decl versions env ((_, d) as node : T.decl) =
 
    `run` は宣言を順に実行するだけだが、全体を `Builtin.with_runtime`(第13章)の中で走らせる。
    `with_runtime` はランタイムが提供するエフェクトのハンドラで、
-   `Console.write` を出力先へ送り、`Async.yield_` と `Async.sleep` ではすぐに continue する。
+   `Console.write` を出力先へ送る。
    ここにも届かなかった操作は `Effect.Unhandled` になり、driver が操作名を含めて報告する。
    プログラムのいちばん外側にハンドラを置き、
    エフェクトを未処理として扱う場所をここ 1 か所に決めている。

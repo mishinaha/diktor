@@ -1075,7 +1075,7 @@ let intern = Type.intern
 
    `heap_row h` は、`Heap[h]` を Generic の行変数の尾部の上に載せ、行を開いておく。
    行を `Heap[h]` だけの閉じた行にすると、
-   `Console` の下でも `Async` の下でも `Ref.get` を呼べなくなる。
+   `Console` の下でも `Print` の下でも `Ref.get` を呼べなくなる。
    プログラムのほとんどは何かのエフェクトの下で走るので、
    行を閉じるとこれらの操作は実質的に使えない。
 

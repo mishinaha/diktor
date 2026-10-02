@@ -487,7 +487,7 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
 
    Keleut のトップレベルは純粋ではない。
    プログラムは、ランタイムが提供するエフェクトの下で走る(第7章(prims.ml)の名簿)。
-   そのうち操作を持つのは `Console` と `Async` の 2 つである。
+   そのうち操作を持つのは `Console` だけである。
    `Fs` と `Blocking` は操作を持たないので、ここには来ない。
    `Fs` が載るファイルのプリミティブの実装は §13.4 のプリミティブ表にあり、
    それが操作するダミーのファイルシステムは §13.3 にある。
@@ -528,14 +528,6 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
      そのため、プレリュードが所有する `Console.write` は必ずこのハンドラまで上ってくる。
      出力先をプログラムの側で差し替えたいときは、利用者の層の `Print` にハンドラを書く。
      プレリュードの `with_stdout` が `Print.print` を `Console.write` へ翻訳する
-   - `Async.yield_` と `Async.sleep` に対しては、すぐに `continue` する。
-     型は本物で、実行時には何もしない。
-     Diktor は並行実行を実装しない。
-     `par` / `par_map` も逐次に実装している(§14.11)。
-     `par` と `par_map` は純粋なコールバック(行が `@ {}` に閉じたもの)しか受け取らないので、
-     逐次に実行しても、並列に実行した場合と観測上は区別できない。
-     `yield_` と `sleep` を何もせずに再開するこの実装は、sample.kel が型検査を通ることと、
-     `yield_` を書いたプログラムが止まらずに走ることの両方を満たす最小のものである
 
    本章は操作名を `Type.intern` した `oid` で持つので、`effc` の中では整数の比較しかしない。
    非修飾の `write` を `Console.write` へ解決するのは第11章なので、ここで名前を解決する必要はない。
