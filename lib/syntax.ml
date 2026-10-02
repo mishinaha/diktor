@@ -151,6 +151,12 @@ let show_long_id (LongId components) = String.concat "." components
    第6章の `Decls.effects` に載っていればエフェクト名、
    `Decls.con_kinds` に載っていれば型構成子である。
 
+   起点でない単位(import したファイル)の宣言の名前は、
+   綴りの先頭に単位の印 `%N.` を付けて intern する(第6章 §6.4)。
+   印を付けた綴りは別の `oid` になるので、別々のファイルの同名の型は別の型である。
+   `display` と `display_of` は印を外した綴りを返し、型の印字と診断に使う。
+   表を引く鍵には `name_of` を使う。
+
    一方、値の識別子は整数にしない。
    `let` で束縛した名前も変数の参照も文字列のままで、
    型検査の環境も評価器の環境も `Map.Make (String)` を使う(第11章、第12章)。
