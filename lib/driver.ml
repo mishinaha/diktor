@@ -59,6 +59,7 @@ open Aux
    | `--no-prelude` | `o_no_prelude` | プレリュードを空にする |
    | `--prelude PATH` | `o_prelude` | 埋め込みのプレリュードの代わりに PATH を読む |
    | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする(`--repl` では効かない) |
+   | `--import-path DIR` | `o_import_path` | import の検索パスに DIR を足す。繰り返して書け、書いた順に探す(§16.3b) |
 
    `usage` の文字列は、使い方の唯一の説明である。
    テスト test/smoke.t は、この文字列をそのまま期待値に持つ。
@@ -84,7 +85,8 @@ let usage =
    \  --dump-ast           脱糖後の AST を S 式で出力\n\
    \  --repl               対話的に実行する(FILE は不要)\n\
    \  --no-prelude / --prelude PATH\n\
-   \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n"
+   \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n\
+   \  --import-path DIR    import の検索パスに DIR を足す(繰り返せる)\n"
 
 type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl
 
@@ -94,15 +96,17 @@ type options = {
   o_no_prelude : bool;
   o_strict_exhaustive : bool;
   o_files : string list;
+  o_import_path : string list; (* --import-path DIR。書いた順 *)
 }
 
-let default_options = { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = [] }
+let default_options =
+  { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = []; o_import_path = [] }
 
 (* ## 16.2 引数解析
 
    引数解析に cmdliner は使わない。
-   Diktor の依存は menhir と sedlex の 2 つに限っており、
-   6 つの旗のためにその範囲を広げる価値はない。
+   Diktor の依存は menhir と sedlex の 2 つに限っており(OCaml の配布物に含まれる `unix` を除く。§16.3b)、
+   少数の旗のためにその範囲を広げる価値はない。
    代わりに、引数リストを頭から読んでいく末尾再帰の `go` を書く。
 
    `go` の形には要点が 2 つある。
@@ -125,6 +129,10 @@ let default_options = { o_mode = Run; o_prelude = None; o_no_prelude = false; o_
    畳み込みはファイルを逆順に積むからである。
    ファイルの順序には意味がある。
    複数のファイルは、指定した順に連結して処理する。
+   連結したファイル群は 1 個の起点の単位で、各ファイルの先頭の import は、
+   起点の先頭に集めたものとして扱う(§16.3b)。
+   連結したファイルのどれかを import すると誤りにする。
+   同じ宣言が起点と依存先の両方に現れるからである。
    仕様 sample.kel の回帰テストは、この順序を使ってスタブを sample.kel の前に置く。 *)
 let parse_args args =
   let rec go opts = function
@@ -140,6 +148,8 @@ let parse_args args =
     | "--prelude" :: path :: rest -> go { opts with o_prelude = Some path } rest
     | "--prelude" :: [] -> Error "--prelude requires a path"
     | "--strict-exhaustive" :: rest -> go { opts with o_strict_exhaustive = true } rest
+    | "--import-path" :: dir :: rest -> go { opts with o_import_path = opts.o_import_path @ [ dir ] } rest
+    | "--import-path" :: [] -> Error "--import-path requires a directory"
     | arg :: _ when String.length arg > 0 && arg.[0] = '-' -> Error ("unknown option: " ^ arg)
     | file :: rest -> go { opts with o_files = file :: opts.o_files } rest
   in
@@ -276,6 +286,145 @@ let parse_with lexer =
    ディレクトリを渡したときの EISDIR などの読み取りエラーは、
    open ではなく読み取りの段で起きるからである *)
 let parse_file file = with_input (fun () -> parse_unit_with (Lexer'.from_filename file))
+
+(* ## 16.3b import 先の読み込み
+
+   コマンド行で渡したファイル群(起点)から import をたどり、依存する単位を集める。
+   起点の各ファイルの import を書いた順に、深さ優先でたどる。
+   単位の列は帰りがけ順(依存される側が先)で、同じファイルは 1 回だけ読む。
+   循環は、訪問中のファイルの列で検出する。
+
+   ファイルの同一性は、シンボリックリンクを解決した絶対パス(`Unix.realpath`)で決める。
+   別の綴りやリンクで同じファイルを 2 回読み込むと、型が別物になり、初期化も 2 回になるからである。
+   `unix` は OCaml の配布物に含まれるので、
+   §16.2 の依存の方針(menhir と sedlex に限る)の対象外とする。
+
+   利用者に見せるパス(`u_display`)は、絶対パスではなく次の綴りにする。
+   cram の出力に作業ディレクトリが現れないようにするためである。
+
+   - 起点は、コマンド行に書いた引数のままである。
+   - 相対パスの import は、import を書いたファイルの表示のディレクトリにパスと `.kel` を連結し、
+     `.` の成分を除き、`..` を直前の成分と相殺した綴りである。直前の成分が無い `..` は残す。
+   - 検索パスの import は、`--import-path` に書いたディレクトリにパスと `.kel` を連結した綴りである。
+
+   字句解析器にはこの綴りをファイル名として渡すので、診断の位置もこの綴りになる。
+   開くのは、相殺をしない連結のパス(`u_path`)である。
+   シンボリックリンクの下の `..` は、綴りの相殺と OS の解決で行き先が違いうるからである。
+
+   パスの形の規則は次のとおりである。
+   区切りは `/` に固定し、コロン(`kel:` などの前置の予約)と絶対パスは書けない。
+   拡張子 `.kel` は処理系が付けるので、パスに書くと誤りにする。
+   相対パスは、先頭の `./` 1 個か `../` の繰り返しで始め、その後の成分に空、`.`、`..` は書けない。
+   それ以外は検索パスの中を探し、複数のディレクトリで見つかれば誤りにする。
+   検索パスの順序で結果が変わらないようにするためである。 *)
+exception Import_error of Location.span * string
+
+let import_error loc msg = raise (Import_error (loc, msg))
+
+type unit_src = {
+  u_id : string; (* realpath。同一性の判定だけに使う *)
+  u_display : string;
+  u_path : string;
+  u_imports : Syntax.import_decl list;
+  u_decls : Tree.Tree.decl list;
+}
+
+let normalize_display p =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: rest -> go acc rest
+    | ".." :: rest -> ( match acc with x :: acc' when x <> ".." -> go acc' rest | _ -> go (".." :: acc) rest)
+    | c :: rest -> go (c :: acc) rest
+  in
+  let s = String.concat "/" (go [] (String.split_on_char '/' p)) in
+  if String.length p > 0 && p.[0] = '/' then "/" ^ s else s
+
+(* パスの形を検査し、(相対なら Some 上る段数、検索パスなら None) と残りの成分を返す *)
+let split_import_path loc src =
+  if src = "" then import_error loc "import のパスが空です";
+  if String.contains src ':' then
+    import_error loc ("import のパスにコロンは書けません(\"kel:\" などの前置は予約されています): " ^ src);
+  if String.contains src '\\' then import_error loc ("import のパスの区切りは / です: " ^ src);
+  if src.[0] = '/' then import_error loc ("import のパスに絶対パスは書けません: " ^ src);
+  if Filename.check_suffix src ".kel" then import_error loc ("import のパスに拡張子 .kel は書きません: " ^ src);
+  let comps = String.split_on_char '/' src in
+  (match comps with "." :: ".." :: _ -> import_error loc ("import のパスの ./ と ../ は混ぜられません: " ^ src) | _ -> ());
+  let rel, rest =
+    match comps with
+    | "." :: rest -> (Some 0, rest)
+    | ".." :: _ ->
+        let rec ups n = function ".." :: rest -> ups (n + 1) rest | rest -> (Some n, rest) in
+        ups 0 comps
+    | _ -> (None, comps)
+  in
+  if rest = [] then import_error loc ("import のパスにファイル名がありません: " ^ src);
+  List.iter (fun c -> if c = "" || c = "." || c = ".." then import_error loc ("import のパスの成分が不正です: " ^ src)) rest;
+  (rel, rest)
+
+let realpath p = with_input (fun () -> try Unix.realpath p with Unix.Unix_error (e, _, _) -> raise (Sys_error (p ^ ": " ^ Unix.error_message e)))
+
+(* import 文の行き先を (開くパス, 表示, 同一性) で返す *)
+let resolve_import ~import_path (importer : unit_src) (im : Syntax.import_decl) =
+  let loc = im.Syntax.im_loc and src = im.Syntax.im_source in
+  let rel, comps = split_import_path loc src in
+  let file = String.concat "/" comps ^ ".kel" in
+  match rel with
+  | Some ups ->
+      let prefix = if ups = 0 then "./" else String.concat "" (List.init ups (fun _ -> "../")) in
+      let path = Filename.concat (Filename.dirname importer.u_path) (prefix ^ file) in
+      let display = normalize_display (Filename.dirname importer.u_display ^ "/" ^ prefix ^ file) in
+      if Sys.file_exists path then (path, display, realpath path)
+      else import_error loc (Printf.sprintf "import 先が見つかりません: %s(%s)" src display)
+  | None -> (
+      let found =
+        List.filter_map
+          (fun d ->
+            let path = Filename.concat d file in
+            if Sys.file_exists path then Some (path, normalize_display (d ^ "/" ^ file), realpath path) else None)
+          import_path
+      in
+      (* 同じファイルを複数の検索パスの綴りで見つけたものは 1 つと数える *)
+      let distinct =
+        List.fold_left (fun acc ((_, _, id) as c) -> if List.exists (fun (_, _, id') -> id' = id) acc then acc else acc @ [ c ]) [] found
+      in
+      match distinct with
+      | [ c ] -> c
+      | [] -> import_error loc ("import 先が検索パスに見つかりません: " ^ src)
+      | cs ->
+          import_error loc
+            (Printf.sprintf "import 先が検索パスに複数あります: %s(%s)" src (String.concat "、" (List.map (fun (_, d, _) -> d) cs))))
+
+let read_unit ~path ~display ~id =
+  let imports, decls =
+    with_input (fun () -> parse_unit_with (Lexer'.from_filename ~display path))
+  in
+  { u_id = id; u_display = display; u_path = path; u_imports = imports; u_decls = decls }
+
+(* (依存する単位の帰りがけ順の列, 起点のファイルの列) を返す *)
+let load_units options =
+  let roots = List.map (fun f -> read_unit ~path:f ~display:f ~id:(realpath f)) options.o_files in
+  let root_ids = List.map (fun u -> u.u_id) roots in
+  let finished : (string, unit) Hashtbl.t = Hashtbl.create 8 in
+  let order = ref [] in
+  (* stack は訪問中の (同一性, 表示) の列で、先頭が最も新しい *)
+  let rec visit stack (u : unit_src) =
+    List.iter
+      (fun (im : Syntax.import_decl) ->
+        let path, display, id = resolve_import ~import_path:options.o_import_path u im in
+        (if List.exists (fun (id', _) -> id' = id) stack then
+           let rec from = function [] -> [] | ((id', _) :: _) as l when id' = id -> l | _ :: rest -> from rest in
+           let cycle = List.map snd (from (List.rev stack)) @ [ display ] in
+           import_error im.Syntax.im_loc ("import が循環しています: " ^ String.concat " → " cycle));
+        if List.mem id root_ids then import_error im.Syntax.im_loc ("コマンド行で連結したファイルは import できません: " ^ im.Syntax.im_source);
+        if not (Hashtbl.mem finished id) then (
+          let dep = read_unit ~path ~display ~id in
+          visit ((id, display) :: stack) dep;
+          Hashtbl.replace finished id ();
+          order := dep :: !order))
+      u.u_imports
+  in
+  List.iter (fun r -> visit [ (r.u_id, r.u_display) ] r) roots;
+  (List.rev !order, roots)
 
 (* `parse_string` は、エラー行に表示するファイル名を引数で受け取る。
    山括弧つきの名前(`<prelude>` や `<string>`)は、実在のファイルではないことを示す印で、
@@ -463,11 +612,14 @@ let type_check_files ?(quiet = false) options =
     | NotImplemented feat -> report { Elab.e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
   in
   let prelude = flatten ~unit:Decls.std_unit (load_prelude options) in
-  let units = List.map parse_file options.o_files in
-  (match List.concat_map fst units with
+  let deps, roots =
+    try load_units options
+    with Import_error (loc, msg) -> report { Elab.e_loc = Some loc; e_word = "import エラー"; e_exit = 1; e_msg = msg }
+  in
+  (match List.concat_map (fun u -> u.u_imports) roots with
   | im :: _ -> report { Elab.e_loc = Some im.Syntax.im_loc; e_word = "未実装"; e_exit = 4; e_msg = "import(ファイルの名前空間)" }
-  | [] -> ());
-  let decls = flatten (List.concat_map snd units) in
+  | [] -> ignore deps);
+  let decls = flatten (List.concat_map (fun u -> u.u_decls) roots) in
   let put l =
     if quiet then (
       match l with
@@ -781,12 +933,15 @@ let repl options =
 
    どの段まで通すかは、モードごとに異なる。
 
-   | モード | 字句 | 構文 | 平坦化 | 型検査 | 評価 |
-   |---|---|---|---|---|---|
-   | `DumpTokens` | ○ | × | × | × | × |
-   | `DumpAst` | ○ | ○ | × | × | × |
-   | `TypeCheck` | ○ | ○ | ○ | ○ | × |
-   | `Run` | ○ | ○ | ○ | ○ | ○ |
+   | モード | 字句 | 構文 | 読み込み | 平坦化 | 型検査 | 評価 |
+   |---|---|---|---|---|---|---|
+   | `DumpTokens` | ○ | × | × | × | × | × |
+   | `DumpAst` | ○ | ○ | × | × | × | × |
+   | `TypeCheck` | ○ | ○ | ○ | ○ | ○ | × |
+   | `Run` | ○ | ○ | ○ | ○ | ○ | ○ |
+
+   読み込みは、import をたどって依存する単位を集める段である(§16.3b)。
+   ダンプ系のモードは import をたどらず、渡したファイルだけを読む。
 
    ダンプ系のモードは、意図して型検査を通さない。
    型が付かないプログラムの字句と構文を見るための旗なので、型検査で止まると役に立たない。
@@ -843,11 +998,11 @@ let run_with options =
    | コード | 意味 | 出所 |
    |---|---|---|
    | 0 | 正常終了 | `run_with` が最後まで走った |
-   | 1 | 型エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive` |
+   | 1 | 型エラー、import エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive`、§16.3b の `Import_error` |
    | 2 | 構文エラー、字句エラー | `Parse_error`、`Lex_error`、不正な UTF-8 |
    | 3 | 実行時エラー | `Runtime_error`、未処理のエフェクト、再帰過多、メモリ不足、内部異常 |
    | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(1u8、Int8、module の入れ子など) |
-   | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルを開けない |
+   | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない |
    | 74 | 出力に書き出せない | 標準出力への flush の失敗 |
 
    64 は BSD の sysexits の EX_USAGE、74 は EX_IOERR である。

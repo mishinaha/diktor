@@ -1,6 +1,6 @@
 (library
  (public_name diktor)
- (libraries sedlex menhirLib)
+ (libraries sedlex menhirLib unix)
  (modules lexer parser syntax tree aux location dump prims decls unify show
    exhaust elab value builtin interp prelude_embed driver)
  (preprocess

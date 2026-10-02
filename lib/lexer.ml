@@ -605,7 +605,9 @@ module Make (Data : Syntax.Data) = struct
 
   let from_channel channel = Sedlexing.Utf8.from_channel channel |> from_sedlex
 
-  let from_filename filename =
+  (* display は診断に出すファイル名(既定は開くパスそのもの) *)
+  let from_filename ?display filename =
+    let shown = Option.value display ~default:filename in
     (* チャネルはここで閉じる。sedlex の from_channel は遅延して読むので、
        開いたまま渡すと閉じる機会が無く、入力ファイルの数だけ fd がプロセスの
        終了まで残る。先に全文を読んで文字列の字句解析器に渡すと、parse_string と
@@ -619,10 +621,10 @@ module Make (Data : Syntax.Data) = struct
         let has_name =
           String.length msg >= String.length filename && String.sub msg 0 (String.length filename) = filename
         in
-        raise (Sys_error (if has_name then msg else filename ^ ": " ^ msg))
+        raise (Sys_error (if has_name then msg else shown ^ ": " ^ msg))
     in
     let lexbuf = Sedlexing.Utf8.from_string source in
-    Sedlexing.set_filename lexbuf filename;
+    Sedlexing.set_filename lexbuf shown;
     from_sedlex lexbuf
 
   let rec peek t i =
