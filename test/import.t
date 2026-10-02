@@ -504,3 +504,11 @@ import したクラスのメソッドの非修飾名は、値の名前として�
   $ (cd sym && diktor main.kel)
   ! lib/../b.kel:1:9: 型エラー: 注釈された型を満たしません(型が一致しません: Int32 と String)
   [1]
+
+同じファイルに同じ名前の pub の値が 2 つあるときは、後の宣言が前を覆うので、後の宣言を import する:
+
+  $ mkdir -p twice/lib
+  $ printf 'pub let x: Int32 = 1\npub let x: String = "second"\n' > twice/lib/a.kel
+  $ printf 'from "./lib/a" import x\nlet y = x\n' > twice/m1.kel
+  $ (cd twice && diktor --type-check m1.kel)
+  y : String
