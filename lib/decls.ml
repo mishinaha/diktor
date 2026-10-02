@@ -1055,3 +1055,55 @@ let reset () =
   register_builtins ()
 
 let () = register_builtins ()
+
+(* ## 6.14 宣言表の写し
+
+   対話的な実行(第16章)は、型検査が失敗した入力の宣言を表に残さない。
+   `snapshot` は、本章の大域の表 21 個と参照 3 つの中身を写し、写した時点の中身に戻す閉包を返す。
+   戻すときは、表を空にしてから写しを書き戻す。
+   `Hashtbl.fold` は同じ鍵の束縛を新しい順に渡すので、リストに積んでから順に `add` すれば、
+   隠れた束縛の順序も戻る。
+
+   写しは浅い写しで足りる。
+   表の値は不変で、値の中で書き換わるのは型変数とカインド変数のセルだけだからである。
+   セルの書き換えは、第1章 §1.5 の記録が戻す。
+   写す費用は表の大きさに比例するが、プレリュードと sample の宣言を入れた表でも、
+   1 回あたり数マイクロ秒で済む。 *)
+let snapshot_tbl (t : ('a, 'b) Hashtbl.t) =
+  let saved = Hashtbl.fold (fun k v acc -> (k, v) :: acc) t [] in
+  fun () ->
+    Hashtbl.reset t;
+    List.iter (fun (k, v) -> Hashtbl.add t k v) saved
+
+let snapshot () =
+  let rs =
+    [
+      snapshot_tbl prelude_keys;
+      snapshot_tbl type_namespace;
+      snapshot_tbl externs;
+      snapshot_tbl con_kinds;
+      snapshot_tbl reserved_type_names;
+      snapshot_tbl con_synonyms;
+      snapshot_tbl module_con_synonyms;
+      snapshot_tbl module_val_synonyms;
+      snapshot_tbl con_hints;
+      snapshot_tbl val_synonyms;
+      snapshot_tbl value_visibility;
+      snapshot_tbl con_visibility;
+      snapshot_tbl decl_module;
+      snapshot_tbl aliases;
+      snapshot_tbl datas;
+      snapshot_tbl ctor_owner;
+      snapshot_tbl effects;
+      snapshot_tbl op_index;
+      snapshot_tbl classes;
+      snapshot_tbl instances;
+      snapshot_tbl reserved_predicates;
+    ]
+  in
+  let ip = !in_prelude and cm = !current_module and bo = !builtin_ops in
+  fun () ->
+    List.iter (fun r -> r ()) rs;
+    in_prelude := ip;
+    current_module := cm;
+    builtin_ops := bo
