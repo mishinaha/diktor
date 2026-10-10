@@ -269,6 +269,17 @@ Int64 の 16 進リテラルは値で区別される(A10。63 ビットの int_o
      1  1i032
      2  <EOF>
 
+意味を持つ接尾辞は綴りが i32、i64、f64 の 3 つだけで、同じ値に読める別の綴り(i032、f064)は
+ほかの接尾辞と同じく受理しない(LangSpec §4.2、付録 A.2):
+
+  $ diktor lead0.kel
+  ! lead0.kel:1:9: 未実装: 数値接尾辞 1i032(v0 は i32/i64/f64 のみ)
+  [4]
+  $ printf 'echoln(show(7f064))\n' > lead0f.kel
+  $ diktor lead0f.kel
+  ! lead0f.kel:1:13: 未実装: 数値接尾辞 7f064(v0 は i32/i64/f64 のみ)
+  [4]
+
 小数部を省いた浮動小数リテラル(A4 / D25。1. / 2.e3 / 1.f64):
 
   $ cat > dotlit.kel <<'KEL'
