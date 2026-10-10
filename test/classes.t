@@ -39,16 +39,31 @@ MiniLang §16-9(曖昧性検査)。read : Str -> a は v0 ではクラスとし�
   ! ml9d.kel:2:5: 型エラー: 曖昧な制約: Show を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
   [1]
 
-公開型から到達できる制約は、弱い変数でも曖昧ではない(値制限で
-一般化されないだけ):
+一般化しない束縛(値制限)の弱い型変数に付いた制約は、ファイルの終わりまでに型が
+決まれば曖昧ではない。同じファイルの中で weak を Int32 に使えば通る:
 
   $ cat > ml9e.kel <<'KEL'
   > let idf[A](x: A): A = x
   > let weak = idf(show)
+  > weak(1i32)
   > KEL
   $ diktor --type-check --no-prelude ml9e.kel
   idf : (A) => A
   weak : [_A: Show] (_A) => String
+  _ : String
+
+ファイルの終わりまでに型が決まらなければ、曖昧性エラーになる。辞書はファイルごとに
+静的に決まり、実行時に未解決の辞書を持たない(LangSpec §6.2):
+
+  $ cat > ml9e2.kel <<'KEL'
+  > let idf[A](x: A): A = x
+  > let weak = idf(show)
+  > KEL
+  $ diktor --type-check --no-prelude ml9e2.kel
+  idf : (A) => A
+  weak : [_A: Show] (_A) => String
+  ! ml9e2.kel:2:16: 型エラー: 曖昧な制約: Show を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
+  [1]
 
 予約述語が乗った変数は既定化で決まるので曖昧にしない(D8 / D48):
 
