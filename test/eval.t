@@ -317,7 +317,7 @@ Run モードでも網羅性警告は stderr に出る:
   ⚠ match が非網羅的です。例えば None2 が漏れています
   ran
 
-節本体が resume だけの短い経路でも、引数の例外で discontinue が走る(B1 / §14.10。
+節本体が resume だけの短い経路でも、引数の例外で discontinue が走る(B1 / §14.9。
 捨てた継続の cancel と自分の cancel の両方):
 
   $ cat > tailresume.kel <<'EOF2'
