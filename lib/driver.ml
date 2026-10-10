@@ -810,7 +810,12 @@ let show_value ty v =
     | _ -> false
   in
   if shows then
-    match Interp.dispatch "Show" "show" (Value.VRecord [ (l_item, v) ]) with Value.VText s -> s | v -> Value.show v
+    (* 型から Show の証拠を組み、辞書にしてメソッドを選ぶ。型の決まらない部分の辞書は DPending になる *)
+    let env = { Value.globals = Hashtbl.create 1; locals = Value.SMap.empty; resume = None } in
+    let d = Interp.eval_ev env (Unify.display_evidence (intern "Show") ty) in
+    match Interp.apply (Interp.select_method ~cls:(intern "Show") d "show" []) (Value.VRecord [ (l_item, v) ]) with
+    | Value.VText s -> s
+    | v -> Value.show v
   else Value.show v
 
 let repl options =

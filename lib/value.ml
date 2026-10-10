@@ -88,6 +88,21 @@ type t =
   | VRef of t ref
   | VArray of t array
   | VMutArray of t array
+  | VDict of dict (* 辞書。型検査が選んだインスタンスと前提の辞書(第5章 §5.1b の証拠を評価したもの) *)
+  | VDictAbs of dict_abs (* 辞書パラメータを持つ束縛の値。辞書の列を受け取って値を返す *)
+
+(* 辞書は、(クラス, 型構成子)と前提の辞書の列の組で表す。メソッドの実装は、メソッドを
+   呼び出す時点でインスタンスの表から引く(第14章 §14.6)。最後の成分は選んだメソッドの覚え書き。
+   DRecord と DVariant は構造的な Eq の、
+   ラベルごとの辞書。DPending は対話的な実行の表示だけが作る *)
+and dict =
+  | DInst of oid * oid * t list * (string * t) list ref
+  | DRecord of (oid * t) list
+  | DVariant of (oid * t) list
+  | DPending
+
+(* 辞書を受け取る値。直前に受け取った辞書の列(物理的に同じもの)と結果を覚える *)
+and dict_abs = { da_name : string; da_fn : t list -> t; mutable da_last : (t list * t) option }
 
 (* ## 12.2 クロージャの環境が可変である理由
 
@@ -463,3 +478,5 @@ let rec show v =
   | VRef _ -> "<ref>"
   | VArray a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
   | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"
+  | VDict _ -> "<dict>"
+  | VDictAbs _ -> "<fn>"

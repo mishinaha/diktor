@@ -112,7 +112,29 @@ let tycon_of_value = function
   | VRef _ -> Some (Type.intern "Ref")
   | VArray _ -> Some (Type.intern "Array")
   | VMutArray _ -> Some (Type.intern "MutableArray")
-  | VRecord _ | VVariant _ | VClosure _ | VPrim _ -> None
+  | VRecord _ | VVariant _ | VClosure _ | VPrim _ | VDict _ | VDictAbs _ -> None
+
+(* 利用者が宣言したインスタンスのメソッド。(クラス, 型構成子) → メソッド名 → 前提と
+   メソッド自身の辞書を受け取って実装を返す関数。exec_decl の DInstance だけが jreplace で書く *)
+let instance_impls : (oid * oid, (oid * (Value.t list -> Value.t)) list) Hashtbl.t = Hashtbl.create 32
+
+(* 辞書パラメータの鍵(型変数の vid, クラスの oid)を局所環境の名前にする。
+   利用者の識別子は英字か _ で始まるので、$ で始まる名前とは衝突しない *)
+let dkey_name ((v, c) : Tree.dkey) = "$d" ^ string_of_int v ^ ":" ^ string_of_int c
+
+let bind_dicts env ks ds = { env with locals = List.fold_left2 (fun l k d -> SMap.add (dkey_name k) d l) env.locals ks ds }
+
+(* 辞書パラメータを含まない証拠の辞書は、穴ごとに 1 回だけ作って覚える *)
+let closed_cache : (oid, Value.t) Hashtbl.t = Hashtbl.create 64
+
+let rec closed_ev (e : Tree.evidence) =
+  match e with
+  | Tree.EvParam _ -> false
+  | Tree.EvInst (_, _, subs) -> List.for_all closed_ev subs
+  | Tree.EvRecord fs | Tree.EvVariant fs -> List.for_all (fun (_, e) -> closed_ev e) fs
+  | Tree.EvHole h -> ( match h.Tree.h_sol with Some e -> closed_ev e | None -> false)
+
+let dict_params_of node = match Tree.get_dict node with Tree.DAbs ks | Tree.DMethod (ks, _, _) -> ks | _ -> []
 
 (* `cancel_log` は、cancel 節で抑制した例外の行き先である。
    仕様 sample.kel:585 は、cancel 節について次のように定めている。
@@ -307,12 +329,12 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.Ident li -> (
       let name = show_long_id li in
       match SMap.find_opt name env.locals with
-      | Some v -> v
+      | Some v -> with_evidence env node v
       | None -> (
           match Tree.get_resolved node with
           | Some (Tree.RVar g) -> (
               match Hashtbl.find_opt env.globals g with
-              | Some v -> v
+              | Some v -> with_evidence env node v
               | None -> runtime_error ("未束縛の変数: " ^ name))
           (* 裸の引数なしコンストラクタ *)
           | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
@@ -344,17 +366,22 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           | Or -> if Builtin.as_bool (eval env l) then VBool true else eval env r
           | _ -> bug "OpBool")
       | Prims.OpMethod (cls, m) ->
+          (* 辞書はオペランドより先に作る。副作用は無く、後で作ると env が右辺の評価をまたいで生き残る *)
+          let d = op_dict env node in
           let vl = eval env l in
           let vr = eval env r in
-          dispatch cls m (VRecord [ (Type.l_item, vl); (Type.l_item, vr) ])
+          apply (select_method ~cls:(Type.intern cls) d m []) (VRecord [ (Type.l_item, vl); (Type.l_item, vr) ])
       | Prims.OpMethodNot (cls, m) ->
+          let d = op_dict env node in
           let vl = eval env l in
           let vr = eval env r in
-          VBool (not (Builtin.as_bool (dispatch cls m (VRecord [ (Type.l_item, vl); (Type.l_item, vr) ])))))
+          VBool (not (Builtin.as_bool (apply (select_method ~cls:(Type.intern cls) d m []) (VRecord [ (Type.l_item, vl); (Type.l_item, vr) ])))))
   | T.Not e -> VBool (not (Builtin.as_bool (eval env e)))
   | T.Neg e ->
       let cls, m = Prims.neg_method in
-      dispatch cls m (VRecord [ (Type.l_item, eval env e) ])
+      let d = op_dict env node in
+      let v = eval env e in
+      apply (select_method ~cls:(Type.intern cls) d m []) (VRecord [ (Type.l_item, v) ])
   | T.Let (b, rest) ->
       let locals = eval_binding env b in
       eval { env with locals } rest
@@ -441,7 +468,105 @@ and apply vf vargs =
         (* 本体は末尾位置(規約 1) *)
         eval { c.c_env with locals } c.c_body
   | VPrim p -> p.p_fn vargs
+  | VDictAbs _ as v -> bug ("辞書を受け取る値を関数として適用しました(辞書の渡し忘れ): " ^ show v)
   | v -> runtime_error ("関数ではない値を適用しました: " ^ show v)
+
+(* ## 14.5b 辞書とメソッドの選択
+
+   型検査が木に書いた証拠(第5章 §5.1b)から辞書を作り、メソッドを選ぶ。
+   実行時の値のタグは見ない。
+   辞書パラメータを持つ値(`VDictAbs`)には、使う位置の `DUse` の証拠を評価した辞書の列を渡す。
+   メソッドの実体は `method_selector`(§14.12)が作る `VDictAbs` で、
+   辞書を受け取ると、呼ばれた時点でインスタンスの表からメソッドを選ぶ関数を返す。
+   選ぶ時点を呼び出しにするのは、インスタンス宣言より前の位置で辞書を作る形を、
+   宣言の後に呼べば動かすためである(§14.13)。
+   セレクタのクラスと辞書のクラスが食い違えば、辞書の渡し方の誤りなので `bug` にする。 *)
+
+and with_evidence env node v =
+  match Tree.get_dict node with Tree.DUse hs -> apply_dicts v (List.map (fun h -> eval_ev env (Tree.EvHole h)) hs) | _ -> v
+
+and apply_dicts v ds =
+  match v with
+  | VDictAbs da -> (
+      match da.da_last with
+      | Some (ds0, r) when List.length ds0 = List.length ds && List.for_all2 ( == ) ds0 ds -> r
+      | _ ->
+          let r = da.da_fn ds in
+          da.da_last <- Some (ds, r);
+          r)
+  | _ -> bug ("辞書を受け取らない値に辞書を渡しました: " ^ show v)
+
+and op_dict env node = match Tree.get_dict node with Tree.DUse [ h ] -> eval_ev env (Tree.EvHole h) | _ -> bug "演算子に証拠がありません"
+
+and eval_ev env (ev : Tree.evidence) =
+  match ev with
+  | Tree.EvParam k -> (
+      match SMap.find_opt (dkey_name k) env.locals with Some d -> d | None -> bug ("辞書パラメータが束縛されていません: " ^ dkey_name k))
+  | Tree.EvInst (c, n, subs) -> VDict (DInst (c, n, List.map (eval_ev env) subs, ref []))
+  | Tree.EvRecord fs -> VDict (DRecord (List.map (fun (l, e) -> (l, eval_ev env e)) fs))
+  | Tree.EvVariant fs -> VDict (DVariant (List.map (fun (l, e) -> (l, eval_ev env e)) fs))
+  | Tree.EvHole { Tree.h_sol = Some (Tree.EvParam _ as e); _ } -> eval_ev env e
+  | Tree.EvHole h -> (
+      match Hashtbl.find_opt closed_cache h.Tree.h_id with
+      | Some d -> d
+      | None -> (
+          match h.Tree.h_sol with
+          | Some e ->
+              let d = eval_ev env e in
+              if closed_ev e then Hashtbl.replace closed_cache h.Tree.h_id d;
+              d
+          | None -> VDict DPending))
+
+(* 辞書 d からメソッド meth の実装を選ぶ。cls はセレクタのクラス、own はメソッド自身の辞書 *)
+and select_method ~cls d meth own =
+  match d with
+  | VDict (DInst (c, _, _, _)) when c <> cls -> bug ("辞書のクラスが違います: " ^ Type.display_of c ^ " と " ^ Type.display_of cls)
+  | VDict (DInst (_, _, _, cache)) when own = [] && List.mem_assoc meth !cache -> List.assoc meth !cache
+  | VDict (DInst (c, n, ps, cache)) -> (
+      let memo v =
+        if own = [] then cache := (meth, v) :: !cache;
+        v
+      in
+      memo
+      @@
+      match Hashtbl.find_opt instance_impls (c, n) with
+      | Some ms -> ( match List.assoc_opt (Type.intern meth) ms with Some f -> f (ps @ own) | None -> bug ("メソッドがありません: " ^ meth))
+      | None -> (
+          match Builtin.builtin_method (Type.name_of c) (Type.name_of n) meth with
+          | Some f -> VPrim { p_name = Type.name_of c ^ "." ^ meth; p_fn = f }
+          | None ->
+              (* 型検査はパス 1c でインスタンス表を揃えるので、宣言より前の位置の使用を通す。
+                 実行は宣言の順に表へ書くので、その時点ではまだ実体が無い。黙って続けず止める *)
+              if Decls.find_instance ~cls:c ~con:n <> None then
+                runtime_error
+                  (Type.display_of c ^ "[" ^ Type.display_of n
+                 ^ "] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)")
+              else bug ("インスタンスがありません: " ^ Type.display_of c ^ "[" ^ Type.display_of n ^ "]")))
+  | VDict (DRecord fs) ->
+      if cls <> Type.intern "Eq" then bug "構造的な辞書を Eq 以外に使いました";
+      VPrim { p_name = "Eq.eq"; p_fn = (fun args -> let a, b = Builtin.arg2 args in VBool (record_eq fs a b)) }
+  | VDict (DVariant fs) ->
+      if cls <> Type.intern "Eq" then bug "構造的な辞書を Eq 以外に使いました";
+      VPrim { p_name = "Eq.eq"; p_fn = (fun args -> let a, b = Builtin.arg2 args in VBool (variant_eq fs a b)) }
+  | VDict DPending -> runtime_error "型の決まっていない制約の辞書を使いました"
+  | v -> bug ("辞書ではない値: " ^ show v)
+
+and eq_with d x y = Builtin.as_bool (apply (select_method ~cls:(Type.intern "Eq") d "eq" []) (VRecord [ (Type.l_item, x); (Type.l_item, y) ]))
+
+(* 閉じたレコード型の構造的な Eq。型の行の順にラベルを取り、両辺から最も左の同名のフィールドを
+   取り出して、そのフィールドの辞書で比べる。異なるラベルの間の物理的な順序は値によって違いうる *)
+and record_eq fs a b =
+  match fs with
+  | [] -> record_fields a = [] && record_fields b = []
+  | (l, d) :: rest ->
+      let x, a' = record_take a l in
+      let y, b' = record_take b l in
+      eq_with d x y && record_eq rest a' b'
+
+and variant_eq fs a b =
+  match (a, b) with
+  | VVariant (l1, p1), VVariant (l2, p2) -> l1 = l2 && eq_with (List.assoc l1 fs) p1 p2
+  | _ -> bug "variant_eq: ヴァリアントではない値"
 
 (* ## 14.6 ディスパッチに使う引数の位置
 
@@ -670,34 +795,52 @@ and structural_eq a b =
    トップレベルの `let rec`(§14.13)にバックパッチが要らないのは、
    globals が共有の可変な表で、実体の表引きが呼び出し時に起きるからである。 *)
 
-and eval_binding_value env ((_, b) : T.let_binding) =
+and eval_binding_value_plain env ((_, b) : T.let_binding) =
   match b.T.lb_params with
   | Some ps -> VClosure { c_env = env; c_params = ps; c_body = b.T.lb_body }
   | None -> eval env b.T.lb_body
+
+(* 辞書パラメータを持つ束縛は、辞書を受け取って束縛の値を評価する VDictAbs にする。
+   値束縛の初期化式は、名前を使うたびに評価する(§14.5b) *)
+and eval_binding_value env bnode =
+  match dict_params_of bnode with
+  | [] -> eval_binding_value_plain env bnode
+  | ks -> VDictAbs { da_last = None; da_name = "let"; da_fn = (fun ds -> eval_binding_value_plain (bind_dicts env ks ds) bnode) }
 
 and eval_binding env ((_, b) as bnode : T.let_binding) =
   let v = eval_binding_value env bnode in
   bind_pat_exn env.locals b.T.lb_name v
 
 and eval_rec_bindings env (bs : T.let_binding list) =
-  (* クロージャの生成 → 環境の構築 → c_env のバックパッチ *)
+  (* クロージャの生成 → 環境の構築 → c_env のバックパッチ。辞書パラメータを持つ束縛は、
+     群の環境を捕まえて辞書を受け取るたびにクロージャを作る VDictAbs にし、バックパッチしない *)
+  let genv = ref env in
   let closures =
     List.map
-      (fun ((_, b) : T.let_binding) ->
+      (fun (((_, b) as bnode) : T.let_binding) ->
         let name = match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです" in
-        let c =
+        let ps, body =
           match b.T.lb_params with
-          | Some ps -> { c_env = env; c_params = ps; c_body = b.T.lb_body }
+          | Some ps -> (ps, b.T.lb_body)
           | None -> (
               match snd b.T.lb_body with
-              | T.Lambda { l_params; l_body } -> { c_env = env; c_params = l_params; c_body = l_body }
+              | T.Lambda { l_params; l_body } -> (l_params, l_body)
               | _ -> runtime_error "let rec の右辺は関数でなければなりません")
         in
-        (name, c))
+        match dict_params_of bnode with
+        | [] ->
+            let c = { c_env = env; c_params = ps; c_body = body } in
+            (name, VClosure c, Some c)
+        | ks ->
+            ( name,
+              VDictAbs
+                { da_last = None; da_name = name; da_fn = (fun ds -> VClosure { c_env = bind_dicts !genv ks ds; c_params = ps; c_body = body }) },
+              None ))
       bs
   in
-  let locals = List.fold_left (fun locals (n, c) -> SMap.add n (VClosure c) locals) env.locals closures in
-  List.iter (fun (_, c) -> c.c_env <- { env with locals }) closures;
+  let locals = List.fold_left (fun locals (n, v, _) -> SMap.add n v locals) env.locals closures in
+  genv := { env with locals };
+  List.iter (function _, _, Some c -> c.c_env <- { env with locals } | _ -> ()) closures;
   locals
 
 (* ## 14.10 ハンドラ
@@ -1228,16 +1371,35 @@ let register_builtin_values globals =
    鍵はクラスごとに別なので順序は結果を変えないが、
    ハッシュ順に由来する非決定性を表の走査に残さない。 *)
 
-(* クラスメソッドの識別子参照は、dispatch を呼ぶラッパで処理する *)
+(* クラスメソッドの実体。辞書の列を受け取り、クラスパラメータの位置の辞書とメソッド自身の
+   辞書に分け、呼ばれた時点でメソッドを選ぶ関数を返す。クラスパラメータの位置は、
+   スキーマの制約の正準順の中で求める *)
+let method_selector (ci : Decls.class_info) (m, scheme) =
+  let cls_name = Type.name_of ci.Decls.ci_name in
+  let cs = Unify.constraints_of scheme in
+  let rec index j = function
+    | [] -> bug ("メソッドの型にクラスパラメータがありません: " ^ m)
+    | ((i : Type.var_info), c) :: rest -> if i.Type.vid = ci.Decls.ci_param.Type.vid && c = ci.Decls.ci_name then j else index (j + 1) rest
+  in
+  let idx = index 0 cs in
+  VDictAbs
+    {
+      da_last = None;
+      da_name = cls_name ^ "." ^ m;
+      da_fn =
+        (fun ds ->
+          let d = List.nth ds idx in
+          let own = List.filteri (fun j _ -> j <> idx) ds in
+          VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> apply (select_method ~cls:ci.Decls.ci_name d m own) args) });
+    }
+
 let register_class_methods globals =
   Hashtbl.fold (fun _ ci acc -> ci :: acc) Decls.classes []
   |> List.sort (fun (a : Decls.class_info) b -> compare (Type.name_of a.Decls.ci_name) (Type.name_of b.Decls.ci_name))
   |> List.iter (fun (ci : Decls.class_info) ->
          let cls_name = Type.name_of ci.Decls.ci_name in
          List.iter
-           (fun (m, _) ->
-             let wrapper = VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } in
-             Hashtbl.replace globals (Tree.GMethod (cls_name ^ "." ^ m)) wrapper)
+           (fun ((m, _) as ms) -> Hashtbl.replace globals (Tree.GMethod (cls_name ^ "." ^ m)) (method_selector ci ms))
            ci.Decls.ci_methods)
 
 (* ## 14.13 宣言の実行
@@ -1307,7 +1469,8 @@ let exec_decl env ((_, d) as node : T.decl) =
         bs;
       env
   | T.DExp e ->
-      ignore (eval env e);
+      (* 辞書パラメータを持つ式文(制約付きで一般化した構文上の値)は評価しない *)
+      (match Tree.get_dict node with Tree.DAbs _ -> () | _ -> ignore (eval env e));
       env
   | T.DInstance i ->
       let cls = Decls.resolve_class (Type.intern i.T.ins_class) in
@@ -1319,29 +1482,44 @@ let exec_decl env ((_, d) as node : T.decl) =
         | [ (_, T.EApply ((_, T.EIdent (LongId comps)), _)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
         | _ -> bug "インスタンス頭が解決できません"
       in
+      (* 各メソッドは、前提の辞書とメソッド自身の辞書の列を受け取って実装を返す関数にする。
+         受け取った辞書を前提の鍵とメソッドの鍵に束縛した環境で束縛を評価し、実装の型の辞書
+         パラメータ(own)には adapter の証拠を渡す。前提もメソッド自身の制約も無いメソッドは、
+         宣言の実行で 1 回だけ評価する *)
+      let pk = match Tree.get_dict node with Tree.DInstance ks -> ks | _ -> [] in
+      let np = List.length pk in
+      let method_fn bnode eval_in =
+        let mk, adapter = match Tree.get_dict bnode with Tree.DMethod (_, mk, ad) -> (mk, ad) | _ -> ([], []) in
+        let build ds =
+          let pds = List.filteri (fun j _ -> j < np) ds and mds = List.filteri (fun j _ -> j >= np) ds in
+          let env' = bind_dicts (bind_dicts env pk pds) mk mds in
+          let v = eval_in env' in
+          if adapter = [] then v else apply_dicts v (List.map (fun h -> eval_ev env' (Tree.EvHole h)) adapter)
+        in
+        if pk = [] && mk = [] then (
+          let v = build [] in
+          fun _ -> v)
+        else build
+      in
       let methods =
         List.concat_map
           (fun ((_, d) : T.decl) ->
             match d with
             | T.DLet ((_, b) as bnode) -> (
                 match snd b.T.lb_name with
-                | T.PVar x -> [ (Type.intern x, eval_binding_value env bnode) ]
+                | T.PVar x -> [ (Type.intern x, method_fn bnode (fun env' -> eval_binding_value env' bnode)) ]
                 | _ -> [])
             | T.DLetRec bs ->
-                let locals = eval_rec_bindings env bs in
                 List.filter_map
-                  (fun ((_, b) : T.let_binding) ->
+                  (fun (((_, b) as bnode) : T.let_binding) ->
                     match snd b.T.lb_name with
-                    | T.PVar x -> Some (Type.intern x, SMap.find x locals)
+                    | T.PVar x -> Some (Type.intern x, method_fn bnode (fun env' -> SMap.find x (eval_rec_bindings env' bs)))
                     | _ -> None)
                   bs
             | _ -> [])
           i.T.ins_body
       in
-      jreplace user_instances (cls, con) methods;
-      (* 解決のキャッシュを無効化する。宣言より前の呼び出しが覚えた None を残すと、
-         この宣言が二度と見えない *)
-      Hashtbl.reset resolution_cache;
+      jreplace instance_impls (cls, con) methods;
       env
   | T.DExtern ex ->
       let impl =
@@ -1357,7 +1535,14 @@ let exec_decl env ((_, d) as node : T.decl) =
                 ("未実装のプリミティブ: " ^ Type.display ex.T.ex_name
                 ^ if ex.T.ex_name = ex.T.ex_prim then "" else "(実装名 " ^ ex.T.ex_prim ^ " が見つかりません)")
       in
-      bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), VPrim { p_name = ex.T.ex_name; p_fn = impl }) ]
+      (* 制約付きの型パラメータを持つ extern は辞書を受け取って捨てる。実装は OCaml の関数で辞書を使わない *)
+      let prim = VPrim { p_name = ex.T.ex_name; p_fn = impl } in
+      let v =
+        match Tree.get_dict node with
+        | Tree.DAbs (_ :: _) -> VDictAbs { da_last = None; da_name = ex.T.ex_name; da_fn = (fun _ -> prim) }
+        | _ -> prim
+      in
+      bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), v) ]
   | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> env
   | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
 
@@ -1389,6 +1574,8 @@ let start_program () =
   Hashtbl.reset user_instances;
   Hashtbl.reset resolution_cache;
   Hashtbl.reset positions_cache;
+  Hashtbl.reset instance_impls;
+  Hashtbl.reset closed_cache;
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
@@ -1519,15 +1706,15 @@ let exec_input ?(print = false) ?(show = fun _ -> ()) s ~sink decls =
         match Decls.find_class (Type.intern c.T.cls_name) with
         | Some ci ->
             let cls_name = Type.name_of ci.Decls.ci_name in
-            bind_globals env
-              (List.map
-                 (fun (m, _) ->
-                   ( Tree.GMethod (cls_name ^ "." ^ m),
-                     VPrim { p_name = cls_name ^ "." ^ m; p_fn = (fun args -> dispatch cls_name m args) } ))
-                 ci.Decls.ci_methods)
+            bind_globals env (List.map (fun ((m, _) as ms) -> (Tree.GMethod (cls_name ^ "." ^ m), method_selector ci ms)) ci.Decls.ci_methods)
         | None -> env)
     | T.DExp e ->
-        let v = eval env e in
+        (* 辞書パラメータを持つ式文は評価せず、辞書を受け取る値として表示する(<fn>) *)
+        let v =
+          match Tree.get_dict node with
+          | Tree.DAbs ks -> VDictAbs { da_last = None; da_name = "_"; da_fn = (fun ds -> eval (bind_dicts env ks ds) e) }
+          | _ -> eval env e
+        in
         shown := ("_", `Exp e, v) :: !shown;
         env
     | T.DLet ((_, b) as bnode) ->
