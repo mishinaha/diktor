@@ -757,3 +757,37 @@ fn の本体は呼ぶまで評価しない(使うたびに評価する値束縛�
   eval 4
   eval 5
   end 1
+
+with _ と with (_) は引数のない無名関数を、with _x は 1 引数の関数を渡す(LangSpec §6.5。
+この _ はほかの位置の _ と意味が異なる)。1 引数を要求する関数に with _ を使うと型エラー:
+
+  $ cat > with1.kel <<'KEL'
+  > let zero[A, E](body: () => A @ E): A @ E = body()
+  > let one[A, E](body: (Int32) => A @ E): A @ E = body(5)
+  > let a(): Int32 = {
+  >   with _ = zero()
+  >   1
+  > }
+  > let b(): Int32 = {
+  >   with _x = one()
+  >   2
+  > }
+  > let c(): Int32 = {
+  >   with (_) = zero()
+  >   3
+  > }
+  > echoln(show(a() + b() + c()))
+  > KEL
+  $ diktor with1.kel
+  6
+  $ cat > with2.kel <<'KEL'
+  > let one[A, E](body: (Int32) => A @ E): A @ E = body(5)
+  > let b(): Int32 = {
+  >   with _ = one()
+  >   2
+  > }
+  > KEL
+  $ diktor --type-check with2.kel
+  one : ((Int32) => A) => A
+  ! with2.kel:3:3: 型エラー: ラベル _item がありません(行は閉じています)
+  [1]
