@@ -1,7 +1,8 @@
 前置の - と % は、演算子クラス Neg と Rem のメソッドを呼ぶ(LangSpec §4.2、§4.3、§12.4)。
 Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタンスを持つ。
 
-前置の - は変数、呼び出し、括弧の式に付けられ、乗除より強く結合する:
+前置の - は変数、呼び出し、括弧の式に付けられる(乗除より強く結合することは、
+下の dump.kel の木で確かめる)。-2i64 と -1.5 は負のリテラルで、Neg は呼ばない:
 
   $ cat > neg.kel <<'EOF'
   > let x: Int32 = 7
@@ -15,6 +16,8 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
   > echoln(show(2 - -x))
   > echoln(show(-f(3)))
   > echoln(show(Neg.neg(4)))
+  > let y: Int64 = 5i64
+  > echoln(show(-y))
   > EOF
   $ diktor neg.kel
   -7
@@ -26,6 +29,7 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
   9
   -3
   -4
+  -5
 
 % は * と / と同じ優先順位で左結合し、整数の除算と同じくゼロ方向に切り捨てた商の余りを返す:
 
@@ -37,6 +41,8 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
   > echoln(show(17i64 % 5))
   > echoln(show(1 + 7 % 4 * 2))
   > echoln(show(Rem.rem(9, 4)))
+  > echoln(show(2 * 7 % 4))
+  > echoln(show(7 % 5 % 3))
   > EOF
   $ diktor rem.kel
   1
@@ -45,6 +51,8 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
   2
   7
   1
+  2
+  2
 
 括弧で囲まない数値リテラルに付いた - は、負のリテラルに畳む。そのため最小値を書ける。
 括弧で囲むと Neg.neg の呼び出しになり、リテラルの範囲の検査を先に受ける:
@@ -60,12 +68,14 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
   $ diktor minparen.kel
   実行時エラー: 数値リテラルが範囲外です: 2147483648
   [3]
-  $ printf 'let a = -1\nlet b = -a\nlet c = -(1)\nlet d = a %% 2\n' > dump.kel
+  $ printf 'let a = -1\nlet b = -a\nlet c = -(1)\nlet d = a %% 2\nlet e = -a * 2\nlet f = -a %% 3\n' > dump.kel
   $ diktor --dump-ast dump.kel
   (dlet (binding a = -1))
   (dlet (binding b = (- a)))
   (dlet (binding c = (- 1)))
   (dlet (binding d = (% a 2)))
+  (dlet (binding e = (* (- a) 2)))
+  (dlet (binding f = (% (- a) 3)))
 
 インスタンスの無い型は型エラーになる。Float64 に Rem は無く、String に Neg は無い:
 

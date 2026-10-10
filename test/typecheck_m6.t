@@ -442,9 +442,9 @@ MiniLang §16-8 の runST 2例(値制限):
   pure_f : (Int32) => Int32
   impure : (Int32) => Int32 @ {Logger extends R1}
 
-行の並びは、操作名の解決にも型の等価性にも使わない(§9 / §3 の Scoped Labels と
-同じ。同じラベルどうしの順序だけを区別する)。開いた行でも閉じた行でも順序違いは
-単一化する:
+行の並びは型の等価性に使わない(§9 / §3 の Scoped Labels と同じ。操作名の解決に
+使わないことは上の ambigrow.kel、同じラベルどうしの順序を区別することは下の
+doublestack.kel)。開いた行でも閉じた行でも順序違いは単一化する:
 
   $ cat > roworder.kel <<'EOF'
   > type Unit = {}
