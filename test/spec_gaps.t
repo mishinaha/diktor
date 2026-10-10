@@ -139,3 +139,23 @@ test/verify_fixes.t の vrgen が通す):
   pick : (Boolean, A, A) => A
   ! orderargs2.kel:4:48: 型エラー: ラベル Console がありません(行は閉じています)
   [1]
+
+操作とエフェクトの型パラメータ(LangSpec 付録 A.8)。所有者が後で許すかどうかを
+決める形として見張る(doc/log/261009-3-proposal.md の判断 9-9)。eff_op は typarams を
+持たないので、操作の型パラメータはパースエラーになる:
+
+  $ cat > effopparam.kel <<'KEL'
+  > effect E = { op[A]: (A) => A }
+  > KEL
+  $ diktor --type-check effopparam.kel
+  effopparam.kel:1:16: パースエラー(付近のトークンを確認してください)
+  [2]
+
+エフェクトの宣言の typarams は文法が受け、型検査が拒む(§13.1):
+
+  $ cat > effparam.kel <<'KEL'
+  > effect E[A] = { op: (A) => A }
+  > KEL
+  $ diktor --type-check effparam.kel
+  ! effparam.kel:1:1: 型エラー: effect 宣言に型パラメータは書けません(sample.kel §9)
+  [1]
