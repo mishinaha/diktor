@@ -82,7 +82,7 @@ g(1)(2) { k } では、末尾ブロックは 2 つ目の呼び出しに加わる
      (extend _item 2 (extend _item (fn () k) {})))))
   $ echo 'let a = %arg' > pct.kel
   $ diktor --type-check pct.kel
-  pct.kel:1:9: 字句エラー: unexpected character: %
+  pct.kel:1:9: パースエラー(付近のトークンを確認してください)
   [2]
 
 { case (a, b) => e } はタプル 1 個を受け取る関数で、2 引数の関数ではない
