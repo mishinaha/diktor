@@ -40,7 +40,8 @@
    これは、精緻化用のデータを載せて具体化した AST 型である。
    第6章(decls.ml)、第10章(exhaust.ml)、第11章(elab.ml)、第12章(value.ml)、
    第14章(interp.ml)の 5 つのファイルは、`module T = Tree.Tree` の 1 行で精緻化木の型を取り込む。
-   木を扱わない章(第7章(prims.ml)や第8章(unify.ml)など)はこの行を持たない。 *)
+   木を扱わない章(第7章(prims.ml)など)はこの行を持たない。
+   第8章(unify.ml)は木を扱わないが、§5.1b の証拠の型を使う。 *)
 open Aux
 
 (* ## 5.1 elab から interp への受け渡し
@@ -133,17 +134,70 @@ type resolved =
   | RCtor of oid * oid * int array (* Construct。data、ctor、実引数の位置 → フィールドの位置 *)
   | RCtorPat of oid * oid * int option array (* PCtor。data、ctor、フィールドの位置 → 実引数の位置(None は省略) *)
 
-(* ## 5.2 ノードに付く 4 つのもの
+(* ## 5.1b 型クラスの制約の証拠
+
+   型クラスのメソッドをどのインスタンスで呼ぶかは、型検査が型から決める。
+   実行時の値は、この選択に関わらない。
+   型検査は、制約付きのスキーマを具体化するたびに、制約ごとに**穴**(`hole`)を 1 つ作って木に書く。
+   束縛の終わりに穴を解き、解を `h_sol` にその場で書く。
+   評価器は、書かれた証拠から辞書を作ってメソッドを選ぶ。
+
+   証拠(`evidence`)は 5 つの形を持つ。
+
+   | 形 | 意味 |
+   |---|---|
+   | `EvParam k` | 囲む束縛かインスタンスが受け取る辞書パラメータ。鍵 `k` は(型変数の `vid`, クラスの oid) |
+   | `EvInst (c, n, ps)` | (クラス `c`, 型構成子 `n`)のインスタンス。`ps` は前提の証拠で、順序はインスタンス表の `ii_premises` と同じ |
+   | `EvRecord fs` | 閉じたレコード型の構造的な `Eq`。行の順のラベルと、フィールドの証拠 |
+   | `EvVariant fs` | 閉じたヴァリアント型の構造的な `Eq` |
+   | `EvHole h` | 後で解く穴。`h_sol` が `None` なら未解決 |
+
+   穴の型 `h_ty` は単一化と共有する。
+   穴を解く時点で `h_ty` を見れば、具体化した型変数がどの型に決まったかが分かる。
+   木に書いた型が一般化を共有する仕組み(§5.2)と同じ考え方である。
+
+   ノードに付く辞書の情報(`dict_info`)は 5 つの形を持つ。
+
+   | 形 | 付くノード | 意味 |
+   |---|---|---|
+   | `DNone` | すべて | 辞書に関わらない |
+   | `DUse hs` | 変数の参照、演算子、前置の `-` | この使用が渡す辞書の穴。スキーマの制約の正準順(第8章 §8.11) |
+   | `DAbs ks` | 束縛、`extern`、式文 | この値が受け取る辞書パラメータの鍵の列(正準順) |
+   | `DMethod (own, mk, adapter)` | インスタンスのメソッドの束縛 | `own` は実装を推論した型の辞書パラメータ、`mk` はクラスの宣言のメソッドの型のうちクラスパラメータを除く制約の鍵、`adapter` は実装に `own` の辞書を渡す証拠 |
+   | `DInstance ks` | インスタンス宣言 | 前提の辞書パラメータの鍵の列(`ii_premises` の順) |
+
+   書くのは第11章(elab.ml)で、解くのは第8章(unify.ml)、読むのは第14章(interp.ml)である。 *)
+
+type dkey = oid * oid
+
+type evidence =
+  | EvParam of dkey
+  | EvInst of oid * oid * evidence list
+  | EvRecord of (oid * evidence) list
+  | EvVariant of (oid * evidence) list
+  | EvHole of hole
+
+and hole = { h_id : oid; h_cls : oid; h_ty : Syntax.Type.ty; h_loc : Location.span; mutable h_sol : evidence option }
+
+type dict_info =
+  | DNone
+  | DUse of hole list
+  | DAbs of dkey list
+  | DMethod of dkey list * dkey list * hole list
+  | DInstance of dkey list
+
+(* ## 5.2 ノードに付く 5 つのもの
 
    AST のすべてのノードに、`ElabData.t` が 1 つずつ付く。
-   中身は次の 4 つである。
+   中身は次の 5 つである。
 
    - `oid`：ノードの同一性。物理等価(`==`)に頼らずにノードを指せる。
    - `loc`：ソース位置。パーサがノードを作るときに埋める。
    - `ty_field`：型検査が決めた型。`None` は、まだ精緻化されていないことを表す。
    - `resolved`：§5.1 の解決結果。
+   - `dict`：§5.1b の辞書の情報。`DNone` は、辞書に関わらないことを表す。
 
-   `allocate` が受け取るのは `loc` だけで、残りのフィールドは `None` から始まる。
+   `allocate` が受け取るのは `loc` だけで、残りのフィールドは `None`(`dict` は `DNone`)から始まる。
    ノードを作るのは第3章(parser.mly)であって、型検査ではないからである。
    型検査は、すでにあるノードの空欄を埋めていくだけである。
 
@@ -177,9 +231,10 @@ module ElabData = struct
     loc : Location.span;
     mutable ty_field : Syntax.Type.ty option;
     mutable resolved : resolved option;
+    mutable dict : dict_info;
   }
 
-  let allocate loc = { oid = new_oid (); loc; ty_field = None; resolved = None }
+  let allocate loc = { oid = new_oid (); loc; ty_field = None; resolved = None; dict = DNone }
 end
 
 (* ## 5.3 この木を独立したファイルに置く理由
@@ -240,3 +295,7 @@ let set_ty (d, _) t = d.ElabData.ty_field <- Some t
 let get_resolved (d, _) = d.ElabData.resolved
 
 let set_resolved (d, _) r = d.ElabData.resolved <- Some r
+
+let get_dict (d, _) = d.ElabData.dict
+
+let set_dict (d, _) x = d.ElabData.dict <- x

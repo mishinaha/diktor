@@ -9,9 +9,10 @@
    その命令を実行するのが本章の `unify` で、
    ほかの関数はこの命令を安全に実行するための前後処理である。
 
-   本章が使う材料は 2 つある。
+   本章が使う材料は 3 つある。
    第1章(syntax.ml)が定める型・カインド・行の表現と、
-   第6章(decls.ml)が持つ宣言表・クラス表・インスタンス表である。
+   第6章(decls.ml)が持つ宣言表・クラス表・インスタンス表と、
+   第5章(tree.ml)の §5.1b が定める型クラスの制約の証拠の型である。
    本章が外へ渡す主な関数と、それを使う章は次のとおりである。
 
    | 関数 | 使う章 |
@@ -21,7 +22,10 @@
    | `check_ambiguity` / `default_numerics` | 第11章の let 束縛と宣言の終わり |
    | `lower_levels` / `class_mark` | 第11章の一般化しない let 束縛 |
    | `reset` | 第11章の検査の開始時と、パス 2 の直前 |
-   | `instantiate` / `skolemize` | 第11章のスキーマの使用点(変数参照、演算子、操作)と、インスタンス本体の包摂検査 |
+   | `instantiate` / `skolemize` | 第11章のスキーマの使用点(操作)と、インスタンス本体の包摂検査 |
+   | `instantiate_ev` / `constraints_of` / `dkeys_of` | 第11章のスキーマの使用点(変数参照、演算子、前置の `-`)と、束縛の辞書パラメータ |
+   | `hole_mark` / `solve_holes` / `solve_holes_range` / `unsolved_holes` | 第11章の束縛と宣言と単位の終わり |
+   | `display_evidence` | 第16章(driver.ml)の対話的な実行の結果の表示 |
    | `subst_params` | 第10章と第11章でのコンストラクタのフィールドの展開 |
    | `rewrite_row` | 第11章の検査モード(§11.19)のレコード拡張の分岐 |
    | `kind_of` / `var_info_of` / `map_generics_with` | 第11章の型の補助関数 |
@@ -185,9 +189,12 @@ let rec occurs_adjust tv lvl t =
 
 (* ## 8.4 クラス制約の伝播
 
-   Keleut の型クラスは、辞書渡しも修飾型も持たない。
-   クラス制約は型変数そのものに付いたフィールド(`vcls`)で、
+   Keleut の型クラスの制約は、型変数そのものに付いたフィールド(`vcls`)で伝播し、
    文脈の簡約は単一化の途中でその場で決定的に終わる。
+   修飾型は持たない。
+   どのインスタンスを選んだかは、ここでは記録せず、§8.11 の証拠として束縛の終わりに木へ書く。
+   `add_class` がインスタンスの有無を確かめ、§8.11 の `evidence_of` が同じ規則で証拠を組む。
+   片方だけを変えてはならない。
    `add_class t c` は「型 `t` はクラス `c` のインスタンスでなければならない」という要求を、
    `t` の形で場合分けして解消する。
 
@@ -907,4 +914,155 @@ let subst_params level args t =
     (fun i -> match List.assoc_opt i.vid args with Some t -> t | None -> new_class_var ~kind:i.vkind ~classes:i.vcls level)
     t
 
-let reset () = class_vars := []
+(* ## 8.11 証拠の穴
+
+   型クラスのメソッドの選択は、型検査が型から決める(第5章 §5.1b)。
+   制約付きのスキーマを具体化するたびに、制約ごとに穴を 1 つ作って台帳 `holes` に積む。
+   穴の型は、具体化で作った未定変数そのものである。
+   束縛の終わりに `solve_holes` が、その束縛の中で作った穴を解く。
+   穴の型が決まっていれば `evidence_of` で証拠を組み、決まっていなければ新しい番号で台帳に積み直す。
+   積み直した穴は、外側の束縛の終わりか、宣言の終わりが拾う。
+   単位の終わりまで解けない穴は、第11章が曖昧性エラーにする。
+
+   ### 正準順
+
+   辞書は位置で渡すので、定義の側(束縛の辞書パラメータ)と使う側(具体化で作る穴)が、
+   同じ順序で制約を並べなければならない。
+   `constraints_of` は、スキーマの型を左から右へたどり、`Generic` 変数が最初に現れた順に、
+   その変数の `vcls` の順で制約を並べる。
+   予約述語(`Integral` / `Fractional`)は除く。
+   これを正準順と呼び、`dkeys_of` はその鍵の列である。
+   `instantiate_ev` は、`map_generics_with` のメモから各 `Generic` の置き換え先を引いて穴を作るので、
+   置き換えの関数が呼ばれる順には依存しない。
+   型に現れない型パラメータは正準順に入らない。
+
+   ### 証拠の組み方
+
+   `evidence_of ~params c t` は、型 `t` のクラス `c` の証拠を組む。
+   `params` は囲む束縛の辞書パラメータの鍵である。
+
+   | `t` の形 | 証拠 |
+   |---|---|
+   | `Generic` で鍵が `params` にある | `EvParam` |
+   | `Generic` で鍵が `params` に無い | `Unsolved_param`(第11章が曖昧性エラーにする) |
+   | `Rigid` で鍵が `params` にある | `EvParam` |
+   | `Rigid` で鍵が `params` に無いもの、`Unbound` | 新しい穴 |
+   | `TCon` | `EvInst`。前提の証拠は `ii_premises` の順 |
+   | 構造的導出を持つクラスの `TRecord` / `TVariant` | `EvRecord` / `EvVariant`。閉じた行の各フィールドの証拠 |
+
+   インスタンスの有無と行が閉じていることは確かめない。
+   制約の付いた変数が具体型に束縛された時点で、
+   `bind` が `add_class` を呼んで確かめているからである。
+   規則に合わない形は `bug` にする。 *)
+
+module TT = Tree
+
+let holes : (int * TT.hole) list ref = ref []
+
+let hole_seq = ref 0
+
+let hole_mark () = !hole_seq
+
+let note_hole h =
+  incr hole_seq;
+  holes := (!hole_seq, h) :: !holes
+
+let new_hole ~loc c t =
+  let h = { TT.h_id = new_oid (); h_cls = c; h_ty = t; h_loc = loc; h_sol = None } in
+  note_hole h;
+  h
+
+let constraints_of t =
+  let seen = Hashtbl.create 8 in
+  let acc = ref [] in
+  let rec go t =
+    match repr t with
+    | TVar v -> (
+        match !v with
+        | Generic i when not (Hashtbl.mem seen i.vid) ->
+            Hashtbl.add seen i.vid ();
+            List.iter (fun c -> if not (is_predicate c) then acc := (i, c) :: !acc) i.vcls
+        | _ -> ())
+    | TCon (_, args) -> List.iter go args
+    | TApp (f, a) ->
+        go f;
+        go a
+    | TArrow (p, r, e) ->
+        go p;
+        go r;
+        go e
+    | TRecord row | TVariant row -> go row
+    | TRowEmpty -> ()
+    | TRowExtend (_, f, rest) ->
+        go f;
+        go rest
+  in
+  go t;
+  List.rev !acc
+
+let dkeys_of t = List.map (fun ((i : var_info), c) -> (i.vid, c)) (constraints_of t)
+
+(* instantiate と同じ置き換えをし、正準順の穴の列を返す *)
+let instantiate_ev ~loc level t =
+  let cs = constraints_of t in
+  let memo = Hashtbl.create 8 in
+  let t' = map_generics_with memo (fun i -> new_class_var ~kind:i.vkind ~classes:i.vcls level) t in
+  let hs = List.map (fun ((i : var_info), c) -> new_hole ~loc c (Hashtbl.find memo i.vid)) cs in
+  (t', hs)
+
+exception Unsolved_param of TT.hole * var_info
+
+let rec evidence_of ~loc ~params ~(origin : TT.hole) c t =
+  match repr t with
+  | TVar v -> (
+      match !v with
+      | Generic i -> if List.mem (i.vid, c) params then TT.EvParam (i.vid, c) else raise (Unsolved_param (origin, i))
+      | Rigid i when List.mem (i.vid, c) params -> TT.EvParam (i.vid, c)
+      | _ -> TT.EvHole (new_hole ~loc c t))
+  | TCon (n, args) -> (
+      match Decls.find_instance ~cls:c ~con:n with
+      | Some { ii_premises; _ } ->
+          TT.EvInst (c, n, List.map (fun (i, c2) -> evidence_of ~loc ~params ~origin c2 (List.nth args i)) ii_premises)
+      | None -> bug ("証拠: インスタンスがありません: " ^ display_of c ^ "[" ^ display_of n ^ "]"))
+  | (TRecord row | TVariant row) as t' ->
+      let structural = match Decls.find_class c with Some ci -> ci.Decls.ci_derive_structural | None -> false in
+      if not structural then bug ("証拠: 構造的導出の無いクラスの構造的な型です: " ^ display_of c);
+      let fields, _ = row_fields row in
+      let evs = List.map (fun (l, f) -> (l, evidence_of ~loc ~params ~origin c f)) fields in
+      (match t' with TRecord _ -> TT.EvRecord evs | _ -> TT.EvVariant evs)
+  | _ -> bug ("証拠: 解けない型 " ^ show t)
+
+(* 台帳のうち番号が lo より大きく hi 以下の穴を解く。解いた穴は台帳から外す。
+   型の決まっていない穴は新しい番号で積み直し、外側で解く *)
+let rec solve_holes ~since ~params = solve_holes_range ~lo:since ~hi:max_int ~params
+
+and solve_holes_range ~lo ~hi ~params =
+  let mine, older = List.partition (fun (n, _) -> n > lo && n <= hi) !holes in
+  holes := older;
+  List.iter
+    (fun (_, (h : TT.hole)) ->
+      if h.h_sol = None then
+        match repr h.h_ty with
+        | TVar { contents = Unbound _ } -> note_hole h
+        | TVar { contents = Rigid i } when not (List.mem (i.vid, h.h_cls) params) -> note_hole h
+        | _ -> h.h_sol <- Some (evidence_of ~loc:h.h_loc ~params ~origin:h h.h_cls h.h_ty))
+    (List.rev mine)
+
+(* 対話的な実行の結果の表示用。台帳に積まず、決まっていない部分は解けていない穴のまま返す *)
+let rec display_evidence c t =
+  match repr t with
+  | TCon (n, args) -> (
+      match Decls.find_instance ~cls:c ~con:n with
+      | Some { ii_premises; _ } -> TT.EvInst (c, n, List.map (fun (i, c2) -> display_evidence c2 (List.nth args i)) ii_premises)
+      | None -> bug "display_evidence: インスタンスがありません")
+  | TRecord row -> TT.EvRecord (List.map (fun (l, f) -> (l, display_evidence c f)) (fst (row_fields row)))
+  | TVariant row -> TT.EvVariant (List.map (fun (l, f) -> (l, display_evidence c f)) (fst (row_fields row)))
+  | _ ->
+      TT.EvHole
+        { TT.h_id = new_oid (); h_cls = c; h_ty = t; h_loc = { Location.start = Lexing.dummy_pos; finish = Lexing.dummy_pos }; h_sol = None }
+
+let unsolved_holes () = List.filter (fun (_, (h : TT.hole)) -> h.h_sol = None) !holes
+
+let reset () =
+  class_vars := [];
+  holes := []
