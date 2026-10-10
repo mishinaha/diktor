@@ -359,8 +359,8 @@ let println(message: String): Unit @ Print = perform print(message + "\n")
 //   候補が 1 つならそれが対象になり、2 つ以上なら、
 //   型検査は `Print.print` のように修飾するよう求めるエラーを出す(第11章 §11.23)。
 //   節の中の `perform write` のような perform は、別の規則で解決する。
-//   操作名を宣言するエフェクトが 2 つ以上あるときだけ、
-//   行の最左の候補を採る(Scoped Labels の最左一致、第11章 §11.20)。
+//   操作名を宣言するエフェクトが 2 つ以上あるときは、
+//   行に現れる候補が 1 つのときだけそれに解決する(第11章 §11.20)。
 //   ここでは曖昧さは無い。
 //   `print` を持つのは `Print` だけで、`write` を持つのは `Console` だけだからである。
 // - `resume(perform write(message))` の `resume` は継続で、second-class である。

@@ -57,7 +57,7 @@
    | `is_value` | 値制限の構文判定 |
    | `elab_exp` / `elab_exp'` | 式の型を推論し、木に型を書き込む |
    | `elab_check` | 軽い検査モード。ラムダとレコード拡張(引数レコードを含む)にだけ期待型を押し込む |
-   | `resolve_perform` | 操作名から(エフェクト, 操作, スキーマ)を引く。修飾なしの名前は行の最左を優先する |
+   | `resolve_perform` | 操作名から(エフェクト, 操作, スキーマ)を引く。修飾なしの名前は、行に現れる候補が 1 つのときだけ解決する |
    | `at_node` | 位置なしの型エラーに、最も内側のノードの span を付ける |
    | `check_resume_static` | resume が第二級であることの構文検査 |
    | `elab_handle` | handle の節の分類、対象エフェクトの決定、型付け |
@@ -1535,24 +1535,24 @@ and elab_exp' env level eff node e =
    引数を先に推論すると、ラムダの行はまだ何も決まっていない新しい行変数で、ラベルが 1 つも見えない。
    そのため解決が間に合わない。
 
-   この順序が必要になる例が、sample.kel:620-625 の `copy` である。
+   この順序が必要になる例が、sample.kel:604 の `with_file` を使う次の関数である。
 
    ```
-   let copy(src: String, dst: String): Unit @ {Console, Blocking} = {
-     with _ = with_file(src)
-     let text = perform read()                   // 最も左の File は src のもの
-     with _ = with_file(dst)
-     perform write(text)                         // 最も左の File は dst のもの
+   let save[E](path: String, s: String): Unit @ {Blocking extends E} = {
+     with _ = with_file(path)
+     perform write(s)
    }
    ```
 
    `with` は呼び出しの末尾に継続を加える構文糖(第3章)なので、
-   これは `with_file(src, fn() => ...)` に脱糖される(`_` の継続は 0 引数である。第3章 §3.8)。
+   これは `with_file(path, fn() => perform write(s))` に脱糖される(`_` の継続は 0 引数である。第3章 §3.8)。
    `with_file` の宣言は `body: () => A @ {File, Blocking extends E}` なので、
    期待型を先に押し込めば、ラムダの行が `{File, Blocking extends E}` に確定した状態で、
    ラムダの本体を推論できる。
-   すると `write` を解決するときに、行に `File` が見えている。
-   順序を入れ替えると、ここは `write` が Console と File の両方にある、という曖昧さのエラーになる。
+   すると `write` を解決するときに、行に `File` が見えていて `Console` は見えないので、
+   `File.write` に決まる。
+   順序を入れ替えると、ラムダの行はまだ新しい行変数で候補が 1 つも見えないので、
+   `write` が Console と File の両方にある、という候補が 1 つも見えないエラーになる。
    関数型を先に分解して引数を期待型で検査するのは、多相のためではなく、
    操作名の解決に必要な行を先に決めるためである。
 
@@ -2005,42 +2005,36 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
       注釈の無い `let` の行は新しい変数なので、その中の perform の行には候補が 1 つも現れない。
       1 段目でも候補が行に現れることを求めると、
       そうした perform はすべて修飾しなければならなくなる。
-   2. 候補が 2 つ以上のときだけ、現在の `eff` 行に現れる候補のうち、最左のものを採る。
+   2. 候補が 2 つ以上のときは、現在の `eff` 行に現れる候補を数え、
+      それが 1 つだけならそれに解決する。
+      同じエフェクトが行に 2 回以上現れても、候補としては 1 つと数える。
+      行の中のラベルの位置は見ない。
 
    `test/typecheck_m6.t` の onecand / twocand が、この 2 段の振る舞いを確かめる。
    宣言が先の候補を選ぶ、という規則は採らない。
    それでは解決が宣言の順序に依存し、書き手の意図と違う操作に解決しうる。
 
-   2 段目で最左を採るのは、行に現れるかどうかだけでは候補を 1 つに絞れないからである。
-   §11.12 の `copy` では、行に `File` も `Console` も見えていて、`write` が両方に該当する。
+   2 段目で行の位置を見ないのは、ラベルの順序だけが違う行が同じ型だからである(第8章 §8.6)。
+   位置で選ぶと、同じ型の行の下で同じ `perform op` が別の操作に解決され、
+   型の等価性と操作の意味が食い違う。
+   行に候補が 2 つ以上現れる位置では、`File.write` のように修飾して書く。
+   sample.kel:620-625 の `copy` は、2 つ目の `perform` の行に `File` も `Console` も見えているので、
+   `File.write` と修飾してある。
+   行に現れる候補が 1 つのときに解決する形は `test/typecheck_m6.t` の onerow.kel が、
+   2 つ現れて修飾を求める形は同じファイルの ambigrow.kel が確かめる。
 
-   行が handle の入れ子から推論で組み立てられる場合、最左は最も内側のハンドラである。
-   §11.24 は本体の行を `TRowExtend (label, …, outer)` と積むので、
-   内側のハンドラのラベルほど左に来る。
-   そのため、この規則は Scoped Labels の最左一致とも、
-   実行時に最も内側のハンドラが捕まえることとも一致する。
-   `copy` の `write` が `File.write` になるのは、`with_file` が積んだ `File` が `Console` より内側、
-   つまり行の左にあるからである。
-   これは、直近に開いたファイルに書くという、人が読んだときの直感とも一致する。
-
-   ただし、行を注釈に明示的に書いたときは、最左は書かれた順序で決まり、入れ子の順序とは限らない。
-   同じ名前の操作を持つ `E1` / `E2` について、`@ {E1, E2}` の関数の `perform op` は、
-   `E2` のハンドラが内側にあっても `E1` に解決される。
-   型は `test/typecheck_m6.t` の leftmost.kel が、
-   実行との一致は `test/eval.t` の leftmostrun.kel が確かめる。
-   関数の本体や、先に束縛したラムダの本体から推論した行も、
-   最左が最も内側のハンドラになるとは限らない。
-   これらの行は handle の入れ子とは関係なく、本体の推論が操作に触れた順に伸びるからである。
-   たとえば `perform E1.other()` の後に `perform op(…)` を書いたラムダを先に `let` で束縛すると、
-   その本体の `op` は `E1` に解決され、
-   そのラムダを `E2` のハンドラの内側で呼んでも `E1` のハンドラに届く。
+   行に現れる候補の集合は、本体の推論がその perform に達した時点のものである。
+   注釈の無い関数の行は、本体の推論が操作に触れた順に伸びるので、
+   同じ本体でも文の順序で、候補が見えるかどうかが変わりうる。
    それでも、静的な解決と実行時の捕捉は食い違わない。
    perform は解決済みの完全名の oid を運ぶので、`E2` のハンドラが `E1.op` を捕まえることはない。
-   `E1.op` は `E2` のハンドラを素通りして、`E1` のハンドラに届く。
+   `E1.op` は `E2` のハンドラを素通りして、`E1` のハンドラに届く(`test/eval.t` の leftmostrun.kel)。
 
    2 段目で行に候補が 1 つも現れないときは、推測せず、`File.write` のように修飾するよう案内する。
+   2 つ以上現れるときは、行に現れる候補を宣言の順に並べ、修飾した形をすべて示す。
+   候補の並びは宣言の順なので、どちらの診断も行の順序に依らない。
 
-   行の並びは解決にだけ使い、型の等価性には使わない。
+   行の並びは、操作名の解決にも型の等価性にも使わない。
    順序だけが違う行どうしは単一化できる(`test/typecheck_m6.t` の roworder)。 *)
 
 and resolve_perform eff li =
@@ -2059,22 +2053,22 @@ and resolve_perform eff li =
       | [] -> type_error ("未知の操作: " ^ op)
       | [ e ] -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
       | many -> (
-          (* 現在の eff 行に現れる候補のうち、最左を採る。handle の入れ子から推論された
-             行では最左が最も内側のハンドラになり、注釈された行では書かれた順で最左が
-             決まる(§11.20) *)
+          (* 現在の eff 行に現れる候補が 1 つだけなら、それを採る。行の中の位置は見ない(§11.20) *)
           let labels = List.map fst (fst (row_fields eff)) in
-          let pos e =
-            let rec go i = function [] -> None | l :: tl -> if l = e then Some i else go (i + 1) tl in
-            go 0 labels
-          in
-          let ranked = List.filter_map (fun e -> Option.map (fun i -> (i, e)) (pos e)) many in
-          match List.sort compare ranked with
-          | (_, e) :: _ -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
+          match List.filter (fun e -> List.mem e labels) many with
+          | [ e ] -> (e, opo, List.assoc opo (Option.get (Decls.find_effect e)).Decls.ef_ops)
           | [] ->
               type_error
                 ("操作 " ^ op ^ " は複数のエフェクト("
                 ^ String.concat ", " (List.map display_of many)
-                ^ ")に属します。" ^ display_of (List.hd many) ^ "." ^ op ^ " のように修飾してください")))
+                ^ ")に属します。" ^ display_of (List.hd many) ^ "." ^ op ^ " のように修飾してください")
+          | in_row ->
+              type_error
+                ("操作 " ^ op ^ " は、この位置の行に現れる複数のエフェクト("
+                ^ String.concat ", " (List.map display_of in_row)
+                ^ ")に属します。"
+                ^ String.concat "、" (List.map (fun e -> display_of e ^ "." ^ op) in_row)
+                ^ " のどれかに修飾してください")))
   | li -> type_error ("不正な操作名です: " ^ show_long_id li)
 
 (* ## 11.21 resume の第二級性
