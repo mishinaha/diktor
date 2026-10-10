@@ -1516,10 +1516,14 @@ let check_tparam_constraints ~rigids dps =
         i.vcls)
     rigids
 
-(* 型の中に、予約述語以外の制約が付いた未定の型変数があるか(式文の一般化の判定。§11.40) *)
+(* 型の中に、予約述語以外の制約が付いた未定の型変数があるか(式文の一般化の判定。§11.40)。
+   予約述語の付いた変数は既定化で Int32 か Float64 に決まり、辞書パラメータにならないので数えない *)
 let rec has_constrained_unbound t =
   match repr t with
-  | TVar v -> ( match !v with Unbound i -> List.exists (fun c -> not (Unify.is_predicate c)) i.vcls | _ -> false)
+  | TVar v -> (
+      match !v with
+      | Unbound i -> (not (List.exists Unify.is_predicate i.vcls)) && List.exists (fun c -> not (Unify.is_predicate c)) i.vcls
+      | _ -> false)
   | TCon (_, args) -> List.exists has_constrained_unbound args
   | TApp (f, a) -> has_constrained_unbound f || has_constrained_unbound a
   | TArrow (p, r, e) -> has_constrained_unbound p || has_constrained_unbound r || has_constrained_unbound e
@@ -1625,6 +1629,8 @@ and elab_exp' env level eff node e =
               | None -> bug ("同義語の先が実体を持ちません: " ^ name));
               let t, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level sch in
               if hs <> [] then Tree.set_dict node (Tree.DUse hs);
+              (* module の中の非修飾名は再帰群の pre もこの経路で引くので、群の参照の記録も要る(§11.29) *)
+              record_group_ref node sch hs;
               t
           | None -> (
               match li with
@@ -4958,7 +4964,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
             Unify.check_ambiguity ~all:false ~level:0 [ t ];
             Unify.generalize 0 t;
             let dps = Unify.dkeys_of t in
-            Tree.set_dict node (Tree.DAbs dps);
+            if dps <> [] then Tree.set_dict node (Tree.DAbs dps);
             solve_holes_at ~since:hmark ~params:dps)
           else (
             if value then Unify.lower_levels ~since:mark 0 t;
