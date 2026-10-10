@@ -830,3 +830,37 @@ sample.kel:670)。行の位置(@ h)には書けない:
   > EOF
   $ diktor --type-check regionkind2.kel
   f : () => Int32
+
+h のカインドが Type なので、リージョンの位置にリージョンでない型を書いた
+Ref[Int32, Int32] や MutableArray[String, Int32] も拒否しない(LangSpec §14.1 の
+制限、台帳 V21)。そのような型の値は作れない:
+
+  $ cat > refkind.kel <<'KEL'
+  > let f(r: Ref[Int32, Int32]): Int32 = 0
+  > let g[A](r: Ref[A, Int32]): Int32 = 0
+  > let h(r: MutableArray[String, Int32]): Int32 = 0
+  > KEL
+  $ diktor --type-check refkind.kel
+  f : (Ref[Int32, Int32]) => Int32
+  g : (Ref[A, Int32]) => Int32
+  h : (MutableArray[String, Int32]) => Int32
+
+@ Heap[Int32] と注釈した関数も型検査に通るが、run の本体からは別のスコープの
+ヒープとして、トップレベルからは Heap のラベルが無いとして呼べない:
+
+  $ cat > refkind3.kel <<'KEL'
+  > let f(): Int32 @ Heap[Int32] = 0
+  > let g(): Int32 = run h { f() }
+  > KEL
+  $ diktor --type-check refkind3.kel
+  f : () => Int32 @ {Heap[Int32]}
+  ! refkind3.kel:2:26: 型エラー: 別の run スコープのヒープを使おうとしています(スコープ付きの型が一致しません: Int32 と ς1)
+  [1]
+  $ cat > refkind4.kel <<'KEL'
+  > let f(): Int32 @ Heap[Int32] = 0
+  > let v = f()
+  > KEL
+  $ diktor --type-check refkind4.kel
+  f : () => Int32 @ {Heap[Int32]}
+  ! refkind4.kel:2:9: 型エラー: ラベル Heap がありません(行は閉じています)
+  [1]

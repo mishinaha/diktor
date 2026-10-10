@@ -736,3 +736,24 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   > EOF2
   $ diktor leftmostrun.kel
   E1:f
+
+評価は正格である(LangSpec §5.1)。関数を呼ぶ前にすべての引数を評価するので、
+使わない引数も評価する。let の右辺とレコードのフィールドは束縛するときに評価し、
+fn の本体は呼ぶまで評価しない(使うたびに評価する値束縛は §6.4):
+
+  $ cat > strict.kel <<'KEL'
+  > let ignore2(a: Int32, b: Int32): Int32 = a
+  > let noisy(n: Int32): Int32 @ Console = { echoln("eval " + show(n)); n }
+  > let r = ignore2(noisy(1), noisy(2))
+  > let unused = noisy(3)
+  > let rec_ = {a = noisy(4), b = noisy(5)}
+  > let lazy = fn() => noisy(6)
+  > echoln("end " + show(r))
+  > KEL
+  $ diktor strict.kel
+  eval 1
+  eval 2
+  eval 3
+  eval 4
+  eval 5
+  end 1
