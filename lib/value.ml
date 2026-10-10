@@ -58,8 +58,9 @@ module SMap = Map.Make (String)
    型検査が選んだインスタンスと実行が使う実体を結びつけるのが**コヒーレンス**、
    つまり同じ (クラス, 型構成子) に実体が 1 つしかないという性質である。
 
-   `VData` が `d_type` と `d_ctor` の 2 つの `oid` を持つのは、
-   インスタンスの表は型で引き、パターン照合はコンストラクタで引くからである。
+   `VData` が持つ `oid` はコンストラクタ `d_ctor` だけで、パターン照合はこれで引く。
+   値が属する型の `oid` は持たない。
+   型クラスのインスタンスは辞書で選ぶので、実行時に値から型を知る必要が無いからである。
    `d_fields` はフィールドを宣言の順に詰めた配列である。
    名前付き引数の並べ替えは、第11章が `resolved` の `RCtor` に添えた位置の表で済んでいるので、
    実行時に名前でフィールドを探すことはない。
@@ -76,7 +77,7 @@ type t =
   | VText of string
   | VRecord of (oid * t) list (* Scoped Labels: 重複可、順序つき。先頭が最新。Unit = VRecord [] *)
   | VVariant of oid * t (* ペイロードは常に単値 *)
-  | VData of { d_type : oid; d_ctor : oid; d_fields : t array }
+  | VData of { d_ctor : oid; d_fields : t array }
   | VClosure of closure
   | VPrim of prim
   | VRef of t ref

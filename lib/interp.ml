@@ -307,7 +307,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
               | Some v -> with_evidence env node v
               | None -> runtime_error ("未束縛の変数: " ^ name))
           (* 裸の引数なしコンストラクタ *)
-          | Some (Tree.RCtor (d, c, _)) -> VData { d_type = d; d_ctor = c; d_fields = [||] }
+          | Some (Tree.RCtor (_, c, _)) -> VData { d_ctor = c; d_fields = [||] }
           | _ -> bug ("Ident が解決されていません: " ^ name)))
   | T.Lambda { l_params; l_body } -> VClosure { c_env = env; c_params = l_params; c_body = l_body }
   | T.Apply (f, arg) ->
@@ -317,14 +317,14 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       apply vf va
   | T.Construct (_, args) -> (
       match Tree.get_resolved node with
-      | Some (Tree.RCtor (d, c, arg_to_field)) ->
+      | Some (Tree.RCtor (_, c, arg_to_field)) ->
           let fields = Array.make (Array.length arg_to_field) unit in
           List.iteri
             (fun ai (a : T.ctor_arg) ->
               (* 評価はソースの順、格納は宣言したフィールドの順(resolved の対応表) *)
               fields.(arg_to_field.(ai)) <- eval env a.T.ca_exp)
             args;
-          VData { d_type = d; d_ctor = c; d_fields = fields }
+          VData { d_ctor = c; d_fields = fields }
       | _ -> bug "Construct が解決されていません")
   | T.Variant (s, payload) -> VVariant (Type.intern s, eval env payload)
   | T.BinOp (l, op, r) -> (
