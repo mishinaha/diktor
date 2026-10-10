@@ -1447,6 +1447,60 @@ let rec is_value ((_, e) : T.exp) =
    リテラルの型はその場で決まる。
    `Hole`(`???`)は新しい型変数を型とし、実行時に評価されると落ちる。 *)
 
+(* 再帰群の記録。群の束縛の pre と束縛ノード、いま検査している束縛、pre を通した参照の列。
+   参照は群の終わりに、参照先の辞書パラメータの正準順で証拠を組み直す(§11.29) *)
+type group_rec = {
+  g_pres : (ty * T.let_binding) list;
+  g_cur : T.let_binding option ref;
+  mutable g_refs : (T.exp * T.let_binding option * T.let_binding * (Tree.dkey * Tree.hole) list) list;
+}
+
+let group_stack : group_rec list ref = ref []
+
+(* 参照した型 sch が、積まれている群のどれかの pre そのものなら、群の参照として記録する *)
+let record_group_ref node sch hs =
+  List.iter
+    (fun g ->
+      match List.find_opt (fun (p, _) -> p == sch) g.g_pres with
+      | Some (_, target) -> g.g_refs <- (node, !(g.g_cur), target, List.combine (Unify.dkeys_of sch) hs) :: g.g_refs
+      | None -> ())
+    !group_stack
+
+(* 穴を解き、束縛の型から決められない辞書を曖昧性エラーにする(§11.28) *)
+let solve_holes_at ~since ~params =
+  try Unify.solve_holes ~since ~params
+  with Unify.Unsolved_param (h, _) ->
+    raise
+      (Type_error_at
+         ( h.Tree.h_loc,
+           "曖昧な制約: " ^ display_of h.Tree.h_cls
+           ^ " の辞書を束縛の型から決められません(束縛の型に現れない型変数に制約が付いています。注釈で型を決めてください)" ))
+
+(* 型パラメータに付けた制約が、束縛の型の辞書パラメータに現れることを確かめる(§11.28) *)
+let check_tparam_constraints ~rigids dps =
+  List.iter
+    (fun (name, _, r) ->
+      let i = Unify.var_info_of r in
+      List.iter
+        (fun c ->
+          if (not (Unify.is_predicate c)) && not (List.mem (i.vid, c) dps) then
+            type_error
+              ("曖昧な制約: 型パラメータ " ^ name ^ " の制約 " ^ display_of c
+             ^ " を束縛の型から決められません(束縛の型に現れない型パラメータに制約が付いています)"))
+        i.vcls)
+    rigids
+
+(* 型の中に、予約述語以外の制約が付いた未定の型変数があるか(式文の一般化の判定。§11.40) *)
+let rec has_constrained_unbound t =
+  match repr t with
+  | TVar v -> ( match !v with Unbound i -> List.exists (fun c -> not (Unify.is_predicate c)) i.vcls | _ -> false)
+  | TCon (_, args) -> List.exists has_constrained_unbound args
+  | TApp (f, a) -> has_constrained_unbound f || has_constrained_unbound a
+  | TArrow (p, r, e) -> has_constrained_unbound p || has_constrained_unbound r || has_constrained_unbound e
+  | TRecord row | TVariant row -> has_constrained_unbound row
+  | TRowEmpty -> false
+  | TRowExtend (_, f, rest) -> has_constrained_unbound f || has_constrained_unbound rest
+
 let rec elab_exp env level eff ((_, e) as node : T.exp) : ty =
   let t = at_node node (fun () -> elab_exp' env level eff node e) in
   (* 名前で参照した関数の最外の行が閉じていれば、参照の位置で尾部を開く(使用時の開き。§11.11) *)
@@ -1460,6 +1514,15 @@ and elab_exp' env level eff node e =
   | T.Text _ -> t_string
   | T.Number n -> number_ty level n
 (* ## 11.11 変数とラムダ
+
+   ### 証拠の穴
+
+   制約付きのスキーマを具体化する位置(変数参照、演算子、前置の `-`)では、
+   `Unify.instantiate_ev` が制約ごとに証拠の穴を作り、`DUse` としてノードに書く(第5章 §5.1b)。
+   穴の順序はスキーマの制約の正準順(第8章 §8.11)で、評価器はこの順に辞書を渡す。
+   穴を解くのは、その参照を囲む束縛の終わり(§11.28、§11.29)、インスタンスの終わり(§11.38)、
+   宣言の終わりと単位の終わり(§11.40)である。
+   再帰群の `pre` への参照は、群の終わりに組み直すので、ここでは `record_group_ref` で記録だけする。
 
    変数参照は `instantiate` を呼ぶ主な場所である。
    ほかにも、演算子がクラスのメソッドのスキーマを引くところ(§11.13)、
@@ -1513,7 +1576,11 @@ and elab_exp' env level eff node e =
              任意の非 pub の値を外から呼べてしまう *)
           Decls.check_value_visible (intern name);
           (match SMap.find_opt name env.tops with Some g -> Tree.set_resolved node (Tree.RVar g) | None -> ());
-          Unify.instantiate level sch
+          (* 制約ごとに証拠の穴を作って木に書く。再帰群の pre への参照は群の終わりに組み直す(§11.29) *)
+          let t, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level sch in
+          if hs <> [] then Tree.set_dict node (Tree.DUse hs);
+          record_group_ref node sch hs;
+          t
       | None -> (
           (* 環境に無かったときだけ、module スコープの値の同義語を引く。フォールバック専用
              なので、局所束縛による遮蔽が自動で効く。スコープの外では解決せず、候補の列
@@ -1530,7 +1597,9 @@ and elab_exp' env level eff node e =
               (match Option.bind scoped (fun q -> SMap.find_opt (name_of q) env.tops) with
               | Some g -> Tree.set_resolved node (Tree.RVar g)
               | None -> bug ("同義語の先が実体を持ちません: " ^ name));
-              Unify.instantiate level sch
+              let t, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level sch in
+              if hs <> [] then Tree.set_dict node (Tree.DUse hs);
+              t
           | None -> (
               match li with
               | LongId comps when comps <> [] && String.length (List.nth comps (List.length comps - 1)) > 0 ->
@@ -1664,7 +1733,10 @@ and elab_exp' env level eff node e =
       | Prims.OpMethod (cls, m) | Prims.OpMethodNot (cls, m) ->
           let scheme = method_scheme cls m in
           let ret = new_var level in
-          Unify.unify (Unify.instantiate level scheme) (TArrow (TRecord (closed_item_row [ tl; tr ]), ret, eff));
+          (* 演算子のスキーマの制約はクラスパラメータの 1 つなので、穴はちょうど 1 つである *)
+          let it, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level scheme in
+          Tree.set_dict node (Tree.DUse hs);
+          Unify.unify it (TArrow (TRecord (closed_item_row [ tl; tr ]), ret, eff));
           ret)
   | T.Not e ->
       Unify.unify (elab_exp env level eff e) t_boolean;
@@ -1673,7 +1745,9 @@ and elab_exp' env level eff node e =
       let te = elab_exp env level eff e in
       let cls, m = Prims.neg_method in
       let ret = new_var level in
-      Unify.unify (Unify.instantiate level (method_scheme cls m)) (TArrow (TRecord (closed_item_row [ te ]), ret, eff));
+      let it, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level (method_scheme cls m) in
+      Tree.set_dict node (Tree.DUse hs);
+      Unify.unify it (TArrow (TRecord (closed_item_row [ te ]), ret, eff));
       ret
   | T.RecordEmpty -> t_unit
   | T.RecordExtend (rest, l, v) ->
@@ -2790,6 +2864,17 @@ and release_rigids rigids =
 
 (* ## 11.28 let 束縛
 
+   ### 辞書パラメータと穴の解き方
+
+   束縛の終わり(`finish_binding_dicts`)で、一般化する束縛の型の制約を正準順に並べたものを
+   辞書パラメータとして `DAbs` に書き、本体で作った穴をその辞書パラメータで解く。
+   一般化しない束縛の辞書パラメータは空である。
+   本体の穴の型が束縛の型の `Generic` 変数なら、同じ鍵の辞書パラメータを渡す(`EvParam`)。
+   具体型なら、インスタンスの証拠(`EvInst`)を組む。
+   まだ決まっていない型変数なら、穴を台帳に残し、宣言の終わりか単位の終わりが解く。
+   型パラメータに付けた制約が束縛の型に現れないときは、本体で使わなくても曖昧性エラーにする。
+   渡す側がその辞書を作れないからである。
+
    束縛の処理は、レベルを 1 つ上げ、型パラメータを剛定数にし、注釈を精緻化し、本体を推論し、
    注釈と単一化し、一般化して、剛定数を解放する。
    run と同じ 3 つの手順の形を、ここでは注釈のために使う。
@@ -2913,6 +2998,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
   let lvl = level + 1 in
   let mark = Unify.class_mark () in
+  let hmark = Unify.hole_mark () in
   let rigids = make_rigids lvl b.T.lb_tparams in
   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
   let fn_ty =
@@ -2973,6 +3059,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         Unify.generalize level fn_ty)
       else Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
+      finish_binding_dicts node ~gen ~rigids hmark fn_ty;
       add_local env x fn_ty
   | T.PWildcard ->
       List.iter warn (Exhaust.drain ());
@@ -2981,6 +3068,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         Unify.generalize level fn_ty)
       else Unify.lower_levels ~since:mark level fn_ty;
       release_rigids rigids;
+      finish_binding_dicts node ~gen ~rigids hmark fn_ty;
       env
   | _ ->
       (* パターン束縛は単相(節が 1 つだけの match と同じ扱い)。網羅性の警告に乗せる。
@@ -2993,9 +3081,34 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       Exhaust.queue [ (b.T.lb_name, false) ] fn_ty;
       List.iter warn (Exhaust.drain ());
       release_rigids rigids;
+      finish_binding_dicts node ~gen:false ~rigids hmark fn_ty;
       env'
 
+(* 束縛の終わりに、辞書パラメータを決めて束縛ノードに書き、本体で作った穴を解く(§11.28)。
+   generalize と release_rigids の後に呼ぶので、自分の剛定数は Generic になっており、
+   予約述語の付いた変数は既定化されている。一般化しない束縛の辞書パラメータは空である *)
+and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
+  let dps = if gen then Unify.dkeys_of fn_ty else [] in
+  if gen then check_tparam_constraints ~rigids dps;
+  if dps <> [] then Tree.set_dict node (Tree.DAbs dps);
+  solve_holes_at ~since:hmark ~params:dps
+
 (* ## 11.29 let rec
+
+   ### 群の中の参照と辞書
+
+   群の束縛は `pre` を通して互いを参照する。
+   参照の時点で `pre` の中の `Generic` 変数(本体を検査し終えて解放した型パラメータ)に付いた制約は穴になるが、
+   まだ検査していない束縛の `pre` の型変数と、
+   群の終わりまで剛定数のまま残る型パラメータ(`shared`)は穴にならない。
+   そこで、`pre` を通る参照をすべて記録し(`record_group_ref`)、
+   群の終わりに `finish_group_dicts` が、
+   参照先の辞書パラメータの正準順で証拠を組み直す。
+   参照の時点で作った穴があればそれを使い、無ければ同じ鍵の `EvParam` を渡す。
+   群の終わりに一般化した型変数は、参照先と参照する側で同じ変数なので、同じ鍵で渡せる。
+   `EvParam` の鍵が参照する側の束縛の辞書パラメータに無ければ、曖昧性エラーにする。
+   束縛の本体で作った穴は、束縛ごとの台帳の範囲(`member_marks`)で、その束縛の辞書パラメータで解く。
+   群のほかの束縛の型にだけ現れる型変数の穴も、同じ理由の曖昧性エラーにする。
 
    手順は 4 つある。
    名前を単相の型 `pre` で先に束縛し、本体を推論し、`pre` と単一化し、最後に一般化する。
@@ -3157,9 +3270,16 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
     | TRowExtend (_, f, rest) -> mentions r f || mentions r rest
   in
   let rec_arg_queue = ref [] in
+  (* 群の pre を通る参照を記録する。群を抜けるときは、型エラーで抜けるときも記録を外す *)
+  let g = { g_pres = List.map2 (fun (_, pre) bn -> (pre, bn)) names bs; g_cur = ref None; g_refs = [] } in
+  group_stack := g :: !group_stack;
+  let member_marks = ref [] in
+  Fun.protect ~finally:(fun () -> group_stack := List.filter (fun g' -> g' != g) !group_stack) @@ fun () ->
   List.iter2
     (fun ((_, b) as bnode) (((_, pre), (sig_eff, sig_vty)), rigids) ->
       at_node bnode @@ fun () ->
+      g.g_cur := Some bnode;
+      member_marks := (bnode, Unify.hole_mark ()) :: !member_marks;
       (* pub の完全注釈検査と、@ の省略を @ {} と読む規則は、let(§11.28)と同じ。
          値束縛の頭の矢印も最外として扱う(§11.29) *)
       (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
@@ -3209,7 +3329,49 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
      到達できればよい *)
   Unify.check_ambiguity ~all:false ~level (List.map snd names);
   List.iter (fun (_, t) -> Unify.generalize level t) names;
+  finish_group_dicts bs names tps g !member_marks;
   bind_names env names
+
+(* 群の終わりに、各束縛の辞書パラメータを決め、束縛ごとの穴を解き、pre を通った参照の証拠を
+   参照先の正準順で組み直す(§11.29) *)
+and finish_group_dicts bs names tps g member_marks =
+  let dps_of = List.map2 (fun bn (_, t) -> (bn, Unify.dkeys_of t)) bs names in
+  List.iter2 (fun (bn, dps) rigids -> if dps <> [] then Tree.set_dict bn (Tree.DAbs dps); check_tparam_constraints ~rigids dps) dps_of tps;
+  let marks = List.rev member_marks in
+  let ends = List.tl (List.map snd marks) @ [ Unify.hole_mark () ] in
+  List.iter2
+    (fun (bn, lo) hi ->
+      let dps = List.assq bn dps_of in
+      try Unify.solve_holes_range ~lo ~hi ~params:dps
+      with Unify.Unsolved_param (h, _) ->
+        raise
+          (Type_error_at
+             ( h.Tree.h_loc,
+               "曖昧な制約: " ^ display_of h.Tree.h_cls
+               ^ " の辞書を、この式を含む再帰群の束縛の型から決められません(群のほかの束縛の型にだけ現れる型変数に制約が付いています。注釈で型を決めてください)"
+             )))
+    marks ends;
+  List.iter
+    (fun (node, from, tgt, keyed) ->
+      let need = List.assq tgt dps_of in
+      if need <> [] then (
+        let have = match from with Some f -> List.assq f dps_of | None -> [] in
+        let hs =
+          List.map
+            (fun ((_, c) as k) ->
+              match List.assoc_opt k keyed with
+              | Some h -> h
+              | None ->
+                  if not (List.mem k have) then
+                    raise
+                      (Type_error_at
+                         ( Tree.loc_of node,
+                           "曖昧な制約: 再帰群の中のこの参照が要る辞書を、呼ぶ側の束縛の型から決められません(注釈で型を決めてください)" ));
+                  { Tree.h_id = new_oid (); h_cls = c; h_ty = t_unit; h_loc = Tree.loc_of node; h_sol = Some (Tree.EvParam k) })
+            need
+        in
+        Tree.set_dict node (Tree.DUse hs)))
+    g.g_refs
 
 (* ## 11.30 トップレベルで許されるエフェクト
 
@@ -4123,6 +4285,17 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 
 (* ## 11.38 インスタンス本体の検査
 
+   ### 前提とメソッド自身の辞書
+
+   インスタンスの前提は、頭の剛定数の制約として本体に見える。
+   本体の穴のうち頭の剛定数に当たるものは、
+   インスタンスの終わりに前提の辞書パラメータ(`DInstance`)で解く。
+   メソッドの実装の束縛には `DMethod (own, mk, adapter)` を書く。
+   `own` は実装を推論した型の辞書パラメータ、`mk` はクラスの宣言のメソッドの型のうち
+   クラスパラメータを除く制約の鍵、`adapter` は包摂で実装の型を具体化したときの穴で、
+   実装に `own` の辞書を渡す証拠になる。
+   評価器はメソッドを選ぶたびに、前提と `mk` の辞書を束縛した環境で実装の束縛を評価する(第14章)。
+
    インスタンスのメソッド本体が、クラス宣言の型を満たしているかを確かめる。
    期待型は、クラス宣言のメソッド型にインスタンスの頭型を代入したものである。
    `Functor` の `map : (F[A], (A) => B @ E) => F[B] @ E` に `F := List` を代入すると、
@@ -4232,13 +4405,23 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    本体は普通の `elab_binding` / `elab_rec_bindings` で推論する。
    そのため、注釈つきのメソッドも `let rec` のメソッドも同じ経路で通る(sample.kel:443-446)。 *)
 
-let check_instance_bodies env (i : T.instance_decl') =
+let check_instance_bodies env inode (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
   let ci = match Decls.find_class cls with Some ci -> ci | None -> bug "instance: class 未登録" in
+  let imark = Unify.hole_mark () in
   (* 前提つきインスタンスの頭型は、部分適用の形。束縛子を剛定数にして vcls に前提を載せる。
      束縛子が 0 個なら頭型は TCon (con, [])。束縛子の名前は本体の型スコープに入る *)
   let head_rigids = make_rigids 1 i.T.ins_tparams in
   let head_ty = TCon (con, List.map (fun (_, t, _) -> t) head_rigids) in
+  (* 前提の辞書パラメータ。順序はインスタンス表の ii_premises と同じ(束縛子の順、各束縛子の制約の順) *)
+  let pk =
+    List.concat_map
+      (fun (_, _, r) ->
+        let i = Unify.var_info_of r in
+        List.filter_map (fun c -> if Unify.is_predicate c then None else Some (i.vid, c)) i.vcls)
+      head_rigids
+  in
+  Tree.set_dict inode (Tree.DInstance pk);
   let env = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types head_rigids } in
   let expected_of mname =
     match List.assoc_opt mname ci.Decls.ci_methods with
@@ -4248,10 +4431,26 @@ let check_instance_bodies env (i : T.instance_decl') =
         Unify.map_generics_with memo (fun info -> TVar (ref (Generic info))) scheme
     | None -> bug "instance: メソッドスキーマ未登録"
   in
-  let subsume mname inferred =
+  let subsume bnode mname inferred =
     let lvl = 1 in
-    let skol = Unify.skolemize lvl (expected_of mname) in
-    let inf = Unify.instantiate lvl inferred in
+    let expected = expected_of mname in
+    (* 宣言の型の Generic を剛定数にし、クラスパラメータを除く制約の鍵 mk を正準順で求める。
+       実装の型は instantiate_ev で具体化し、その穴は実装に own の辞書を渡す証拠(adapter)になる *)
+    let smemo = Hashtbl.create 8 in
+    let skol = Unify.map_generics_with smemo (fun i -> new_rigid ~kind:i.vkind ~classes:i.vcls lvl) expected in
+    let mk =
+      List.map
+        (fun ((gi : var_info), c) ->
+          match repr (Hashtbl.find smemo gi.vid) with TVar r -> ((Unify.var_info_of r).vid, c) | _ -> bug "instance: 剛定数ではありません")
+        (Unify.constraints_of expected)
+    in
+    let amark = Unify.hole_mark () in
+    let inf, adapter = Unify.instantiate_ev ~loc:(Tree.loc_of bnode) lvl inferred in
+    let finish_adapter () =
+      solve_holes_at ~since:amark ~params:(mk @ pk);
+      let own = match Tree.get_dict bnode with Tree.DAbs ks -> ks | _ -> [] in
+      Tree.set_dict bnode (Tree.DMethod (own, mk, adapter))
+    in
     (* 包摂が失敗したときの既定の文言。最外の行の単一化だけは別に包んで純粋性の規則を
        名指しするので、包む単位をここで関数に切り出す。引数と返り値の失敗はこの文言になる *)
     let wrap f = try f () with Type_error msg -> type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")") in
@@ -4266,7 +4465,7 @@ let check_instance_bodies env (i : T.instance_decl') =
     | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
         wrap (fun () -> Unify.unify ia sa);
         wrap (fun () -> Unify.unify ir sr);
-        if repr ie = TRowEmpty then ()
+        (if repr ie = TRowEmpty then ()
         else
           (* 宣言の側の行がラベルを持たない(裸の行変数か閉じた空の行。メソッドの最外の
              @ を省略した形や @ E と書いた形)ときだけ、規則を名指しする。単一化の一般の文言
@@ -4280,8 +4479,11 @@ let check_instance_bodies env (i : T.instance_decl') =
                type_error
                  ("型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド " ^ mname
                 ^ " の本体がエフェクトを起こしています。元の報告: " ^ msg)
-             else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")"))
-    | _ -> wrap (fun () -> Unify.unify inf skol)
+             else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")));
+        finish_adapter ()
+    | _ ->
+        wrap (fun () -> Unify.unify inf skol);
+        finish_adapter ()
   in
   List.iter
     (fun ((_, d) : T.decl) ->
@@ -4291,16 +4493,18 @@ let check_instance_bodies env (i : T.instance_decl') =
           let env2 = elab_binding env 0 (new_row_var 0) bnode in
           (* 包摂のエラーは、そのメソッドの束縛を指す。宣言の先頭を指すと、複数のメソッドの
              どれが悪いかを位置から読めない *)
-          at_node bnode (fun () -> subsume mname (SMap.find mname env2.values))
+          at_node bnode (fun () -> subsume bnode mname (SMap.find mname env2.values))
       | T.DLetRec bs ->
           let env2 = elab_rec_bindings env 0 (new_row_var 0) bs in
           List.iter
             (fun (((_, b) as bnode) : T.let_binding) ->
               let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
-              at_node bnode (fun () -> subsume mname (SMap.find mname env2.values)))
+              at_node bnode (fun () -> subsume bnode mname (SMap.find mname env2.values)))
             bs
       | _ -> type_error "インスタンス本体には let だけが書けます")
     i.T.ins_body;
+  (* 本体の穴のうち、頭の剛定数(前提)に当たるものは、前提の辞書パラメータで解く *)
+  solve_holes_at ~since:imark ~params:pk;
   release_rigids head_rigids
 
 (* ## 11.39 宣言列を 4 回なめる
@@ -4444,6 +4648,14 @@ let no_param_constraints what (tparams : type_param list) =
       if tp.tp_classes <> [] then
         type_error (what ^ " の型パラメータ " ^ tp.tp_name ^ " には型クラスの制約を書けません"))
     tparams
+
+(* パス 1c の署名と、パス 2 で決めた束縛の型の辞書パラメータが、
+   位置とクラスで一致することを確かめる。
+   前方参照の穴は署名の正準順で、束縛の辞書パラメータは本体の型の正準順で並ぶので、
+   ずれると黙って別の辞書が渡る。同じ注釈から作るので一致するが、仕組みでも守る *)
+let check_signature_dicts node fn_ty sg =
+  let a = List.map snd (Unify.dkeys_of fn_ty) and b = List.map snd (Unify.dkeys_of sg) in
+  if a <> b then at_node node (fun () -> bug "署名と本体の辞書パラメータが一致しません")
 
 let process_decls ?(toplevel_extra = []) env ~emit decls =
   let eff0 = toplevel_eff ~extra:toplevel_extra () in
@@ -4613,6 +4825,17 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
   in
 (* ## 11.40 パス 2 の 1 歩
 
+   ### 穴を解く時点
+
+   各宣言の終わりに、台帳に残っているすべての穴を解き直す。
+   前の宣言で型の決まらなかった穴(一般化しない束縛の弱い型変数)も、この宣言で型が決まれば解ける。
+   単位(ソースファイル、対話的な実行では 1 入力)の終わりまでに解けない穴は、曖昧性エラーにする。
+   構文上の値の式文で、制約の付いた未定の型変数が残るものは一般化し、
+   辞書パラメータを `DAbs` に書く。
+   対話的な実行で `show` のような名前だけを入力する形を受理するためである。
+   パス 1c の署名を持つ束縛では、
+   署名の制約の並びと束縛の辞書パラメータが位置とクラスで一致することを確かめる。
+
    `step` は宣言を 1 つ処理して、新しい環境を返す。
 
    `DLet` / `DLetRec` / `DExp` / `DInstance` では、既定化の直前に、宣言の終わりの曖昧性検査を行う。
@@ -4662,6 +4885,9 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           env
       | T.DLet b ->
           let env' = elab_binding env 0 eff0 b in
+          (match (binding_name (snd b), signature_of_binding env (snd b)) with
+          | Some x, Some sg -> check_signature_dicts b (SMap.find x env'.values) sg
+          | _ -> ());
           (* トップレベルの束縛子は、束縛ノードと名前の組を実体にする *)
           let env' =
             List.fold_left
@@ -4680,16 +4906,35 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           env'
       | T.DLetRec bs ->
           let env' = elab_rec_bindings ~top:true env 0 eff0 bs in
+          List.iter
+            (fun ((_, b) as bn : T.let_binding) ->
+              match (binding_name b, signature_of_binding env b) with
+              | Some x, Some sg -> check_signature_dicts bn (SMap.find x env'.values) sg
+              | _ -> ())
+            bs;
           Unify.check_ambiguity ~all:true ~level:0 (List.map Tree.get_ty bs);
           Unify.default_numerics ();
           List.iter (show_binding env') bs;
           env'
       | T.DExp e ->
-          let t = elab_exp env 0 eff0 e in
+          (* 構文上の値の式文で、制約の付いた未定の型変数が残るものは一般化し、辞書を受け取る値にする。
+             対話的な実行で show のような名前だけを入力する形を受理するためである。
+             それ以外の式文は一般化しない。捨てられる値の制約は、誰にも決められない *)
+          let hmark = Unify.hole_mark () in
+          let mark = Unify.class_mark () in
+          let value = is_value e in
+          let t = elab_exp env (if value then 1 else 0) eff0 e in
           List.iter warn (Exhaust.drain ());
-          (* 文の位置の式も検査する。捨てられる値の制約は、誰にも決められない *)
-          Unify.check_ambiguity ~all:true ~level:0 [ t ];
-          Unify.default_numerics ();
+          if value && has_constrained_unbound t then (
+            Unify.check_ambiguity ~all:false ~level:0 [ t ];
+            Unify.generalize 0 t;
+            let dps = Unify.dkeys_of t in
+            Tree.set_dict node (Tree.DAbs dps);
+            solve_holes_at ~since:hmark ~params:dps)
+          else (
+            if value then Unify.lower_levels ~since:mark 0 t;
+            Unify.check_ambiguity ~all:true ~level:0 [ t ];
+            Unify.default_numerics ());
           emit (Binding ("_ : " ^ Show.show t));
           env
       | T.DExtern ex ->
@@ -4733,13 +4978,17 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
           release_rigids rigids;
+          (* 型パラメータの制約は束縛の型に現れなければならない。辞書パラメータは実行時に捨てる *)
+          let dps = Unify.dkeys_of ty in
+          check_tparam_constraints ~rigids dps;
+          if dps <> [] then Tree.set_dict node (Tree.DAbs dps);
           emit (Binding (Type.display ex.T.ex_name ^ " : " ^ Show.show ty));
           add_top env ex.T.ex_name ty (Tree.GDecl (Tree.oid_of node, ex.T.ex_name))
       | T.DNewtype _ -> env (* パス 1 で登録済み。フィールド型の検査も登録時に済んでいる *)
       | T.DEffect _ -> env (* パス 1 で登録済み *)
       | T.DClass _ -> env (* パス 1 で登録済み *)
       | T.DInstance i ->
-          check_instance_bodies env i;
+          check_instance_bodies env node i;
           (* インスタンス本体にも、宣言の終わりの曖昧性検査を掛ける。値制限で一般化されない
              本体の let は all=false の検査(gen のガード)を通らないので、ここで掛けないと、
              曖昧な制約が台帳ごと捨てられる。到達集合は、各メソッドの束縛の型 *)
@@ -4759,6 +5008,9 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       (* 既定化も宣言の包みの中で走らせる。DInstance の本体で作られた数値リテラルの述語は、
          ここで初めて落ちることがある。包みの外で走らせると、位置なしの型エラーになる *)
       Unify.default_numerics ();
+      (* 宣言の終わりに、台帳に残っている穴をすべて解き直す。前の宣言で型の決まらなかった
+         穴も、この宣言で型が決まれば解ける *)
+      solve_holes_at ~since:0 ~params:[];
       env'
     in
     (* この宣言が出した警告だけを拾う。warnings は逆順に積んであるので、先頭の n 個を
@@ -4771,7 +5023,18 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
   (* パス 1 で溜まった制約つき変数(インスタンスの頭や署名の instantiate)は、宣言ごとの
      曖昧性の判定に関係しない。台帳だけを空にしてから畳み込む *)
   Unify.reset ();
-  List.fold_left step env decls
+  let env = List.fold_left step env decls in
+  (* 単位(ソースファイル、対話的な実行では 1 入力)の終わりまでに型の決まらない制約は曖昧である。
+     最も古い穴の位置で報告する *)
+  (match List.rev (Unify.unsolved_holes ()) with
+  | (_, h) :: _ ->
+      raise
+        (Type_error_at
+           ( h.Tree.h_loc,
+             "曖昧な制約: " ^ display_of h.Tree.h_cls
+             ^ " を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)" ))
+  | [] -> ());
+  env
 
 (* ## 11.41 型検査の入口
 
@@ -4797,6 +5060,7 @@ let start_program () =
   warnings_count := 0;
   Unify.reset ();
   Exhaust.reset ();
+  group_stack := [];
   pub_pure_cells := []
 
 let check_prelude prelude =
@@ -5219,7 +5483,8 @@ let start_input () =
   warnings_count := 0;
   Hashtbl.reset top_types;
   Unify.reset ();
-  Exhaust.reset ()
+  Exhaust.reset ();
+  group_stack := []
 
 let check_input ?(toplevel_extra = []) ?(unit = Decls.root_unit) env decls =
   start_input ();
