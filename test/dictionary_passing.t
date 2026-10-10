@@ -146,6 +146,8 @@ F は注釈が要求する型から決まる。o と l は同じ pure から別�
   > let f[A: Eq](x: A, y: A): Boolean = {v = x} == {v = y}
   > echoln(show(f(Box(1), Box(3))))
   > echoln(show(f(Cons(1, Nil), Cons(2, Nil))))
+  > let vb: #A(Box) | #B(String) = #A(Box(1))
+  > echoln(show(vb == #A(Box(2))))
   > KEL
   $ diktor structeq.kel
   true
@@ -154,9 +156,11 @@ F は注釈が要求する型から決まる。o と l は同じ pure から別�
   false
   true
   false
+  true
 
 局所の多相関数 both は外側の辞書(A の Show)を捕まえたまま、自分の型変数は呼ぶ位置で
-決める。再帰群 sa と sr では、sr が sa の辞書を受け渡す:
+決める。トップレベルの再帰群 sa と sr では sr が sa の辞書を受け渡し、局所の再帰群 la と lr
+は外側の辞書を捕まえる:
 
   $ cat > localpoly.kel <<'KEL'
   > let outer[A: Show](x: A): String = {
@@ -167,10 +171,17 @@ F は注釈が要求する型から決まる。o と l は同じ pure から別�
   > let rec sa[A: Show](xs: List[A]): String = xs match { case Nil => "." case Cons(h, t) => show(h) + sr(t) }
   > and sr(t) = sa(t)
   > echoln(sa(Cons(1, Cons(2, Nil))))
+  > let outer2[A: Show](x: A): String = {
+  >   let rec la(xs: List[A]): String = xs match { case Nil => "." case Cons(h, t) => show(h) + lr(t) }
+  >   and lr(t: List[A]): String = la(t)
+  >   la(Cons(x, Cons(x, Nil)))
+  > }
+  > echoln(outer2(7))
   > KEL
   $ diktor localpoly.kel
   1/s true/s
   12.
+  77.
 
 制約付きの型パラメータを注釈で明示した再帰群。g の中で f を Int32 と Boolean の
 2 つの型で使えるのは、f の型パラメータ A がほかの束縛の型に流れ込まず、f の本体の
@@ -206,6 +217,39 @@ f の中の g(???) と g(Nil) は、g の引数の型が f の型に現れない
   > KEL
   $ diktor recamb2.kel
   ! recamb2.kel:1:23: 型エラー: 曖昧な制約: 再帰群の中のこの参照が要る辞書を、呼ぶ側の束縛の型から決められません(注釈で型を決めてください)
+  [1]
+
+群の本体の穴が、群のほかの束縛の型にだけ現れる型変数に付いた制約のときも曖昧性エラー。
+f の本体の show(g()) は g の返り値の型にだけ現れる型変数に Show を要求する:
+
+  $ cat > recamb3.kel <<'KEL'
+  > let rec f(): Int32 = { let _ = show(g()); 0 }
+  > and g() = ???
+  > KEL
+  $ diktor recamb3.kel
+  ! recamb3.kel:1:32: 型エラー: 曖昧な制約: Show の辞書を、この式を含む再帰群の束縛の型から決められません(群のほかの束縛の型にだけ現れる型変数に制約が付いています。注釈で型を決めてください)
+  [1]
+
+module の中の非修飾名も、再帰群の参照として記録する。制約付きの let rec が自分を非修飾名で
+呼ぶ形は辞書が渡り、e5 の形を module の中に書けばトップレベルと同じ曖昧性エラーになる:
+
+  $ cat > modrec.kel <<'KEL'
+  > module M {
+  >   pub let rec go[A: Show](xs: List[A]): String @ {} = xs match { case Nil => "." case Cons(h, t) => show(h) + go(t) }
+  > }
+  > echoln(M.go(Cons(1, Cons(2, Nil))))
+  > KEL
+  $ diktor modrec.kel
+  12.
+  $ cat > modamb.kel <<'KEL'
+  > module M {
+  >   let rec f(): Int32 = { let _ = g(???); 0 }
+  >   and g(y) = show(y)
+  >   pub let u(): Int32 = f()
+  > }
+  > KEL
+  $ diktor modamb.kel
+  ! modamb.kel:2:34: 型エラー: 曖昧な制約: 再帰群の中のこの参照が要る辞書を、呼ぶ側の束縛の型から決められません(注釈で型を決めてください)
   [1]
 
 制約付きの型パラメータが束縛の型に現れなければ、呼ぶ側はその辞書を決められない。
@@ -329,7 +373,9 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   実行時エラー: ??? に到達しました
   [3]
 
-式文の show は一般化して辞書を受け取る関数になり、評価しても何も起きない:
+構文上の値の式文に制約付きの型変数が残れば一般化し、曖昧性エラーにならない(名前だけの
+式文 show。対話的な実行の表示は test/repl.t)。制約が既定化で消える値の式文は一般化せず、
+ほかの式文と同じく評価する(??? に到達する):
 
   $ cat > dexp.kel <<'KEL'
   > show
@@ -337,6 +383,13 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   > KEL
   $ diktor dexp.kel
   x
+  $ cat > dexpval.kel <<'KEL'
+  > (fn(x) => x + 1, ???)
+  > echoln("after")
+  > KEL
+  $ diktor dexpval.kel
+  実行時エラー: ??? に到達しました
+  [3]
 
 前置の - と % は演算子クラス Neg と Rem のメソッドなので、[A: Neg] と [A: Rem] の
 制約を持つ関数から呼べる。Neg は Int32、Int64、Float64、Rem は Int32 と Int64 で使う
@@ -359,3 +412,10 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   1
   -1
   2
+  $ cat > negremf.kel <<'KEL'
+  > let modulo[A: Rem](x: A, y: A): A = x % y
+  > echoln(show(modulo(1.5, 1.0)))
+  > KEL
+  $ diktor negremf.kel
+  ! negremf.kel:2:1: 型エラー: Float64 は Rem のインスタンスではありません
+  [1]

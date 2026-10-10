@@ -258,7 +258,8 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   ! <stdin>:5:1: 型エラー: 曖昧な制約: Pure を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
 
 名前だけの式文と、関数を束縛するだけの let は構文上の値なので一般化し、
-制約付きの型のまま <fn> と表示する:
+制約付きの型のまま <fn> と表示する。制約が既定化で消える値の式文は一般化せず、
+評価した値を表示する:
 
   $ diktor --repl <<'EOF2'
   > show
@@ -266,9 +267,30 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   > let pr[A: Show](x: A): String = show(x)
   > pr
   > let sh = show
+  > (fn(x) => x + 1, 5)
+  > Some(fn(x) => x + 1)
   > EOF2
   _ : [A: Show] (A) => String = <fn>
   _ : [A: Show] (A) => String = <fn>
   pr : [A: Show] (A) => String = <fn>
   _ : [A: Show] (A) => String = <fn>
   sh : [A: Show] (A) => String = <fn>
+  _ : ((Int32) => Int32, Int32) = (<fn>, 5)
+  _ : Option[(Int32) => Int32] = Some(<fn>)
+
+型エラーと曖昧性エラーで失敗した入力の中で宣言したインスタンスは、後の入力から見えない:
+
+  $ diktor --repl <<'EOF2'
+  > type class Rd[A] { val rd: (String) => A }
+  > type instance Rd[Int32] { let rd(s) = 1i32 }; let bad = 1 + "a"
+  > let n: Int32 = rd("x")
+  > type instance Rd[Boolean] { let rd(s) = true }; let a = rd("x")
+  > let b: Boolean = rd("x")
+  > type instance Rd[Int32] { let rd(s) = 2i32 }
+  > let n: Int32 = rd("x")
+  > EOF2
+  ! <stdin>:2:57: 型エラー: String は Integral のインスタンスではありません
+  ! <stdin>:3:5: 型エラー: 注釈された型を満たしません(Int32 は Rd のインスタンスではありません)
+  ! <stdin>:4:57: 型エラー: 曖昧な制約: Rd を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
+  ! <stdin>:5:5: 型エラー: 注釈された型を満たしません(Boolean は Rd のインスタンスではありません)
+  n : Int32 = 2
