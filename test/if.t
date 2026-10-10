@@ -135,8 +135,7 @@ if で始まる行は新しい文を始める:
      4  3
      5  <EOF>
 
-対話的な実行でも、then や else で行が終わるか、次の行が then や else で始まれば、
-入力を読み続ける:
+対話的な実行でも、then で行が終わるか、次の行が else で始まれば、入力を読み続ける:
 
   $ printf 'let y = if false then\n0\nelse 5\n' | diktor --repl
   y : Int32 = 5

@@ -41,6 +41,10 @@
 
 括弧で囲んだ矢印は、型適用の頭やヴァリアント和の要素にはならない:
 
+  $ echo 'let x: ((Int32) => Int32)[Int32] = ???' > grpapp.kel
+  $ diktor --type-check grpapp.kel
+  ! grpapp.kel:1:8: 型エラー: 型適用の頭は型名でなければなりません
+  [1]
   $ echo 'let x: ((Int32) => Int32) | #A = ???' > grpunion.kel
   $ diktor --type-check grpunion.kel
   ! grpunion.kel:1:8: 型エラー: ヴァリアント和の要素になれない型です: (Int32) => Int32 @ {}
