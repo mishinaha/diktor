@@ -816,7 +816,6 @@ let add_class_decl info =
 type instance_info = {
   ii_premises : (int * oid) list; (* 引数位置 → 要求クラス *)
   ii_builtin : bool;
-  ii_methods : (oid * T.let_binding) list; (* 利用者が宣言したメソッド本体(interp のディスパッチ用) *)
 }
 
 let instances : (oid * oid, instance_info) Hashtbl.t = Hashtbl.create 256
@@ -830,7 +829,7 @@ let reserved_predicate c = Hashtbl.mem reserved_predicates c
 
 (* コヒーレンスの規則として、重複したキーを拒否する(sample.kel:357)。
    組み込みと同じキーの利用者の宣言は、標準環境のインスタンスの再宣言として拒否する *)
-let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
+let add_instance ?(builtin = true) ~cls ~con premises =
   (* 予約述語は、インスタンスの入口でも拒否する(§6.12)。免除するのは組み込みの
      登録(builtin = true)だけである。組み込みの登録自身が Integral[Int32] /
      Fractional[Float64] をここから入れる。免除の条件を in_prelude にしない理由は §6.12 *)
@@ -843,7 +842,7 @@ let add_instance ?(builtin = true) ?(methods = []) ~cls ~con premises =
   | Some _ ->
       type_error
         ("インスタンス " ^ Type.display_of cls ^ "[" ^ Type.display_of con ^ "] が二重に宣言されています(コヒーレンス違反)")
-  | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin; ii_methods = methods }
+  | None -> Hashtbl.add instances (cls, con) { ii_premises = premises; ii_builtin = builtin }
 
 let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
 

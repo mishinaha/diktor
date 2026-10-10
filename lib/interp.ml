@@ -11,9 +11,9 @@
 
    評価器の大半は素直な木の巡回である。
    込み入っている部分は 2 つある。
-   エフェクトハンドラ(§14.10)と、型クラスの実行時ディスパッチ(§14.6 と §14.7)である。
+   エフェクトハンドラ(§14.10)と、型クラスの辞書(§14.6 と §14.7)である。
    前者は Keleut の意味論を OCaml 5 の `Effect.Deep` に写す部分で、
-   後者は elab が選んだのと同じインスタンスを、実行時にもう一度選ぶ部分である。
+   後者は型検査が木に書いた証拠から辞書を作り、メソッドを選ぶ部分である。
    どちらも、誤って実装してもエラーにならず、気づきにくい形で壊れる。
 
    ## Keleut のハンドラと OCaml 5 の Effect.Deep の対応
@@ -65,54 +65,24 @@
    ## 章の見取り図
 
    表(§14.1)、パターン照合(§14.2)、数値リテラル(§14.3)、`eval` の骨格(§14.4)、適用(§14.5)、
-   ディスパッチ(§14.6〜§14.8)、束縛(§14.9)、ハンドラ(§14.10)、
+   辞書とメソッドの選択(§14.6)、構造的等価(§14.7)、束縛(§14.9)、ハンドラ(§14.10)、
    トップレベル(§14.11〜§14.14)の順に述べる。 *)
 open Aux
 open Syntax
 open Value
 module T = Tree.Tree
 
-(* ## 14.1 実行時に引く 2 つの表
+(* ## 14.1 実行時に引く表
 
-   Keleut の型クラスは辞書渡しをしない。
-   呼び出し地点に辞書を通す代わりに、実行時に値のタグでインスタンスを引く。
-   そのために要るのは、この `user_instances` と、第13章の組み込みのメソッド表だけである。
-
-   引き方は `(クラス, 型構成子) → メソッド名 → 値` である。
-   型構成子は第1章のインターン表の oid で、型の側と同じ番号を使う。 *)
-
-(* 利用者が宣言したインスタンスのメソッドの実体。(クラス, 型構成子) → メソッド名 → 値 *)
-let user_instances : (oid * oid, (oid * Value.t) list) Hashtbl.t = Hashtbl.create 32
-
-(* dispatch の解決のキャッシュ。(クラス, 型構成子, メソッド) → 実装。
-   見つからなかったこと(None。構造的導出へ進む)も覚える。
-   user_instances に書き込むのは exec_decl の DInstance の 1 か所だけで、
-   そこで必ずこの表を無効化する。
-   書き込む箇所を 1 か所に保つことが、この表の正しさの前提である。
-   無効化が漏れると、宣言の順序によって結果が変わる *)
-let resolution_cache : (oid * oid * oid, (Value.t -> Value.t) option) Hashtbl.t = Hashtbl.create 64
-
-(* dispatch_positions の結果のメモ。(クラス, メソッド) → 候補の位置。
-   スキーマは宣言の後は変わらないので、無効化するのは run の初期化だけでよい *)
-let positions_cache : (oid * oid, int list) Hashtbl.t = Hashtbl.create 64
-
-(* `tycon_of_value` はディスパッチの入口で、値から名目的な型の名前を 1 つ取り出す。
-   `VRecord` と `VVariant` が `None` になるのは、レコードとヴァリアントが構造的な型で名前を持たず、
-   名目的なインスタンス表を引く鍵にならないからである。
-   ここで `None` になった値は、§14.7 の構造的導出へ回る。
-   `VClosure` と `VPrim` も、関数にはインスタンスが付かないので `None` になる。 *)
-
-let tycon_of_value = function
-  | VBool _ -> Some (Type.intern "Boolean")
-  | VInt32 _ -> Some (Type.intern "Int32")
-  | VInt64 _ -> Some (Type.intern "Int64")
-  | VFloat64 _ -> Some (Type.intern "Float64")
-  | VText _ -> Some (Type.intern "String")
-  | VData d -> Some d.d_type
-  | VRef _ -> Some (Type.intern "Ref")
-  | VArray _ -> Some (Type.intern "Array")
-  | VMutArray _ -> Some (Type.intern "MutableArray")
-  | VRecord _ | VVariant _ | VClosure _ | VPrim _ | VDict _ | VDictAbs _ -> None
+   型クラスのメソッドをどのインスタンスで呼ぶかは、型検査が型から決め、
+   証拠として木に書く(第5章 §5.1b)。
+   評価器は証拠から辞書を作り(§14.6)、辞書が指す (クラス, 型構成子) でインスタンスの表を引く。
+   実行時の値のタグは見ない。
+   要る表は、利用者が宣言したインスタンスの `instance_impls` と、
+   第13章の組み込みのメソッド表である。
+   型構成子は第1章のインターン表の oid で、型の側と同じ番号を使う。
+   辞書パラメータは局所環境 `locals` に名前で置くので、
+   閉包が辞書を字句的に捕まえる仕組みを別に持たない。 *)
 
 (* 利用者が宣言したインスタンスのメソッド。(クラス, 型構成子) → メソッド名 → 前提と
    メソッド自身の辞書を受け取って実装を返す関数。exec_decl の DInstance だけが jreplace で書く *)
@@ -471,7 +441,7 @@ and apply vf vargs =
   | VDictAbs _ as v -> bug ("辞書を受け取る値を関数として適用しました(辞書の渡し忘れ): " ^ show v)
   | v -> runtime_error ("関数ではない値を適用しました: " ^ show v)
 
-(* ## 14.5b 辞書とメソッドの選択
+(* ## 14.6 辞書とメソッドの選択
 
    型検査が木に書いた証拠(第5章 §5.1b)から辞書を作り、メソッドを選ぶ。
    実行時の値のタグは見ない。
@@ -551,6 +521,20 @@ and select_method ~cls d meth own =
   | VDict DPending -> runtime_error "型の決まっていない制約の辞書を使いました"
   | v -> bug ("辞書ではない値: " ^ show v)
 
+(* ## 14.7 構造的等価
+
+   `{p = 1, q = 2}` と `{q = 2, p = 1}` は同じ値である。
+   行の型は最左一致で決まる一方、異なるラベルの間には順序が無い。
+   そのため、値のフィールドのリストを前から突き合わせる比較は誤りである。
+   型検査が組んだ `EvRecord` は、閉じた行の型のラベルごとに、
+   そのフィールドの型の `Eq` の辞書を持つ。
+   左辺と右辺からそのラベルの最も左のフィールドを取り出して消し、フィールドの辞書で比べる。
+   最後に両辺が空になれば一致である。
+   フィールドの型が名目的な型なら、その型のインスタンスの辞書で比べるので、
+   利用者が宣言した `Eq` を無視して構造をのぞき込むことはない。
+   ヴァリアントは、ラベルを比べ、同じなら行の中のそのラベルの辞書で積載値を比べる。
+   `Float64` の比較は組み込みの `eq` に委ねるので、IEEE の意味論(NaN ≠ NaN)がそのまま出る。 *)
+
 and eq_with d x y = Builtin.as_bool (apply (select_method ~cls:(Type.intern "Eq") d "eq" []) (VRecord [ (Type.l_item, x); (Type.l_item, y) ]))
 
 (* 閉じたレコード型の構造的な Eq。型の行の順にラベルを取り、両辺から最も左の同名のフィールドを
@@ -567,214 +551,6 @@ and variant_eq fs a b =
   match (a, b) with
   | VVariant (l1, p1), VVariant (l2, p2) -> l1 = l2 && eq_with (List.assoc l1 fs) p1 p2
   | _ -> bug "variant_eq: ヴァリアントではない値"
-
-(* ## 14.6 ディスパッチに使う引数の位置
-
-   辞書渡しをしない実装では、どの値のタグでインスタンスを選ぶかを、実行時に決めなければならない。
-   引数を左から見て、最初にインスタンスを持つ値で決めるという素朴な方法は、誤りである。
-   次の例がその反例になる。
-
-   ```keleut
-   type class Pick[A] { val pick: (Int32, A) => Int32 }
-   type instance Pick[Int32]  { let pick(n, a) = a }
-   type instance Pick[String] { let pick(n, a) = n }
-   let s: String = ...    // 何か String の値
-   pick(0, s)
-   ```
-
-   左から走査すると、第 1 引数の `Int32` に `Pick[Int32]` が当たり、実行時は `Pick[Int32]` を選ぶ。
-   一方、elab はクラスパラメータ `A` の位置で解決するので、`Pick[String]` を選ぶ。
-   型検査と実行が別のインスタンスを選ぶので、コヒーレンスが実行時に破れる。
-
-   正しい規約は、クラスパラメータが頭に現れる引数の位置だけで選ぶことである。
-   `dispatch_positions` は、メソッドのスキーマ(Generic の印が付いたもの)の引数レコードを走査し、
-   型適用の背骨(`app_spine`)の頭がそのクラスパラメータである位置を集める。
-   elab 側の `register_class` は、宣言の時点で、
-   少なくとも 1 つの引数の頭にパラメータが現れることを要求する。
-   `(List[A]) => …` のように、パラメータが引数の内側にしか現れないメソッドの宣言は拒否する。
-   宣言を受理する側と実行する側が、まったく同じ述語を見ている。
-   上の `Pick` の例の回帰テストは、`test/verify_fixes.t` の pick.kel である。
-
-   位置が 1 つも取れなかったときは、すべての引数を走査する。
-   ただし、この分岐には現状では到達しない。
-   組み込みのクラス(Add、Sub、Mul、Div、Rem、Neg、Eq、Ord、Show)のスキーマは、
-   どれも引数の頭がクラスパラメータそのものである。
-   メソッドを持たない Integral と Fractional は、そもそも dispatch されない。
-   利用者が宣言したクラスには、上の受理検査が同じ形を強制する。
-   この分岐を残してあるのは、安全側の判断である。
-   スキーマが想定外の形になったとき、候補を狭めるより広げるほうが、
-   「インスタンスが見つかりません」で落ちにくい。 *)
-
-(* メソッドのスキーマから、クラスパラメータが頭に現れる引数の位置を求める。
-   ディスパッチはこの位置だけで行う(elab.ml の register_class と同じ規約)。
-   これを守らないと、pick: (Int32, A) => Int32 が第 1 引数の Int32 で誤ってディスパッチし、
-   elab の解決と食い違う *)
-and dispatch_positions ci meth =
-  let is_param t =
-    match Type.repr (fst (Type.app_spine t)) with
-    | Type.TVar r -> ( match !r with Type.Generic i -> i.Type.vid = ci.Decls.ci_param.Type.vid | _ -> false)
-    | _ -> false
-  in
-  match List.assoc_opt meth ci.Decls.ci_methods with
-  | Some scheme -> (
-      match Type.repr scheme with
-      | Type.TArrow (args, _, _) -> (
-          match Type.repr args with
-          | Type.TRecord row ->
-              fst (Type.row_fields row)
-              |> List.mapi (fun i (_, t) -> (i, t))
-              |> List.filter_map (fun (i, t) -> if is_param t then Some i else None)
-          | _ -> [])
-      | _ -> [])
-  | None -> []
-
-(* ## 14.7 dispatch の探索順序とフォールバック
-
-   候補の位置の値を左から見て、最初に実装が見つかった値でメソッドを決める。
-   1 つの値について引く順序は、利用者が宣言したインスタンス、組み込みのメソッド表の順である。
-   利用者の宣言が組み込みの鍵を奪えないことは、第6章が宣言の時点で保証する。
-
-   どこにも無ければ、構造的導出へ進む。
-   Diktor が構造的に導出するのは `Eq` だけで、
-   組み込みの `Eq` のクラス表の印 `ci_derive_structural` が、構造的導出を有効にする。
-   仕様は構造的な型へのインスタンスについて「利用者には書かせない。コヒーレンスを守るため、
-   組み込みの自動導出だけがインスタンスを与える」と定め(sample.kel:384)、
-   導出が閉じた行にしか効かないことも定めている(sample.kel:392-396)。
-
-   ここでは次の不変条件が効いている。
-   elab 側(第8章(unify.ml))は、構造的導出を閉じた行のレコードとヴァリアントにしか適用しない。
-   それ以外の型に `Eq` が要求されればインスタンス表を引き、無ければ型エラーにする。
-   そのため、型検査を通ったプログラムでこの分岐に来る値は、
-   レコードかヴァリアント(`tycon_of_value` が `None` を返す値)に限られ、
-   実行時の選択が elab の判定と一致する。
-
-   ただし、名目型の値がこの分岐に来る場合が 1 つだけある。
-   利用者のインスタンスを、その宣言より前の位置で使う場合である。
-   型検査はパス 1c でインスタンス表を揃えてから本体を見るので、宣言の順序を問わない。
-   一方、実行は宣言の順に `user_instances` へ書くので、その時点ではまだ実体が無い。
-   ここで名目型の値を黙って構造的等価に落とすと、同じ式が宣言の前と後で違う値を返す。
-   そこで、elab の表にはインスタンスがあるのに実行の表には無い値を見つけたら、
-   構造的導出へ進む前に実行時エラーにする(`test/verify_fixes.t` の instorder)。
-   黙って誤った値を返すより、エラーで止めるほうを選ぶ点で、
-   §14.15 の前方参照の値の扱いと同じ判断である。
-
-   上の不変条件から、ここで「インスタンスが見つかりません」が出たら、誤りは実行時の側ではなく、
-   型検査の側か表の登録の側にある。
-
-   実行時ディスパッチが正しいのは、探索の方法によるのではなく、
-   コヒーレンスが保証されているからである。
-   そのため、探索の結果を覚えても意味は変わらない。
-   結果を覚える表は 2 つある。
-   `resolution_cache` は解決の結果(None も含む)を、`positions_cache` は候補の位置を覚える。
-   無効化する箇所は 2 つだけである。
-   `run` の冒頭の初期化と、`exec_decl` の `DInstance` の登録で、
-   後者は `resolution_cache` を空にする。
-   `user_instances` に書き込む箇所を 1 か所に保つことが、
-   `resolution_cache` の正しさの前提である。 *)
-
-and dispatch cls_name meth args =
-  let cls_oid = Type.intern cls_name in
-  let meth_oid = Type.intern meth in
-  let vals = Builtin.arg_values args in
-  let cand_vals =
-    match Decls.find_class cls_oid with
-    | Some ci -> (
-        let ps =
-          match Hashtbl.find_opt positions_cache (cls_oid, meth_oid) with
-          | Some ps -> ps
-          | None ->
-              let ps = dispatch_positions ci meth in
-              Hashtbl.replace positions_cache (cls_oid, meth_oid) ps;
-              ps
-        in
-        match ps with
-        | [] -> vals (* 位置が取れなければすべてを走査する(現状は到達しない安全側の保険) *)
-        | ps -> List.filteri (fun i _ -> List.mem i ps) vals)
-    | None -> vals
-  in
-  let find_impl v =
-    match tycon_of_value v with
-    | Some con -> (
-        (* 解決の結果はキャッシュを通して引く。コヒーレンスが保証されていて、
-           正しさが探索の方法に依らないので、結果を覚えても意味は変わらない *)
-        match Hashtbl.find_opt resolution_cache (cls_oid, con, meth_oid) with
-        | Some r -> r
-        | None ->
-            let r =
-              match Hashtbl.find_opt user_instances (cls_oid, con) with
-              | Some methods -> (
-                  match List.assoc_opt meth_oid methods with Some f -> Some (fun args -> apply f args) | None -> None)
-              | None -> Builtin.builtin_method cls_name (Type.name_of con) meth
-            in
-            Hashtbl.replace resolution_cache (cls_oid, con, meth_oid) r;
-            r)
-    | None -> None
-  in
-  match List.find_map find_impl cand_vals with
-  | Some f -> f args
-  | None -> (
-      (* 名目型の値がここへ来るのは、その `(クラス, 型構成子)` の利用者のインスタンスが、
-         宣言より前の位置で使われたときだけである。型検査はパス 1c で表を揃えるので
-         この使用を通す。一方、実行は宣言の順に user_instances へ書くので、この時点では
-         まだ実体が無い。黙って構造的等価へ落とすと、同じ式が宣言の前と後で違う値を
-         返すので、実行時エラーにする(§14.15 の前方参照と同じ判断) *)
-      (match List.find_map tycon_of_value cand_vals with
-      | Some con when Decls.find_instance ~cls:cls_oid ~con <> None ->
-          runtime_error
-            (Type.display cls_name ^ "[" ^ Type.display_of con ^ "] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)")
-      | _ -> ());
-      (* 構造的導出(Diktor は Eq だけを導出する)。コヒーレンスにより elab の選択と一致する *)
-      let structural = match Decls.find_class cls_oid with Some ci -> ci.Decls.ci_derive_structural | None -> false in
-      match (structural, meth, vals) with
-      | true, "eq", [ a; b ] -> VBool (structural_eq a b)
-      | _ ->
-          runtime_error
-            (Type.display cls_name ^ "." ^ meth ^ " のインスタンスが見つかりません: "
-            ^ String.concat ", " (List.map show vals)))
-
-(* ## 14.8 構造的等価
-
-   `{p = 1, q = 2}` と `{q = 2, p = 1}` は同じ値である。
-   行の型は最左一致で決まる一方、異なるラベルの間には順序が無い。
-   そのため、値のフィールドのリストを前から突き合わせる比較は誤りである。
-   正しい手順では、左辺のレコードのフィールドを順に取り、
-   右辺のレコードから同名のフィールドのうち最も左のものを取り出して消していく。
-   最後に右辺が空になれば一致である(右辺に余分なフィールドがあれば、ここで不一致になる)。
-
-   フィールドの比較は、直接の再帰ではなく `value_eq`(つまり `dispatch Eq.eq`)に通す。
-   フィールドに利用者定義の `Eq` を持つ newtype があるとき、
-   宣言されたインスタンスを無視して構造をのぞき込まないためである。
-
-   引数レコードに `_item` が 2 つ並ぶのは、Scoped Labels がラベルの重複を許すからである。
-   ラベルの重複を許すことが、そのまま多引数の表現になっている。
-
-   関数どうしの比較は、実行時エラーにする。
-   Float64 の比較は `__float64_eq` に委ねるので、IEEE の意味論(NaN ≠ NaN)がそのまま出る。 *)
-
-and value_eq a b = Builtin.as_bool (dispatch "Eq" "eq" (VRecord [ (Type.l_item, a); (Type.l_item, b) ]))
-
-(* レコードは、左辺のフィールドを順に取り、
-   右辺から同名のフィールドのうち最も左のものを取り出して消す。
-   異なるラベルの間の物理的な順序は値によって違いうるので、単純な順序比較は誤りである *)
-and structural_eq a b =
-  match (a, b) with
-  | VRecord fs1, VRecord _ ->
-      let rec go fs1 rv =
-        match fs1 with
-        | [] -> record_fields rv = [] (* 右辺に余りがあれば不一致 *)
-        | (l, x) :: rest -> (
-            match record_take rv l with
-            | y, rv' -> value_eq x y && go rest rv'
-            | exception Runtime_error _ -> false)
-      in
-      go fs1 b
-  | VVariant (l1, p1), VVariant (l2, p2) -> l1 = l2 && value_eq p1 p2
-  | VData d1, VData d2 ->
-      d1.d_type = d2.d_type && d1.d_ctor = d2.d_ctor
-      && Array.length d1.d_fields = Array.length d2.d_fields
-      && Array.for_all2 (fun x y -> value_eq x y) d1.d_fields d2.d_fields
-  | (VClosure _ | VPrim _), _ | _, (VClosure _ | VPrim _) -> runtime_error "関数は比較できません"
-  | _ -> value_eq a b
 
 (* ## 14.9 let と let rec
 
@@ -1256,16 +1032,14 @@ and eval_handle env body clauses =
 
    値の表現だけは 2 つに分けている。
    `VArray` が不変、`VMutArray` が可変で、中身はどちらも `Value.t array` である。
-   分けているのはディスパッチのタグ(§12.1 の表)と印字を別にするためで、
-   実行時の動作が違うからではない。
-   同じコンストラクタを共用すると、可変配列の値が `Array` のタグで表を引いてしまう。
-   たとえば、前提つきのインスタンス `type instance[A: Show] Show[Array[_]]` は宣言できるので、
-   タグを共用すると、可変配列の値がこのインスタンスに当たる。
-   `MutableArray` 側のインスタンスも、
-   `type instance[H, A: Show] Show[MutableArray[_, _]]` の形なら、宣言も使用もできる。
+   分けているのは印字(§12.7)のためで、実行時の動作が違うからではない。
+   どのインスタンスのメソッドで印字するかは型検査が型から決めるので(§14.6)、
+   値のコンストラクタの違いは、組み込みの `show` が可変配列であることを表示に出すためだけに使う。
+   `type instance[A: Show] Show[Array[_]]` と `type instance[H, A: Show] Show[MutableArray[_, _]]` は、
+   どちらも宣言も使用もできる。
    前提がリージョンの型パラメータにも制約を付けた `[H: Show, A: Show]` の形は、
    宣言できても使う位置で型エラーになる。
-   その理由は `run` の剛定数に制約が無いことで、タグの区別とは関係がない。
+   その理由は `run` の剛定数に制約が無いことである。
 
    `MutableArray.freeze` はコピーを作る。
    仕様 §10 が要求するのは、観測できる契約だけである。
@@ -1352,13 +1126,14 @@ let register_builtin_values globals =
 (* ## 14.12 クラスメソッドの識別子参照
 
    `eq(a, b)` や `show(x)` のようなメソッドの識別子参照のために、
-   `dispatch` を呼ぶだけのラッパの prim を globals に置く。
-   ラッパは、globals に置いた時点ではなく、呼ばれた時点で表を引く。
+   辞書を受け取ってメソッドを選ぶ値(`method_selector`)を globals に置く。
+   メソッドを選ぶのは、globals に置いた時点ではなく、
+   辞書を受け取った関数が呼ばれた時点である(§14.6)。
    そのため、メソッドを参照する関数をインスタンス宣言より前に定義しても、
    インスタンス宣言より後に呼べば、そのインスタンスが使われる。
-   呼び出しの評価がインスタンス宣言より前になると、§14.7 の実行時エラーになる。
+   呼び出しの評価がインスタンス宣言より前になると、§14.6 の実行時エラーになる。
 
-   ラッパは、メソッドの実体 `GMethod Cls.m` の鍵 1 個で置く。
+   実体は、メソッドの鍵 `GMethod Cls.m` の 1 個で置く。
    非修飾名 `map` と修飾名 `Functor.map` のどちらで書いても、
    elab が同じ実体を `resolved` に書く(第11章 §11.33)。
    非修飾名をどのクラスのメソッド(またはどのトップレベルの値)に結ぶかは、
@@ -1407,7 +1182,7 @@ let register_class_methods globals =
    トップレベルの `let` と `let rec` は、globals に直接置く。
    バックパッチが要らないのは、§14.9 で述べたとおりである。
 
-   本章でインスタンス表(`user_instances`)に書き込むのは、`type instance` の処理だけである。
+   本章でインスタンス表(`instance_impls`)に書き込むのは、`type instance` の処理だけである。
    この処理では、同義語の表を引くことに注意している。
    第11章の `flatten_modules` は、型検査の前に module を平坦化し、
    `module BigInt { newtype BigInt … }` の型を `BigInt.BigInt` に改名する。
@@ -1561,7 +1336,7 @@ let exec_decl env ((_, d) as node : T.decl) =
    プログラムのいちばん外側にハンドラを置き、
    エフェクトを未処理として扱う場所をここ 1 か所に決めている。
 
-   `start_program` は、3 つの表 `user_instances`、`resolution_cache`、`positions_cache` を空にする。
+   `start_program` は、インスタンス表 `instance_impls` と閉じた辞書の覚え書き `closed_cache` を空にする。
    同じプロセスで `run` を繰り返し呼ぶ場合(第16章の `eval_string`)に、
    前回の実行の痕跡を次の実行に残さないためである。
    痕跡が残ると、同じプログラムの結果が、それより前に何を実行したかに依存する。
@@ -1571,9 +1346,6 @@ let exec_decl env ((_, d) as node : T.decl) =
 
 (* 大域の環境を作る。組み込みの値と、その時点で宣言表にあるクラスのメソッドのラッパを置く *)
 let start_program () =
-  Hashtbl.reset user_instances;
-  Hashtbl.reset resolution_cache;
-  Hashtbl.reset positions_cache;
   Hashtbl.reset instance_impls;
   Hashtbl.reset closed_cache;
   let globals = Hashtbl.create 512 in
@@ -1632,16 +1404,15 @@ let run ~sink decls = run_units ~sink [ decls ]
    module の値同義語でも、`--prelude` で差し替えたプレリュードの module の中の名前でも、
    型検査と実行は同じ実体を選ぶ(`test/resolved_names.t`)。
 
-   ### 静的化への移行路
+   ### 辞書の費用
 
-   Diktor は型クラスのメソッドを、値のタグで動的にディスパッチする。
-   この設計は、静的なディスパッチへ段階的に移ることを妨げない。
-   elab が呼び出し地点の `resolved` に選んだインスタンスを書けば、
-   評価器は `dispatch` の表引きを省ける。
-   動的ディスパッチをフォールバックとして残したまま、呼び出し地点ごとに移せる。
-   `pure` のように返り値の型からしかインスタンスが決まらないメソッドには、この静的な注記が要る。
-   Diktor はこの注記を持たないので、そうしたメソッドは宣言の時点で拒否する(§11.33)。
-   表引きの費用は、§14.7 の解決のキャッシュで抑えている。
+   辞書は、型検査が木に書いた証拠を評価して作る(§14.6)。
+   辞書パラメータを含まない証拠の辞書は穴ごとに 1 回だけ作り、
+   辞書を受け取る値は直前に受け取った辞書の列と結果を覚えるので、
+   同じ呼び出し地点を繰り返しても辞書を作り直さない。
+   制約付きの多相関数の再帰は、再帰のたびに辞書を局所環境から引いて渡すので、
+   単相の関数より遅い。
+   辞書パラメータを名前の文字列で引くことがその費用の中心である。
 
    最後に、本章で外すと気づかれずに壊れるものを並べる。
 
@@ -1650,7 +1421,7 @@ let run ~sink decls = run_units ~sink [ decls ]
    3. 節本体の末尾の背骨にある `Resume` の `continue` を、包みを抜けてから発行すること
       (落とすと perform を含むループが perform のたびに空間を使う。
       ただし引数の評価は包む。包み忘れると資源が漏れる)
-   4. クラスパラメータの位置だけを使うディスパッチ(外すとコヒーレンスが破れる)
+   4. 辞書とセレクタのクラスの比較(外すと、辞書の渡し方の誤りが黙って別のメソッドを呼ぶ)
    5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)
 
 (* ## 14.16 対話的な実行
@@ -1757,6 +1528,4 @@ let exec_input ?(print = false) ?(show = fun _ -> ()) s ~sink decls =
       journal := [];
       journaling := false;
       s.s_env <- saved_env;
-      Hashtbl.reset resolution_cache;
-      Hashtbl.reset positions_cache;
       raise ex

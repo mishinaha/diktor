@@ -4153,7 +4153,7 @@ let register_instance (i : T.instance_decl') =
      if Decls.entity_unit cls <> cur && Decls.entity_unit con <> cur then
        let c = display_of cls and t = display_of con in
        type_error (c ^ "[" ^ t ^ "] のインスタンスは、" ^ c ^ " か " ^ t ^ " を宣言したファイルにだけ書けます"));
-  Decls.add_instance ~builtin:false ~methods ~cls ~con premises
+  Decls.add_instance ~builtin:false ~cls ~con premises
 
 (* ## 11.36 前方参照できる束縛の条件
 
