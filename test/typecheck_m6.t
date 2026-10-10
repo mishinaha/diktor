@@ -6,8 +6,8 @@ sample.kel §9 の核心(println / capture / try_ / with_file / copy)。ファ�
 @ Blocking で書く)。
 with_file の handle は write が Console と File の両方に宣言されていても
 「全節が属し全操作が網羅される」File に解決される(D22)。
-copy の perform write は行の最左の File に解決される(この例では最内
-ハンドラと一致する。注釈した行では書かれた順 — 下の leftmost.kel):
+copy の 2 つ目の perform は、行に Console と File の両方が現れるので
+File.write と修飾する(下の ambigrow.kel):
 
   $ cat > eff9.kel <<'EOF'
   > type Unit = {}
@@ -50,7 +50,7 @@ copy の perform write は行の最左の File に解決される(この例で�
   >   with _ = with_file(src)
   >   let text = perform read()
   >   with _ = with_file(dst)
-  >   perform write(text)
+  >   perform File.write(text)
   > }
   > let echo_test[E](): Unit @ {Console extends E} =
   >   println("test") handle {
@@ -105,9 +105,9 @@ D22 のエラー経路(修飾要求)と修飾解決:
   $ diktor --type-check --no-prelude qual.kel
   ok : () => {} @ {A2 extends R1}
 
-候補が 1 個なら行を見ずに解決する(§9 の規則は 2 段 — 曖昧なときだけ行の
-最左を見る。ここで行を要求すると、注釈の無い let の perform が全部
-修飾を要求されることになる。D99):
+候補が 1 個なら行を見ずに解決する(§9 の規則は 2 段 — 曖昧なときだけ行を
+見る。ここで行を要求すると、注釈の無い let の perform が全部修飾を
+要求されることになる。D99):
 
   $ cat > onecand.kel <<'EOF'
   > type Unit = {}
@@ -117,7 +117,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   $ diktor --type-check --no-prelude onecand.kel
   f : () => {} @ {A1 extends R1}
 
-候補が 2 個以上で、行にその候補が 1 つも現れないときだけ修飾を要求する:
+候補が 2 個以上で、行にその候補が 1 つも現れないときも、修飾を要求する(2 つ以上現れるときは下の ambigrow.kel):
 
   $ cat > twocand.kel <<'EOF'
   > type Unit = {}
@@ -380,21 +380,42 @@ MiniLang §16-8 の runST 2例(値制限):
   ! rigidrow.kel:5:3: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル C を足せません(注釈側に C を(必要なら引数つきで)書き足してください)
   [1]
 
-非修飾操作名の解決は「行の最左」— 注釈された行では書かれた順であって
-入れ子順ではない(M20 / I3。かつて本文が「最左 = 最内ハンドラ」と
-一般化して書いていた誤りの反例。挙動は健全 — perform は解決済みの
-完全名を運ぶので、実行時の捕捉と食い違わない):
+非修飾の操作名は、行の中の位置では選ばない。行に候補が 2 つ現れると、
+ラベルの順序によらず修飾を求める(LangSpec §13.3):
 
-  $ cat > leftmost.kel <<'KEL'
+  $ cat > ambigrow.kel <<'KEL'
   > type Unit = {}
   > effect E1 = { op: (String) => Unit }
   > effect E2 = { op: (String) => Unit }
   > let f(): Unit @ {E1, E2} = perform op("f")
+  > KEL
+  $ diktor --type-check --no-prelude ambigrow.kel
+  ! ambigrow.kel:4:28: 型エラー: 操作 op は、この位置の行に現れる複数のエフェクト(E1, E2)に属します。E1.op、E2.op のどれかに修飾してください
+  [1]
+  $ cat > ambigrow2.kel <<'KEL'
+  > type Unit = {}
+  > effect E1 = { op: (String) => Unit }
+  > effect E2 = { op: (String) => Unit }
   > let g(): Unit @ {E2, E1} = perform op("g")
   > KEL
-  $ diktor --type-check --no-prelude leftmost.kel
-  f : () => {} @ {E1, E2 extends R1}
-  g : () => {} @ {E2, E1 extends R1}
+  $ diktor --type-check --no-prelude ambigrow2.kel
+  ! ambigrow2.kel:4:28: 型エラー: 操作 op は、この位置の行に現れる複数のエフェクト(E1, E2)に属します。E1.op、E2.op のどれかに修飾してください
+  [1]
+
+行に現れる候補が 1 つなら、それに解決する。同じエフェクトが 2 回現れても 1 つと数える:
+
+  $ cat > onerow.kel <<'KEL'
+  > type Unit = {}
+  > effect E1 = { op: (String) => Unit }
+  > effect E2 = { op: (String) => Unit }
+  > let f(): Unit @ {E1, E1, E2} = perform E2.op("x")
+  > let g(): Unit @ {E1, E1} = perform op("g")
+  > let h[E](): Unit @ {E2 extends E} = perform op("h")
+  > KEL
+  $ diktor --type-check --no-prelude onerow.kel
+  f : () => {} @ {E1, E1, E2 extends R1}
+  g : () => {} @ {E1, E1 extends R1}
+  h : () => {} @ {E2 extends R1}
 
 サブエフェクティングは無い(計画 §12 の意図した挙動の明示的な固定。H4 / D23-a)が、
 最外の矢印の @ {} は公開の型で開くので、エフェクトのある文脈から呼べる(LangSpec §13.2):
