@@ -527,7 +527,7 @@ module Type = struct
    第11章の `expand_alias` がこれを検査する(§11.5)。
 
    `app_spine` は、`TApp` の連鎖を頭と引数の列に平らにする。
-   表示(第9章)と、下の正規化が使う。 *)
+   表示(第9章)が使う。 *)
 
   (* TApp の正規化: 頭が飽和形の TCon なら引数に畳む *)
   let tapp f a = match f with TCon (c, args) -> TCon (c, args @ [ a ]) | f -> TApp (f, a)
@@ -608,7 +608,7 @@ module Type = struct
    このうち注釈の型パラメータは、`new_rigid_ref` で作る。
    これは `release_rigids` が後から中身を `Generic` に書き換える(第11章 §11.27)ので、
    `ref` そのものが要る。
-   `run` のヒープとインスタンス検査の skolem 化(第8章の `skolemize`)は、
+   `run` のヒープと、インスタンス検査が期待型を剛定数に写すとき(第11章 §11.38)は、
    型だけで足りるので `new_rigid` で作る。
    制約は、どちらの関数にも `?classes` で渡す。
    `new_rigid` は `new_rigid_ref` の結果を `TVar` で包むだけなので、

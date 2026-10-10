@@ -11,7 +11,7 @@
 
    評価器の大半は素直な木の巡回である。
    込み入っている部分は 2 つある。
-   エフェクトハンドラ(§14.10)と、型クラスの辞書(§14.6 と §14.7)である。
+   エフェクトハンドラ(§14.9)と、型クラスの辞書(§14.6 と §14.7)である。
    前者は Keleut の意味論を OCaml 5 の `Effect.Deep` に写す部分で、
    後者は型検査が木に書いた証拠から辞書を作り、メソッドを選ぶ部分である。
    どちらも、誤って実装してもエラーにならず、気づきにくい形で壊れる。
@@ -46,10 +46,10 @@
       Keleut には while が無く、反復の手段は再帰だけなので、末尾呼び出しの最適化を失うと、
       普通のループがスタックを使い尽くす。
       例外は、操作節の本体(短い経路では `resume` の引数)と操作節のガードと cancel 節の本体である。
-      前の 2 つは §14.10 の 3 つの経路を判定するために、cancel 節は中の例外を抑制するために、
+      前の 2 つは §14.9 の 3 つの経路を判定するために、cancel 節は中の例外を抑制するために、
       包みの中で評価する。
       そのため、これらの中の末尾位置にある関数呼び出しは末尾にならない。
-      操作節の本体の末尾の背骨にある `resume` だけは、包みを抜けてから継続を末尾で発行する(§14.10)。
+      操作節の本体の末尾の背骨にある `resume` だけは、包みを抜けてから継続を末尾で発行する(§14.9)。
 
    2. 評価順序を let で固定する。
       OCaml は関数適用で引数を評価する順序を規定しておらず、現行のコンパイラは右から左に評価する。
@@ -59,14 +59,14 @@
 
    3. エラーの装飾は、driver の最も外側で 1 回だけ行う。
       途中で例外を捕まえて包み直すと、規約 1 が壊れる。
-      さらに、例外はエフェクトの巻き戻しにも使われている(§14.10 の `Unwind`)ので、
+      さらに、例外はエフェクトの巻き戻しにも使われている(§14.9 の `Unwind`)ので、
       捕まえ損ねるとそのまま意味論が壊れる。
 
    ## 章の見取り図
 
    表(§14.1)、パターン照合(§14.2)、数値リテラル(§14.3)、`eval` の骨格(§14.4)、適用(§14.5)、
-   辞書とメソッドの選択(§14.6)、構造的等価(§14.7)、束縛(§14.9)、ハンドラ(§14.10)、
-   トップレベル(§14.11〜§14.14)の順に述べる。 *)
+   辞書とメソッドの選択(§14.6)、構造的等価(§14.7)、束縛(§14.8)、ハンドラ(§14.9)、
+   トップレベル(§14.10〜§14.13)の順に述べる。 *)
 open Aux
 open Syntax
 open Value
@@ -141,7 +141,7 @@ let cancel_log : (string -> unit) ref = ref (fun _ -> ())
 
    `bind_pat_exn` は、反駁できないはずの位置(`let`、関数の引数、`return` 節)で使う。
    操作節の引数はここを通らず、フォールスルーする照合(`match_pat`)で扱い、
-   一致しなければ次の節へ進む(§14.10)。
+   一致しなければ次の節へ進む(§14.9)。
    `let`、`let rec`、`fn` の引数と `return` 節に書いた反駁可能なパターンは、
    `Exhaust.queue` で網羅性検査に掛かる。
    ただし網羅性検査は、既定では警告を出すだけである(`--strict-exhaustive` ではエラーになる)。
@@ -255,7 +255,7 @@ let number_value node (n : number) =
      トップレベルの実体は globals(可変の Hashtbl)を実体の鍵(`Tree.gref`)で引く。
      globals は可変で、実体を呼び出し時に引くので、トップレベルの相互参照と前方参照が、
      追加のコードなしで通る(第12章の環境の二層構造)。
-     同名の再束縛は、束縛ノードごとに別の鍵になるので、前の束縛を上書きしない(§14.13)。
+     同名の再束縛は、束縛ノードごとに別の鍵になるので、前の束縛を上書きしない(§14.12)。
      どれにも当たらなければ、型検査と評価器の解決が食い違っている。
      型検査が訪れなかった `Ident` を評価したか、
      型検査が局所と判断した名前が実行時の locals に無いかで、
@@ -267,25 +267,25 @@ let number_value node (n : number) =
    - `Match` では、節のガードが偽なら次の節へ進む。
      `try_clauses` は末尾再帰で、節本体の `eval` も末尾位置にある(規約 1)。
      ハンドラの操作節も同じ規則で、
-     パターンが一致しないときもガードが偽のときも次の節へ進む(§14.10)。
+     パターンが一致しないときもガードが偽のときも次の節へ進む(§14.9)。
    - `Perform` は、elab が `resolved` に書いた完全な操作名の oid をそのまま使う。
      修飾なしで書いた操作名の解決(第11章 §11.20)は型検査で済んでおり、実行時に名前を探すことはない。
    - `Resume` は、継続を消費する前に引数を評価する。
      `resume(f())` の `f` が例外で脱出すれば、resume は未消費のまま節の例外の経路
-     (§14.10 の discontinue)に乗る。
+     (§14.9 の discontinue)に乗る。
      順序を入れ替えると、消費済みの継続を捨てることになる。
      この分岐に来るのは、節本体の末尾の背骨の外にある `resume` だけである。
-     背骨の上の `resume` は §14.10 の `eval_clause_tail` が処理し、その経路も `take_resume` で
+     背骨の上の `resume` は §14.9 の `eval_clause_tail` が処理し、その経路も `take_resume` で
      引数を先に評価する。
    - `Run` は、実行時には恒等写像である。
      `run h { … }` の `h` は型の上にしか存在せず、
      リージョンの安全性は第11章の剛定数とレベルが保証している。
      操作を持たないエフェクトラベル(`Heap`、`Blocking`)には、実行時の処理が何も無い。
      `Run` は、実行時に何もしないもののいちばん目立つ例である。
-     `Blocking` を落とす組み込み関数 `pinned` も、実行時には渡された関数を呼ぶだけである(§14.11)。
+     `Blocking` を落とす組み込み関数 `pinned` も、実行時には渡された関数を呼ぶだけである(§14.10)。
      型で守り切れた性質を、実行時に検査し直すことはしない。 *)
 
-(* 操作節の本体を末尾の背骨に沿って評価した結果(§14.10)。
+(* 操作節の本体を末尾の背骨に沿って評価した結果(§14.9)。
    `Clause_resume v` は、背骨の末尾の `resume(v)` に着いたことを表す。
    継続はまだ再開しておらず、再開は呼び出し側が例外の捕捉を抜けてから行う *)
 type clause_end = Clause_value of Value.t | Clause_resume of Value.t
@@ -403,7 +403,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
   | T.Handle (body, clauses) -> eval_handle env body clauses
   | T.Resume arg ->
       (* この分岐に来るのは、節本体の末尾の背骨の外にある resume だけである。
-         背骨の上の resume は §14.10 の eval_clause_tail が処理する *)
+         背骨の上の resume は §14.9 の eval_clause_tail が処理する *)
       let r, v = take_resume env arg in
       Effect.Deep.continue r.r_k v
   | T.Run (_, body) -> eval env body (* 実行時は恒等。リージョンの安全性は型が保証する *)
@@ -446,10 +446,10 @@ and apply vf vargs =
    型検査が木に書いた証拠(第5章 §5.1b)から辞書を作り、メソッドを選ぶ。
    実行時の値のタグは見ない。
    辞書パラメータを持つ値(`VDictAbs`)には、使う位置の `DUse` の証拠を評価した辞書の列を渡す。
-   メソッドの実体は `method_selector`(§14.12)が作る `VDictAbs` で、
+   メソッドの実体は `method_selector`(§14.11)が作る `VDictAbs` で、
    辞書を受け取ると、呼ばれた時点でインスタンスの表からメソッドを選ぶ関数を返す。
    選ぶ時点を呼び出しにするのは、インスタンス宣言より前の位置で辞書を作る形を、
-   宣言の後に呼べば動かすためである(§14.13)。
+   宣言の後に呼べば動かすためである(§14.12)。
    セレクタのクラスと辞書のクラスが食い違えば、辞書の渡し方の誤りなので `bug` にする。 *)
 
 and with_evidence env node v =
@@ -552,7 +552,7 @@ and variant_eq fs a b =
   | VVariant (l1, p1), VVariant (l2, p2) -> l1 = l2 && eq_with (List.assoc l1 fs) p1 p2
   | _ -> bug "variant_eq: ヴァリアントではない値"
 
-(* ## 14.9 let と let rec
+(* ## 14.8 let と let rec
 
    `eval_binding_value` は、引数リストが付いていれば、右辺を評価せずにクロージャを作る。
    `let f(x) = …` の右辺は関数の本体であって、束縛の時点で評価する式ではない。
@@ -562,13 +562,13 @@ and variant_eq fs a b =
    その環境はクロージャができあがるまで作れないので、循環を後から結ぶ。
    第12章のクロージャで `c_env` だけが mutable なのは、このバックパッチのためである。
    第12章には `resume` の `r_used` と `r_alive` という mutable なフィールドもあるが、
-   これらは §14.10 のアフィン性と second-class の検査のためにある。
+   これらは §14.9 のアフィン性と second-class の検査のためにある。
 
    右辺が関数でないときは実行時エラーにするが、この分岐には到達しない。
    `let rec x = x + 1` のように、型は付くのに実行すれば必ず落ちるプログラムは、
    elab が拒否するからである。
 
-   トップレベルの `let rec`(§14.13)にバックパッチが要らないのは、
+   トップレベルの `let rec`(§14.12)にバックパッチが要らないのは、
    globals が共有の可変な表で、実体の表引きが呼び出し時に起きるからである。 *)
 
 and eval_binding_value_plain env ((_, b) : T.let_binding) =
@@ -577,7 +577,7 @@ and eval_binding_value_plain env ((_, b) : T.let_binding) =
   | None -> eval env b.T.lb_body
 
 (* 辞書パラメータを持つ束縛は、辞書を受け取って束縛の値を評価する VDictAbs にする。
-   値束縛の初期化式は、名前を使うたびに評価する(§14.5b) *)
+   値束縛の初期化式は、名前を使うたびに評価する(§14.6) *)
 and eval_binding_value env bnode =
   match dict_params_of bnode with
   | [] -> eval_binding_value_plain env bnode
@@ -619,7 +619,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
   List.iter (function _, _, Some c -> c.c_env <- { env with locals } | _ -> ()) closures;
   locals
 
-(* ## 14.10 ハンドラ
+(* ## 14.9 ハンドラ
 
    1 つの `handle` 式は、1 つの `Effect.Deep.match_with` になる。
    節の振り分けは、elab が `resolved` に書いたタグを読むだけで行う。
@@ -817,7 +817,7 @@ and take_resume env arg =
         r.r_used <- true;
         (r, v))
 
-(* 操作節の本体を、末尾の背骨に沿って評価する(§14.10)。
+(* 操作節の本体を、末尾の背骨に沿って評価する(§14.9)。
    背骨は `eval` の末尾位置と同じで、`Seq` の最後、`Let` と `LetRec` の続き、
    `Match` の節本体、`&&` と `||` の右辺、`Run` の本体である。
    それ以外のノードは `eval` に渡して `Clause_value` にする。
@@ -970,7 +970,7 @@ and eval_handle env body clauses =
                       | Some (locals, c, tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
-                              (* 節本体が resume そのものの短い経路(§14.10)。exception 節が覆うのは
+                              (* 節本体が resume そのものの短い経路(§14.9)。exception 節が覆うのは
                                  引数の評価だけで、continue は値の枝(例外の捕捉を抜けた後)に
                                  あるので、末尾での発行が保たれる。引数が例外で脱出したときは、
                                  通常の経路と同じく discontinue して、捨てた継続の cancel 節を
@@ -1022,7 +1022,7 @@ and eval_handle env body clauses =
           | _ -> None);
     }
 
-(* ## 14.11 組み込み値
+(* ## 14.10 組み込み値
 
    `Ref` は OCaml の `ref` で、`Array` と `MutableArray` はどちらも OCaml の配列である。
    リージョンの安全性(`run h { … }` の外へ持ち出せないこと)は、
@@ -1123,7 +1123,7 @@ let register_builtin_values globals =
      pinned を通さないプログラムも実行できるが、ランタイムが受け取るものは何も無い *)
   reg "pinned" (fun args -> apply (Builtin.arg1 args) unit)
 
-(* ## 14.12 クラスメソッドの識別子参照
+(* ## 14.11 クラスメソッドの識別子参照
 
    `eq(a, b)` や `show(x)` のようなメソッドの識別子参照のために、
    辞書を受け取ってメソッドを選ぶ値(`method_selector`)を globals に置く。
@@ -1177,10 +1177,10 @@ let register_class_methods globals =
            (fun ((m, _) as ms) -> Hashtbl.replace globals (Tree.GMethod (cls_name ^ "." ^ m)) (method_selector ci ms))
            ci.Decls.ci_methods)
 
-(* ## 14.13 宣言の実行
+(* ## 14.12 宣言の実行
 
    トップレベルの `let` と `let rec` は、globals に直接置く。
-   バックパッチが要らないのは、§14.9 で述べたとおりである。
+   バックパッチが要らないのは、§14.8 で述べたとおりである。
 
    本章でインスタンス表(`instance_impls`)に書き込むのは、`type instance` の処理だけである。
    この処理では、同義語の表を引くことに注意している。
@@ -1207,7 +1207,7 @@ let register_class_methods globals =
    値を作らない宣言で、必要な情報は第6章の表に入っている。
    `module` は、平坦化を通っていればここには来ない。 *)
 
-(* globals とインスタンス表への書き込みの記録(§14.16)。journaling が真の間、
+(* globals とインスタンス表への書き込みの記録(§14.15)。journaling が真の間、
    書き込む前の中身を戻す閉包を journal に積む *)
 let journaling = ref false
 
@@ -1236,7 +1236,7 @@ let exec_decl env ((_, d) as node : T.decl) =
       bind_globals env (List.map (fun (n, v) -> (Tree.GDecl (Tree.oid_of bnode, n), v)) (SMap.bindings bound))
   | T.DLetRec bs ->
       (* 群の閉包は globals を共有し、自己参照と相互参照は呼び出し時に実体の鍵で引くので、
-         バックパッチは要らない(§14.9) *)
+         バックパッチは要らない(§14.8) *)
       List.iter
         (fun ((_, b) as bnode : T.let_binding) ->
           let x = match snd b.T.lb_name with T.PVar x -> x | _ -> runtime_error "let rec は名前束縛のみです" in
@@ -1321,7 +1321,7 @@ let exec_decl env ((_, d) as node : T.decl) =
   | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> env
   | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
 
-(* ## 14.14 run
+(* ## 14.13 run
 
    `run_units` は単位の列(先頭がプレリュード)を順に実行する。
    どの単位も同じ大域の環境の上で実行する。
@@ -1367,7 +1367,7 @@ let run_units ~sink units =
 
 let run ~sink decls = run_units ~sink [ decls ]
 
-(* ## 14.15 本章の限界
+(* ## 14.14 本章の限界
 
    ### fiber の上の Stack_overflow
 
@@ -1387,7 +1387,7 @@ let run ~sink decls = run_units ~sink [ decls ]
    仕様は、どの節にも一致しなかった操作を外側のハンドラへ回す規則を持たず(sample.kel:515)、
    第11章の総和性の検査(§11.23)が、すべての節が外れうるハンドラを型検査で拒否するからである。
    同じハンドラの中の節どうしはフォールスルーする。
-   後送りの機構と、それを実装しない型の理由は §14.10 にある。
+   後送りの機構と、それを実装しない型の理由は §14.9 にある。
 
    - 前方参照の値を、定義より前に評価される位置で使うこと。
      パス 1c の署名で型は通るが、`let x = g(1)` の右辺のような、
@@ -1395,7 +1395,7 @@ let run ~sink decls = run_units ~sink [ decls ]
      実行はまだ値を持たないので「未束縛の変数」で落ちる。
      この形は、前方参照を遅延束縛で通す設計の代価である。
      黙って誤った値を返すのではなく実行時エラーで止まるので、許容している。
-     インスタンス宣言より前の位置でそのインスタンスを使う形も、同じく実行時エラーにしている(§14.7)。
+     インスタンス宣言より前の位置でそのインスタンスを使う形も、同じく実行時エラーにしている(§14.6)。
 
    値の名前は、elab が宣言時点の環境で解決した実体を `resolved` に書き、
    評価器はその実体で引く(§14.4)。
@@ -1424,7 +1424,7 @@ let run ~sink decls = run_units ~sink [ decls ]
    4. 辞書とセレクタのクラスの比較(外すと、辞書の渡し方の誤りが黙って別のメソッドを呼ぶ)
    5. `let` による評価順序の固定(外すと観測できる意味論が変わる) *)
 
-(* ## 14.16 対話的な実行
+(* ## 14.15 対話的な実行
 
    対話的な実行(第16章)は、プレリュードを 1 回だけ実行し、その後は入力ごとに宣言を実行する。
    `start_session` は globals を作ってプレリュードを実行し、セッションを返す。
@@ -1439,13 +1439,14 @@ let run ~sink decls = run_units ~sink [ decls ]
    実行時エラーで落ちた入力は、入力の単位で戻す。
    `exec_input` は、globals とインスタンス表への書き込みを `jreplace` で記録し、
    例外で落ちたら記録を逆順に戻し、環境を入力の前に戻して、例外を投げ直す。
-   解決のキャッシュ 2 つは空にする(キャッシュなので、空にしても意味は変わらない)。
+   辞書の覚え書き(`closed_cache`)は戻さない。
+   失敗した入力の穴は後の入力から参照されないので、残っても意味は変わらない。
    出力と、Ref や可変配列の中身の書き換えは戻さない。
 
    後の入力で宣言したクラスには、
    `start_session` の `register_class_methods` がラッパを置いていない。
    そこで `DClass` を実行するときに、そのクラスのメソッドのラッパを `GMethod` の鍵で置く。
-   鍵はクラスごとに別なので、先にある同名の値を覆わない(§14.12)。 *)
+   鍵はクラスごとに別なので、先にある同名の値を覆わない(§14.11)。 *)
 type session = { mutable s_env : env }
 
 (* 束縛パターンの変数の名前を、書いた順に返す *)

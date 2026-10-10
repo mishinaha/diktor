@@ -100,7 +100,7 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
 
    `@ Blocking` を付けたか `@` を省略した既知名は、トップレベルから直接呼べる(仕様 §12、
    `test/blocking_top.t`、`test/extern_c_blocking.t`)。
-   行を注釈で閉じた文脈へ持ち込むときは、`pinned`(§6.11b / §14.11)で `Blocking` を取り除く。
+   行を注釈で閉じた文脈へ持ち込むときは、`pinned`(§6.11b / §14.10)で `Blocking` を取り除く。
    `Blocking` を取り除くのは型の上だけの操作で、実行時の `pinned` は恒等である。 *)
 
 (* ## 13.4 プリミティブ表
@@ -178,7 +178,8 @@ let as_bool = function VBool b -> b | v -> runtime_error ("Boolean ではあり�
    プリミティブ表は連想リストなので、引くたびに線形探索になる。
    表を引くのは、`extern` 宣言に実装を結びつけるとき(`find_extern`。宣言 1 つにつき 1 回)と、
    §13.5 のメソッド表を起動時に解決するとき(`find_prim`)だけである。
-   演算のたびの探索は、§13.5 のハッシュ表と第14章の解決キャッシュが受け持つ。 *)
+   演算のたびの探索は、§13.5 のハッシュ表と、
+   第14章の辞書の覚え書き(`closed_cache`。§14.6)が受け持つ。 *)
 
   (* ---- __* プリミティブ表(名前 → 実装)。型は prelude.kel の extern が与える ---- *)
 
@@ -430,7 +431,7 @@ let builtin_method cls con meth : (t -> t) option = Hashtbl.find_opt builtin_met
    `exnc` は受け取った例外をそのまま投げ直す。
    つまりこのハンドラは値と例外をそのまま通し、自分の知っている操作だけを捕まえる。
    ただし、これは `retc` と `exnc` についての話で、`effc` の中で起きた例外は別に扱う。
-   第14章 §14.10 の 3 つの経路の規約は、この最も外側のハンドラにも同じく当てはまる。
+   第14章 §14.9 の 3 つの経路の規約は、この最も外側のハンドラにも同じく当てはまる。
    `sink` への書き込みが例外で落ちたら、`discontinue` を使って、その例外を捨てる継続に届ける。
    素の `raise` にすると、捨てた継続の中の cancel 節が走らない。
    第14章の、節本体が resume そのものの短い経路が、
@@ -492,7 +493,7 @@ let with_runtime ?(print = false) ~(sink : string -> unit) (f : unit -> t) : t =
           | Op (op, args) when op = op_console_write || (print && op = op_print_print) ->
               Some
                 (fun (k : (a, _) Effect.Deep.continuation) ->
-                  (* 第14章 §14.10 の 3 つの経路と同じ規約。sink が落ちても、
+                  (* 第14章 §14.9 の 3 つの経路と同じ規約。sink が落ちても、
                      捨てる継続に例外を届ける。continue は値の分岐(trap の外)に
                      あるので、末尾位置での呼び出しのままになる *)
                   match sink (as_text (arg1 args)) with
