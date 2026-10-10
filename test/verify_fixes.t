@@ -190,11 +190,11 @@ h の行が {Console} に決まるだけで通る。g と h は同じ関数で�
 
   $ printf 'let (5): (Int32) => Int32 @ {Console} = fn(x) => x\necholn("ok")\n' > patrigid.kel
   $ diktor patrigid.kel
-  ! patrigid.kel:1:6: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! patrigid.kel:1:6: 型エラー: (Int32) => Int32 @ {Console} は Integral のインスタンスではありません
   [1]
   $ printf 'pub let (5): (Int32) => Int32 = fn(x) => x\necholn("ok")\n' > patrigid2.kel
   $ diktor patrigid2.kel
-  ! patrigid2.kel:1:10: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! patrigid2.kel:1:10: 型エラー: (Int32) => Int32 @ {} は Integral のインスタンスではありません
   [1]
 
 前提つきインスタンスの、本体が値でないメソッドも、注釈にインスタンスの頭の型パラメータ
