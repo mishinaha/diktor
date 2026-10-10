@@ -716,7 +716,7 @@ and_bindings:
    書いた返り値の型が矢印でないときである。
    矢印を返す関数では、返り値の型の後に書いた `@` は返り値の矢印に結合する。
    関数自身の行を書きたいときは、返り値の型を省いて `@` だけを書くか、
-   返り値の矢印を型エイリアスにする。
+   返り値の型を括弧で囲む(`((B) => C) @ E`)。
    `extern` のシグネチャ(`extern_sig`)は、本体を持たない `binding` の頭で、
    同じ `sig_tail` を共有する。 *)
 
@@ -1232,13 +1232,13 @@ pp_items:
    そこで `arrow_ty` を `ty` の直下に分けて置く。
    矢印はヴァリアント和の要素にも型適用の頭にもならないので、
    `(A) => B | C` は返り値が `B | C` の矢印になる。
-   型の位置の括弧は 1-タプルを作るので(§3.20)、`((A) => B)[C]` は 1-タプルを頭とする型適用になる。
+   カンマの無い括弧の型はグループ化なので(§3.20)、`((A) => B)[C]` は矢印を頭とする型適用になり、
+   第11章が、型適用の頭は型名でなければならない、と診断する。
    `@` は**直前(最も内側)の矢印に結合する**。
    `(A) => (B) => C @ E` の `@ E` は、内側の矢印 `(B) => C` に付く。
-   `arrow_ret` の矢印の場合にだけ `@` が無いのがその表れで、
-   入れ子の矢印の外側に `@` を書く構文は無い。
-   内側の矢印を括弧で囲むと、返り値が 1-タプルになる。
-   外側に `@` を付けたいときは、内側の矢印を型エイリアスにする。
+   `arrow_ret` の矢印の場合にだけ `@` が無いのがその表れである。
+   外側に `@` を付けたいときは、内側の矢印を括弧で囲んで `(A) => ((B) => C) @ E` と書く。
+   括弧の中の矢印は `atom_ty` として読まれ、その後ろの `@` は外側の矢印に付く。
 
    2 つ目はブレースである。
    レコード型 `{x: Int32}` とエフェクト行 `{Print, Log}` を別の非終端にすると reduce/reduce になる。
@@ -1260,7 +1260,8 @@ pp_items:
    この位置で先読みを止める実装でも結果は同じになると書いている。
    この等価性は `test/tokens.t` の effbrace と effield が確かめている。
 
-   型の位置の `(A)` は常に 1-タプル `{_item: A}` である(§3.20)。
+   型の位置のカンマの無い `(A)` はグループ化で、1-タプル `{_item: A}` は `(A,)` と書く(§3.20)。
+   括弧の中の並びは `paren_ty_items` が読み、カンマを書いたか空かを真偽値で返す。
    `#Foo(A, B)` は §3.5 と同じ規約で畳む。
    文法はカインドの注釈を `COLON upper_id` としか書かず、
    `Type` なのか `EffectRow` なのかの解釈は第11章に任せる。
@@ -1268,12 +1269,12 @@ pp_items:
 
 ty: union_ty { $1 } | arrow_ty { $1 }
 
-arrow_ty: LPAREN ty_list0 RPAREN EQ_GREATER arrow_ret
+arrow_ty: LPAREN paren_ty_items RPAREN EQ_GREATER arrow_ret
   { let ret, eff = $5 in
-    mk $sloc (EArrow ($2, ret, eff)) }
+    mk $sloc (EArrow (fst $2, ret, eff)) }
 arrow_ret:
   | union_ty eff_opt { ($1, $2) }
-  | arrow_ty         { ($1, None) } (* 入れ子の矢印の外側には @ を書けない(型エイリアスを使う) *)
+  | arrow_ty         { ($1, None) } (* 外側の矢印に @ を書くときは、内側の矢印を括弧で囲む *)
 eff_opt: { None } | AT eff { Some $2 }
 
 union_ty:
@@ -1295,9 +1296,18 @@ atom_ty:
         | [] -> mk $sloc (EVariantCase ($1, None))
         | ts -> mk $sloc (EVariantCase ($1, Some (variant_ty_payload $sloc ts))) }
   | brace_ty                          { $1 }
-  | LPAREN ty_list0 RPAREN            { tuple_ty $sloc $2 } (* 型位置の (A) は常に 1-タプル *)
+  | LPAREN paren_ty_items RPAREN
+      { (* カンマの無い (A) はグループ化、(A,) と () と 2 要素以上はタプル *)
+        match $2 with [ t ], false -> t | tys, _ -> tuple_ty $sloc tys }
 
 ty_list0: { [] } | ty_list { $1 }
+(* 括弧の中の型の並び。第 2 要素は、カンマを書いたか空のときに真になる。
+   矢印の引数リストと括弧の型の両方がこれで読むので、) を読むまで両者を区別しなくてよい *)
+paren_ty_items:
+  |                  { ([], true) }
+  | ty               { ([ $1 ], false) }
+  | ty COMMA         { ([ $1 ], true) }
+  | ty COMMA ty_list { ($1 :: $3, true) }
 ty_list:
   | ty               { [ $1 ] }
   | ty COMMA         { [ $1 ] }

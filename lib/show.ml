@@ -258,6 +258,9 @@ let show_all ts =
    Keleut の矢印は引数を常に括弧つきの並びで書く(`(A) => B`)ので、
    `(A => B) => C` のような曖昧さが構文の上で起きないからである。
    その代わり、`go_args` が引数の閉じた `_item` 行を括弧の並びに戻す。
+   返り値が矢印で、外側の矢印の行を表示するときは、返り値の矢印を括弧で囲む。
+   `@` は最も内側の矢印に付くので、囲まないと外側の行が返り値の矢印のものに読まれるからである。
+   外側の行が行変数だけのときは `@` を表示しないので、括弧も付かない。
 
    ### 文字列連結の評価順
 
@@ -319,6 +322,8 @@ let show_all ts =
         let ps = go_args p in
         let rs = go r in
         let es = eff_suffix e in
+        (* 外側の矢印の @ を書くときは、返り値の矢印を括弧で囲む(@ は最も内側の矢印に付くため) *)
+        let rs = match repr r with TArrow _ when es <> "" -> "(" ^ rs ^ ")" | _ -> rs in
         ps ^ " => " ^ rs ^ es
     | TRecord row -> (
         let fields, tail = row_fields row in
