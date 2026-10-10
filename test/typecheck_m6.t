@@ -402,6 +402,19 @@ MiniLang §16-8 の runST 2例(値制限):
   ! ambigrow2.kel:4:28: 型エラー: 操作 op は、この位置の行に現れる複数のエフェクト(E1, E2)に属します。E1.op、E2.op のどれかに修飾してください
   [1]
 
+行に現れる候補が宣言の一部のときは、行に現れる候補だけを宣言の順に示す:
+
+  $ cat > ambigrow3.kel <<'KEL'
+  > type Unit = {}
+  > effect E1 = { op: (String) => Unit }
+  > effect E2 = { op: (String) => Unit }
+  > effect E3 = { op: (String) => Unit }
+  > let f(): Unit @ {E3, E1} = perform op("f")
+  > KEL
+  $ diktor --type-check --no-prelude ambigrow3.kel
+  ! ambigrow3.kel:5:28: 型エラー: 操作 op は、この位置の行に現れる複数のエフェクト(E1, E3)に属します。E1.op、E3.op のどれかに修飾してください
+  [1]
+
 行に現れる候補が 1 つなら、それに解決する。同じエフェクトが 2 回現れても 1 つと数える:
 
   $ cat > onerow.kel <<'KEL'
@@ -429,8 +442,9 @@ MiniLang §16-8 の runST 2例(値制限):
   pure_f : (Int32) => Int32
   impure : (Int32) => Int32 @ {Logger extends R1}
 
-行の並びは操作名の解決にだけ使い、型の等価性では順序を問わない(§9 / §3 の
-Scoped Labels と同じ)。開いた行でも閉じた行でも順序違いは単一化する:
+行の並びは、操作名の解決にも型の等価性にも使わない(§9 / §3 の Scoped Labels と
+同じ。同じラベルどうしの順序だけを区別する)。開いた行でも閉じた行でも順序違いは
+単一化する:
 
   $ cat > roworder.kel <<'EOF'
   > type Unit = {}
