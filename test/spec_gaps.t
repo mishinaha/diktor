@@ -3,6 +3,8 @@
 見張らせるためにある。** 仕様が裁定を下したらここが最初に鳴り、鳴った
 ブロックの見出しが仕様の行と関係する章を教える。裁定が下りた項目の観測点は
 削らず、意図した挙動のゴールデンとして通常の回帰テストへ移す。
+仕様が TODO ではなく制限として書いた項目(LangSpec §13.2 の使用時の開きの
+順序依存)の現状も、同じ扱いで末尾の節に置いて見張る。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -57,3 +59,114 @@ Array.new も無い(freeze の側は test/region.t の freeze / nonew):
   $ diktor --type-check arrlit.kel
   arrlit.kel:1:24: パースエラー(付近のトークンを確認してください)
   [2]
+
+使用時の開きの順序依存(LangSpec §13.2 の制限の 2 つ目)。使用の時点で関数の行や
+要求する側の型がまだ決まっていないときは開かずに一致させ、その使用で決まった行が
+その後の使用に効く。そのため、文や実引数の順序によって受理されるかどうかが変わる。
+
+注釈のない引数 f を先に呼ぶと、f の行は本体の行と同じ変数になり、その後でリストに
+r.k(閉じた @ {})と並べたときにその変数が {} に決まるので、本体の echoln が落ちる。
+リストに入れてから呼べば、f の行は先に {} に決まり、呼ぶときに開くので通る:
+
+  $ cat > orderfirst.kel <<'KEL'
+  > let h = fn(f, r: {k: () => Unit}) => {
+  >   f()
+  >   let xs = Cons(f, Cons(r.k, Nil))
+  >   echoln("x")
+  > }
+  > KEL
+  $ diktor --type-check orderfirst.kel
+  ! orderfirst.kel:4:3: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+  $ cat > orderlist.kel <<'KEL'
+  > let h = fn(f, r: {k: () => Unit}) => {
+  >   let xs = Cons(f, Cons(r.k, Nil))
+  >   f()
+  >   echoln("x")
+  > }
+  > KEL
+  $ diktor --type-check orderlist.kel
+  h : (() => {} @ {}, {k: () => {} @ {}}) => {} @ {Console extends R1}
+
+構文上の値でない初期化式を持ち、注釈の最外の @ を省略した値束縛 g は一般化しない
+ので、行は最初の呼び出しで決まる。perform ask() と同じ式の中で先に呼ぶと g の行に
+Ask が入り、後の Console の文脈からの呼び出しが落ちる(逆の順序は
+test/verify_fixes.t の vrgen が通す):
+
+  $ cat > ordervr.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let idf[A](x: A): A = x
+  > let main(): Unit @ {Console} = {
+  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
+  >   let b = (g(2) + perform ask()) handle {
+  >     case ask() => resume(10)
+  >     case return(x) => x
+  >   }
+  >   let a = g(1)
+  >   echoln(show(a + b))
+  > }
+  > main()
+  > KEL
+  $ diktor --type-check ordervr.kel
+  idf : (A) => A
+  ! ordervr.kel:9:11: 型エラー: ラベル Ask がありません(行は閉じています)
+  [1]
+
+同じ形の値束縛 k を行の違う 2 つの文脈から呼ぶと、最初の呼び出しで k の行が
+{Console} に決まり、@ Print の文脈からの 2 つ目の呼び出しが落ちる(呼ぶ順序を
+入れ替えても、もう一方で落ちる)。注釈を外すと k の行は初期化式の閉じた {} のままで、
+使うたびに開くので通る:
+
+  $ cat > ordermonoann.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k: (N) => String = mk(0)
+  > let a(): String @ Console = k(N(1))
+  > let b(): String @ Print = k(N(1))
+  > KEL
+  $ diktor --type-check ordermonoann.kel
+  mk : (Int32) => (N) => String @ {}
+  k : (N) => String
+  a : () => String @ {Console}
+  ! ordermonoann.kel:5:27: 型エラー: ラベル Console がありません(行は閉じています)
+  [1]
+  $ cat > ordermonoplain.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k = mk(0)
+  > let a(): String @ Console = k(N(1))
+  > let b(): String @ Print = k(N(1))
+  > KEL
+  $ diktor --type-check ordermonoplain.kel
+  mk : (Int32) => (N) => String @ {}
+  k : (N) => String @ {}
+  a : () => String @ {Console}
+  b : () => String @ {Print}
+
+型変数の仮引数に名前の参照 b と名前の参照でない式 mkp() を並べて渡すとき、先の b で
+型変数が矢印に決まれば、mkp() の位置は関数型を要求する位置になって開く。mkp() を
+先に置くと型変数が閉じた {} の矢印に決まり、後の b と一致しない:
+
+  $ cat > orderargs1.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let pick[A](c: Boolean, x: A, y: A): A = c match { case true => x case false => y }
+  > let use(): Int32 @ Console = pick(true, b, mkp())()
+  > KEL
+  $ diktor --type-check orderargs1.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  pick : (Boolean, A, A) => A
+  use : () => Int32 @ {Console}
+  $ cat > orderargs2.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let pick[A](c: Boolean, x: A, y: A): A = c match { case true => x case false => y }
+  > let use(): Int32 @ Console = pick(true, mkp(), b)()
+  > KEL
+  $ diktor --type-check orderargs2.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  pick : (Boolean, A, A) => A
+  ! orderargs2.kel:4:48: 型エラー: ラベル Console がありません(行は閉じています)
+  [1]
