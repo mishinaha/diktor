@@ -55,7 +55,17 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   ! ml9.kel:4:16: 型エラー: (_A) => _A は Show のインスタンスではありません
   [1]
 
-エラー経路(コヒーレンス / v0 出現位置制約 / 型不一致 / 網羅 / 多パラメータ / 予約述語):
+返り値にだけクラスパラメータが現れるメソッドを宣言できる。どのインスタンスのメソッドかは
+型検査が型から決めるので、注釈か結果を使う位置が F を決めればよい(使う形は
+test/dictionary_passing.t の pure と pureamb):
+
+  $ cat > c2.kel <<'EOF'
+  > newtype Box[A] = Box(A)
+  > type class Pure[F[_]] { val pure[A]: (A) => F[A] }
+  > EOF
+  $ diktor --type-check --no-prelude c2.kel
+
+エラー経路(コヒーレンス / 型不一致 / 網羅 / 多パラメータ / 予約述語):
 
   $ cat > c1.kel <<'EOF'
   > type class C[A] { val f: (A) => A }
@@ -64,14 +74,6 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   > EOF
   $ diktor --type-check --no-prelude c1.kel
   ! c1.kel:3:1: 型エラー: インスタンス C[Int32] が二重に宣言されています(コヒーレンス違反)
-  [1]
-
-  $ cat > c2.kel <<'EOF'
-  > newtype Box[A] = Box(A)
-  > type class Pure[F[_]] { val pure[A]: (A) => F[A] }
-  > EOF
-  $ diktor --type-check --no-prelude c2.kel
-  ! c2.kel:2:1: 型エラー: メソッド pure はクラスパラメータが引数の頭に現れないため v0 では宣言できません(実行時タグディスパッチの前提、§7.4)
   [1]
 
   $ cat > c3.kel <<'EOF'
