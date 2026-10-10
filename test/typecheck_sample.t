@@ -1,4 +1,4 @@
-sample.kel 全体回帰(計画 §9.2 / M9-M10 完了条件。写しは親 0527b65 のもの)。
+sample.kel 全体回帰(計画 §9.2 / M9-M10 完了条件。写しの版は test/sample/README.md に記録してある)。
 stubs.kel を前置した無改変 sample.kel の全文が --type-check を通り(警告ゼロ)、
 トップレベル式文(handle と capture)が期待どおり評価される。
 変更時は dune promote で更新し、必ず目視レビューすること。

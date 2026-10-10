@@ -153,7 +153,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   bad.kel:1:9: パースエラー(付近のトークンを確認してください)
   [2]
 
-sample.kel 全文がパースできること(M3 完了条件。行数は親 0527b65 の写しのもの):
+sample.kel 全文がパースできること(M3 完了条件。写しの版は test/sample/README.md):
 
   $ diktor --dump-ast sample/sample.kel | wc -l
   343
