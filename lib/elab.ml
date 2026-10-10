@@ -4011,7 +4011,8 @@ let signature_of_binding env (b : T.let_binding') : ty option =
                 (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_value_type env_ty lvl "型注釈" te | _ -> assert false)
                 ps
             in
-            let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> TRowEmpty (* pub の省略 @ は @ {} *) in
+            (* pub の省略 @ は @ {} *)
+            let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> TRowEmpty in
             let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> assert false in
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None -> (
