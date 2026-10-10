@@ -450,7 +450,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 
 (* ## 3.11 トークン表
 
-   トークンの宣言は 2 段に分かれていて、上段が 44 個、下段が 20 個である。
+   トークンの宣言は 2 段に分かれていて、上段が 46 個、下段が 21 個である。
    下段には、この言語に特有の構文のトークンが多い。
    `{` の 3 分割、`\`(レコードからのフィールドの除去)、`...`(尾部の束縛)、`???`(穴)と、
    `class`、`instance`、`extends`、`extern`、`newtype`、`perform`、`resume`、`run`、
@@ -463,6 +463,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 %token EFFECT EOF EQ EQ_GREATER EXCLAMATION EXCLAMATION_EQ FN GREATER HANDLE
 %token HYPHEN IF LBRACKET LESS LET LOWLINE LPAREN MATCH MODULE NL PLUS RBRACKET
 %token REC RPAREN SEMI SOLIDUS TYPE VAL VERTICAL WITH
+%token THEN ELSE
 %token <bool> BOOL
 %token <string> LOWER_IDENTIFIER UPPER_IDENTIFIER TEXT
 %token <Syntax.number> NUMBER
@@ -841,10 +842,24 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
    曖昧な文法を宣言で抑え込むと、`--strict` が何も言わなくなるからである(§3.13)。
    弱いほうから、次の順に並ぶ。
 
-   `fn` → 後置の `match` / `handle` → `||` → `&&` → 比較 → 加減 → 乗除 → 前置 → 後置 → アトム
+   `fn` と `if` → 後置の `match` / `handle` → `||` → `&&` → 比較 → 加減 → 乗除 → 前置 → 後置 → アトム
 
    後置の `match` / `handle` はどの二項演算子よりも弱いので、`x match {...} + 1` とは書けない。
    `(x match {...}) + 1` のように括弧が要る。
+
+   条件式 `if e1 then e2 else e3` は、`e1 match { case true => e2 case false => e3 }` に脱糖する。
+   構文木にノードを足さないので、型(第11章)、網羅性(第10章)、評価と末尾位置(第14章)は、
+   `match` の規則がそのまま働く。
+   `else` の後ろの式は、`fn` の本体と同じく右へできるだけ長く取る。
+   そのため `if c then a else b + 1` は `else (b + 1)` と読み、
+   `if` の結果を演算に使うときは括弧が要る。
+   `else` は省略できない。
+   省略できる形を足すと、`if a then if b then x else y` の `else` をどちらの `if` に付けるかで、
+   shift/reduce の conflict が 1 個出る。
+
+   合成する 2 つの節のパターンには、条件 `e1` の位置を付ける。
+   条件が `Boolean` でないとき、第11章はパターンと照合対象の単一化で落ち、パターンの位置を報告する。
+   この位置付けにより、その誤りは条件を指す。
 
    比較は**非結合**である。
    `a < b < c` は文法の段階で落ちる。
@@ -857,6 +872,10 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
 
 exp:
   | FN LPAREN params RPAREN EQ_GREATER exp { mk $sloc (Lambda { l_params = $3; l_body = $6 }) }
+  | IF exp THEN exp ELSE exp
+      { (* Boolean に対する match に脱糖する(§3.18)。パターンの位置は条件 e1 に置く *)
+        let arm b sp ep body = mk (sp, ep) { cl_pat = mk $loc($2) (PBool b); cl_guard = None; cl_body = body } in
+        mk $sloc (Match ($2, [ arm true $startpos($3) $endpos($4) $4; arm false $startpos($5) $endpos($6) $6 ])) }
   | postfixed                              { $1 }
 
 postfixed:

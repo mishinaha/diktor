@@ -9,12 +9,12 @@
 
    | 層 | 入口 | 処理 |
    |---|---|---|
-   | 1. 生トークン | `read_raw_token` | 文字を 62 種のトークンに変える。`{` は分類しない |
+   | 1. 生トークン | `read_raw_token` | 文字を 65 種のトークンに変える。`{` は分類しない |
    | 2. 再分類 | `pop_reclassified` | `{` をブロック、レコード、レコード型のどれかに決める |
    | 3. ASI | `read_token` | region スタックを見て、改行を文区切りに昇格させるか捨てる |
 
-   トークン型は全部で 64 種ある(第3章(parser.mly)の `%token` 宣言)。
-   層 1 が出すのはそのうち 62 種で、残る `LBRACE_RECORD` と `LBRACE_TYPE` は層 2 だけが作る。
+   トークン型は全部で 67 種ある(第3章(parser.mly)の `%token` 宣言)。
+   層 1 が出すのはそのうち 65 種で、残る `LBRACE_RECORD` と `LBRACE_TYPE` は層 2 だけが作る。
 
    Keleut の字句には扱いにくい性質が 2 つある。
    改行が意味を持つことと、`{` が 3 通りの意味を持つことである(仕様 sample.kel:20-29)。
@@ -235,6 +235,7 @@ module Make (Data : Syntax.Data) = struct
     | "case" -> CASE
     | "class" -> CLASS
     | "effect" -> EFFECT
+    | "else" -> ELSE
     | "extends" -> EXTENDS
     | "extern" -> EXTERN
     | "false" -> BOOL false
@@ -253,6 +254,7 @@ module Make (Data : Syntax.Data) = struct
     | "rec" -> REC
     | "resume" -> RESUME
     | "run" -> RUN
+    | "then" -> THEN
     | "true" -> BOOL true
     | "type" -> TYPE
     | "val" -> VAL
@@ -756,6 +758,7 @@ module Make (Data : Syntax.Data) = struct
    - `IMPORT`：`from` とパスの文字列の行と、次の行の `import x` を 1 つの import 文につなぐ
    - `CASE`：節の並びを改行で区切らない(節の区切りは `case` 自身)
    - `MATCH` / `HANDLE`：後置なので、改行してから書ける
+   - `THEN` / `ELSE`：条件式を `then` と `else` の前で折り返す(`if c ⏎ then a ⏎ else b`)
    - `DOT` / `BACKSLASH`：メソッドチェーンとレコードの制限を行の途中で折り返す
    - `EXTENDS` / `VERTICAL`：`extends` の直前と、`#X | #Y` の `|` の直前で改行できる
    - 二項演算子：`1 ⏎ + 2` のように、演算子で始まる行を前の行につなぐ
@@ -767,6 +770,10 @@ module Make (Data : Syntax.Data) = struct
    これは、行頭の `(` を前の行の続きとみなさないという sample.kel:295 の規則の実装である。
    `VAL` も含めている。
    これが無いと、クラスの本体の 2 つ目の `val` の前で改行が捨てられ、パースエラーになる。
+   `IF` も含めている。
+   行頭の `if` は条件式(第3章 §3.18)で、新しい文を始める。
+   ガードの `if` は `RClause` の中にあり、そこでは述語を見ずに改行を捨てるので、
+   `IF` を含めても `case x ⏎ if g =>` の改行は区切りにならない。
 
    末尾ブロックの `{` を直前のトークンと同じ行に書く規則は、この層では扱わない。
    `{` が次の行にあれば、この層の規則どおりに改行を区切りにするか捨てるかを決め、
@@ -851,10 +858,10 @@ module Make (Data : Syntax.Data) = struct
         true
     | _ -> false
 
-  (* NL の後で文を始められるトークン。AND / CASE / MATCH / HANDLE / DOT / BACKSLASH /
-     EXTENDS / VERTICAL / 二項演算子は、前の行の続きにするために除いている *)
+  (* NL の後で文を始められるトークン。AND / CASE / MATCH / HANDLE / THEN / ELSE / DOT /
+     BACKSLASH / EXTENDS / VERTICAL / 二項演算子は、前の行の続きにするために除いている *)
   let can_begin_statement = function
-    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | WITH | PERFORM | RESUME | RUN | FN | FROM
+    | LET | TYPE | NEWTYPE | EFFECT | MODULE | PUB | EXTERN | VAL | WITH | PERFORM | RESUME | RUN | FN | FROM | IF
     | LOWER_IDENTIFIER _ | UPPER_IDENTIFIER _ | HASH_IDENT _ | NUMBER _ | TEXT _ | BOOL _ | HOLE | EXCLAMATION
     | LBRACE_BLOCK | LBRACE_RECORD | LBRACE_TYPE | LPAREN ->
         true
@@ -963,6 +970,7 @@ module Make (Data : Syntax.Data) = struct
     | DOT -> "."
     | DOTDOTDOT -> "..."
     | EFFECT -> "effect"
+    | ELSE -> "else"
     | EOF -> "<EOF>"
     | EQ -> "="
     | EQ_GREATER -> "=>"
@@ -1008,6 +1016,7 @@ module Make (Data : Syntax.Data) = struct
     | SEMI -> ";"
     | SOLIDUS -> "/"
     | TEXT s -> "\"" ^ String.escaped s ^ "\""
+    | THEN -> "then"
     | TYPE -> "type"
     | UPPER_IDENTIFIER s -> s
     | VAL -> "val"
