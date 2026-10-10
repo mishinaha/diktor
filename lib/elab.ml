@@ -288,6 +288,9 @@ let open_closed_arrow level ty =
       match repr tail with TRowEmpty -> TArrow (a, r, row_append e (new_row_var level)) | _ -> ty)
   | _ -> ty
 
+(* 期待型の頭が矢印のときだけ、実際の型の閉じた行を開く(渡す側の開き。§11.26) *)
+let subsume_closed level ty expected = match repr expected with TArrow _ -> open_closed_arrow level ty | _ -> ty
+
 (* 最外の @ が書かれているか(open_closed_arrow で開き直すかどうかの判定)。
    関数束縛は lb_eff を見る。値束縛は、注釈の頭が矢印リテラルならその @ を見る。
    頭が矢印リテラルでない注釈(型エイリアスなど)では、展開先の矢印を入れ子として読むので、
@@ -1960,7 +1963,7 @@ and elab_construct env level node cname ?eff args =
 
 and elab_check env level eff ((_, e) as node : T.exp) expected =
   at_node node @@ fun () ->
-  let fallback () = Unify.unify (elab_exp env level eff node) expected in
+  let fallback () = Unify.unify (subsume_closed level (elab_exp env level eff node) expected) expected in
   match (e, repr expected) with
   | T.Lambda { l_params; l_body }, TArrow (pexp, rexp, eexp) -> (
       match repr pexp with
@@ -2698,22 +2701,6 @@ and make_rigids ?kinds level tparams =
    `extern` は、`open_explicit_eff` で開いた行をそのまま解放する。
    パス 1c の署名は、`pub` の省略 `@` には最初から開いた行を置く。 *)
 
-and open_explicit_eff lvl eff =
-  let _fields, tail = row_fields eff in
-  match repr tail with
-  | TRowEmpty ->
-      let r = new_rigid_ref ~kind:KRow lvl in
-      (row_append eff (TVar r), [ ("", TVar r, r) ])
-  | _ -> (eff, [])
-
-(* 公開する型の最外の矢印の閉じた行に、剛定数の尾部を足して開く(§11.26) *)
-and publish_open lvl ty =
-  match repr ty with
-  | TArrow (a, r, e) ->
-      let e', rig = open_explicit_eff lvl e in
-      (TArrow (a, r, e'), rig)
-  | _ -> (ty, [])
-
 (* ## 11.27 剛定数の解放
 
    束縛のスコープを出るとき、`release_rigids` はこの束縛が作った剛定数を Generic に書き換える。
@@ -2869,7 +2856,6 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
     type_error "非値の束縛に型パラメータは付けられません(値制限。関数にするか値を束縛してください)";
   let lvl = level + 1 in
   let mark = Unify.class_mark () in
-  let extra_rigids = ref [] in
   let rigids = make_rigids lvl b.T.lb_tparams in
   let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
   let fn_ty =
@@ -2878,31 +2864,25 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         let seen = ref [] in
         let param_tys = List.map (fun _ -> new_var lvl) params in
         let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
-        let fn_eff, eff_rigids =
+        let fn_eff =
           match b.T.lb_eff with
-          | Some e -> (elab_eff env_ty lvl e, [])
-          | None when b.T.lb_pub -> (new_pub_pure_row (), [])
-          | None -> (new_row_var lvl, [])
+          | Some e -> elab_eff env_ty lvl e
+          | None when b.T.lb_pub -> new_pub_pure_row ()
+          | None -> new_row_var lvl
         in
-        extra_rigids := eff_rigids @ !extra_rigids;
         let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
         let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
         (* 言い換えは注釈が書かれているときだけ行う(値束縛の側と同じガード)。
            lb_ret = None でここが落ちる経路は現状無いが、あれば、注釈を書いて
            いない相手に注釈の話をすることになる *)
-        (try Unify.unify ret_ty body_ty
+        (try Unify.unify ret_ty (subsume_closed lvl body_ty ret_ty)
          with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された返り値型を満たしません(" ^ msg ^ ")"));
         List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys;
-        let t = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
-        if b.T.lb_eff <> None || b.T.lb_pub then (
-          let t', rig = publish_open lvl t in
-          extra_rigids := rig @ !extra_rigids;
-          t')
-        else t
+        TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
     | None ->
         (* 値束縛の注釈の頭の矢印は、束縛の最外である。注釈は elab_value_type_outer で
-           読み、値の型の位置のカインドの照合を先に掛ける。pub の省略 @ は @ {} と読む。
-           書いた閉じた行は、初期化式と単一化した後で、公開の型で開く(§11.26) *)
+           読み、値の型の位置のカインドの照合を先に掛ける。pub の省略 @ は @ {} と読み、
+           書いた閉じた行はそのまま束縛の型になる(§11.26) *)
         let vty =
           match b.T.lb_ret with
           | None -> new_var lvl
@@ -2915,27 +2895,16 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
         in
         (* 値束縛の初期化式は外側の eff で推論する *)
         let body_ty = elab_exp env_ty lvl eff b.T.lb_body in
-        (try Unify.unify vty body_ty
+        (try Unify.unify vty (subsume_closed lvl body_ty vty)
          with Type_error msg when b.T.lb_ret <> None ->
            (* pub の省略 @ の値束縛では、失敗の原因は本体が純粋でないこと。
               関数束縛(§11.12)と同じ言い換えをここでも置く *)
            if b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg then
              type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
            else type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
-        (match b.T.lb_ret with
-         | Some (_, T.EArrow (_, _, eff)) when eff <> None || b.T.lb_pub ->
-             let t', rig = publish_open lvl vty in
-             extra_rigids := rig @ !extra_rigids;
-             t'
-         | _ -> vty)
+        vty
   in
-  (* @ を省略した let の行が本体で閉じた行に固まったら、公開のときに開き直す
-     (§11.26)。明示の @ と pub は publish_open が開くので対象外。値束縛は、注釈の
-     頭の矢印リテラルに @ が書かれていないときだけ開き直す。頭がエイリアスなら
-     展開先は入れ子なので開かない(outer_eff_written) *)
-  let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then open_closed_arrow lvl fn_ty else fn_ty in
   Tree.set_ty node fn_ty;
-  let rigids = rigids @ !extra_rigids in
   (* 網羅性の遅延キューは generalize の直前に drain する *)
   match snd b.T.lb_name with
   | T.PVar x ->
@@ -3051,31 +3020,42 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
 and elab_rec_bindings ?(top = false) env level eff bs : env =
   (* 事前に割り当てた単相の変数で束縛 → 本体を推論 → unify → 一般化。多相再帰はできない *)
   let lvl = level + 1 in
-  (* 型パラメータの剛定数は、署名を先に置くために群の本体より前に作る(§11.29) *)
+  (* 型パラメータの剛定数は、署名を先に置くために、群のどの本体よりも前に作る(§11.29) *)
   let tps = List.map (fun ((_, b) as bnode : T.let_binding) -> at_node bnode (fun () -> make_rigids lvl b.T.lb_tparams)) bs in
-  let names =
-    List.map2
-      (fun ((_, b) as bnode : T.let_binding) rigids ->
-        (* let rec の右辺は関数でなければならない(評価器が構造上そう要求する。
-           関数でないものを許すと、型検査を通って実行時に必ず落ちる) *)
-        (match (b.T.lb_params, snd b.T.lb_body) with
-        | None, T.Lambda _ | Some _, _ -> ()
-        | None, _ -> type_error "let rec の右辺は関数でなければなりません");
-        match snd b.T.lb_name with
-        | T.PVar x ->
-            at_node bnode @@ fun () ->
-            let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
-            let arrow params e = TArrow (TRecord (closed_item_row (List.map (fun _ -> new_var lvl) params)), new_var lvl, e) in
-            let pre =
-              match (b.T.lb_params, b.T.lb_eff, b.T.lb_ret) with
-              | Some params, Some e, _ -> arrow params (elab_eff env_ty lvl e)
-              | Some params, None, _ when b.T.lb_pub -> arrow params (new_pub_pure_row ())
-              | None, _, Some t -> elab_value_type_outer env_ty lvl "型注釈" t
-              | _ -> new_var lvl
-            in
-            (x, pre)
-        | _ -> type_error "let rec の束縛はパターンにできません")
-      bs tps
+  let types_with env rigids = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids in
+  (* 束縛の名前と、先に置く型 pre。注釈で決まる部分(関数束縛の最外の行、値束縛の注釈)は
+     本体の前に pre に置き、先行する本体の呼び出しから見えるようにする。sig_eff は関数束縛の
+     本体を検査する行で、pre の行と同じものを使う *)
+  let names, sigs =
+    List.split
+      (List.map2
+         (fun ((_, b) as bnode : T.let_binding) rigids ->
+           (* 右辺と束縛名の検査は、位置を束縛ではなく let rec の文に付ける(従来どおり) *)
+           (match (b.T.lb_params, snd b.T.lb_body) with
+           | None, T.Lambda _ | Some _, _ -> ()
+           | None, _ -> type_error "let rec の右辺は関数でなければなりません");
+           match snd b.T.lb_name with
+           | T.PVar x -> at_node bnode @@ fun () -> (
+               let env_ty = { env with types = types_with env rigids } in
+               let arrow params e = TArrow (TRecord (closed_item_row (List.map (fun _ -> new_var lvl) params)), new_var lvl, e) in
+               match (b.T.lb_params, b.T.lb_eff, b.T.lb_ret) with
+               | Some params, Some e, _ ->
+                   let e = elab_eff env_ty lvl e in
+                   ((x, arrow params e), (Some e, None))
+               | Some params, None, _ when b.T.lb_pub ->
+                   let e = new_pub_pure_row () in
+                   ((x, arrow params e), (Some e, None))
+               | None, _, Some t ->
+                   let ty = elab_value_type_outer env_ty lvl "型注釈" t in
+                   let ty =
+                     match (snd t, repr ty) with
+                     | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub -> TArrow (a, r, TRowEmpty)
+                     | _ -> ty
+                   in
+                   ((x, ty), (None, Some ty))
+               | _ -> ((x, new_var lvl), (None, None)))
+           | _ -> type_error "let rec の束縛はパターンにできません")
+         bs tps)
   in
   (* トップレベルの let rec の自己参照と相互参照は、トップレベルの実体を指す *)
   let bind_names env names =
@@ -3084,8 +3064,8 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
       env bs names
   in
   let env_rec = bind_names env names in
-  (* 注釈が作った剛定数(型パラメータと、書かれた @ を開いた行)のうち、群のほかの
-     束縛の pre に入り込んだものは群の終わりに、それ以外は束縛ごとに解放する(§11.29) *)
+  (* 型パラメータの剛定数のうち、群のほかの束縛の pre に入り込んだものは群の終わりに、
+     それ以外は束縛ごとに解放する(§11.29) *)
   let group_rigids = ref [] in
   let rec mentions r t =
     match repr t with
@@ -3098,92 +3078,49 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
     | TRowExtend (_, f, rest) -> mentions r f || mentions r rest
   in
   let rec_arg_queue = ref [] in
-  let published = ref [] in
-  (* 検査し終えて公開の型が決まった束縛は、後続の本体からその型で見せる *)
-  let env_now = ref env_rec in
   List.iter2
-    (fun ((_, b) as bnode) ((x, pre), rigids) ->
+    (fun ((_, b) as bnode) (((_, pre), (sig_eff, sig_vty)), rigids) ->
       at_node bnode @@ fun () ->
       (* pub の完全注釈検査と、関数束縛の @ の省略を純粋と読む規則は、let(§11.28)と同じ。
-         ただし完全注釈検査では値束縛の頭を最外として扱わない(値束縛に pub の省略 @ の
-         分岐が無いため。§11.29) *)
+         ただし完全注釈検査では値束縛の頭を最外として扱わない(§11.29) *)
       (if b.T.lb_pub then check_pub_annots ~value_head_outer:false ~params:b.T.lb_params ~ret:b.T.lb_ret);
-      let env_ty = { !env_now with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) !env_now.types rigids } in
-      let extra_rigids = ref [] in
+      let env_ty = { env_rec with types = types_with env_rec rigids } in
       let fn_ty =
         match b.T.lb_params with
         | Some params ->
             let seen = ref [] in
             let param_tys = List.map (fun _ -> new_var lvl) params in
             let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
-            let fn_eff, eff_rigids =
-              match b.T.lb_eff with
-              | Some e -> (elab_eff env_ty lvl e, [])
-              | None when b.T.lb_pub -> (new_pub_pure_row (), [])
-              | None -> (new_row_var lvl, [])
-            in
-            extra_rigids := eff_rigids;
+            (* 本体を検査する行は、先に pre に置いた行と同じものを使う(§11.29) *)
+            let fn_eff = match sig_eff with Some e -> e | None -> new_row_var lvl in
             let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
             let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
-            Unify.unify ret_ty body_ty;
+            Unify.unify ret_ty (subsume_closed lvl body_ty ret_ty);
             (* 引数パターンの網羅性検査の項目は、群のすべての本体の後に積む(下)。
                ここで積むと、後続の束縛の本体の中の let の drain に食われて行が
                早く閉じ、受理すべきプログラムが型エラーになる *)
             rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None ->
-            (* 値束縛の注釈の頭の矢印は最外である(§11.28 と同じ)。注釈は、値の型の
-               位置のカインドの照合を通してから読む。頭の @ を省略した pub は
-               check_pub_annots が拒否するので、pub の分岐は無い(§11.29) *)
-            let vty =
-              match b.T.lb_ret with
-              | None -> new_var lvl
-              | Some t -> (
-                  elab_value_type_outer env_ty lvl "型注釈" t)
-            in
-            Unify.unify vty (elab_exp env_ty lvl eff b.T.lb_body);
+            (* 値束縛の注釈は、先に pre に置いた sig_vty を使う(§11.29)。pub で頭の @ を
+               省略した注釈の行は {} に読んであり、本体がエフェクトを起こす失敗は
+               let(§11.28)と同じ言い換えをする *)
+            let vty = match sig_vty with Some t -> t | None -> new_var lvl in
+            (try Unify.unify vty (subsume_closed lvl (elab_exp env_ty lvl eff b.T.lb_body) vty)
+             with Type_error msg when b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg ->
+               type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"));
             vty
       in
       Unify.unify pre fn_ty;
-      let fn_ty =
-        if outer_eff_written b || b.T.lb_pub then (
-          match (b.T.lb_params, b.T.lb_ret) with
-          | Some _, _ | None, Some (_, T.EArrow _) ->
-              let t', rig = publish_open lvl fn_ty in
-              extra_rigids := rig @ !extra_rigids;
-              published := (bnode, t') :: !published;
-              env_now := { !env_now with values = SMap.add x t' !env_now.values };
-              t'
-          | _ -> fn_ty)
-        else fn_ty
-      in
       Tree.set_ty bnode fn_ty;
       let shared, own =
-        List.partition
-          (fun (_, _, r) -> List.exists (fun (_, other) -> other != pre && mentions r other) names)
-          (rigids @ !extra_rigids)
+        List.partition (fun (_, _, r) -> List.exists (fun (_, other) -> other != pre && mentions r other) names) rigids
       in
       release_rigids own;
       group_rigids := shared @ !group_rigids)
-    bs (List.combine names tps);
+    bs
+    (List.combine (List.combine names sigs) tps);
   release_rigids !group_rigids;
-  (* @ を省略した let rec も、推論した最外の行が閉じていたら、公開の行を開き直す
-     (§11.26 と同じ規則。群のうち @ を書いた束縛と pub は publish_open が開く)。本体の
-     再帰呼び出しが見ていた pre は古い矢印のままだが、本体はすでにその閉じた行で
-     検査し終えており、単相再帰の具体化がその行だっただけなので食い違わない *)
-  let names =
-    List.map2
-      (fun (((_, b) as bnode) : T.let_binding) (x, t) ->
-        match List.assq_opt bnode !published with
-        | Some t' -> (x, t')
-        | None ->
-        if (not (outer_eff_written b)) && not b.T.lb_pub then (
-          let t' = open_closed_arrow lvl t in
-          if t' != t then Tree.set_ty bnode t';
-          (x, t'))
-        else (x, t))
-      bs names
-  in
   List.iter
     (fun (params, param_tys) ->
       List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys)
@@ -3731,15 +3668,12 @@ let register_class env (c : T.class_decl') =
            矢印は入れ子なので、書いた行を閉じたまま読む(§11.5 の規則 4)。値束縛の
            outer_eff_written(§11.28)と同じく構文を見る判定で、こちらは cv_ty を見る。
            どちらかを変えるときは、両方を合わせる *)
-        let ty, eff_rigids =
+        let ty =
           match (snd v.T.cv_ty, repr ty) with
-          | T.EArrow _, TArrow (a, r, e) ->
-              let e', rig = open_explicit_eff 1 e in
-              (TArrow (a, r, e'), rig)
-          | _ -> (ty, [])
+          | T.EArrow (_, _, None), TArrow (a, r, _) -> TArrow (a, r, TRowEmpty) (* 頭の省略 @ は @ {} *)
+          | _ -> ty
         in
         Unify.generalize 0 ty;
-        release_rigids eff_rigids;
         List.iter (fun (_, t) -> match repr t with TVar r -> default_kind (Unify.var_info_of r).vkind | _ -> ()) mt_params;
         (* クラスパラメータが少なくとも 1 つの引数の頭に現れることを要求する(§11.33)。
            実行時のディスパッチ(tycon_of_value)は値の頭のコンストラクタしか見ないので、
@@ -4077,17 +4011,8 @@ let signature_of_binding env (b : T.let_binding') : ty option =
                 (fun (_, p) -> match p with T.PAnnot (_, te) -> elab_value_type env_ty lvl "型注釈" te | _ -> assert false)
                 ps
             in
-            let fn_eff, eff_rigids =
-              match b.T.lb_eff with
-              | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
-              | None ->
-                  (* ここに来るのは pub のときだけ(full の条件)。本体の側が公開の型で
-                     尾部を開くのと同じく、開いた行を置いて Generic に変える *)
-                  let r = new_rigid_ref ~kind:KRow lvl in
-                  (TVar r, [ ("", TVar r, r) ])
-            in
+            let fn_eff = match b.T.lb_eff with Some e -> elab_eff env_ty lvl e | None -> TRowEmpty (* pub の省略 @ は @ {} *) in
             let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> assert false in
-            release_rigids eff_rigids;
             TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
         | None -> (
             (* 1c の署名も、パス 2 と同じ読みをする。開かないと、前方参照の有無で値束縛の
@@ -4096,14 +4021,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
             | Some t -> (
                 let ty = elab_value_type_outer env_ty lvl "型注釈" t in
                 match (snd t, repr ty) with
-                | T.EArrow (_, _, Some _), TArrow (a, r, e) ->
-                    let e', eff_rigids = open_explicit_eff lvl e in
-                    release_rigids eff_rigids;
-                    TArrow (a, r, e')
-                | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub ->
-                    (* pub の省略 @ は、公開の側で行多相。1c は本体を見ないので、
-                       新しい行変数を置き、一般化で Generic にする *)
-                    TArrow (a, r, new_row_var lvl)
+                | T.EArrow (_, _, None), TArrow (a, r, _) when b.T.lb_pub -> TArrow (a, r, TRowEmpty) (* pub の省略 @ は @ {} *)
                 | _ -> ty)
             | None -> assert false)
       in
@@ -4255,12 +4173,12 @@ let check_instance_bodies env (i : T.instance_decl') =
              「行 ς1 は注釈で固定された行変数なので」では、純粋性が規則だと読み手に伝わらない。
              宣言が @ Console と書いていればラベルの食い違いなので、
              クラス宣言の型を満たさないという文言のままにする *)
-          let bare = match row_fields se with [], tail -> ( match repr tail with TVar _ -> true | _ -> false) | _ -> false in
+          let bare = match row_fields se with [], tail -> ( match repr tail with TVar _ | TRowEmpty -> true | _ -> false) | _ -> false in
           (try Unify.unify ie se
            with Type_error msg ->
              if bare && row_failure msg then
                type_error
-                 ("型クラスのメソッドの実装は純粋でなければなりません(公開される型は行多相 — 仕様 §9)。インスタンスメソッド " ^ mname
+                 ("型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド " ^ mname
                 ^ " の本体がエフェクトを起こしています。元の報告: " ^ msg)
              else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")"))
     | _ -> wrap (fun () -> Unify.unify inf skol)
@@ -4688,13 +4606,13 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           let seen = ref [] in
           let param_tys = List.map (fun _ -> new_var lvl) ex.T.ex_params in
           ignore (List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty ex.T.ex_params param_tys);
-          let fn_eff, eff_rigids =
+          let fn_eff =
             match ex.T.ex_eff with
-            | Some e -> open_explicit_eff lvl (elab_eff env_ty lvl e)
+            | Some e -> elab_eff env_ty lvl e
             | None when ex.T.ex_abi = "C" ->
                 (* C リンケージの省略は `@ Blocking` と読む(sample.kel:496、:798) *)
-                open_explicit_eff lvl (TRowExtend (Type.eff_blocking, Type.t_unit, TRowEmpty))
-            | None -> (new_row_var lvl, [])
+                TRowExtend (Type.eff_blocking, Type.t_unit, TRowEmpty)
+            | None -> new_row_var lvl
           in
           let ret_ty = match ex.T.ex_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
           (* C の既知名は、型の契約を照合する(第6章 §6.2b)。行は照合しない。
@@ -4714,7 +4632,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
                    type_error ("extern \"C\" の既知名 " ^ ex.T.ex_prim ^ " の型は " ^ rendered ^ " でなければなりません"));
           let ty = TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff) in
           Unify.generalize 0 ty;
-          release_rigids (rigids @ eff_rigids);
+          release_rigids rigids;
           emit (Binding (Type.display ex.T.ex_name ^ " : " ^ Show.show ty));
           add_top env ex.T.ex_name ty (Tree.GDecl (Tree.oid_of node, ex.T.ex_name))
       | T.DNewtype _ -> env (* パス 1 で登録済み。フィールド型の検査も登録時に済んでいる *)
