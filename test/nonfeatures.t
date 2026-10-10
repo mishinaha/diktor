@@ -198,3 +198,41 @@ newtype の右辺に ??? は書けない(LangSpec §10.1):
   $ diktor --type-check nthole.kel
   nthole.kel:1:18: パースエラー(付近のトークンを確認してください)
   [2]
+
+値束縛には型パラメータを書けない(LangSpec 付録 A.8。binding の値束縛の形は
+typarams を持たない):
+
+  $ cat > valtyparam.kel <<'KEL'
+  > let x[A]: List[A] = Nil
+  > KEL
+  $ diktor --type-check valtyparam.kel
+  valtyparam.kel:1:9: パースエラー(付近のトークンを確認してください)
+  [2]
+
+無名関数には返り値の型を注釈できない(付録 A.8。exp の fn の形は返り値の型と
+エフェクト行を持たない):
+
+  $ cat > fnret.kel <<'KEL'
+  > let f = fn(x: Int32): Int32 => x
+  > KEL
+  $ diktor --type-check fnret.kel
+  fnret.kel:1:21: パースエラー(付近のトークンを確認してください)
+  [2]
+
+type class の型パラメータは省略できない(付録 A.8):
+
+  $ cat > classnoparam.kel <<'KEL'
+  > type class C { val c: (Int32) => Int32 }
+  > KEL
+  $ diktor --type-check classnoparam.kel
+  classnoparam.kel:1:14: パースエラー(付近のトークンを確認してください)
+  [2]
+
+extern は関数束縛の形だけを持ち、値束縛の形を持たない(付録 A.8):
+
+  $ cat > externval.kel <<'KEL'
+  > extern "C" let sqrt: (Float64) => Float64
+  > KEL
+  $ diktor --type-check externval.kel
+  externval.kel:1:20: パースエラー(付近のトークンを確認してください)
+  [2]
