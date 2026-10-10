@@ -35,7 +35,7 @@
 // 本章に置くのは、宣言構文で書けば OCaml 側で型を組み立て直さずに済むものである。
 // 組み込み表には、次のものを置く。
 //
-// - Add/Sub/Mul/Div/Eq/Ord/Show のクラス宣言と、組み込み型に付くそのインスタンス
+// - Add/Sub/Mul/Div/Rem/Neg/Eq/Ord/Show のクラス宣言と、組み込み型に付くそのインスタンス
 // - リージョン系の Ref/Array/MutableArray/Heap/Blocking
 //
 // これらは、クラスのスキーマとディスパッチ表が elab、interp と噛み合っており、

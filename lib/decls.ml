@@ -1118,6 +1118,8 @@ let register_builtins () =
   def_class "Sub" ~derive:false ~methods:(fun a -> [ ("sub", arrow2 a a) ]) ~instances:numerics;
   def_class "Mul" ~derive:false ~methods:(fun a -> [ ("mul", arrow2 a a) ]) ~instances:numerics;
   def_class "Div" ~derive:false ~methods:(fun a -> [ ("div", arrow2 a a) ]) ~instances:numerics;
+  def_class "Rem" ~derive:false ~methods:(fun a -> [ ("rem", arrow2 a a) ]) ~instances:[ "Int32"; "Int64" ];
+  def_class "Neg" ~derive:false ~methods:(fun a -> [ ("neg", arrow1 a a) ]) ~instances:numerics;
   def_class "Eq" ~derive:true
     ~methods:(fun a -> [ ("eq", arrow2 a Type.t_boolean) ])
     ~instances:("String" :: "Boolean" :: numerics);

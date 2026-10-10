@@ -351,6 +351,9 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           let vr = eval env r in
           VBool (not (Builtin.as_bool (dispatch cls m (VRecord [ (Type.l_item, vl); (Type.l_item, vr) ])))))
   | T.Not e -> VBool (not (Builtin.as_bool (eval env e)))
+  | T.Neg e ->
+      let cls, m = Prims.neg_method in
+      dispatch cls m (VRecord [ (Type.l_item, eval env e) ])
   | T.Let (b, rest) ->
       let locals = eval_binding env b in
       eval { env with locals } rest
@@ -468,7 +471,7 @@ and apply vf vargs =
 
    位置が 1 つも取れなかったときは、すべての引数を走査する。
    ただし、この分岐には現状では到達しない。
-   組み込みのクラス(Add、Sub、Mul、Div、Eq、Ord、Show)のスキーマは、
+   組み込みのクラス(Add、Sub、Mul、Div、Rem、Neg、Eq、Ord、Show)のスキーマは、
    どれも引数の頭がクラスパラメータそのものである。
    メソッドを持たない Integral と Fractional は、そもそも dispatch されない。
    利用者が宣言したクラスには、上の受理検査が同じ形を強制する。

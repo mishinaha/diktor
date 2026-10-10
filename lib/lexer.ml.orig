@@ -9,12 +9,12 @@
 
    | 層 | 入口 | 処理 |
    |---|---|---|
-   | 1. 生トークン | `read_raw_token` | 文字を 66 種のトークンに変える。`{` は分類しない |
+   | 1. 生トークン | `read_raw_token` | 文字を 65 種のトークンに変える。`{` は分類しない |
    | 2. 再分類 | `pop_reclassified` | `{` をブロック、レコード、レコード型のどれかに決める |
    | 3. ASI | `read_token` | region スタックを見て、改行を文区切りに昇格させるか捨てる |
 
-   トークン型は全部で 68 種ある(第3章(parser.mly)の `%token` 宣言)。
-   層 1 が出すのはそのうち 66 種で、残る `LBRACE_RECORD` と `LBRACE_TYPE` は層 2 だけが作る。
+   トークン型は全部で 67 種ある(第3章(parser.mly)の `%token` 宣言)。
+   層 1 が出すのはそのうち 65 種で、残る `LBRACE_RECORD` と `LBRACE_TYPE` は層 2 だけが作る。
 
    Keleut の字句には扱いにくい性質が 2 つある。
    改行が意味を持つことと、`{` が 3 通りの意味を持つことである(仕様 sample.kel:20-29)。
@@ -100,10 +100,9 @@ exception Lex_error of string * Lexing.position
 
    符号はリテラルに含めない。
    `-1` は `HYPHEN` と `NUMBER` の 2 トークンとして出し、
-   第3章の前置の規則が、括弧で囲まない数値リテラルに付いた `-` に限って、
-   `n_text` の先頭に `-` を足して 1 つの負のリテラルに畳む。
+   第3章の前置の規則が `n_text` の先頭に `-` を足して 1 つの負のリテラルに畳む。
    字句解析で `-` を数値に含めると、`1-2` が引き算に見えなくなるためである。
-   それ以外の前置の `-` は `Neg` のノードになり、`Neg.neg` を呼ぶ(sample.kel:94)。
+   AST の上では、単項マイナス演算子が存在しないという sample.kel:94 の意味論がそのまま保たれる。
 
    `show_number` は表記を組み立て直さず、原文を連結する。
    `number` は本体の原文 `n_text` と接尾辞の原文 `n_suffix_text` を持っている(第1章)。
@@ -520,7 +519,6 @@ module Make (Data : Syntax.Data) = struct
     | '-' -> here HYPHEN
     | '*' -> here ASTERISK
     | '/' -> here SOLIDUS
-    | '%' -> here PERCENT
     | '!' -> here EXCLAMATION
     | '<' -> here LESS
     | '>' -> here GREATER
@@ -1007,7 +1005,6 @@ module Make (Data : Syntax.Data) = struct
     | NL -> "<NL>"
     | NUMBER n -> show_number n
     | PERFORM -> "perform"
-    | PERCENT -> "%"
     | PLUS -> "+"
     | PUB -> "pub"
     | RBRACE -> "}"

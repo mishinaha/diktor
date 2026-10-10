@@ -21,7 +21,8 @@
    ## 前章から受け取るもの
 
    第1章(syntax.ml)の `bin_op`(構文上の演算子)を受け取る。
-   もう 1 つ、第6章(decls.ml)が登録したクラス表(`Add` / `Sub` / `Mul` / `Div` / `Eq` / `Ord`)も受け取るが、
+   もう 1 つ、第6章(decls.ml)が登録したクラス表(`Add` / `Sub` / `Mul` / `Div` / `Rem` / `Neg` / `Eq` /
+   `Ord`)も受け取るが、
    こちらはコードの依存ではなく、名前の一致だけでつながっている。
    本章に書いた文字列と第6章が登録した名前がずれると、
    その演算子を型検査したときに第11章の `method_scheme` が内部エラー(`bug`)を出す。
@@ -44,7 +45,8 @@ open Syntax
 
    | 演算子 | 意味 |
    |---|---|
-   | `+` `-` `*` `/` | `Add.add` `Sub.sub` `Mul.mul` `Div.div` |
+   | `+` `-` `*` `/` `%` | `Add.add` `Sub.sub` `Mul.mul` `Div.div` `Rem.rem` |
+   | 前置の `-` | `Neg.neg`(`BinOp` ではなく `Neg` のノード) |
    | `==` | `Eq.eq` |
    | `!=` | `Eq.eq` の否定 |
    | `<` `<=` `>` `>=` | `Ord.lt` `Ord.le` `Ord.gt` `Ord.ge` |
@@ -84,7 +86,9 @@ open Syntax
 
    ### この表に無いもの
 
-   単項の `!` は二項演算子ではないので、第1章の AST に専用のノード `Not` がある。
+   単項の `!` と前置の `-` は二項演算子ではないので、
+   第1章の AST に専用のノード `Not` と `Neg` がある。
+   `Not` は Boolean の組み込みで、`Neg` は `neg_method`(`Neg.neg`)を呼ぶメソッドである。
    フィールドの除去 `\` は組み込みの構文(`RecordRestriction`)で、これもメソッドではない。
    この表に入れる基準は、二項演算子の形をしていることである。
    意味をクラスのメソッドで書けない `&&` と `||` も、`OpBool` として表に入れる。 *)
@@ -99,6 +103,7 @@ let bin_op_sem = function
   | Sub -> OpMethod ("Sub", "sub")
   | Mul -> OpMethod ("Mul", "mul")
   | Div -> OpMethod ("Div", "div")
+  | Rem -> OpMethod ("Rem", "rem")
   | Eq -> OpMethod ("Eq", "eq")
   | Ne -> OpMethodNot ("Eq", "eq")
   | Lt -> OpMethod ("Ord", "lt")
@@ -124,6 +129,7 @@ let show_bin_op = function
   | Sub -> "-"
   | Mul -> "*"
   | Div -> "/"
+  | Rem -> "%"
   | Eq -> "=="
   | Ne -> "!="
   | Lt -> "<"
@@ -220,6 +226,9 @@ let show_bin_op = function
    そのエフェクトを起こすプログラムをどこにも書けないからである。
    `toplevel_effects` を `runtime_effects` との連結で定義しているのは、
    この包含を構造で保つためである。 *)
+
+(* 前置の - が呼ぶメソッド。第11章と第14章が同じ組を引く *)
+let neg_method = ("Neg", "neg")
 
 let runtime_effects = [ "Console" ]
 

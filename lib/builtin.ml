@@ -323,13 +323,13 @@ let find_extern ~abi name =
    利用者が `Show` のインスタンスを与えた型でも、診断は値の構造をそのまま印字する。
    この食い違いは、診断が値の構造を示し、`show` が値の表示を返すという役割の違いによる。
 
-   表は 39 行を明示的に書き、名前を組み立てる規則を置かない。
+   表は 44 行を明示的に書き、名前を組み立てる規則を置かない。
    仮にメソッド名をワイルドカードで受けて、`__int32_ ^ m` のようにプリミティブ名を組み立てるとする。
    すると、`Ord` に別の名前のメソッドが来たとき、
    同じ名前のプリミティブがたまたまあれば、それが選ばれてしまう。
    そうした行の安全は、ほかの 3 つのファイルの不変条件がすべて成り立つことに依存する。
    `builtin_method_table` は起動時に作るハッシュ表である。
-   `builtin_method_prims` の 34 行はプリミティブ名で書いてあり、
+   `builtin_method_prims` の 39 行はプリミティブ名で書いてあり、
    表に入れる前にプリミティブ表に対して解決する。
    `builtin_method_direct` の 5 行は OCaml で直接書いた実装で、そのまま表に入れる。
    そのため、プリミティブ名の書き写しの誤りは最初の起動で `[BUG]` として落ち、
@@ -344,9 +344,9 @@ let find_extern ~abi name =
 
 (* 組み込みインスタンスの実体を (クラス, 型構成子, メソッド) で引く明示の
    表。名前を組み立てる規則は置かず、下の builtin_method_direct と合わせて
-   39 行をすべて書く。この 39 行は、第6章の組み込みインスタンスの
-   (クラス, 型構成子, メソッド) の組(Add 4 / Sub 3 / Mul 3 / Div 3 / Eq 5 /
-   Ord 16 / Show 5 = 39)と一致させる *)
+   44 行をすべて書く。この 44 行は、第6章の組み込みインスタンスの
+   (クラス, 型構成子, メソッド) の組(Add 4 / Sub 3 / Mul 3 / Div 3 / Rem 2 /
+   Neg 3 / Eq 5 / Ord 16 / Show 5 = 44)と一致させる *)
 let builtin_method_prims : ((string * string * string) * string) list =
   [
     (("Add", "Int32", "add"), "__int32_add");
@@ -362,6 +362,11 @@ let builtin_method_prims : ((string * string * string) * string) list =
     (("Div", "Int32", "div"), "__int32_div");
     (("Div", "Int64", "div"), "__int64_div");
     (("Div", "Float64", "div"), "__float64_div");
+    (("Rem", "Int32", "rem"), "__int32_rem");
+    (("Rem", "Int64", "rem"), "__int64_rem");
+    (("Neg", "Int32", "neg"), "__int32_neg");
+    (("Neg", "Int64", "neg"), "__int64_neg");
+    (("Neg", "Float64", "neg"), "__float64_neg");
     (("Eq", "Int32", "eq"), "__int32_eq");
     (("Eq", "Int64", "eq"), "__int64_eq");
     (("Eq", "Float64", "eq"), "__float64_eq");

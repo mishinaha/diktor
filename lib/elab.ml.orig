@@ -1599,7 +1599,6 @@ and elab_exp' env level eff node e =
 
    演算子は AST に `BinOp` として残し、意味は第7章の表から引く。
    `+` は、クラス `Add` のメソッド `add` の呼び出しと同じ型付けをする。
-   前置の `-` は `Neg` のノードで表し、クラス `Neg` のメソッド `neg` の呼び出しと同じ型付けをする。
    `method_scheme` がクラス表からメソッドの型スキーマを引き、
    それを `(左辺, 右辺)` の行に対する矢印と単一化するだけで、演算子のためだけの推論規則は持たない。
    この対応には例外が 2 つある。
@@ -1635,12 +1634,6 @@ and elab_exp' env level eff node e =
   | T.Not e ->
       Unify.unify (elab_exp env level eff e) t_boolean;
       t_boolean
-  | T.Neg e ->
-      let te = elab_exp env level eff e in
-      let cls, m = Prims.neg_method in
-      let ret = new_var level in
-      Unify.unify (Unify.instantiate level (method_scheme cls m)) (TArrow (TRecord (closed_item_row [ te ]), ret, eff));
-      ret
   | T.RecordEmpty -> t_unit
   | T.RecordExtend (rest, l, v) ->
       let tv = elab_exp env level eff v in
@@ -2150,7 +2143,7 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
   | T.BinOp (l, _, r) ->
       go l;
       go r
-  | T.Not v | T.Neg v -> go v
+  | T.Not v -> go v
   | T.Let (b, rest) ->
       go_binding b;
       go rest

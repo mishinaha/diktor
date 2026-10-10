@@ -81,6 +81,7 @@ let rec pp fmt = function
    | `(1, 2)` | `(extend _item 1 (extend _item 2 {}))` | タプルは `_item` が重複する行 |
    | `(1)` | `1` | 式の括弧はグループ化(§3.5) |
    | `(1,)` | `(extend _item 1 {})` | 1 要素のタプルはカンマで作る |
+   | `-a` | `(- a)` | 前置の `-` は `Neg` のノード。`-1` は負のリテラルに畳む(§3.18) |
    | `f(1, 2)` | `(apply f (extend _item 1 (extend _item 2 {})))` | 引数もタプルと同じ行 |
    | `t._1` | `(select _item (restrict _item t))` | 先頭を剥がしてから選ぶ(§3.4) |
    | `{x, y}` | `(extend x x (extend y y {}))` | パンニング |
@@ -265,6 +266,7 @@ let rec sexp_of_exp (_, e) =
   | Variant (s, e) -> L [ A ("#" ^ s); sexp_of_exp e ]
   | BinOp (l, op, r) -> L [ A (Prims.show_bin_op op); sexp_of_exp l; sexp_of_exp r ]
   | Not e -> L [ A "!"; sexp_of_exp e ]
+  | Neg e -> L [ A "-"; sexp_of_exp e ]
   | Lambda { l_params; l_body } -> L [ A "fn"; L (List.map sexp_of_pat l_params); sexp_of_exp l_body ]
   | Let (b, e) -> L [ A "let"; sexp_of_binding b; sexp_of_exp e ]
   | LetRec (bs, e) -> L [ A "letrec"; L (List.map sexp_of_binding bs); sexp_of_exp e ]

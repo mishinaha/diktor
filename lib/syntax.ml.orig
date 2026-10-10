@@ -743,6 +743,7 @@ end
    この 2 つの例外を表の中に閉じ込めるために、AST に演算子のノードを残し、
    第11章と第14章が第7章の同じ表を引く。
    エラーメッセージが演算子の姿を保てる、という利点もある。
+   剰余 `%` は仕様の演算子表に無いので入れない(プリミティブとして提供する)。
 
    なお、Float の表示は最短往復表現で、有限値なら Float64 リテラルとして読み戻せる(第12章 §12.7)。
    絶対値が 1e16 以上の値の最短表現は、
@@ -754,7 +755,7 @@ type num_suffix = NsInt of int | NsUInt of int | NsFloat of int (* i64 / u8 / f3
 
 type number = { n_text : string; n_is_float : bool; n_suffix : num_suffix option; n_suffix_text : string }
 
-type bin_op = Add | Sub | Mul | Div | Rem | Eq | Ne | Lt | Le | Gt | Ge | And | Or
+type bin_op = Add | Sub | Mul | Div | Eq | Ne | Lt | Le | Gt | Ge | And | Or
 
 (* ## 1.12 型パラメータの束縛子
 
@@ -1008,7 +1009,6 @@ module Make (Data : Data) = struct
     | Variant of string * exp (* #Foo(e)。ペイロードは常に単値 *)
     | BinOp of exp * bin_op * exp (* elab / interp が prims.ml の表を引く *)
     | Not of exp (* ! のみ *)
-    | Neg of exp (* 前置の -。Neg.neg を呼ぶ。数値リテラルに付いた - はパーサが負のリテラルに畳む *)
     | Lambda of lambda (* fn(x, y) => e *)
     | Let of let_binding * exp
     | LetRec of let_binding list * exp

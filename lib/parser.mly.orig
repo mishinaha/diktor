@@ -367,7 +367,7 @@ let with_splice sloc pat call k_body =
 
 (* 末尾ブロック(§3.19)の補助関数。
    `trailing_call` は、`{` の位置(lbrace_pos)と、その直前のトークンの終わり(prev_end)を受け取る。
-   `{ case … }` が作る照合関数の仮引数の名前 `%arg` は、`%` が識別子の文字ではないので、
+   `{ case … }` が作る照合関数の仮引数の名前 `%arg` は、字句解析が `%` を受け付けないので、
    利用者の名前と衝突しない *)
 let trailing_param = "%arg"
 
@@ -416,16 +416,6 @@ let tuple_ty sloc tys = mk sloc (EBraceRow (List.map (fun t -> BField ("_item", 
 
 let variant_ty_payload sloc = function [ t ] -> t | ts -> tuple_ty sloc ts
 
-(* 前置の -。被演算子が括弧で囲まない数値リテラルなら負のリテラルに畳む。
-   括弧はノードを残さないので、被演算子の字面の長さとリテラルの原文の長さを比べて見分ける *)
-let negate sloc (sp : Lexing.position) (ep : Lexing.position) e =
-  match e with
-  | (_, Number n)
-    when (n.n_text = "" || n.n_text.[0] <> '-')
-         && ep.Lexing.pos_cnum - sp.Lexing.pos_cnum = String.length n.n_text + String.length n.n_suffix_text ->
-      mk sloc (Number { n with n_text = "-" ^ n.n_text })
-  | _ -> mk sloc (Neg e)
-
 (* ## 3.10 `pub` と、`newtype` の右辺をいったん生の形で受ける理由
 
    `pub` は宣言の前に付く修飾子である。
@@ -460,7 +450,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 
 (* ## 3.11 トークン表
 
-   トークンの宣言は 2 段に分かれていて、上段が 47 個、下段が 21 個である。
+   トークンの宣言は 2 段に分かれていて、上段が 46 個、下段が 21 個である。
    下段には、この言語に特有の構文のトークンが多い。
    `{` の 3 分割、`\`(レコードからのフィールドの除去)、`...`(尾部の束縛)、`???`(穴)と、
    `class`、`instance`、`extends`、`extern`、`newtype`、`perform`、`resume`、`run`、
@@ -471,7 +461,7 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
    ほかのトークンは名前がすべての情報である。 *)
 %token AND AT ASTERISK BIG_AMPERSAND BIG_EQ BIG_VERTICAL CASE COLON COMMA DOT
 %token EFFECT EOF EQ EQ_GREATER EXCLAMATION EXCLAMATION_EQ FN GREATER HANDLE
-%token HYPHEN IF LBRACKET LESS LET LOWLINE LPAREN MATCH MODULE NL PERCENT PLUS RBRACKET
+%token HYPHEN IF LBRACKET LESS LET LOWLINE LPAREN MATCH MODULE NL PLUS RBRACKET
 %token REC RPAREN SEMI SOLIDUS TYPE VAL VERTICAL WITH
 %token THEN ELSE
 %token <bool> BOOL
@@ -874,15 +864,11 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
    比較は**非結合**である。
    `a < b < c` は文法の段階で落ちる。
 
-   前置の `-` は `HYPHEN prefix_exp` の 1 本で受ける。
-   被演算子が括弧で囲まない数値リテラルで、まだ負でなければ、その場で負のリテラルに畳む。
-   括弧はノードを残さないので、被演算子の字面の長さをリテラルの原文の長さと比べて見分ける(`negate`)。
-   それ以外は `Neg` のノードにし、第11章と第14章が `Neg.neg` の呼び出しと同じに扱う(sample.kel:94)。
+   単項のマイナスは `HYPHEN NUMBER` の形でだけ受け、その場で負のリテラルに畳む。
+   AST に単項マイナスの演算子は無い(sample.kel:94)。
    第2章(lexer.ml)の §2.1 が、同じ取り決めを字句の側から説明している。
    符号を字句の側で扱うと `1-2` が「1 と -2 の並置」になってしまうので、符号はパーサが扱う。
-   二項の `-`(sample.kel:335 の `is_even(0 - n)` がその用例)と併存しても、conflict は出ない。
-   `HYPHEN NUMBER` の規則を残したまま `HYPHEN prefix_exp` を足すと、
-   reduce/reduce の conflict が出る。 *)
+   二項の `-`(sample.kel:335 の `is_even(0 - n)` がその用例)と併存しても、conflict は出ない。 *)
 
 exp:
   | FN LPAREN params RPAREN EQ_GREATER exp { mk $sloc (Lambda { l_params = $3; l_body = $6 }) }
@@ -906,11 +892,11 @@ cmp_exp: add_exp cmp_op add_exp        { mk $sloc (BinOp ($1, $2, $3)) } | add_e
 add_exp: add_exp add_op mul_exp { mk $sloc (BinOp ($1, $2, $3)) } | mul_exp { $1 }
 %inline add_op: PLUS { Add } | HYPHEN { Sub }
 mul_exp: mul_exp mul_op prefix_exp { mk $sloc (BinOp ($1, $2, $3)) } | prefix_exp { $1 }
-%inline mul_op: ASTERISK { Mul } | SOLIDUS { Div } | PERCENT { Rem }
+%inline mul_op: ASTERISK { Mul } | SOLIDUS { Div }
 prefix_exp:
   | EXCLAMATION prefix_exp { mk $sloc (Not $2) }
-  (* 括弧で囲まない数値リテラルに付いた - は負のリテラルに畳み、それ以外は Neg にする *)
-  | HYPHEN prefix_exp      { negate $sloc $startpos($2) $endpos($2) $2 }
+  (* 符号はパーサが畳む。AST に単項マイナス演算子は無い *)
+  | HYPHEN NUMBER          { mk $sloc (Number { $2 with n_text = "-" ^ $2.n_text }) }
   | postfix_exp            { $1 }
 
 (* ## 3.19 後置とアトム
