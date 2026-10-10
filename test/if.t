@@ -49,7 +49,7 @@
   else
   false
 
-優先順位は fn と同じ段で、else の枝は右へできるだけ長く取る。
+else の枝は右へできるだけ長く取る(仕様 §5.2 の表では fn と同じ段)。
 2 + 10 も後置の match も else の枝に入る。if の結果を演算に使うときは括弧で囲む:
 
   $ cat > prec.kel <<'KEL'
@@ -135,9 +135,10 @@ if で始まる行は新しい文を始める:
      4  3
      5  <EOF>
 
-対話的な実行でも、then や else が来るまで入力を読み続ける:
+対話的な実行でも、then や else で行が終わるか、次の行が then や else で始まれば、
+入力を読み続ける:
 
-  $ printf 'let y = if false then 0\nelse 5\n' | diktor --repl
+  $ printf 'let y = if false then\n0\nelse 5\n' | diktor --repl
   y : Int32 = 5
 
 型：条件は Boolean でなければならない。誤りは条件の位置に報告する:
