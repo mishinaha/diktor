@@ -284,12 +284,38 @@ let row_failure msg =
    健全である。
    行変数で終わる行と、矢印でない型はそのまま返す。
    矢印そのものを組み直すので、Tree.set_ty より前に呼ぶ *)
+let opened_rows : tvar ref list ref = ref []
+
 let open_closed_arrow level ty =
   match repr ty with
   | TArrow (a, r, e) -> (
       let _, tail = row_fields e in
-      match repr tail with TRowEmpty -> TArrow (a, r, row_append e (new_row_var level)) | _ -> ty)
+      match repr tail with
+      | TRowEmpty ->
+          let v = new_row_var level in
+          (match v with TVar rv -> opened_rows := rv :: !opened_rows | _ -> ());
+          TArrow (a, r, row_append e v)
+      | _ -> ty)
   | _ -> ty
+
+(* 一般化しない束縛の終わりに、束縛の型の最外の行の尾部が、使用時の開きで足した行変数のまま
+   ほかの行と一致していなければ、閉じた行に戻す。開きはその使用のためだけに尾部を足すので、
+   何にも使われなければ閉じたままと同じである。戻さないと、束縛の行が最初の使用で決まる
+   弱い行変数になり、束縛を行の違う 2 つの文脈で使えなくなる。この束縛より外の水準の
+   行変数と一致しているときは、外の束縛の行を決めてしまうので戻さない *)
+let reclose_opened_tail lvl ty =
+  match repr ty with
+  | TArrow (_, _, e) -> (
+      let _, tail = row_fields e in
+      match repr tail with
+      | TVar r -> (
+          match !r with
+          | Unbound i
+            when i.vlevel >= lvl && List.exists (fun rv -> match repr (TVar rv) with TVar r' -> r' == r | _ -> false) !opened_rows ->
+              Unify.unify (TVar r) TRowEmpty
+          | _ -> ())
+      | _ -> ())
+  | _ -> ()
 
 (* 期待型の頭が矢印のときだけ、実際の型の閉じた行を開く(渡す側の開き。§11.26)。
    関数型を要求する位置(検査モードの fallback、返り値の注釈、値束縛の注釈)が使う *)
@@ -2741,8 +2767,9 @@ and make_rigids ?kinds level tparams =
    閉じた行をそのまま単一化すると、sample.kel:550 が型付かない。
 
    ```
-   println(msg) handle {
+   println(test) handle {
      case print(message) => resume(perform write(message))
+     case return(x) => x
    }
    ```
 
@@ -2793,6 +2820,14 @@ and make_rigids ?kinds level tparams =
    注釈の無い引数や、行がまだ行変数の一般化しない束縛を使うと、行変数のまま単一化し、
    その使用で決まった行がその後の使用に効く(LangSpec §13.2 の制限の 2 つ目)。
    開くかどうかは使用の時点の行の形で決まるので、受理が文や実引数の順序に依存しうる。
+
+   開いて足した尾部が、一般化しない束縛の型の最外の行として、
+   束縛の終わりまで何にも一致しないまま残ることがある。
+   注釈の最外の `@` を省略した値でない値束縛の初期化式が閉じた行の関数を返す形や、
+   パターンで束縛した閉じた行の関数を返す `match` を束縛する形である。
+   `reclose_opened_tail` はこの尾部を閉じた行に戻す(§11.28)。
+   戻さないと束縛の行が最初の使用で決まる弱い行変数になり、
+   その束縛と、それを呼ぶ注釈の無い関数を、行の違う 2 つの文脈で使えなくなる。
 
    ### `@` の省略の意味
 
@@ -3057,7 +3092,9 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
            後では Unbound が Generic に変わっていて判定できない *)
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty)
-      else Unify.lower_levels ~since:mark level fn_ty;
+      else (
+        reclose_opened_tail lvl fn_ty;
+        Unify.lower_levels ~since:mark level fn_ty);
       release_rigids rigids;
       finish_binding_dicts node ~gen ~rigids hmark fn_ty;
       add_local env x fn_ty
@@ -3066,7 +3103,9 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       if gen then (
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty)
-      else Unify.lower_levels ~since:mark level fn_ty;
+      else (
+        reclose_opened_tail lvl fn_ty;
+        Unify.lower_levels ~since:mark level fn_ty);
       release_rigids rigids;
       finish_binding_dicts node ~gen ~rigids hmark fn_ty;
       env
@@ -3075,7 +3114,9 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
          剛定数の解放は elab_pat の後に置く。elab_pat は fn_ty を単一化に使うので、
          先に Generic へ書き換えると、単一化が Generic に出会って内部エラーになる
          (頭の矢印に閉じた行を注釈した let (5) など) *)
-      if not gen then Unify.lower_levels ~since:mark level fn_ty;
+      if not gen then (
+        reclose_opened_tail lvl fn_ty;
+        Unify.lower_levels ~since:mark level fn_ty);
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in
       Exhaust.queue [ (b.T.lb_name, false) ] fn_ty;
@@ -3806,7 +3847,7 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
 
    エイリアスで書いたメソッドを、`@` を省略した呼び出し側から呼ぶと、
    呼び出し側の行は本体から推論され、メソッドの閉じた行のラベルを含む行になる(clsalias3ok)。
-   値束縛(alval4)と同じ結果で、仕様が定めた読みからそのまま導かれる。
+   エイリアスで書いた値束縛(alval)と同じく、仕様が定めた読みからそのまま導かれる。
 
    ### スーパークラスは持たない
 
@@ -4285,6 +4326,13 @@ let signature_of_binding env (b : T.let_binding') : ty option =
 
 (* ## 11.38 インスタンス本体の検査
 
+   ### 実装の行
+
+   実装の最外の行が閉じていれば、使用時の開き(§11.26)と同じく尾部を開いてから宣言の行と一致させる。
+   宣言の行 `{Print, Console}` に含まれる `Print` だけを起こす実装を、
+   閉じた行の注釈で書けるようにするためである。
+   空の行の実装は、宣言の行と単一化せずに受理する(下)。
+
    ### 前提とメソッド自身の辞書
 
    インスタンスの前提は、頭の剛定数の制約として本体に見える。
@@ -4465,6 +4513,9 @@ let check_instance_bodies env inode (i : T.instance_decl') =
     | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
         wrap (fun () -> Unify.unify ia sa);
         wrap (fun () -> Unify.unify ir sr);
+        (* 実装の最外の行が閉じていれば、使用時の開きと同じく尾部を開いてから宣言の行と一致させる。
+           宣言の行に含まれるラベルだけを起こす実装を、閉じた行の注釈で書けるようにするためである *)
+        let ie = match repr (snd (row_fields ie)) with TRowEmpty when repr ie <> TRowEmpty -> row_append ie (new_row_var lvl) | _ -> ie in
         (if repr ie = TRowEmpty then ()
         else
           (* 宣言の側の行がラベルを持たない(裸の行変数か閉じた空の行。メソッドの最外の
@@ -5011,6 +5062,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       (* 宣言の終わりに、台帳に残っている穴をすべて解き直す。前の宣言で型の決まらなかった
          穴も、この宣言で型が決まれば解ける *)
       solve_holes_at ~since:0 ~params:[];
+      opened_rows := [];
       env'
     in
     (* この宣言が出した警告だけを拾う。warnings は逆順に積んであるので、先頭の n 個を
@@ -5061,6 +5113,7 @@ let start_program () =
   Unify.reset ();
   Exhaust.reset ();
   group_stack := [];
+  opened_rows := [];
   pub_pure_cells := []
 
 let check_prelude prelude =
@@ -5484,7 +5537,8 @@ let start_input () =
   Hashtbl.reset top_types;
   Unify.reset ();
   Exhaust.reset ();
-  group_stack := []
+  group_stack := [];
+  opened_rows := []
 
 let check_input ?(toplevel_extra = []) ?(unit = Decls.root_unit) env decls =
   start_input ();
