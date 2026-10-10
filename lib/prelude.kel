@@ -38,7 +38,7 @@
 // - Add/Sub/Mul/Div/Rem/Neg/Eq/Ord/Show のクラス宣言と、組み込み型に付くそのインスタンス
 // - リージョン系の Ref/Array/MutableArray/Heap/Blocking
 //
-// これらは、クラスのスキーマとディスパッチ表が elab、interp と噛み合っており、
+// これらは、クラスのスキーマと組み込みのメソッド表が elab、interp と噛み合っており、
 // OCaml 側で作るほうが短く済む。
 //
 // インスタンスは、実体がどちら側にあるかで置き場所が決まる。
@@ -308,8 +308,8 @@ extern "prim" let __show_int32(x: Int32): String
 // | `echoln` | `Console.write`(改行つき) | `@ Console` |
 // | `println` | `Print.print`(改行つき) | `@ Print` |
 //
-// `message + "\n"` の `+` は演算子で、第7章の表を経て Add クラスへディスパッチされ、
-// `Add[String]` のインスタンスが `__string_concat` を呼ぶ。
+// `message + "\n"` の `+` は演算子で、第7章の表を経て Add クラスの `add` になり、
+// 型検査が String に決めた `Add[String]` のインスタンスが `__string_concat` を呼ぶ。
 // つまり、この 1 文字には 3 つの機構が関わる。
 // 演算子の脱糖、クラスの解決、プリミティブの呼び出しである。
 //
