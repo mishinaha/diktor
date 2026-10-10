@@ -275,22 +275,20 @@ let row_failure msg =
   in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
 
-(* @ を省略した let で、推論した最外の行が閉じていたものは、公開するときに尾部を行変数で開く。
-   仕様 §9 の表は、let について、推論した行が閉じていれば公開される型で開くと定める
-   (sample.kel:491-493)。行が閉じるのは、本体が閉じた行の型の関数を呼んだときで、
-   入れ子の矢印の型を持つ引数やフィールド、頭が型エイリアスの値束縛、一般化されない束縛が
-   これにあたる(最外に閉じた行を書いた束縛は使うたびに開くので、呼んでも行は閉じない)。
-   閉じた行は本体が起こすエフェクトの上限なので、
-   尾部を開いても起こすエフェクトは増えず、健全である(publish_open が明示の閉じた行に
-   行うことと同じ)。矢印そのものを組み直すので、Tree.set_ty より前に呼ぶ *)
-let reopen_pure_row level ty =
+(* 最外の行が閉じた矢印の尾部を、新しい行変数で開く(使用時の開き。§11.26)。
+   呼び出し先の関数の型に掛けてから単一化すると、閉じた行のラベルを含むどの行の下からでも呼べる。
+   閉じた行は本体が起こすエフェクトの上限なので、尾部を開いても起こすエフェクトは増えず、
+   健全である。
+   矢印そのものを組み直すので、Tree.set_ty より前に呼ぶ。
+   @ を省略した let で推論した最外の行が閉じたものを公開のときに開くのにも、同じ関数を使う *)
+let open_closed_arrow level ty =
   match repr ty with
   | TArrow (a, r, e) -> (
       let _, tail = row_fields e in
       match repr tail with TRowEmpty -> TArrow (a, r, row_append e (new_row_var level)) | _ -> ty)
   | _ -> ty
 
-(* 最外の @ が書かれているか(reopen_pure_row で開き直すかどうかの判定)。
+(* 最外の @ が書かれているか(open_closed_arrow で開き直すかどうかの判定)。
    関数束縛は lb_eff を見る。値束縛は、注釈の頭が矢印リテラルならその @ を見る。
    頭が矢印リテラルでない注釈(型エイリアスなど)では、展開先の矢印を入れ子として読むので、
    省略した @ は @ {}(閉じたまま公開する)になる。
@@ -1556,23 +1554,22 @@ and elab_exp' env level eff node e =
    関数型を先に分解して引数を期待型で検査するのは、多相のためではなく、
    操作名の解決に必要な行を先に決めるためである。
 
-   単一化が行の不一致で落ちたときは、文言を 3 通りに言い換える。
+   単一化の前に、呼び出し先の行が閉じていれば、尾部を新しい行変数で開く(使用時の開き。§11.26)。
+   閉じた行は本体が起こすエフェクトの上限なので、尾部を開いても起こすエフェクトは増えない。
+   そのため、閉じた行の関数は、その行のラベルを含むどの行の下からでも呼べる。
+
+   単一化が行の不一致で落ちたときは、文言を 2 通りに言い換える。
    `pub` で `@` を省略した宣言の本体の行(§11.26 の印のセル)と衝突した形では、
    pub の規則を名指しする。
-   呼び出し先の行が空(純粋な関数)で、それを空でない行の下から呼ぶ形と、
    この位置の行が空(高階の引数の行が `@ {}`)である形では、
    仕様 §9 の、入れ子の矢印で省略した `@` を `@ {}`(純粋)と読む規則を案内する。
    言い換えるのは行に由来する失敗だけで、その判定を `row_failure` が行う。
-   引数の型の不一致は言い換えない。
-   `callee_pure` を単一化の前に取るのは、単一化が失敗しても、
-   呼び出し先の行が書き換わっていることがあるからである。 *)
+   引数の型の不一致は言い換えない。 *)
 
   | T.Apply (f, arg) ->
       let tf = elab_exp env level eff f in
-      (* 単一化の前に、呼び出し先の行を覚えておく(単一化の後では書き換わる)。
-         空の行の関数を空でない行から呼ぶ失敗は仕様 §9 の規則そのものなので、
-         一般的な文言のかわりに規則を案内する *)
-      let callee_pure = match repr tf with TArrow (_, _, e) -> repr e = TRowEmpty | _ -> false in
+      (* 呼び出し先の行が閉じていれば、尾部を新しい行変数で開いてから単一化する(使用時の開き。§11.26) *)
+      let tf = open_closed_arrow level tf in
       let tr = new_var level in
       let pvar = new_var level in
       (* 関数の行を呼び出し側の eff と単一化してから、引数を期待型で検査する(§11.12) *)
@@ -1584,10 +1581,6 @@ and elab_exp' env level eff node e =
          let pub_pure = is_pub_pure_row eff in
          if pub_pure && row_failure msg then
            type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
-         else if row_failure msg && callee_pure then
-           type_error
-             (msg
-            ^ "(呼び出し先の行は空 = 純粋です。行の部分型付けが無いので、空でない行の下からは呼べません。入れ子の矢印の @ 省略は @ {} と読みます — 行を通すなら行変数を型パラメータに取ってください。§9)")
          else if row_failure msg && repr eff = TRowEmpty then
            type_error
              (msg
@@ -2667,7 +2660,7 @@ and make_rigids ?kinds level tparams =
    一般化されない束縛が、閉じた行の型を持つ。
    最外に閉じた行を書いた束縛は使うたびに開くので、それを呼んでも行は閉じない。
    そのままでは、`count_if` のような関数が、エフェクトのある文脈から呼べない関数になる。
-   そこで `reopen_pure_row` が、公開の直前に、閉じた最外の行の尾部を新しい行変数で開く
+   そこで `open_closed_arrow` が、公開の直前に、閉じた最外の行の尾部を新しい行変数で開く
    (sample.kel:491-493)。
    閉じた行は本体が起こすエフェクトの上限なので、明示した閉じた行を開くのと同じく健全である
    (`test/annot_rows.t` の sumgen / rec2 / clsalias3ok)。
@@ -2795,7 +2788,7 @@ and release_rigids rigids =
    値束縛に型パラメータを書けるように文法を広げたときの防御である。
 
    一方、本体の行が閉じていることは、
-   その尾部を開いてよいことの証明になる(§11.26 の `reopen_pure_row`)。
+   その尾部を開いてよいことの証明になる(§11.26 の `open_closed_arrow`)。
    値であることが型の多相の根拠であるのに対し、こちらは行の多相の根拠である。
    ただし、行を開き直すのも一般化する束縛に限る(§11.26 の 1 つ目のガード)。
 
@@ -2940,7 +2933,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
      (§11.26)。明示の @ と pub は publish_open が開くので対象外。値束縛は、注釈の
      頭の矢印リテラルに @ が書かれていないときだけ開き直す。頭がエイリアスなら
      展開先は入れ子なので開かない(outer_eff_written) *)
-  let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then reopen_pure_row lvl fn_ty else fn_ty in
+  let fn_ty = if gen && (not (outer_eff_written b)) && not b.T.lb_pub then open_closed_arrow lvl fn_ty else fn_ty in
   Tree.set_ty node fn_ty;
   let rigids = rigids @ !extra_rigids in
   (* 網羅性の遅延キューは generalize の直前に drain する *)
@@ -3173,7 +3166,7 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
         | Some t' -> (x, t')
         | None ->
         if (not (outer_eff_written b)) && not b.T.lb_pub then (
-          let t' = reopen_pure_row lvl t in
+          let t' = open_closed_arrow lvl t in
           if t' != t then Tree.set_ty bnode t';
           (x, t'))
         else (x, t))
