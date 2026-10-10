@@ -133,7 +133,9 @@ let default_options =
    起点の先頭に集めたものとして扱う(§16.3b)。
    連結したファイルのどれかを import すると誤りにする。
    同じ宣言が起点と依存先の両方に現れるからである。
-   仕様 sample.kel の回帰テストは、この順序を使ってスタブを sample.kel の前に置く。 *)
+   仕様 sample.kel の回帰テストは、この順序を使ってスタブを sample.kel の前に置く。
+   言語仕様は複数のファイルの扱いを定めない。
+   この連結は diktor の取り決めである。 *)
 let parse_args args =
   let rec go opts = function
     | [] ->
