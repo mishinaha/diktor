@@ -11,12 +11,14 @@ Diktor は OCaml で書かれた Keleut プログラミング言語のブート�
 言語仕様は親リポジトリ `keleut` にあります(本リポジトリはその git submodule です):
 
 - `../doc/sample.kel` — 表層構文と言語設計(コメントが仕様)
+- `../doc/LangSpec.md` — 言語仕様の本文(構文、型規則、評価規則、標準環境)
 - `../reference/MiniLang.scala` — 型推論器のリファレンス実装
 
-`lib` と `test` の記事本文が引く `sample.kel:NNN` は、親のリビジョン
-**268b2eb**(876 行)の行番号です。仕様が改訂されたら `test/sample/sample.kel`
-の同期と同時に付け替えます。`doc/log` の過去エントリの行番号は当時のまま
-残します(書き換えると記録が読めなくなるため)。
+`lib` と `test` の記事本文が引く `sample.kel:NNN` は、`test/sample/sample.kel`
+の行番号です。その取り込み元の版(親のリビジョン、blob SHA、md5)は
+`test/sample/README.md` に記録してあります。仕様が改訂されたら
+`test/sample/sample.kel` の同期と同時に付け替えます。`doc/log` の過去エントリの
+行番号は当時のまま残します(書き換えると記録が読めなくなるため)。
 
 `--dump-ast` の S 式と `--dump-tokens` のトークン列は diktor 固有の診断用の出力で、
 仕様は形式を定めていません。`test/ast.t` や `test/tokens.t` などがゴールデンで固定
@@ -82,11 +84,10 @@ ocamlformat / `dune fmt` は列 0 ブロックを再インデントして規約�
 `dune promote` でゴールデンファイルを更新し、その更新は実装の変更とは
 別のコミットにしてください。
 
-`test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです(現在は親の
-268b2eb、876 行)。取り込み元のリビジョン・blob SHA・md5 は
-`test/sample/README.md` に記録してあり、同じファイルに同期手順と、無改変で
-あることを git の blob SHA で検証する 1 行があります。sample.kel 本体には何も
-書き足しません。
+`test/sample/sample.kel` は `../doc/sample.kel` の無改変コピーです。取り込み元の
+リビジョン・blob SHA・md5 は `test/sample/README.md` に記録してあり、同じファイルに
+同期手順と、無改変であることを git の blob SHA で検証する 1 行があります。
+sample.kel 本体には何も書き足しません。
 
 # 名前の由来
 
