@@ -149,3 +149,17 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   $ OCAMLRUNPARAM=l=100k diktor nontail_resume.kel
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
+
+制約付きの多相関数の自己再帰と、Eq の制約を持つ相互再帰。
+辞書を渡す呼び出しも末尾位置に置ける:
+
+  $ cat > dict.kel <<'KEL'
+  > let rec go[A: Add](n: Int32, x: A, acc: A): A = (n == 0) match { case true => acc case false => go(n - 1, x, acc + x) }
+  > echoln(show(go(100000, 1, 0)))
+  > let rec ev(n: Int32, a) = n == 0 || od(n - 1, a)
+  > and od(n: Int32, a) = n != 0 && a == a && ev(n - 1, a)
+  > echoln(show(ev(100000, "x")))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor dict.kel
+  100000
+  true

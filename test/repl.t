@@ -226,3 +226,49 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   diktor: --repl takes no input files
   $ diktor --repl x.kel > /dev/null 2>&1
   [64]
+
+一般化しない束縛に残った制約付きの型変数は、同じ入力の中で型が決まれば受理する。
+入力の終わりまでに決まらなければ曖昧性エラーになり、その入力は戻る:
+
+  $ diktor --repl <<'EOF2'
+  > type class Read[A] { val read: (String) => A }
+  > type instance Read[Int32] { let read(s) = 1i32 }
+  > let a = read("1"); echoln(show(a + 1i32))
+  > let a = read("1")
+  > a
+  > EOF2
+  2
+  a : Int32 = 1
+  ! <stdin>:4:9: 型エラー: 曖昧な制約: Read を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
+  _ : Int32 = 1
+
+返り値からインスタンスが決まるクラスは、前の入力で宣言して後の入力の注釈で使える。
+:type は型だけを表示して穴を解かないので弱い型変数のまま出るが、値でない式文 pure(1) は
+入力の終わりまでに型が決まらず曖昧性エラーになる(台帳 V107):
+
+  $ diktor --repl <<'EOF2'
+  > type class Pure[F[_]] { val pure[A]: (A) => F[A] }
+  > type instance Pure[Option[_]] { let pure(x) = Some(x) }
+  > let one: Option[Int32] = pure(1)
+  > :type pure(1)
+  > pure(1)
+  > EOF2
+  one : Option[Int32] = Some(1)
+  [_F: Pure] _F[Int32]
+  ! <stdin>:5:1: 型エラー: 曖昧な制約: Pure を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
+
+名前だけの式文と、関数を束縛するだけの let は構文上の値なので一般化し、
+制約付きの型のまま <fn> と表示する:
+
+  $ diktor --repl <<'EOF2'
+  > show
+  > Show.show
+  > let pr[A: Show](x: A): String = show(x)
+  > pr
+  > let sh = show
+  > EOF2
+  _ : [A: Show] (A) => String = <fn>
+  _ : [A: Show] (A) => String = <fn>
+  pr : [A: Show] (A) => String = <fn>
+  _ : [A: Show] (A) => String = <fn>
+  sh : [A: Show] (A) => String = <fn>
