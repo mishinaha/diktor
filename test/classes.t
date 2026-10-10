@@ -3,9 +3,9 @@
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-MiniLang §16-9(曖昧性検査)。read : Str -> a は v0 ではクラスとしては
-宣言できない(クラスパラメータは引数の頭に現れよ、§11.33)ので、同じ
-型を持つ普通の多相 let で代用する:
+MiniLang §16-9(曖昧性検査)。read : Str -> a と同じ型を持つ普通の多相 let で、
+結果の型が決まらない使い方が曖昧になることを確かめる(クラスのメソッドで書く形は
+test/dictionary_passing.t の read と pureamb):
 
   $ cat > ml9b.kel <<'KEL'
   > let read_[A: Show](s: String): A = ???

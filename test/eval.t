@@ -216,7 +216,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   2
   10
 
-ユーザ定義インスタンスの実行時ディスパッチ(D3):
+ユーザ定義インスタンスのメソッドの呼び出し(D3):
 
   $ cat > dispatch.kel <<'EOF'
   > newtype Meters(Int32)
