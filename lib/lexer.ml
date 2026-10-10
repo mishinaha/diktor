@@ -130,8 +130,14 @@ let parse_number text =
       let raw = String.sub text i (len - i) in
       (* 解釈できない幅は -1 に落とし、第11章の number_ty へ回す。number_ty は、本体が小数で
          接尾辞が整数なら型エラーにし、そうでなければ未実装エラーにする。字句は Plus digit
-         なので負の幅はソースに書けず、-1 はどの実装の幅とも衝突しない番兵になる *)
-      let width = match int_of_string_opt (String.sub text (i + 1) (len - i - 1)) with Some w -> w | None -> -1 in
+         なので負の幅はソースに書けず、-1 はどの実装の幅とも衝突しない番兵になる。
+         先頭に 0 を置いた幅(i032)も -1 にする。意味を持つ接尾辞は綴りが i32、i64、f64 の
+         3 つだけで(仕様 §4.2)、同じ値に読める別の綴りを受理しない *)
+      let digits = String.sub text (i + 1) (len - i - 1) in
+      let width =
+        if String.length digits > 1 && digits.[0] = '0' then -1
+        else match int_of_string_opt digits with Some w -> w | None -> -1
+      in
       let suffix = match text.[i] with 'i' -> NsInt width | 'u' -> NsUInt width | _ -> NsFloat width in
       let is_float = match suffix with NsFloat _ -> true | _ -> lexically_float body in
       { n_text = body; n_is_float = is_float; n_suffix = Some suffix; n_suffix_text = raw }
