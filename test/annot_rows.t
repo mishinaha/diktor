@@ -561,6 +561,535 @@ let rec の値束縛も頭を最外として読む。pub で頭の @ を省略�
   a : (Int32) => Int32 @ {Console}
   b : (Int32) => Int32 @ {Console}
 
+使用時の開き(LangSpec §13.2)。閉じた行を持つ関数は、呼び出すとき、名前で参照する
+とき、関数型を要求する位置(型注釈が関数型である値束縛の初期化式、返り値の型注釈が
+関数型である関数束縛の本体、仮引数の型が関数型である実引数)に置くときに尾部を開くので、
+行のラベルが要求する側の行に含まれていれば通る。以下はこの規則で通る形と通らない形を
+固定する。
+
+まず呼び出し。@ {} の仮引数、newtype のフィールドから取り出した関数、構文上の値で
+ない初期化式で束縛した関数、高階の引数が返した関数を、行の広い文脈から呼べる:
+
+  $ cat > usecallparam.kel <<'KEL'
+  > let twice(f: () => Unit): Unit @ Console = { f(); f(); echoln("x") }
+  > twice(fn() => ())
+  > KEL
+  $ diktor --type-check usecallparam.kel
+  twice : (() => {} @ {}) => {} @ {Console}
+  _ : {}
+  $ cat > usecallfield.kel <<'KEL'
+  > newtype Cb = Cb(go: () => Unit @ Print)
+  > let use(c: Cb): Unit @ {Print, Console} = c match { case Cb(go = r) => { r(); echoln("done") } }
+  > KEL
+  $ diktor --type-check usecallfield.kel
+  use : (Cb) => {} @ {Print, Console}
+  $ cat > usecallnonval.kel <<'KEL'
+  > let mk(): (Int32) => Int32 = fn(x) => x + 1
+  > let k = mk()
+  > let use(): Int32 @ Console = k(1)
+  > KEL
+  $ diktor --type-check usecallnonval.kel
+  mk : () => (Int32) => Int32 @ {}
+  k : (Int32) => Int32 @ {}
+  use : () => Int32 @ {Console}
+  $ cat > usecallnested.kel <<'KEL'
+  > let a(): Unit @ {} = ()
+  > let app[E](mk: () => () => Unit @ E): Unit @ E = { let g = mk(); g() }
+  > let use(): Unit @ Console = app(fn() => a)
+  > KEL
+  $ diktor --type-check usecallnested.kel
+  a : () => {} @ {}
+  app : (() => (() => {}) @ {}) => {}
+  use : () => {} @ {Console}
+
+尾部を開いてもラベルが消えるわけではない。@ {} の仮引数にエフェクトのある無名関数を
+渡す形、@ {} の本体から @ Console の局所関数を呼ぶ形、@ {} の本体から extern "C"
+の関数(@ Blocking)を呼ぶ形は落ちる:
+
+  $ cat > userejparam.kel <<'KEL'
+  > let twice(f: () => Unit): Unit @ Console = { f(); f(); echoln("x") }
+  > twice(fn() => echoln("y"))
+  > KEL
+  $ diktor --type-check userejparam.kel
+  twice : (() => {} @ {}) => {} @ {Console}
+  ! userejparam.kel:2:15: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+  $ cat > userejcall.kel <<'KEL'
+  > let bad(): Unit @ {} = {
+  >   let g: () => Unit @ Console = fn() => echoln("x")
+  >   g()
+  > }
+  > KEL
+  $ diktor --type-check userejcall.kel
+  ! userejcall.kel:3:3: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+  $ cat > userejblock.kel <<'KEL'
+  > extern "C" let sqrt(x: Float64): Float64
+  > let p(): Float64 @ {} = sqrt(4.0)
+  > KEL
+  $ diktor --type-check userejblock.kel
+  sqrt : (Float64) => Float64 @ {Blocking}
+  ! userejblock.kel:2:25: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+閉じた行の関数を名前で渡すと、受け取る側の行に合わせて開く。@ Print の仮引数に
+@ {} の関数を渡す形、同じ行変数 E を持つ 2 つの仮引数に行の違う関数を渡す形、返り値の
+行変数の位置に @ {} の関数を返す形、行変数を持つ高階関数に組み込みのメソッド show を
+渡す形、pub で @ を省略した関数(@ {})を渡す形が通る:
+
+  $ cat > passpure.kel <<'KEL'
+  > let pure_fn(): Unit @ {} = ()
+  > let call_p(f: () => Unit @ Print): Unit @ Print = f()
+  > let t(): Unit @ Print = call_p(pure_fn)
+  > KEL
+  $ diktor --type-check passpure.kel
+  pure_fn : () => {} @ {}
+  call_p : (() => {} @ {Print}) => {} @ {Print}
+  t : () => {} @ {Print}
+  $ cat > passtwice.kel <<'KEL'
+  > let twice2[E](f: () => Unit @ E, g: () => Unit @ E): Unit @ E = { f(); g() }
+  > let pure_fn(): Unit @ {} = ()
+  > let printer(): Unit @ Console = echoln("p")
+  > let t(): Unit @ Console = twice2(pure_fn, printer)
+  > KEL
+  $ diktor --type-check passtwice.kel
+  twice2 : (() => {}, () => {}) => {}
+  pure_fn : () => {} @ {}
+  printer : () => {} @ {Console}
+  t : () => {} @ {Console}
+  $ cat > passret.kel <<'KEL'
+  > let pure_fn(): Unit @ {} = ()
+  > let mk[E](): () => Unit @ E = pure_fn
+  > KEL
+  $ diktor --type-check passret.kel
+  pure_fn : () => {} @ {}
+  mk : () => () => {}
+  $ cat > passmethod.kel <<'KEL'
+  > let rec map_l[A, B, E](xs: List[A], f: (A) => B @ E): List[B] @ E = xs match {
+  >   case Nil => Nil
+  >   case Cons(x, t) => Cons(f(x), map_l(t, f))
+  > }
+  > let t(): Unit @ Console = {
+  >   let ys = map_l(Cons(1, Nil), show)
+  >   echoln("x")
+  > }
+  > KEL
+  $ diktor --type-check passmethod.kel
+  map_l : (List[A], (A) => B) => List[B]
+  t : () => {} @ {Console}
+  $ cat > passpub.kel <<'KEL'
+  > pub let inc(x: Int32): Int32 = x + 1
+  > let t(xs: Array[Int32]): Unit @ Console = run h {
+  >   Array.each(xs, fn(x) => echoln(show(inc(x))))
+  > }
+  > let rec map_l[A, B, E](xs: List[A], f: (A) => B @ E): List[B] @ E = xs match {
+  >   case Nil => Nil
+  >   case Cons(x, tl) => Cons(f(x), map_l(tl, f))
+  > }
+  > let u(): List[Int32] @ Console = map_l(Cons(1, Nil), inc)
+  > KEL
+  $ diktor --type-check passpub.kel
+  inc : (Int32) => Int32 @ {}
+  t : (Array[Int32]) => {} @ {Console}
+  map_l : (List[A], (A) => B) => List[B]
+  u : () => List[Int32] @ {Console}
+
+利用者が宣言した型クラスのメソッドも、頭の @ の省略は @ {} と読む。高階関数に
+渡しても、Console の文脈から直接呼んでも通る:
+
+  $ cat > passumeth.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Sz[T] { val sz: (T) => Int32 }
+  > type instance Sz[Box] { let sz(b) = b match { case Box(x) => x } }
+  > let app[A, B, E](f: (A) => B @ E, x: A): B @ E = f(x)
+  > let use(b: Box): Int32 @ Console = { echo("x"); app(sz, b) + sz(b) }
+  > KEL
+  $ diktor --type-check passumeth.kel
+  app : ((A) => B, A) => B
+  use : (Box) => Int32 @ {Console}
+
+名前で参照した関数は、関数型を要求しない位置に置いても開く。@ {} の関数を名前で
+レコードのフィールド、タプルの要素、match の節(返り値の注釈がある形とない形)、
+コンストラクタの引数、perform と resume の引数に置いても、@ Console の関数と同じ型に
+できる:
+
+  $ cat > noheadrecord.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let use(): Int32 @ Console = {
+  >   let r: {go: () => Int32 @ Console} = {go = a}
+  >   r.go()
+  > }
+  > KEL
+  $ diktor --type-check noheadrecord.kel
+  a : () => Int32 @ {}
+  use : () => Int32 @ {Console}
+  $ cat > noheadtuple.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let b(): Int32 @ Console = 2
+  > let use(): Int32 @ Console = {
+  >   let p = (a, b)
+  >   let q: (() => Int32 @ Console, Int32) = (a, 1)
+  >   0
+  > }
+  > KEL
+  $ diktor --type-check noheadtuple.kel
+  a : () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  use : () => Int32 @ {Console}
+  $ cat > noheadmatch.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let b(): Int32 @ Console = 2
+  > let pick(c: Boolean): () => Int32 @ Console = c match { case true => a case false => b }
+  > KEL
+  $ diktor --type-check noheadmatch.kel
+  a : () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  pick : (Boolean) => () => Int32 @ {Console}
+  $ cat > noheadmatchunann.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let b(): Int32 @ Console = 2
+  > let pick(c: Boolean) = c match { case true => a case false => b }
+  > KEL
+  $ diktor --type-check noheadmatchunann.kel
+  a : () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  pick : (Boolean) => () => Int32 @ {Console extends R1}
+  $ cat > noheadctor.kel <<'KEL'
+  > newtype Cb = Cb(go: () => Unit @ Console)
+  > let a(): Unit @ {} = ()
+  > let mk(): Cb = Cb(a)
+  > KEL
+  $ diktor --type-check noheadctor.kel
+  a : () => {} @ {}
+  mk : () => Cb
+  $ cat > noheadperform.kel <<'KEL'
+  > effect Reg = { reg: (() => Unit @ Console) => Unit }
+  > let a(): Unit @ {} = ()
+  > let use(): Unit @ Reg = perform reg(a)
+  > KEL
+  $ diktor --type-check noheadperform.kel
+  a : () => {} @ {}
+  use : () => {} @ {Reg}
+  $ cat > noheadresume.kel <<'KEL'
+  > effect Get = { get: () => () => Unit @ Console }
+  > let a(): Unit @ {} = ()
+  > let use(): Unit @ Console = {
+  >   let g = perform get()
+  >   g()
+  > } handle {
+  >   case get() => resume(a)
+  > }
+  > KEL
+  $ diktor --type-check noheadresume.kel
+  a : () => {} @ {}
+  use : () => {} @ {Console}
+
+@ {} の関数と @ Console の関数を同じリストに入れて順に呼ぶ形は、実行まで確かめる:
+
+  $ cat > noheadrun.kel <<'KEL'
+  > let a(): Unit @ {} = echoln_never()
+  > let echoln_never(): Unit @ {} = ()
+  > let b(): Unit @ Console = echoln("b")
+  > let rec run_all(fs: List[() => Unit @ Console]): Unit @ Console = fs match {
+  >   case Nil => ()
+  >   case Cons(f, t) => { f(); run_all(t) }
+  > }
+  > run_all(Cons(a, Cons(b, Cons(a, Nil))))
+  > echoln("done")
+  > KEL
+  $ diktor --type-check noheadrun.kel
+  a : () => {} @ {}
+  echoln_never : () => {} @ {}
+  b : () => {} @ {Console}
+  run_all : (List[() => {} @ {Console}]) => {} @ {Console}
+  _ : {}
+  _ : {}
+  $ diktor noheadrun.kel
+  b
+  done
+
+条件式の 2 つの節でも同じで、名前で置いた行の違う 2 つの関数を束縛してから呼べる:
+
+  $ cat > noheadif.kel <<'KEL'
+  > let pure_f(): Unit @ {} = ()
+  > let print_f(): Unit @ Console = echoln("p")
+  > let run_it(b: Boolean): Unit @ Console = {
+  >   let g = if b then pure_f else print_f
+  >   g()
+  > }
+  > run_it(false)
+  > KEL
+  $ diktor --type-check noheadif.kel
+  pure_f : () => {} @ {}
+  print_f : () => {} @ {Console}
+  run_it : (Boolean) => {} @ {Console}
+  _ : {}
+  $ diktor noheadif.kel
+  p
+
+型変数の仮引数に行の違う 2 つの関数を並べて渡す形、Ref に入れた @ {} の関数を
+@ Console の関数で置き換える形、返り値のレコード型のフィールドに @ {} の関数を置く
+形も通る:
+
+  $ cat > noheadpoly.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let b(): Int32 @ Console = 2
+  > let pick[A](c: Boolean, x: A, y: A): A = c match { case true => x case false => y }
+  > let use(): Int32 @ Console = pick(true, a, b)()
+  > KEL
+  $ diktor --type-check noheadpoly.kel
+  a : () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  pick : (Boolean, A, A) => A
+  use : () => Int32 @ {Console}
+  $ cat > noheadref.kel <<'KEL'
+  > let a(): Unit @ {} = ()
+  > let b(): Unit @ Console = echoln("b")
+  > let use(): Unit @ Console = run h {
+  >   let r = Ref.new(a)
+  >   Ref.set(r, b)
+  >   Ref.get(r)()
+  > }
+  > KEL
+  $ diktor --type-check noheadref.kel
+  a : () => {} @ {}
+  b : () => {} @ {Console}
+  use : () => {} @ {Console}
+  $ cat > noheadret.kel <<'KEL'
+  > let a(): Int32 @ {} = 1
+  > let mk(): {go: () => Int32 @ Console} = {go = a}
+  > KEL
+  $ diktor --type-check noheadret.kel
+  a : () => Int32 @ {}
+  mk : () => {go: () => Int32 @ {Console}}
+
+利用者のクラスのメソッドも名前の参照で開くので、エフェクトのある無名関数と同じ
+リストに入れられる:
+
+  $ cat > noheadmethod.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Sz[T] { val sz: (T) => Int32 }
+  > type instance Sz[Box] { let sz(b) = b match { case Box(x) => x } }
+  > let xs = Cons(sz, Cons(fn(b: Box) => { echo("y"); 1 }, Nil))
+  > KEL
+  $ diktor --type-check noheadmethod.kel
+  xs : List[(Box) => Int32 @ {Console extends R1}]
+
+pub で @ を省略した関数は @ {} と読み、宣言より前から参照しても後から参照しても
+同じ閉じた行を見る。下の 2 つは宣言の順序だけが違い、どちらも通る:
+
+  $ cat > pubfwdlist.kel <<'KEL'
+  > let use(): Int32 @ Console = {
+  >   let xs = Cons(a, Cons(fn() => { echoln("x"); 2 }, Nil))
+  >   0
+  > }
+  > pub let a(): Int32 = 1
+  > KEL
+  $ diktor --type-check pubfwdlist.kel
+  use : () => Int32 @ {Console}
+  a : () => Int32 @ {}
+  $ cat > pubbacklist.kel <<'KEL'
+  > pub let a(): Int32 = 1
+  > let use(): Int32 @ Console = {
+  >   let xs = Cons(a, Cons(fn() => { echoln("x"); 2 }, Nil))
+  >   0
+  > }
+  > KEL
+  $ diktor --type-check pubbacklist.kel
+  a : () => Int32 @ {}
+  use : () => Int32 @ {Console}
+
+名前の参照でない式(呼び出しの結果)は、関数型を要求する位置に置いたときに開く。
+実引数に直接書いたレコード式のフィールド、返り値の型注釈が関数型である本体、仮引数の
+型が関数型である実引数に mkp() を置くと通る:
+
+  $ cat > nonnamearg.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let take(r: {go: () => Int32 @ Console}): Int32 @ Console = r.go()
+  > let use(): Int32 @ Console = take({go = mkp()})
+  > KEL
+  $ diktor --type-check nonnamearg.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  take : ({go: () => Int32 @ {Console}}) => Int32 @ {Console}
+  use : () => Int32 @ {Console}
+  $ cat > nonnameret.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let f(): () => Int32 @ Console = mkp()
+  > let twice(g: () => Int32 @ Console): Int32 @ Console = g() + g()
+  > let use(): Int32 @ Console = twice(mkp())
+  > KEL
+  $ diktor --type-check nonnameret.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  f : () => () => Int32 @ {Console}
+  twice : (() => Int32 @ {Console}) => Int32 @ {Console}
+  use : () => Int32 @ {Console}
+
+関数型を要求しない位置に置いた名前の参照でない式は開かない(LangSpec §13.2 の制限の
+1 つ目)。コンストラクタの引数に mkp() を置くと、@ Console の b と同じ型にできずに
+落ちる:
+
+  $ cat > nonnamelist.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let xs = Cons(mkp(), Cons(b, Nil))
+  > KEL
+  $ diktor --type-check nonnamelist.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  ! nonnamelist.kel:3:10: 型エラー: ラベル Console がありません(行は閉じています)(コンストラクタ Cons のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+無名関数で包めば通る(制限の 1 つ目の回避)。mkp()() は呼び出しなので尾部を開き、
+包んだ無名関数の行は本体から推論される:
+
+  $ cat > nonnameeta.kel <<'KEL'
+  > let mkp(): () => Int32 = fn() => 1
+  > let b(): Int32 @ Console = { echo("b"); 2 }
+  > let xs = Cons(fn() => mkp()(), Cons(b, Nil))
+  > KEL
+  $ diktor --type-check nonnameeta.kel
+  mkp : () => () => Int32 @ {}
+  b : () => Int32 @ {Console}
+  xs : List[() => Int32 @ {Console extends R1}]
+
+再帰群では、最外の矢印に書いた行、pub の関数の省略した行(@ {})、値束縛の型注釈を、
+群のどの本体よりも前に置く(LangSpec §6.3)。そのため、前の束縛から行の違う後ろの
+束縛を呼べる。pub の群、後ろの束縛が型パラメータを持つ形、両方が持つ形、pub で両方が
+持つ形、リージョンの型パラメータを持つ形、値束縛の形を固定する:
+
+  $ cat > recfwdpub.kel <<'KEL'
+  > pub let rec f(): Unit @ Print = { println("a"); g() }
+  > and g(): Unit = ()
+  > KEL
+  $ diktor --type-check recfwdpub.kel
+  f : () => {} @ {Print}
+  g : () => {} @ {}
+  $ cat > recfwdtp.kel <<'KEL'
+  > let rec f(n: Int32): Int32 @ Print = { println("a"); g(n) }
+  > and g[A](n: Int32): Int32 @ {} = n
+  > KEL
+  $ diktor --type-check recfwdtp.kel
+  f : (Int32) => Int32 @ {Print}
+  g : (Int32) => Int32 @ {}
+  $ cat > recfwdtp2.kel <<'KEL'
+  > let rec f[A](x: A, n: Int32): Int32 @ Print = { println("a"); g(n) }
+  > and g[B](n: Int32): Int32 @ {} = n
+  > KEL
+  $ diktor --type-check recfwdtp2.kel
+  f : (A, Int32) => Int32 @ {Print}
+  g : (Int32) => Int32 @ {}
+  $ cat > recfwdpubtp.kel <<'KEL'
+  > module M {
+  >   pub let rec f[A](x: A, n: Int32): Int32 @ Print = { println("a"); g(n) }
+  >   and g[B](n: Int32): Int32 = n
+  > }
+  > KEL
+  $ diktor --type-check recfwdpubtp.kel
+  M.f : (A, Int32) => Int32 @ {Print}
+  M.g : (Int32) => Int32 @ {}
+  $ cat > recfwdheap.kel <<'KEL'
+  > let rec f[h](r: Ref[h, Int32], n: Int32): Int32 @ {Heap[h], Print} = { println("a"); g(n) }
+  > and g[k](n: Int32): Int32 @ {} = n
+  > KEL
+  $ diktor --type-check recfwdheap.kel
+  f : (Ref[A, Int32], Int32) => Int32 @ {Heap[A], Print}
+  g : (Int32) => Int32 @ {}
+  $ cat > recfwdval.kel <<'KEL'
+  > let rec a: (Int32) => Int32 @ {Console, Print} = fn(n) => b(n)
+  > and b: (Int32) => Int32 @ Console = fn(n) => { echo("b"); n }
+  > KEL
+  $ diktor --type-check recfwdval.kel
+  a : (Int32) => Int32 @ {Console, Print}
+  b : (Int32) => Int32 @ {Console}
+
+開くのは閉じた行のラベルが呼ぶ側の行に含まれるときだけなので、@ Print と @ {} の
+束縛が互いを呼ぶ形は、型パラメータの有無によらず @ {} の側で落ちる:
+
+  $ cat > recrejmutual.kel <<'KEL'
+  > let rec f(n: Int32): Unit @ Print = { println("a"); g(n) }
+  > and g(n: Int32): Unit @ {} = f(n)
+  > KEL
+  $ diktor --type-check recrejmutual.kel
+  ! recrejmutual.kel:2:30: 型エラー: ラベル Print がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+  $ cat > recrejmutualtp.kel <<'KEL'
+  > let rec f[A](x: A): A @ Print = { println("a"); g(x) }
+  > and g[B](y: B): B @ {} = f(y)
+  > KEL
+  $ diktor --type-check recrejmutualtp.kel
+  ! recrejmutualtp.kel:2:26: 型エラー: ラベル Print がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+群の中で前の束縛から後ろの束縛への参照は単相なので、前の束縛が自分の型パラメータの
+型の値を後ろの束縛の型パラメータの位置に渡す形は落ちる(多相再帰を認めないことの帰結。
+LangSpec §6.3)。2 つの束縛を逆の順に書けば、上の recandpoly と同じく通る(下の
+rectpflowrev):
+
+  $ cat > recrejtpflow.kel <<'KEL'
+  > let rec f[A](x: A): Unit @ Print = { println("f"); g(x) }
+  > and g[A](x: A): Unit @ {} = ()
+  > with_stdout(fn() => f(1))
+  > KEL
+  $ diktor --type-check recrejtpflow.kel
+  ! recrejtpflow.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+  $ cat > rectpflowrev.kel <<'KEL'
+  > let rec g[A](x: A): Unit @ {} = ()
+  > and f[A](x: A): Unit @ Print = { println("f"); g(x) }
+  > with_stdout(fn() => f(1))
+  > KEL
+  $ diktor --type-check rectpflowrev.kel
+  g : (A) => {} @ {}
+  f : (A) => {} @ {Print}
+  _ : {}
+
+pub let rec の値束縛で頭の @ を省略すると @ {} と読む(上の pubrecval)。本体が
+エフェクトを起こすと、let の値束縛と同じく pub の規則を名指しして落ちる:
+
+  $ cat > pubrecvalimpure.kel <<'KEL'
+  > module M {
+  >   pub let rec k: (Int32) => Int32 = fn(n) => { echo("x"); n }
+  > }
+  > KEL
+  $ diktor --type-check pubrecvalimpure.kel
+  ! pubrecvalimpure.kel:2:15: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
+  [1]
+
+次の 2 つは、仕様と diktor の現状が食い違う形である(台帳 V95)。組み込みのクラス
+Show のインスタンスで、構文上の値でない初期化式を持ち注釈の最外の @ を省略した値束縛
+k をメソッドの本体から呼ぶ形と、同じ形の値束縛でメソッド show そのものを書く形。
+仕様(LangSpec §13.2)では Show のメソッドの省略も @ {} なので受理する形だが、diktor
+は組み込みのクラスのメソッドの行を行変数のまま持つので、決まっていない値束縛の行が
+剛定数のスコープの外に漏れて落ちる。1 つ目の形は、Show の代わりに利用者のクラスで
+書くか、k の宣言の後に @ {} の関数から k を 1 度呼んで行を先に決めておけば通る:
+
+  $ cat > instmonorow.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k: (N) => String = mk(0)
+  > type instance Show[N] { let show(x: N): String = k(x) }
+  > echoln(show(N(1)))
+  > KEL
+  $ diktor --type-check instmonorow.kel
+  mk : (Int32) => (N) => String @ {}
+  k : (N) => String
+  ! instmonorow.kel:4:29: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド show の本体がエフェクトを起こしています。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+  $ cat > instmonorowval.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > type instance Show[N] { let show: (N) => String = mk(0) }
+  > echoln(show(N(1)))
+  > KEL
+  $ diktor --type-check instmonorowval.kel
+  mk : (Int32) => (N) => String @ {}
+  ! instmonorowval.kel:3:29: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド show の本体がエフェクトを起こしています。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+
 effect の操作型の**頭**の矢印に書いた @ は、受理されるが型付けに効かない(D120)。
 操作を perform した文脈の行は handle 側が決めるので、ここに書いた行を読む側が
 いない — 下の op は頭に @ Print と書いてあるのに、f の行に Print は現れない。
