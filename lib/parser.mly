@@ -852,7 +852,7 @@ param: pat annot_opt { match $2 with None -> $1 | Some t -> mk $sloc (PAnnot ($1
    曖昧な文法を宣言で抑え込むと、`--strict` が何も言わなくなるからである(§3.13)。
    弱いほうから、次の順に並ぶ。
 
-   `fn` と `if` → 後置の `match` / `handle` → `||` → `&&` → 比較 → 加減 → 乗除 → 前置 → 後置 → アトム
+   `fn` と `if` → 後置の `match` / `handle` → `||` → `&&` → 比較 → 加減 → 乗除と `%` → 前置 → 後置 → アトム
 
    後置の `match` / `handle` はどの二項演算子よりも弱いので、`x match {...} + 1` とは書けない。
    `(x match {...}) + 1` のように括弧が要る。
