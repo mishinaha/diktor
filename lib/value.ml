@@ -211,7 +211,7 @@ and resume = {
 
    - **完全操作名**：elab が `resolved` に書いた、`Console.write` のような修飾済みの名前である。
      別々のエフェクトが同じ名前の操作を宣言してよく、
-     sample.kel 自身も `Console.write` と `File.write` を両方宣言している。
+     標準環境の `Console.write` と、sample.kel が宣言する `File.write` がその例である。
      非修飾の `write` がどちらを指すかは第11章が決めるので、
      実行時に残るのは解決済みの `oid` の整数比較だけである
    - **引数レコード**：呼び出し規約が §12.2 のとおり統一されているので、
