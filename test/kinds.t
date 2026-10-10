@@ -864,3 +864,13 @@ Ref[Int32, Int32] や MutableArray[String, Int32] も拒否しない(LangSpec §
   f : () => Int32 @ {Heap[Int32]}
   ! refkind4.kel:2:9: 型エラー: ラベル Heap がありません(行は閉じています)
   [1]
+
+そのような型の値は作れない。Ref.new が返す参照のリージョンは run の変数 h なので、
+Ref[Int32, Int32] の注釈とは一致しない:
+
+  $ cat > refkind5.kel <<'KEL'
+  > let v: Int32 = run h { let r: Ref[Int32, Int32] = Ref.new(0); 0 }
+  > KEL
+  $ diktor --type-check refkind5.kel
+  ! refkind5.kel:1:28: 型エラー: 注釈された型を満たしません(スコープ付きの型が一致しません: Int32 と ς1)
+  [1]

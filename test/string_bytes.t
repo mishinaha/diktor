@@ -20,6 +20,9 @@ UTF-8 で符号化したバイト列になり、__string_length と __string_sub
   true
   4
   1
+  $ printf 'echo("\\u0000|")\n' > nul.kel
+  $ diktor nul.kel | od -An -tx1
+   00 7c
 
 切り出しは文字の途中でも切れ、echo は UTF-8 として正しくないバイト列もそのまま書く:
 

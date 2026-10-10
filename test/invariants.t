@@ -7,7 +7,7 @@
   $ inv() { diktor "$1" > "$1.out" 2> /dev/null; a=$?; diktor "$2" > "$2.out" 2> /dev/null; b=$?; if [ $a = $b ] && cmp -s "$1.out" "$2.out"; then echo "same: exit $a"; else echo "differ: exit $a / $b"; fi; }
 
 §18.1 束縛名の付け替え。関数、値、引数、パターンの変数、型パラメータ、行変数を
-一斉に付け替える。型の表示も型変数の名前を付け直すので一致する:
+一斉に付け替える(inv は実行の標準出力と終了状態だけを比べる):
 
   $ cat > alpha_a.kel <<'KEL'
   > let apply[A, B, E](f: (A) => B @ E, x: A): B @ E = f(x)
