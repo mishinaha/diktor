@@ -77,6 +77,19 @@
   $ diktor --type-check --no-prelude nested3.kel
   call : (() => {} @ {A}) => {} @ {A}
 
+本体の行がより広くても同じで、@ {A, B} の本体から @ A の引数と関数を呼べる:
+
+  $ cat > nested3wide.kel <<'KEL'
+  > type Unit = {}
+  > effect A = { opa: () => Unit }
+  > effect B = { opb: () => Unit }
+  > let g(): Unit @ A = perform opa()
+  > let call(f: () => Unit @ A): Unit @ {A, B} = { f(); g(); perform opb() }
+  > KEL
+  $ diktor --type-check --no-prelude nested3wide.kel
+  g : () => {} @ {A}
+  call : (() => {} @ {A}) => {} @ {A, B}
+
 型エイリアスが展開する矢印も入れ子(§9。§11.5 の規則 4):
 
   $ cat > alias.kel <<'KEL'

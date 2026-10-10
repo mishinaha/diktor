@@ -90,3 +90,17 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   0.0
   x 1.0
   1.0
+
+@ {} の sin を @ Console の本体から直接呼ぶ:
+
+  $ cat > cpure2.kel <<'KEL'
+  > extern "C" let sin(x: Float64): Float64 @ {}
+  > let loud(x: Float64): Float64 @ Console = { echo("x "); sin(x) }
+  > echoln(show(loud(0.0)))
+  > KEL
+  $ diktor --type-check cpure2.kel
+  sin : (Float64) => Float64 @ {}
+  loud : (Float64) => Float64 @ {Console}
+  _ : {}
+  $ diktor cpure2.kel
+  x 0.0
