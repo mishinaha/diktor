@@ -112,37 +112,6 @@ test/verify_fixes.t の vrgen が通す):
   ! ordervr.kel:9:11: 型エラー: ラベル Ask がありません(行は閉じています)
   [1]
 
-同じ形の値束縛 k を行の違う 2 つの文脈から呼ぶと、最初の呼び出しで k の行が
-{Console} に決まり、@ Print の文脈からの 2 つ目の呼び出しが落ちる(呼ぶ順序を
-入れ替えても、もう一方で落ちる)。注釈を外すと k の行は初期化式の閉じた {} のままで、
-使うたびに開くので通る:
-
-  $ cat > ordermonoann.kel <<'KEL'
-  > newtype N = N(Int32)
-  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
-  > let k: (N) => String = mk(0)
-  > let a(): String @ Console = k(N(1))
-  > let b(): String @ Print = k(N(1))
-  > KEL
-  $ diktor --type-check ordermonoann.kel
-  mk : (Int32) => (N) => String @ {}
-  k : (N) => String
-  a : () => String @ {Console}
-  ! ordermonoann.kel:5:27: 型エラー: ラベル Console がありません(行は閉じています)
-  [1]
-  $ cat > ordermonoplain.kel <<'KEL'
-  > newtype N = N(Int32)
-  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
-  > let k = mk(0)
-  > let a(): String @ Console = k(N(1))
-  > let b(): String @ Print = k(N(1))
-  > KEL
-  $ diktor --type-check ordermonoplain.kel
-  mk : (Int32) => (N) => String @ {}
-  k : (N) => String @ {}
-  a : () => String @ {Console}
-  b : () => String @ {Print}
-
 型変数の仮引数に名前の参照 b と名前の参照でない式 mkp() を並べて渡すとき、先の b で
 型変数が矢印に決まれば、mkp() の位置は関数型を要求する位置になって開く。mkp() を
 先に置くと型変数が閉じた {} の矢印に決まり、後の b と一致しない:

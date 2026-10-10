@@ -59,7 +59,7 @@ spec_gaps.t の ordervr で見張る:
   $ diktor vrgen.kel
   15
 
-同じプログラムで g の本体だけを無名関数(値)に替えると、2 つの文脈から呼べる:
+g の本体を無名関数(値)に替えると、g は一般化され、同じく 2 つの文脈から呼べる:
 
   $ cat > vrgenv.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }
@@ -80,7 +80,7 @@ spec_gaps.t の ordervr で見張る:
 
 注釈の頭の矢印に閉じた空でない行を書いた g は、本体が関数呼び出しのままでも、行の違う
 2 つの文脈から呼べる。書いた行の尾部は、使うたびに開く(LangSpec §13.2、sample.kel:478-480)。
-vrgen の g の注釈に @ {Console} を足すと通る:
+vrgen の g の注釈に @ {Console} を足しても通る:
 
   $ cat > vrgen2.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }

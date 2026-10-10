@@ -445,8 +445,8 @@ let rec の値束縛も頭を最外として読む。pub で頭の @ を省略�
 群(let rec … and …)では、注釈が作った剛定数のうち相手の pre に入り込んだものを
 束縛ごとではなく群の終わりに解放する(§11.29)。そうするまで、先頭の注釈つき値束縛が
 後続を呼ぶ形は [BUG] 単一化中に Generic 変数が現れました(終了コード 3)で落ちていた。
-いまは群の 2 本とも注釈した閉じた行 {Console} が束縛の型になり、呼ぶときに尾部を
-開くので、Print を足した文脈からどちらも呼べる:
+いまは群の 2 本とも閉じた行 {Console}(f は注釈、g は推論)が束縛の型になり、呼ぶときに
+尾部を開くので、Print を足した文脈からどちらも呼べる:
 
   $ cat > recand.kel <<'KEL'
   > let rec f: (Int32) => Int32 @ Console = fn(x) => g(x)
@@ -1059,13 +1059,10 @@ pub let rec の値束縛で頭の @ を省略すると @ {} と読む(上の pub
   ! pubrecvalimpure.kel:2:15: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Console がありません(行は閉じています))
   [1]
 
-次の 2 つは、仕様と diktor の現状が食い違う形である(台帳 V95)。組み込みのクラス
-Show のインスタンスで、構文上の値でない初期化式を持ち注釈の最外の @ を省略した値束縛
-k をメソッドの本体から呼ぶ形と、同じ形の値束縛でメソッド show そのものを書く形。
-仕様(LangSpec §13.2)では Show のメソッドの省略も @ {} なので受理する形だが、diktor
-は組み込みのクラスのメソッドの行を行変数のまま持つので、決まっていない値束縛の行が
-剛定数のスコープの外に漏れて落ちる。1 つ目の形は、Show の代わりに利用者のクラスで
-書くか、k の宣言の後に @ {} の関数から k を 1 度呼んで行を先に決めておけば通る:
+組み込みの Show のインスタンスで、構文上の値でない初期化式を持ち注釈の最外の @ を
+省略した値束縛 k をメソッドの本体から呼ぶ形と、同じ形の値束縛でメソッド show そのものを
+書く形も通る。k の行は初期化式の閉じた {} に決まるので、組み込みのメソッドの行変数と
+単一化しても剛定数のスコープの外に漏れない:
 
   $ cat > instmonorow.kel <<'KEL'
   > newtype N = N(Int32)
@@ -1076,9 +1073,8 @@ k をメソッドの本体から呼ぶ形と、同じ形の値束縛でメソッ
   > KEL
   $ diktor --type-check instmonorow.kel
   mk : (Int32) => (N) => String @ {}
-  k : (N) => String
-  ! instmonorow.kel:4:29: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド show の本体がエフェクトを起こしています。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています
-  [1]
+  k : (N) => String @ {}
+  _ : {}
   $ cat > instmonorowval.kel <<'KEL'
   > newtype N = N(Int32)
   > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
@@ -1087,8 +1083,77 @@ k をメソッドの本体から呼ぶ形と、同じ形の値束縛でメソッ
   > KEL
   $ diktor --type-check instmonorowval.kel
   mk : (Int32) => (N) => String @ {}
-  ! instmonorowval.kel:3:29: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド show の本体がエフェクトを起こしています。元の報告: スコープ付きの型 ς1 がスコープの外に漏れています
-  [1]
+  _ : {}
+
+使用時の開きで足した尾部が、一般化しない束縛の型の最外の行として、束縛の終わりまで
+何にも一致しないまま残ったときは、閉じた行に戻る。注釈の最外の @ を省略した値でない
+値束縛 k も、注釈の無い k も、初期化式の閉じた行 {} が束縛の型になり、行の違う 2 つの
+文脈から呼べる:
+
+  $ cat > recloseann.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k: (N) => String = mk(0)
+  > let a(): String @ Console = k(N(1))
+  > let b(): String @ Print = k(N(1))
+  > KEL
+  $ diktor --type-check recloseann.kel
+  mk : (Int32) => (N) => String @ {}
+  k : (N) => String @ {}
+  a : () => String @ {Console}
+  b : () => String @ {Print}
+  $ cat > recloseplain.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k = mk(0)
+  > let a(): String @ Console = k(N(1))
+  > let b(): String @ Print = k(N(1))
+  > KEL
+  $ diktor --type-check recloseplain.kel
+  mk : (Int32) => (N) => String @ {}
+  k : (N) => String @ {}
+  a : () => String @ {Console}
+  b : () => String @ {Print}
+
+そのような k を呼ぶ注釈のない関数 u の行も、k の閉じた行に決まるので一般化され、u を
+2 つの文脈から呼べる。パターンで取り出した関数を束縛する形も同じである:
+
+  $ cat > reclosefn.kel <<'KEL'
+  > newtype N = N(Int32)
+  > let mk(d: Int32): (N) => String @ {} = fn(x) => "n"
+  > let k: (N) => String = mk(0)
+  > let u(x: N) = k(x)
+  > let a(): String @ Console = u(N(1))
+  > let b(): String @ Print = u(N(1))
+  > echoln(a())
+  > KEL
+  $ diktor reclosefn.kel
+  n
+  $ cat > reclosepat.kel <<'KEL'
+  > newtype Box = Box(go: (Int32) => Int32)
+  > let pk(x: Int32): Int32 @ {} = x
+  > let k = Box(pk) match { case Box(f) => f }
+  > let u(x: Int32) = k(x)
+  > let u1(): Int32 @ Console = u(1)
+  > let u2(): Int32 @ Print = u(2)
+  > echoln(show(u1()))
+  > KEL
+  $ diktor reclosepat.kel
+  1
+
+インスタンスの実装の最外の行が閉じていれば、尾部を開いてから宣言の行と一致させる。
+宣言の行 {Print, Console} に含まれる Print だけを起こす実装を、閉じた行の注釈で書ける:
+
+  $ cat > instrowsub.kel <<'KEL'
+  > let pp(x: Int32): Int32 @ Print = { println("p"); x }
+  > type class C[T] { val m: (T) => Int32 @ {Print, Console} }
+  > type instance C[Int32] { let m(x: Int32): Int32 @ Print = pp(x) }
+  > let u(): Unit @ {Print, Console} = echoln(show(m(1)))
+  > with_stdout(fn() => u())
+  > KEL
+  $ diktor instrowsub.kel
+  p
+  1
 
 effect の操作型の**頭**の矢印に書いた @ は、受理されるが型付けに効かない(D120)。
 操作を perform した文脈の行は handle 側が決めるので、ここに書いた行を読む側が
