@@ -835,7 +835,7 @@ let check_ambiguity ~all ~level tys =
    `let f[A: Add](x: A) = ...` の `A` を剛定数にするのは第11章の `make_rigids`(§11.25)である。
    `make_rigids` は `Generic` を写すのではなく、
    `tp_classes` から `vcls` を組み立てて `Rigid` を直接作る。
-   第11章が注釈の検査に使う 3 つの関数は `make_rigids` / `open_explicit_eff` / `release_rigids` で、
+   第11章が注釈の検査に使う 2 つの関数は `make_rigids` / `release_rigids` で、
    本章の `skolemize` はそこに含まれない。
 
    どちらの経路でも、宣言に書いていない制約は剛定数に付かない。
