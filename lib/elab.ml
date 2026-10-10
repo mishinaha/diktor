@@ -3051,18 +3051,31 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
 and elab_rec_bindings ?(top = false) env level eff bs : env =
   (* 事前に割り当てた単相の変数で束縛 → 本体を推論 → unify → 一般化。多相再帰はできない *)
   let lvl = level + 1 in
+  (* 型パラメータの剛定数は、署名を先に置くために群の本体より前に作る(§11.29) *)
+  let tps = List.map (fun ((_, b) as bnode : T.let_binding) -> at_node bnode (fun () -> make_rigids lvl b.T.lb_tparams)) bs in
   let names =
-    List.map
-      (fun (_, b) ->
+    List.map2
+      (fun ((_, b) as bnode : T.let_binding) rigids ->
         (* let rec の右辺は関数でなければならない(評価器が構造上そう要求する。
            関数でないものを許すと、型検査を通って実行時に必ず落ちる) *)
         (match (b.T.lb_params, snd b.T.lb_body) with
         | None, T.Lambda _ | Some _, _ -> ()
         | None, _ -> type_error "let rec の右辺は関数でなければなりません");
         match snd b.T.lb_name with
-        | T.PVar x -> (x, new_var lvl)
+        | T.PVar x ->
+            at_node bnode @@ fun () ->
+            let env_ty = { env with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) env.types rigids } in
+            let arrow params e = TArrow (TRecord (closed_item_row (List.map (fun _ -> new_var lvl) params)), new_var lvl, e) in
+            let pre =
+              match (b.T.lb_params, b.T.lb_eff, b.T.lb_ret) with
+              | Some params, Some e, _ -> arrow params (elab_eff env_ty lvl e)
+              | Some params, None, _ when b.T.lb_pub -> arrow params (new_pub_pure_row ())
+              | None, _, Some t -> elab_value_type_outer env_ty lvl "型注釈" t
+              | _ -> new_var lvl
+            in
+            (x, pre)
         | _ -> type_error "let rec の束縛はパターンにできません")
-      bs
+      bs tps
   in
   (* トップレベルの let rec の自己参照と相互参照は、トップレベルの実体を指す *)
   let bind_names env names =
@@ -3089,13 +3102,12 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
   (* 検査し終えて公開の型が決まった束縛は、後続の本体からその型で見せる *)
   let env_now = ref env_rec in
   List.iter2
-    (fun ((_, b) as bnode) (x, pre) ->
+    (fun ((_, b) as bnode) ((x, pre), rigids) ->
       at_node bnode @@ fun () ->
       (* pub の完全注釈検査と、関数束縛の @ の省略を純粋と読む規則は、let(§11.28)と同じ。
          ただし完全注釈検査では値束縛の頭を最外として扱わない(値束縛に pub の省略 @ の
          分岐が無いため。§11.29) *)
       (if b.T.lb_pub then check_pub_annots ~value_head_outer:false ~params:b.T.lb_params ~ret:b.T.lb_ret);
-      let rigids = make_rigids lvl b.T.lb_tparams in
       let env_ty = { !env_now with types = List.fold_left (fun m (n, t, _) -> SMap.add n t m) !env_now.types rigids } in
       let extra_rigids = ref [] in
       let fn_ty =
@@ -3153,7 +3165,7 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
       in
       release_rigids own;
       group_rigids := shared @ !group_rigids)
-    bs names;
+    bs (List.combine names tps);
   release_rigids !group_rigids;
   (* @ を省略した let rec も、推論した最外の行が閉じていたら、公開の行を開き直す
      (§11.26 と同じ規則。群のうち @ を書いた束縛と pub は publish_open が開く)。本体の
