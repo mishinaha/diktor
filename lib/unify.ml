@@ -22,8 +22,8 @@
    | `check_ambiguity` / `default_numerics` | 第11章の let 束縛と宣言の終わり |
    | `lower_levels` / `class_mark` | 第11章の一般化しない let 束縛 |
    | `reset` | 第11章の検査の開始時と、パス 2 の直前 |
-   | `instantiate` / `skolemize` | 第11章のスキーマの使用点(操作)と、インスタンス本体の包摂検査 |
-   | `instantiate_ev` / `constraints_of` / `dkeys_of` | 第11章のスキーマの使用点(変数参照、演算子、前置の `-`)と、束縛の辞書パラメータ |
+   | `instantiate` | 第11章のスキーマの使用点のうち、制約を持たない操作のスキーマ(perform と操作節) |
+   | `instantiate_ev` / `constraints_of` / `dkeys_of` | 第11章のスキーマの使用点(変数参照、演算子、前置の `-`、インスタンス本体の包摂検査)と、束縛の辞書パラメータ |
    | `hole_mark` / `solve_holes` / `solve_holes_range` / `unsolved_holes` | 第11章の束縛と宣言と単位の終わり |
    | `display_evidence` | 第16章(driver.ml)の対話的な実行の結果の表示 |
    | `subst_params` | 第10章と第11章でのコンストラクタのフィールドの展開 |
@@ -796,18 +796,20 @@ let check_ambiguity ~all ~level tys =
     !class_vars;
   class_vars := List.rev !kept
 
-(* ## 8.10 map_generics と 3 つの写像
+(* ## 8.10 map_generics と写像
 
-   `instantiate` / `skolemize` / `subst_params` は、
+   `instantiate` / `instantiate_ev`(§8.11)/ `subst_params` は、
    どれも型を走査して `Generic` を別の型に置き換える。
    違うのは何に置き換えるかだけなので、走査は `map_generics_with` の 1 つにまとめる。
    `map_generics_with` は `Hashtbl` のメモを持ち、同じ `vid` の `Generic` には常に同じ結果を返す。
    このメモが無いと、`A => A` の 2 つの `A` が別々の型になり、多相が壊れる。
+   第11章の包摂検査(§11.38)も、`map_generics_with` を直接呼んで、
+   クラス宣言の型の `Generic` を現在のレベルの剛定数に写す。
 
    | 関数 | `Generic` の置き換え先 | 使う場所 |
    |---|---|---|
-   | `instantiate` | 現在のレベルの新しい未定変数 | 変数参照、演算子、perform と handle の節、包摂検査(第11章) |
-   | `skolemize` | 現在のレベルの新しい剛定数 | インスタンス本体の包摂検査(§11.38) |
+   | `instantiate` | 現在のレベルの新しい未定変数 | perform と handle の節(第11章) |
+   | `instantiate_ev` | 同じ。制約ごとに証拠の穴を作って返す | 変数参照、演算子、前置の `-`、包摂検査(第11章) |
    | `subst_params` | 指定された型引数(無ければ新しい変数) | 宣言表の展開(第10章と第11章) |
 
    ### instantiate は型クラス制約を複製する
@@ -825,25 +827,24 @@ let check_ambiguity ~all ~level tys =
    複製した変数に制約が付いていれば、`new_class_var` がそれを台帳にも載せる。
    §8.4 で述べたとおり、一般化点に届かない制約つき変数を宣言の終わりに掃き出し、
    途中の一般化点では曖昧性を調べるためである。
-   `instantiate` はプログラム中で最も多く呼ばれる関数なので、台帳が伸び続けないよう、
+   `instantiate_ev` はプログラム中で最も多く呼ばれる関数なので、台帳が伸び続けないよう、
    `default_numerics` が宣言ごとに台帳を空に戻し、`check_ambiguity` も不要になった項目を刈る。
+   `instantiate_ev` は同じ複製をした上で、制約ごとに証拠の穴を作って返す(§8.11)。
 
-   ### skolemize は vcls を引き継ぐ
+   ### 剛定数への写しは vcls を引き継ぐ
 
-   `skolemize` が作る剛定数は、`vkind` と `vcls` をそのまま引き継ぎ、
-   識別子とレベルだけを新しくする。
+   包摂検査が期待型の `Generic` から作る剛定数は、`vkind` と `vcls` をそのまま引き継ぎ、
+   識別子とレベルだけを新しくする(`new_rigid ~kind:i.vkind ~classes:i.vcls`)。
    `vcls` を落とすと、クラス宣言が期待型に書いた制約が剛定数から消える。
    すると包摂検査は、インスタンス側の推論結果が持つ制約つき変数をその剛定数へ束縛しようとした時点で `add_class` で落ち、
    正しいインスタンスまで「制約を書いてください」と拒否する。
 
-   名前から誤解しやすいが、`skolemize` は注釈つきの let の検査には使わない。
-   呼び出し元は第11章の `check_instance_bodies`(§11.38)だけで、
-   インスタンスメソッドがクラス宣言の型を満たすかを調べる包摂検査に使う。
+   この写しは注釈つきの let の検査には使わない。
    `let f[A: Add](x: A) = ...` の `A` を剛定数にするのは第11章の `make_rigids`(§11.25)である。
    `make_rigids` は `Generic` を写すのではなく、
    `tp_classes` から `vcls` を組み立てて `Rigid` を直接作る。
    第11章が注釈の検査に使う 2 つの関数は `make_rigids` / `release_rigids` で、
-   本章の `skolemize` はそこに含まれない。
+   包摂検査の写しはそこに含まれない。
 
    どちらの経路でも、宣言に書いていない制約は剛定数に付かない。
    そのため、§8.4 の `Rigid` の場合は「`[A: C]` のように制約を書いてください」と案内できる。
@@ -903,10 +904,6 @@ let instantiate level t =
     (fun i ->
       new_class_var ~kind:i.vkind ~classes:i.vcls level)
     t
-
-(* Generic → 現在のレベルの新しい剛定数。使うのはインスタンス本体の
-   包摂検査だけ(§11.38)。注釈の剛定数は elab の make_rigids が作る *)
-let skolemize level t = map_generics (fun i -> new_rigid ~kind:i.vkind ~classes:i.vcls level) t
 
 (* Generic → 指定した型(データ宣言のパラメータ置換。コンストラクタのフィールド型の展開) *)
 let subst_params level args t =
