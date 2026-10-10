@@ -7,10 +7,10 @@
   > module Math { pub extern "C" let cos(x: Float64): Float64 }
   > KEL
   $ diktor --type-check cdef.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
-  Math.cos : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
+  Math.cos : (Float64) => Float64 @ {Blocking}
 
-"prim" の省略は従来どおり行多相で、@ {} の本体から呼べる:
+"prim" の省略は新しい行変数のままで、@ {} の本体から呼べる:
 
   $ cat > pdef.kel <<'KEL'
   > extern "prim" let __int32_add(x: Int32, y: Int32): Int32
@@ -18,7 +18,7 @@
   > KEL
   $ diktor --type-check --no-prelude pdef.kel
   __int32_add : (Int32, Int32) => Int32
-  f : (Int32) => Int32
+  f : (Int32) => Int32 @ {}
 
 Blocking はトップレベルに残せるので、注釈のない sqrt をトップレベルから呼べる:
 
@@ -37,12 +37,12 @@ Blocking はトップレベルに残せるので、注釈のない sqrt をト�
   > let f(x: Float64): Float64 @ {} = sqrt(x)
   > KEL
   $ diktor --type-check cclosed.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   ! cclosed.kel:2:35: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外の @ {} は公開の型で
-開くので、f はトップレベルから呼べる:
+pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外の @ {} は呼ぶときに
+尾部を開くので、f はトップレベルから呼べる:
 
   $ cat > cpin.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -59,13 +59,13 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   > pub let r(x: Float64): Float64 = sqrt(x)
   > KEL
   $ diktor --type-check cpub.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   ! cpub.kel:2:34: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Blocking がありません(行は閉じています))
   [1]
 
-ブロックしない外部関数は @ {} と書く(sin)。行変数を明示してもよい(cos)。どちらも
-公開の型では行を開くので、@ {} と注釈した関数の本体、@ Console の本体、@ を省略した
-pub let の本体のどれからも呼べる:
+ブロックしない外部関数は @ {} と書く(sin)。行変数を明示してもよい(cos)。閉じた行は
+呼ぶときに尾部を開き、行変数はそのまま一致するので、@ {} と注釈した関数の本体、
+@ Console の本体、@ を省略した pub let の本体のどれからも呼べる:
 
   $ cat > cpure.kel <<'KEL'
   > extern "C" let sin(x: Float64): Float64 @ {}
@@ -78,11 +78,11 @@ pub let の本体のどれからも呼べる:
   > echoln(show(wrap(0.0)))
   > KEL
   $ diktor --type-check cpure.kel
-  sin : (Float64) => Float64
+  sin : (Float64) => Float64 @ {}
   cos : (Float64) => Float64
-  pure : (Float64) => Float64
-  loud : (Float64) => Float64 @ {Console extends R1}
-  wrap : (Float64) => Float64
+  pure : (Float64) => Float64 @ {}
+  loud : (Float64) => Float64 @ {Console}
+  wrap : (Float64) => Float64 @ {}
   _ : {}
   _ : {}
   _ : {}

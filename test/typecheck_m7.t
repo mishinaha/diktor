@@ -257,8 +257,8 @@ module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 �
   > echoln(show(down(3)))
   > EOF2
   $ diktor --type-check vamb.kel
-  A.down : (Int32) => Int32
-  B.down : (Int32) => Int32
+  A.down : (Int32) => Int32 @ {}
+  B.down : (Int32) => Int32 @ {}
   ! vamb.kel:3:13: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
   [1]
 
@@ -337,7 +337,7 @@ M19 / G3c / G3d / G7c):
   > }
   > KEL
   $ diktor --type-check v10c.kel
-  f : () => Int32
+  f : () => Int32 @ {}
   ⚠ match が非網羅的です。例えば false が漏れています
 
 検査モード(注釈のある高階関数の引数位置)のラムダも V10 の対象

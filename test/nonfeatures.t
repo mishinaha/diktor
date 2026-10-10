@@ -94,7 +94,7 @@ test/parallel.t が固定している):
   f : (A) => A
   $ printf 'let use[h, A](r: Ref[h, A]): A @ Heap[h] = Ref.get(r)\n' > case7c.kel
   $ diktor --type-check case7c.kel
-  use : (Ref[A, B]) => B @ {Heap[A] extends R1}
+  use : (Ref[A, B]) => B @ {Heap[A]}
   $ printf 'let g(): Int32 = run H { 1 }\n' > case8.kel
   $ diktor --type-check case8.kel
   case8.kel:1:22: パースエラー(付近のトークンを確認してください)

@@ -4,12 +4,12 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
 変更時は dune promote で更新し、必ず目視レビューすること。
 
   $ diktor --type-check sample/stubs.kel sample/sample.kel
-  Db.query : (String) => Resp
+  Db.query : (String) => Resp @ {}
   sqrt : (Float64) => Float64
   each : (List[A], (A) => {}) => {}
   heavy : (Int32) => Int32
   audit_log : ({query: String}, Resp) => {}
-  handle_client : (Conn) => {} @ {Async extends R1}
+  handle_client : (Conn) => {} @ {Async}
   a : Int32
   b : Int64
   c : Int64
@@ -38,38 +38,38 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   same_point : ({x: Float64, y: Float64}, {x: Float64, y: Float64}) => Boolean
   same_pair : ((Int32, String), (Int32, String)) => Boolean
   user_names : (List[{id: String, name: String}]) => List[String] @ {Print extends R1}
-  println : (String) => {} @ {Print extends R1}
+  println : (String) => {} @ {Print}
   _ : {}
   capture : (() => A @ {Print extends R1}) => {value: A, output: String}
   try_ : (() => A @ {Fail extends R1}) => #Ok(A) | #Err(String)
-  file_open : (String) => Int32 @ {Blocking extends R1}
-  file_read : (Int32) => String @ {Blocking extends R1}
-  file_write : (Int32, String) => {} @ {Blocking extends R1}
-  file_close : (Int32) => {} @ {Blocking extends R1}
+  file_open : (String) => Int32 @ {Blocking}
+  file_read : (Int32) => String @ {Blocking}
+  file_write : (Int32, String) => {} @ {Blocking}
+  file_close : (Int32) => {} @ {Blocking}
   with_file : (String, () => A @ {File, Blocking extends R1}) => A @ {Blocking extends R1}
-  copy : (String, String) => {} @ {Console, Blocking extends R1}
+  copy : (String, String) => {} @ {Console, Blocking}
   Parser.bind : (Parser.Parser[A], (A) => Parser.Parser[B]) => Parser.Parser[B]
-  Parser.pure : (A) => Parser.Parser[A]
-  Parser.token : (String) => Parser.Parser[String]
+  Parser.pure : (A) => Parser.Parser[A] @ {}
+  Parser.token : (String) => Parser.Parser[String] @ {}
   parens : () => Parser.Parser[(String, String)]
-  handle_request : ({query: String}) => Resp @ {ReqId, Logger, Tracer, Db, Async extends R1}
+  handle_request : ({query: String}) => Resp @ {ReqId, Logger, Tracer, Db, Async}
   _ : {}
   sum : (Array[Int32]) => Int32
   doubled : (Array[Int32]) => Array[Int32]
   par_map : (Array[A], (A) => B @ {}) => Array[B]
   par : (() => A @ {}, () => B @ {}) => (A, B)
   scope : (() => A @ {Nursery, Async extends R1}) => A @ {Async extends R1}
-  serve : (List[Conn]) => {} @ {Async extends R1}
+  serve : (List[Conn]) => {} @ {Async}
   with_timeout : (Int64, () => A @ {Deadline extends R1}) => Option[A] @ {Async extends R1}
-  handle_audited : ({query: String}) => Resp @ {ReqId, Logger, Tracer, Db, Background, Async extends R1}
-  crunch : (Array[Int32]) => Int32 @ {Async extends R1}
+  handle_audited : ({query: String}) => Resp @ {ReqId, Logger, Tracer, Db, Background, Async}
+  crunch : (Array[Int32]) => Int32 @ {Async}
   channel : (Int32) => Chan[A]
-  send : (Chan[A], A) => {} @ {Async extends R1}
-  recv : (Chan[A]) => A @ {Async extends R1}
-  sin : (Float64) => Float64
-  sqlite_step : (Stmt) => Int32 @ {Blocking extends R1}
+  send : (Chan[A], A) => {} @ {Async}
+  recv : (Chan[A]) => A @ {Async}
+  sin : (Float64) => Float64 @ {}
+  sqlite_step : (Stmt) => Int32 @ {Blocking}
   pinned : (() => A @ {Blocking extends R1}) => A
-  BigInt.parse : (String) => BigInt.BigInt
+  BigInt.parse : (String) => BigInt.BigInt @ {}
   BigInt.normalize : (BigInt.BigInt) => BigInt.BigInt
   big_sum : () => BigInt.BigInt
 

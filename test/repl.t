@@ -127,7 +127,7 @@ Ref は入力をまたいで持てない(§13.7):
   > module N { let bar: Int32 = 2 }
   > EOF2
   M.foo : Int32 = 2
-  M.g : () => Int32 = <fn>
+  M.g : () => Int32 @ {} = <fn>
   ! <stdin>:2:1: 型エラー: トップレベルの foo は、前の入力の module M の foo と同名です(module 内の名前とトップレベル名は同名にできません)
   _ : Int32 = 2
   bar : Int32 = 1

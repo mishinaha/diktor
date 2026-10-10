@@ -22,10 +22,10 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
 
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
-  sin : (Float64) => Float64 @ {Blocking extends R1}
+  sin : (Float64) => Float64 @ {Blocking}
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Console\n' > cblk3.kel
   $ diktor --type-check cblk3.kel
-  sin : (Float64) => Float64 @ {Console extends R1}
+  sin : (Float64) => Float64 @ {Console}
 
 未知名は従来どおり受理(宣言は通り、呼ぶと落ちる。本物の C FFI は
 検証不能な宣言なのでこの線引きは意図的):
@@ -42,7 +42,7 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
 
   $ printf 'newtype Stmt\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
   $ diktor --type-check cblk2.kel
-  sqlite_step : (Stmt) => Int32 @ {Blocking extends R1}
+  sqlite_step : (Stmt) => Int32 @ {Blocking}
 
 module 内の extern も、実装と登録簿の鍵は非修飾の実装名(H14。かつては
 修飾名が鍵になり、プレリュード保護が module の中から迂回できた):
@@ -86,7 +86,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
 
   $ printf 'extern "C" let sqrt(x: Float64): Float64\nextern "C" let sqrt(x: Float64): Float64\n' > dd.kel
   $ diktor --type-check dd.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   ! dd.kel:2:1: 型エラー: extern sqrt が二重に宣言されています
   [1]
 

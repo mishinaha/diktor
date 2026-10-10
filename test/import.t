@@ -456,7 +456,7 @@ module と同じ名前の型(コンパニオン)は、import した型と同じ�
   $ printf 'pub extern "C" let sqrt(x: Float64): Float64 @ Blocking\npub let one: Int32 = 1\n' > co/lib/e.kel
   $ printf 'from "./lib/e" import one\nextern "C" let sqrt(x: Float64): Float64 @ Blocking\nlet r: Int32 = one\n' > co/m2.kel
   $ (cd co && diktor --type-check m2.kel)
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   r : Int32
   $ printf 'from "./lib/e" import sqrt\nmodule N { pub extern "C" let sqrt(x: Float64): Float64 @ Blocking }\n' > co/m3.kel
   $ (cd co && diktor m3.kel)

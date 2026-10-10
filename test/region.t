@@ -14,8 +14,8 @@
   $ diktor --type-check read.kel
   peek : (Array[Int32]) => Int32
   len : (Array[Int32]) => Int32
-  g : (Int32) => {}
-  walk : (Array[Int32]) => {}
+  g : (Int32) => {} @ {}
+  walk : (Array[Int32]) => {} @ {}
 
 可変配列は h を型に持つので、引数を破壊する関数は純粋として型付かない
 (仕様 §10「bump が書けない」):
@@ -165,7 +165,7 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
 
   $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
   $ diktor --type-check maannot.kel
-  use : (MutableArray[A, B], Int32) => B @ {Heap[A] extends R1}
+  use : (MutableArray[A, B], Int32) => B @ {Heap[A]}
 
 添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
 
@@ -218,15 +218,15 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   ! pubpure.kel:1:78: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
-最外の矢印に @ {} と書いた関数 g は、公開の型で行を開くので、run の中の each に
-渡せる(LangSpec §13.2。旧 spec_gaps.t の eachclosed):
+最外の矢印に @ {} と書いた関数 g は、名前で参照するときに行の尾部を開くので、run の
+中の each に渡せる(LangSpec §13.2。旧 spec_gaps.t の eachclosed):
 
   $ cat > eachclosed.kel <<'KEL'
   > let g(x: Int32): {} @ {} = {}
   > let use(xs: Array[Int32]): {} = run h { Array.each(xs, g) }
   > KEL
   $ diktor --type-check eachclosed.kel
-  g : (Int32) => {}
+  g : (Int32) => {} @ {}
   use : (Array[Int32]) => {}
 
 newtype のフィールドを経由して死んだリージョンの可変配列を書く形も、入れ子の

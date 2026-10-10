@@ -629,8 +629,8 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
      6  {rec
      6  {rec
   $ diktor --type-check --no-prelude effbrace.kel
-  p : (String) => {} @ {Print extends R1}
-  z : () => {}
+  p : (String) => {} @ {Print}
+  z : () => {} @ {}
 
 3 文脈は、分類がどれになっても行の途中の改行で切れない(裁定 D114)。下の
 effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行目)・@ の直後
@@ -656,8 +656,8 @@ effect 宣言の本体(1 行目)・EffectRow のエイリアスの右辺(4 行�
      7  {blk
      9  {rec
   $ diktor --type-check --no-prelude effnl.kel
-  f : () => {} @ {Print extends R1}
-  g : () => {} @ {Print extends R1}
+  f : () => {} @ {Print}
+  g : () => {} @ {Print}
 
 エフェクト行にレコード型のフィールドを書くと、分類は {ty になるが拒否は
 意味の層が行う(「決めずに運んで、意味の層で決める」— §3.23):

@@ -25,7 +25,7 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
   $ diktor --type-check --no-prelude cb.kel
   mk : (() => {}) => Callback[R1]
   run_cb : (Callback[R1]) => {}
-  println : (String) => {} @ {Print extends R1}
+  println : (String) => {} @ {Print}
   pure_cb : () => Callback[{}]
   print_cb : () => Callback[{Print}]
 
@@ -38,8 +38,8 @@ M23 / ワークストリーム C(newtype の型パラメータのカインド推
   > let with_ext[E](c: Callback[{Print extends E}]): Callback[{Print extends E}] = c
   > EOF
   $ diktor --type-check cbext.kel
-  mk : (() => {}) => Callback[R1]
-  open_ : (Callback[R1]) => () => {}
+  mk : (() => {}) => Callback[R1] @ {}
+  open_ : (Callback[R1]) => (() => {}) @ {}
   with_ext : (Callback[{Print extends R1}]) => Callback[{Print extends R1}]
 
 実行も通る(構築・分解・handle 越しの呼び出し):
@@ -341,7 +341,7 @@ module の中の newtype も同じ経路(1b の後始末は平坦化後の修飾
   > let g(c: Cb.Callback[{Print}]): Int32 = 0
   > EOF
   $ diktor --type-check modcb.kel
-  Cb.mk : (() => {}) => Cb.Callback[R1]
+  Cb.mk : (() => {}) => Cb.Callback[R1] @ {}
   g : (Cb.Callback[{Print}]) => Int32
 
 行カインドのパラメータを持つ型は Functor のインスタンスにできない(D126)。

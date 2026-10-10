@@ -60,15 +60,15 @@ File.write と修飾する(下の ambigrow.kel):
   > let captured = capture(fn() => println("test"))
   > EOF
   $ diktor --type-check --no-prelude eff9.kel
-  println : (String) => {} @ {Print extends R1}
+  println : (String) => {} @ {Print}
   capture : (() => A @ {Print extends R1}) => {value: A, output: String}
   try_ : (() => A @ {Fail extends R1}) => #Ok(A) | #Err(String)
-  __open : (String) => Int32 @ {Fs extends R1}
-  __read : (Int32) => String @ {Fs extends R1}
-  __write : (Int32, String) => {} @ {Fs extends R1}
-  __close : (Int32) => {} @ {Fs extends R1}
+  __open : (String) => Int32 @ {Fs}
+  __read : (Int32) => String @ {Fs}
+  __write : (Int32, String) => {} @ {Fs}
+  __close : (Int32) => {} @ {Fs}
   with_file : (String, () => A @ {File, Fs extends R1}) => A @ {Fs extends R1}
-  copy : (String, String) => {} @ {Console, Fs extends R1}
+  copy : (String, String) => {} @ {Console, Fs}
   echo_test : () => {} @ {Console extends R1}
   captured : {value: {}, output: String}
 
@@ -82,7 +82,7 @@ EffectRow エイリアスの splice(sample.kel:652):
   > let logged(): Unit @ Request = perform log(perform req_id())
   > EOF
   $ diktor --type-check --no-prelude effrow.kel
-  logged : () => {} @ {ReqId, Logger extends R1}
+  logged : () => {} @ {ReqId, Logger}
 
 D22 のエラー経路(修飾要求)と修飾解決:
 
@@ -103,7 +103,7 @@ D22 のエラー経路(修飾要求)と修飾解決:
   > let ok(): Unit @ A2 = perform A2.op1("x")
   > EOF
   $ diktor --type-check --no-prelude qual.kel
-  ok : () => {} @ {A2 extends R1}
+  ok : () => {} @ {A2}
 
 候補が 1 個なら行を見ずに解決する(§9 の規則は 2 段 — 曖昧なときだけ行を
 見る。ここで行を要求すると、注釈の無い let の perform が全部修飾を
@@ -145,7 +145,7 @@ handle の節の修飾(仕様 §9、sample.kel:530-531。D119)。操作節は修
   > }
   > EOF
   $ diktor --type-check --no-prelude qual1.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   h : () => String
 
 修飾が後ろの節にあっても同じ。Sink は write と flush を宣言していて、先に
@@ -162,7 +162,7 @@ handle の節の修飾(仕様 §9、sample.kel:530-531。D119)。操作節は修
   > }
   > EOF
   $ diktor --type-check --no-prelude qual2.kel
-  prog : () => {} @ {Sink extends R1}
+  prog : () => {} @ {Sink}
   h : () => {}
 
 修飾先が 2 つ以上に割れたらエラー:
@@ -178,7 +178,7 @@ handle の節の修飾(仕様 §9、sample.kel:530-531。D119)。操作節は修
   > }
   > EOF
   $ diktor --type-check --no-prelude qual3.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qual3.kel:5:19: 型エラー: handle の節の修飾エフェクトが一致しません
   [1]
 
@@ -199,7 +199,7 @@ File. の修飾だけを外すと対象が決まらなくなり、診断が変�
   > }
   > EOF
   $ diktor --type-check --no-prelude qual4.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qual4.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
   [1]
 
@@ -215,7 +215,7 @@ File. の修飾だけを外すと対象が決まらなくなり、診断が変�
   > }
   > EOF
   $ diktor --type-check --no-prelude qual4b.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qual4b.kel:5:19: 型エラー: この操作の組を宣言するエフェクトがありません: read, write, flush
   [1]
 
@@ -234,7 +234,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   > }
   > EOF
   $ diktor --type-check --no-prelude qual5.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qual5.kel:5:19: 型エラー: ハンドラが操作を網羅していません: File の write が漏れています
   [1]
 
@@ -254,7 +254,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   > }
   > EOF
   $ diktor --type-check --no-prelude qualret.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qualret.kel:4:19: 型エラー: return 節は修飾できません(return は操作名ではなく handle の節の名前です。修飾を外してください)
   [1]
 
@@ -269,7 +269,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   > }
   > EOF
   $ diktor --type-check --no-prelude qualcancel.kel
-  prog : () => String @ {File extends R1}
+  prog : () => String @ {File}
   ! qualcancel.kel:4:19: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
   [1]
 
@@ -426,12 +426,12 @@ MiniLang §16-8 の runST 2例(値制限):
   > let h[E](): Unit @ {E2 extends E} = perform op("h")
   > KEL
   $ diktor --type-check --no-prelude onerow.kel
-  f : () => {} @ {E1, E1, E2 extends R1}
-  g : () => {} @ {E1, E1 extends R1}
+  f : () => {} @ {E1, E1, E2}
+  g : () => {} @ {E1, E1}
   h : () => {} @ {E2 extends R1}
 
 サブエフェクティングは無い(計画 §12 の意図した挙動の明示的な固定。H4 / D23-a)が、
-最外の矢印の @ {} は公開の型で開くので、エフェクトのある文脈から呼べる(LangSpec §13.2):
+最外の矢印の @ {} は呼ぶときに尾部を開くので、エフェクトのある文脈から呼べる(LangSpec §13.2):
 
   $ cat > noSub.kel <<'KEL'
   > effect Logger = { log: (String) => Unit }
@@ -439,8 +439,8 @@ MiniLang §16-8 の runST 2例(値制限):
   > let impure(x: Int32): Int32 @ {Logger} = { perform log("hi"); pure_f(x) }
   > KEL
   $ diktor --type-check noSub.kel
-  pure_f : (Int32) => Int32
-  impure : (Int32) => Int32 @ {Logger extends R1}
+  pure_f : (Int32) => Int32 @ {}
+  impure : (Int32) => Int32 @ {Logger}
 
 行の並びは型の等価性に使わない(§9 / §3 の Scoped Labels と同じ。操作名の解決に
 使わないことは上の ambigrow.kel、同じラベルどうしの順序を区別することは下の
@@ -495,5 +495,5 @@ M26 より前は g の @ 省略だけで「未束縛の変数: helper」だっ�
   > let helper[E](f: () => Unit @ E, g: (Int32) => Int32): Int32 @ {Console extends E} = ???
   > KEL
   $ diktor --type-check fwdsig.kel
-  user : () => Int32 @ {Console extends R1}
+  user : () => Int32 @ {Console}
   helper : (() => {}, (Int32) => Int32 @ {}) => Int32 @ {Console extends R1}

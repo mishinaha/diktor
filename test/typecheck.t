@@ -132,8 +132,8 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   $ diktor --type-check --no-prelude rec.kel
   even : (Int32) => Boolean
   odd : (Int32) => Boolean
-  forward : (Int32) => Int32
-  helper : (Int32) => Int32
+  forward : (Int32) => Int32 @ {}
+  helper : (Int32) => Int32 @ {}
 
   $ cat > fwdbad.kel <<'EOF'
   > let forward(x: Int32): Int32 = helper(x)
@@ -152,7 +152,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > EOF
   $ diktor --type-check --no-prelude eff.kel
   compose : ((A) => B, (B) => C) => (A) => C
-  pure_fn : (Int32) => Int32
+  pure_fn : (Int32) => Int32 @ {}
 
 構造的 Eq の導出(閉じた行のみ。sample.kel:392-396):
 
@@ -283,7 +283,7 @@ Int32 がプレリュードの List を黙って奪った):
 
   $ printf 'let g[h](r: Ref[h, Int32]): Int32 @ Heap[h] = Ref.get(r)\n' > effshort.kel
   $ diktor --type-check effshort.kel
-  g : (Ref[A, Int32]) => Int32 @ {Heap[A] extends R1}
+  g : (Ref[A, Int32]) => Int32 @ {Heap[A]}
 
 組み込みクラスのメソッドスキーマ(arrow1 / arrow2 の 1 枚から出る):
 
@@ -304,7 +304,7 @@ Int32 がプレリュードの List を黙って奪った):
   > let esc = run h { Ref.new(0) }
   > KEL
   $ diktor --type-check rigids.kel
-  ann : [A: Add] (A) => A
+  ann : [A: Add] (A) => A @ {}
   ! rigids.kel:2:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 

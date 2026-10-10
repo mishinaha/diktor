@@ -36,8 +36,8 @@
   > EOF
   $ diktor --type-check outer.kel
   inner : (Int32) => (Int32) => Int32 @ {}
-  outer : (Int32) => ((Int32) => Int32 @ {}) @ {Console extends R1}
-  both : (Int32) => ((Int32) => Int32 @ {Console}) @ {Console extends R1}
+  outer : (Int32) => ((Int32) => Int32 @ {}) @ {Console}
+  both : (Int32) => ((Int32) => Int32 @ {Console}) @ {Console}
 
 括弧で囲んだ矢印は、型適用の頭やヴァリアント和の要素にはならない:
 

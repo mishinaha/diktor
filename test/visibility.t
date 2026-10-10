@@ -13,7 +13,7 @@
   > echoln(show(M.g(1)))
   > KEL
   $ diktor --type-check vis1.kel
-  M.f : (Int32) => Int32
+  M.f : (Int32) => Int32 @ {}
   M.g : (Int32) => Int32
   ! vis1.kel:5:13: 型エラー: M.g は module M の外からは参照できません(pub を付けてください)
   [1]
@@ -69,7 +69,7 @@ pub なら候補として案内される:
   > let x = P(1)
   > KEL
   $ diktor --type-check vis5.kel
-  M.mk : (Int32) => M.Priv
+  M.mk : (Int32) => M.Priv @ {}
   ! vis5.kel:5:9: 型エラー: コンストラクタ P は module M の外からは参照できません(newtype M.Priv に pub を付けてください)
   [1]
 
@@ -85,7 +85,7 @@ pub なら候補として案内される:
   > let v(): MyBig = Big.mk(1)
   > KEL
   $ diktor --type-check vis6.kel
-  Big.mk : (Int32) => Big.Big
+  Big.mk : (Int32) => Big.Big @ {}
   v : () => Big.Big
 
 module の中では非 pub の名前が修飾でも非修飾でも見える(実行も一致):
@@ -164,12 +164,12 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   > with_stdout(fn() => M.say("hi"))
   > KEL
   $ diktor --type-check visrow1.kel
-  M.at : (Int32) => Int32 @ {Print extends R1}
-  M.elem : (Int32) => Int32 @ {Print, Console extends R1}
-  M.tail : (Int32) => Int32 @ {Console, Print extends R1}
+  M.at : (Int32) => Int32 @ {Print}
+  M.elem : (Int32) => Int32 @ {Print, Console}
+  M.tail : (Int32) => Int32 @ {Console, Print}
   M.arg : (Cb[{Print}]) => Int32
-  M.rhs : (Int32) => Int32 @ {Print extends R1}
-  M.say : (String) => {} @ {Print extends R1}
+  M.rhs : (Int32) => Int32 @ {Print}
+  M.say : (String) => {} @ {Print}
   _ : {}
   $ diktor visrow1.kel
   hi
@@ -185,8 +185,8 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   > let g(x: Int32): Int32 @ {M.W, Console} = x
   > KEL
   $ diktor --type-check visrow2.kel
-  M.f : (Int32) => Int32 @ {Print, Console extends R1}
-  g : (Int32) => Int32 @ {Print, Console extends R1}
+  M.f : (Int32) => Int32 @ {Print, Console}
+  g : (Int32) => Int32 @ {Print, Console}
   $ printf 'module M { type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ {M.W, Console} = x\n' > visrow3.kel
   $ diktor --type-check visrow3.kel
   ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
@@ -219,8 +219,8 @@ module の外では、トップレベルの W と T を指す:
   > let g(x: T): T @ W = x
   > KEL
   $ diktor --type-check visrow6.kel
-  M.f : (Int32) => Int32 @ {Print extends R1}
-  g : (String) => String @ {Console extends R1}
+  M.f : (Int32) => Int32 @ {Print}
+  g : (String) => String @ {Console}
 
 プレリュードや組み込みのエフェクト(Console、Heap)と同名の EffectRow エイリアスを
 module に宣言すると、module の中では、引数の無い形も引数つきの形も、@ の後ろでも
@@ -243,13 +243,13 @@ module に宣言すると、module の中では、引数の無い形も引数つ
   > let n[E](x: Int32): Int32 @ Heap[E] = x
   > KEL
   $ diktor --type-check visrow7.kel
-  M.f : (Int32) => Int32 @ {Print extends R1}
-  M.g : (Int32) => Int32 @ {Print extends R1}
+  M.f : (Int32) => Int32 @ {Print}
+  M.g : (Int32) => Int32 @ {Print}
   M.h : (Int32) => Int32 @ {Print extends R1}
   M.k : (Int32) => Int32 @ {Print extends R1}
-  M.o : (Int32) => Int32 @ {Console extends R1}
-  m : (Int32) => Int32 @ {Console extends R1}
-  n : (Int32) => Int32 @ {Heap[A] extends R1}
+  M.o : (Int32) => Int32 @ {Console}
+  m : (Int32) => Int32 @ {Console}
+  n : (Int32) => Int32 @ {Heap[A]}
 
 module の中でエフェクト名を EffectRow エイリアスで覆うと、エイリアスの本体に書いた
 同じ名前もエイリアス自身を指すので、使う箇所が無くても、宣言を再帰として拒否する。
@@ -280,10 +280,10 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   > }
   > KEL
   $ diktor --type-check visrow10.kel
-  M.f : (Int32) => Int32 @ {Console extends R1}
-  M.g : (Int32) => Int32 @ {Print, Console extends R1}
-  M.h : (Int32) => Int32 @ {Heap[A] extends R1}
-  M.k : (Int32) => Int32 @ {Heap[A] extends R1}
+  M.f : (Int32) => Int32 @ {Console}
+  M.g : (Int32) => Int32 @ {Print, Console}
+  M.h : (Int32) => Int32 @ {Heap[A]}
+  M.k : (Int32) => Int32 @ {Heap[A]}
   $ cat > visrow10b.kel <<'KEL'
   > module N {
   >   pub newtype Heap[A] = MkH(A)
@@ -295,10 +295,10 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   > }
   > KEL
   $ diktor --type-check visrow10b.kel
-  N.f : (Int32) => Int32 @ {Console extends R1}
-  N.g : (Int32) => Int32 @ {Console, Print extends R1}
-  N.h : (Int32) => Int32 @ {Heap[A] extends R1}
-  N.k : (Int32) => Int32 @ {Heap[A] extends R1}
+  N.f : (Int32) => Int32 @ {Console}
+  N.g : (Int32) => Int32 @ {Console, Print}
+  N.h : (Int32) => Int32 @ {Heap[A]}
+  N.k : (Int32) => Int32 @ {Heap[A]}
 
 同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
 エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
@@ -317,8 +317,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   > }
   > KEL
   $ diktor --type-check visrow11.kel
-  M.f : (Int32) => Int32 @ {Console extends R1}
-  M.g : (Int32) => Int32 @ {Console, Print extends R1}
+  M.f : (Int32) => Int32 @ {Console}
+  M.g : (Int32) => Int32 @ {Console, Print}
   M.h : (Int32) => Int32 @ {Print extends R1}
   M.k : (Int32) => Int32 @ {Print, Console extends R1}
   $ cat > visrow11b.kel <<'KEL'
@@ -334,8 +334,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   > }
   > KEL
   $ diktor --type-check visrow11b.kel
-  N.f : (Int32) => Int32 @ {Console extends R1}
-  N.g : (Int32) => Int32 @ {Console, Print extends R1}
+  N.f : (Int32) => Int32 @ {Console}
+  N.g : (Int32) => Int32 @ {Console, Print}
   N.h : (Int32) => Int32 @ {Print extends R1}
   N.k : (Int32) => Int32 @ {Print, Console extends R1}
 
@@ -357,7 +357,7 @@ pub でなければ可視性の検査で落ちる:
 
   $ printf 'module W { pub type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ {W, Console} = x\n' > visrow14.kel
   $ diktor --type-check visrow14.kel
-  f : (Int32) => Int32 @ {Print, Console extends R1}
+  f : (Int32) => Int32 @ {Print, Console}
   $ printf 'module W { type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ W = x\n' > visrow15.kel
   $ diktor --type-check visrow15.kel
   ! visrow15.kel:2:26: 型エラー: 型 W.W は module W の外からは参照できません(pub を付けてください)
@@ -492,10 +492,10 @@ module 名そのものは予約しない。組み込みに無い綴りを同じ 
 
   $ printf 'module Array { pub let sum(a: Array[Int32]): Int32 = 0 }\n' > visbi3.kel
   $ diktor --type-check visbi3.kel
-  Array.sum : (Array[Int32]) => Int32
+  Array.sum : (Array[Int32]) => Int32 @ {}
   $ printf 'module Ref { pub let swap[A](a: Ref[A, Int32]): Int32 = 0 }\n' > visbi4.kel
   $ diktor --type-check visbi4.kel
-  Ref.swap : (Ref[A, Int32]) => Int32
+  Ref.swap : (Ref[A, Int32]) => Int32 @ {}
 
 --prelude で差し替えたプレリュードも、ユーザのプログラムと同じに拒否される。
 平坦化は in_prelude のフラグが立つ前に走るので、プレリュードだからという免除が

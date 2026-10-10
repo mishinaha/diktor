@@ -35,8 +35,8 @@ pub の完全注釈検査と「@ 省略 = 純粋」(M16 / H6、D44)。
   ! pub9.kel:2:36: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)
   [1]
 
-@ 省略の pub はどんな行の文脈からでも呼べる(公開スキーマは Generic。
-sample.kel:654-657 と同形 — この形が通ることが H6 の受け入れ条件):
+@ 省略の pub は @ {} と読み、呼ぶときに行の尾部を開くので、どんな行の文脈からでも
+呼べる(sample.kel:654-657 と同形 — この形が通ることが H6 の受け入れ条件):
 
   $ cat > pub4.kel <<'KEL'
   > newtype Resp = R(String)
@@ -49,8 +49,8 @@ sample.kel:654-657 と同形 — この形が通ることが H6 の受け入れ�
   > }
   > KEL
   $ diktor --type-check pub4.kel
-  Db.query : (String) => Resp
-  handle_req : (String) => Resp @ {ReqId, Logger extends R1}
+  Db.query : (String) => Resp @ {}
+  handle_req : (String) => Resp @ {ReqId, Logger}
 
   $ cat > pub5.kel <<'KEL'
   > pub let twice(x: Int32): Int32 = x + x
@@ -123,7 +123,7 @@ handle や run の本体の中で起こしたエフェクトも、pub の規則�
   > pub let go(n: Int32): Int32 = helper(n)
   > KEL
   $ diktor --type-check pub15.kel
-  go : (Int32) => Int32
+  go : (Int32) => Int32 @ {}
 
 pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省略の意味は @ {} に
 決まっているが、公開 API では意図と書き忘れを読み分けられなければならない):

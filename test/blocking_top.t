@@ -19,8 +19,8 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   > let bad(x: Float64): Float64 @ {} = sqrt(x)
   > KEL
   $ diktor --type-check bpure.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
-  pure_sqrt : (Float64) => Float64
+  sqrt : (Float64) => Float64 @ {Blocking}
+  pure_sqrt : (Float64) => Float64 @ {}
   ! bpure.kel:3:37: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
@@ -31,7 +31,7 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   > let g(x: Float64): Float64 @ Console = { echo("x"); sqrt(x) }
   > KEL
   $ diktor --type-check bann.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   ! bann.kel:2:53: 型エラー: ラベル Blocking がありません(行は閉じています)
   [1]
 
@@ -63,5 +63,5 @@ Blocking に操作を足す宣言は拒否する(標準環境の名前なので�
   > let r = sqrt(16.0)
   > KEL
   $ diktor --type-check --no-prelude bnp.kel
-  sqrt : (Float64) => Float64 @ {Blocking extends R1}
+  sqrt : (Float64) => Float64 @ {Blocking}
   r : Float64
