@@ -1440,6 +1440,8 @@ let rec is_value ((_, e) : T.exp) =
 
 let rec elab_exp env level eff ((_, e) as node : T.exp) : ty =
   let t = at_node node (fun () -> elab_exp' env level eff node e) in
+  (* 名前で参照した関数の最外の行が閉じていれば、参照の位置で尾部を開く(使用時の開き。§11.11) *)
+  let t = match e with T.Ident _ -> open_closed_arrow level t | _ -> t in
   Tree.set_ty node t;
   t
 
