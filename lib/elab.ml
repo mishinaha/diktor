@@ -85,18 +85,21 @@ open Type
 module T = Tree.Tree
 module SMap = Map.Make (String)
 
-(* ## 11.1 環境の 4 つのフィールド
+(* ## 11.1 環境の 5 つのフィールド
 
    環境は不変の Map で、値として渡す。
    enter / leave のような破壊的なスコープ操作を持たないので、
    スコープを戻し忘れる誤りが起こりえない。
    型エラーで大域脱出しても、呼び出し元が持っている env は変わらない。
 
-   環境のフィールドは 4 つある。
+   環境のフィールドは 5 つある。
    `values` は変数の型を持つ。
    Generic を含む型がそのまま型スキーマの役を果たし、型スキーマ専用のデータ型は持たない。
    `types` は型パラメータの束縛を持ち、リージョン変数 `h` もここに載る。
    `resume_ty` は、操作節の中でだけ Some になる 2 つ組である。
+   `never_clause` は、再開しない操作(返り値の型が `Never` の操作)の節の中でだけ Some になり、
+   その操作名を持つ。
+   その節に `resume` を書いたときの診断に使う(§11.16)。
    `tops` は、`values` のうちトップレベルの実体を指す名前から、その実体(`Tree.gref`)を引く。
    局所の束縛は `add_local` が `tops` から取り除くので、局所の名前が同名のトップレベルの実体を覆う。
    変数参照は、`tops` に名前があれば、その実体を木に書く(§11.11)。
@@ -1885,7 +1888,20 @@ and elab_exp' env level eff node e =
    ハンドラが捕まえる単位がエフェクトだからである。
 
    木に書き込む解決結果は、完全名 `Effect.op` の oid である。
-   評価器は名前解決をやり直さず、この oid でハンドラを探す(第14章)。 *)
+   評価器は名前解決をやり直さず、この oid でハンドラを探す(第14章)。
+
+   ### 再開しない操作の perform の型
+
+   返り値の型が `Never` の操作は再開しない操作である。
+   `Never` の値は無いので、その perform の式は値を返さず、評価はハンドラの操作節に移る。
+   そこで、この式の型は操作の返り値の型ではなく、穴 `???` と同じく新しい型変数にする。
+   `case None => perform throw(..)` のように値が要る位置に置けるのは、このためである。
+   `Never` を任意の型と一致するボトム型にはしない。
+   単一化が対称でなくなるからである。
+   任意の型で失敗する関数は、型パラメータを返り値の型にして書けば、
+   この型変数がそれと一致して一般化される。
+   判定は型エイリアスを展開した後の型で行う。
+   操作の型は `elab_type` が展開済みなので、`is_never` は返り値の型の構成子を見るだけでよい。 *)
 
   | T.Perform (li, arg) ->
       let eff_name, op, scheme = resolve_perform eff li in
@@ -1925,7 +1941,14 @@ and elab_exp' env level eff node e =
    値として束縛できないようにするためである。
    値として束縛できると、節を抜けた後に呼べる継続が作れてしまい、
    cancel による自動の巻き戻しが成り立たなくなる。
-   環境の形だけでは防げない閉包への閉じ込めは、§11.21 の 2 段の検査で扱う。 *)
+   環境の形だけでは防げない閉包への閉じ込めは、§11.21 の 2 段の検査で扱う。
+
+   再開しない操作(§11.15)の節では、`resume_ty` を `None` のままにし、
+   代わりに `never_clause` にその操作名を置く。
+   `resume` に出会ったとき `never_clause` が `Some` なら、
+   再開しない操作の節であることを名指しした診断を出す。
+   閉包の本体の `resume` も、`resume_ty` が `None` の環境で推論されるので、この分岐で落ちる。
+   そのため、再開しない操作の節では §11.21 の静的な検査は要らない。 *)
 
   | T.Handle (body, clauses) -> elab_handle env level eff clauses body
   | T.Resume arg -> (
@@ -2338,7 +2361,8 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
   | T.Perform (_, a) -> go a
   | T.Run (_, b) -> go b
 
-(* 操作の返り値の型が Never かどうか。型エイリアスは elab_type が展開済みなので、構成子を見るだけでよい *)
+(* 操作の返り値の型が Never かどうか。型エイリアスは elab_type が展開済みなので、
+   構成子を見るだけでよい *)
 and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> false
 
 (* ## 11.22 handle の節を 3 種類に分ける
@@ -2609,7 +2633,8 @@ and elab_handle env level eff clauses body =
    ```
      Γ ⊢ e : α ! {E | ε}
      Γ, x : α ⊢ r : R ! ε                        -- return 節
-     Γ, x : A_op, resume : B_op -> R ⊢ b : R ! ε  -- 操作節
+     Γ, x : A_op, resume : B_op -> R ⊢ b : R ! ε  -- 再開する操作の節
+     Γ, x : A_op ⊢ b : R ! ε                     -- 再開しない操作の節(resume は無い)
      ---------------------------------------------
      Γ ⊢ e handle { ... } : R ! ε
    ```
@@ -2637,6 +2662,10 @@ and elab_handle env level eff clauses body =
      第14章の `retc` / `run_cancel` はガードを読まないので、受理すると、
      型検査を通ったガードの式が実行時に黙って無視される。
      `case return(x) if c => a` と書きたいときは、節の本体で `c` を match すれば同じことを書ける。
+   - 再開しない操作(返り値の型が `Never`。§11.15)の節では、`resume_ty` を `None`、
+     `never_clause` を操作名にして本体を推論する(§11.16)。
+     `check_resume_static` は呼ばない。
+     閉包の本体の `resume` も、`resume_ty` が `None` なら推論の時点で落ちるからである。
    - 操作節のガードは受理するが、`resume` の無い環境で推論する。
      第14章はガードを resume の無い環境で評価するので、ここで resume を許すと、
      型は付くのに実行時に落ちるプログラムを通してしまう。
