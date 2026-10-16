@@ -76,7 +76,8 @@ perform の式が要求される型になる。match の腕にそのまま置け
   3
   -1
 
-再開しない操作の節に resume は書けない。閉包の本体に書いても同じ診断になる:
+再開しない操作の節に resume は書けない。閉包の本体に書いても、節の中の入れ子の
+handle の本体に書いても(外側の節の継続を指す)、同じ診断になる:
 
   $ cat > resumedirect.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -91,6 +92,14 @@ perform の式が要求される型になる。match の腕にそのまま置け
   > EOF
   $ diktor resumelambda.kel
   ! resumelambda.kel:2:79: 型エラー: 再開しない操作 throw の節には resume を書けません(操作の返り値の型が Never です)
+  [1]
+  $ cat > resumenested.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Ask = { ask: () => Int32 }
+  > let r = { perform throw("x"); 1 } handle { case throw(e) => (resume(???)) handle { case ask() => resume(1) } }
+  > EOF
+  $ diktor resumenested.kel
+  ! resumenested.kel:3:62: 型エラー: 再開しない操作 throw の節には resume を書けません(操作の返り値の型が Never です)
   [1]
 
 節の本体の中の別のハンドラの操作節では、その節の resume を書ける。再開するハンドラの
@@ -122,6 +131,23 @@ cancel 節が節の本体より先に走る:
   cancel ask
   outer catch big
   0
+
+同じハンドラの操作節が末尾位置にない resume で再開した計算の中で再開しない操作が
+起きると、節の値はその resume の返り値になり(§13.5、§13.6)、保留していた節の評価が
+続く:
+
+  $ cat > nontailresume.kel <<'EOF'
+  > effect Parser = { next: () => Int32, fail: (String) => Never }
+  > let r = ({ let a = perform next(); if a > 5 then perform fail("big") else a }) handle {
+  >   case next() => { let v = resume(7); echoln("next clause got " + show(v)); v + 1000 }
+  >   case fail(m) => { echoln("fail clause " + m); 5 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor nontailresume.kel
+  fail clause big
+  next clause got 5
+  1005
 
 同じエフェクトに再開する操作と再開しない操作を混ぜられる。判定は操作ごとである:
 
@@ -170,6 +196,50 @@ cancel 節が節の本体より先に走る:
   cancel res
   literal other
   8
+
+ガードから操作を起こして外側のハンドラが継続を捨てるときと、ガードで実行時エラーが
+起きたときは、継続がまだ生きているので、ハンドラは外側から巻き戻され、自分の cancel 節が
+走る(§13.6):
+
+  $ cat > guardescape.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = (({ perform use(); perform throw("g") }) handle {
+  >   case use() => resume()
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case throw(e) if { echoln("guard " + e); perform throw("from guard") } => 1
+  >   case throw(e) => 2
+  >   case cancel => echoln("cancel h")
+  > }) handle {
+  >   case throw(e) => { echoln("outer " + e); 3 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor guardescape.kel
+  guard g
+  cancel res
+  cancel h
+  outer from guard
+  3
+  $ cat > guarderror.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("g") }) handle {
+  >   case use() => resume()
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case throw(e) if 1 / 0 == 1 => 1
+  >   case throw(e) => 2
+  >   case cancel => echoln("cancel h")
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor guarderror.kel
+  cancel res
+  cancel h
+  実行時エラー: ゼロ除算です
+  [3]
 
 巻き戻しの順序。処理系は節の本体を評価する前に中断していた計算を破棄するので、
 内側のハンドラの cancel 節が節の本体より先に走る:
@@ -341,6 +411,26 @@ cancel 節から再開しない操作を起こすと、その操作のハンド�
   after inner 2
   return 12
   12
+
+破棄を進めている当のハンドラがその操作を受け取っても同じで、打ち切られた操作の節の
+本体は走らず、先の操作の節の本体が走る:
+
+  $ cat > cancelsame.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("first") }) handle {
+  >   case use() => resume()
+  >   case cancel => { echoln("cancel res"); perform throw("from cancel") }
+  > } handle {
+  >   case throw(e) => { echoln("H clause " + e); 1 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor cancelsame.kel
+  cancel res
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  H clause first
+  1
 
 トップレベルに残せない規則(§13.7)は再開しない操作にも同じに働く:
 
