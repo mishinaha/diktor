@@ -625,7 +625,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    1 つの `handle` 式は、1 つの `Effect.Deep.match_with` になる。
    節の振り分けは、elab が `resolved` に書いたタグを読むだけで行う。
-   タグは `ROp`、`RReturnClause`、`RCancelClause` の 3 種類である。
+   タグは `ROp`、`RNeverOp`、`RReturnClause`、`RCancelClause` の 4 種類である。
    操作名の解決はここでは行わない。
 
    ### 起動ごとの inst
@@ -695,22 +695,28 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    返り値の型が `Never` の操作(再開しない操作。第11章 §11.15)の節には、
    第11章が `RNeverOp` の印を付ける。
    この節は `resume` を持てないので、継続を捨てる時点を節の評価の前に動かせる。
-   `effc` は、節を選んだ後、`discontinue k (Unwind (inst, unit))` で継続を捨てる。
+   `effc` は、節を選んだ後、`discontinue k (Unwind (inst, 印))` で継続を捨てる。
    捨てる継続の中のハンドラは内側から外側の順に `cancel` 節を走らせ、
-   最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、`discontinue` が戻る。
-   載せる値は使わないので `unit` でよい。
-   戻った後、節の本体を `effc` の関数の末尾で評価し、その値が handle 式の値になる。
+   最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、
+   載っていた印を持って `discontinue` が戻る。
+   印が戻った後、節の本体を `effc` の関数の末尾で評価し、その値が handle 式の値になる。
    継続が無いので、3 つの経路の包み(`match … with exception`)は要らない。
    本体の実行時エラーはそのまま `effc` の外へ出て、自分の `exnc` を通らないので、
    自分の `cancel` 節は走らない。
    本体から同じ操作を起こして外側のハンドラへ移るときも同じである。
    送った `Unwind` が、捨てる継続の中の `cancel` 節の打ち切り(下の「cancel 節の実行文脈」)で止まることがある。
-   `cancel` 節が自分の操作を起こした場合で、このとき `discontinue` は、
-   本体が返した値を持って戻る。
-   自分宛ての `Unwind` が自分の `exnc` に届いたかどうかを `discarded` の印で持ち、
-   届いていなければ節の本体を評価せず、その値をそのまま返す。
-   評価すると、本体が正常に終わった後に節の本体が走り、本体の値が捨てられる。
-   回帰テストは `test/never_ops.t` の cancelnormal である。
+   `cancel` 節が再開しない操作を起こした場合である。
+   このとき `discontinue` は、本体が返した値か、先に送られていた別の破棄の印を持って戻る。
+   後者は、破棄を進めている当のハンドラが `cancel` 節からの操作を受け取ったときで、
+   先の破棄の `Unwind` が自分の `exnc` に届き、その印が内側の `discontinue` に戻る。
+   そこで、印は破棄ごとに新しく確保し、
+   `discontinue` が自分の印を持って戻ったときだけ本体を評価する。
+   印が戻らなければ節の本体を評価せず、戻った値をそのまま返す。
+   内側の `effc` が返した先の破棄の印は、外側の `discontinue` の戻り値になり、外側の節の本体が走る。
+   印を 1 つの真偽値で持つと、当のハンドラが受け取った場合に打ち切られた操作の節の本体が走り、
+   先の操作の節の本体が走らない。
+   印を使わずに常に本体を評価すると、本体が正常に終わった後に節の本体が走り、本体の値が捨てられる。
+   回帰テストは `test/never_ops.t` の cancelnormal と cancelsame である。
    仕様(LangSpec.md §13.6)は、再開しない操作の節の本体をハンドラの外側で評価し、
    ハンドラ自身の `return` 節と `cancel` 節を実行しないと定めている。
    内側の `cancel` 節が節の本体より先に走る順序は `test/never_ops.t` の order が、
@@ -937,9 +943,6 @@ and eval_handle env body clauses =
         | Sys_error msg -> !cancel_log ("標準出力に書き出せません: " ^ msg)
         | ex -> !cancel_log (Printexc.to_string ex))
   in
-  (* 自分宛ての Unwind が自分の exnc に届いたか。再開しない操作の節が送った Unwind が
-     cancel 節の打ち切りで止まったときは false のままで、節の本体を評価しない *)
-  let discarded = ref false in
   let clause_arg_pats (c : T.clause') =
     match snd c.T.cl_pat with T.PCtor (_, aps) -> List.map (fun (ap : T.ctor_arg_pat) -> ap.T.cap_pat) aps | _ -> []
   in
@@ -957,10 +960,9 @@ and eval_handle env body clauses =
       exnc =
         (fun ex ->
           match ex with
-          (* 自分宛ての巻き戻し。保留していた節の値が handle 式の値になる *)
-          | Unwind (id, v) when id = inst ->
-              discarded := true;
-              v
+          (* 自分宛ての巻き戻し。保留していた節の値(再開しない操作の節では破棄の印)を
+             discontinue の戻り値として effc に返す *)
+          | Unwind (id, v) when id = inst -> v
           | ex ->
               (* 外側による巻き戻し(または実行時エラー)の通過。cancel 節を実行してから再送出する *)
               run_cancel ();
@@ -1013,10 +1015,14 @@ and eval_handle env body clauses =
                           (* 再開しない操作の節。継続を先に捨てて(捨てた継続の中の cancel 節を
                              走らせ、自分の exnc が Unwind を受け取る)、節の本体をこの関数の
                              末尾で評価する。継続は無いので、本体の例外に備える包みは要らず、
-                             自分の cancel 節も走らない。送った Unwind が cancel 節の打ち切りで
-                             止まり、本体が値を返したときは、節の本体を評価せずその値を返す *)
-                          let v = Effect.Deep.discontinue k (Unwind (inst, unit)) in
-                          if !discarded then eval { env with locals; resume = None } c.T.cl_body else v
+                             自分の cancel 節も走らない。Unwind には破棄ごとに新しく確保した印を
+                             載せ、discontinue が同じ印(物理的に同じ値)を持って戻ったときだけ
+                             本体を評価する。印が戻らないのは、送った Unwind が cancel 節の
+                             打ち切りで止まったときで、本体の値か、先に送った別の破棄の印が戻る。
+                             そのときは節の本体を評価せず、戻った値をそのまま返す *)
+                          let tok = VText (String.make 1 'n') in
+                          let v = Effect.Deep.discontinue k (Unwind (inst, tok)) in
+                          if v == tok then eval { env with locals; resume = None } c.T.cl_body else v
                       | Some (locals, c, `Resumable tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
