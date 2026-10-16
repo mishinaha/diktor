@@ -704,6 +704,13 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    本体の実行時エラーはそのまま `effc` の外へ出て、自分の `exnc` を通らないので、
    自分の `cancel` 節は走らない。
    本体から同じ操作を起こして外側のハンドラへ移るときも同じである。
+   送った `Unwind` が、捨てる継続の中の `cancel` 節の打ち切り(下の「cancel 節の実行文脈」)で止まることがある。
+   `cancel` 節が自分の操作を起こした場合で、このとき `discontinue` は、
+   本体が最後まで走って返した値を持って戻る。
+   自分宛ての `Unwind` が自分の `exnc` に届いたかどうかを `discarded` の印で持ち、
+   届いていなければ節の本体を評価せず、その値をそのまま返す。
+   評価すると、本体が正常に終わった後に節の本体が走り、本体の値が捨てられる。
+   回帰テストは `test/never_ops.t` の cancelnormal である。
    仕様(LangSpec.md §13.6)は、再開しない操作の節の本体をハンドラの外側で評価し、
    ハンドラ自身の `return` 節と `cancel` 節を実行しないと定めている。
    内側の `cancel` 節が節の本体より先に走る順序は `test/never_ops.t` の order が、
