@@ -645,13 +645,17 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    `Unwind (inst, v)` は、例外の形をした通知である。
    resume されずに終わった節の値 `v` を、
    `inst` 番のハンドラの handle 式全体の値として届けることを依頼する。
+   再開しない操作の節では、`v` は節の本体を評価する閉包(`VPending`。破棄の印)で、
+   受け取った側が評価する
+   (下の「再開しない操作の節」)。
 
    1. 節が resume を呼ばずに `v` を返す。
    2. `discontinue k (Unwind (inst, v))` で、捨てる継続の中にこの例外を送り込む。
    3. 中断された計算の断片が、内側から巻き戻る。
       途中のハンドラは `exnc` で自分宛てでない `Unwind` を受け取り、
       `cancel` 節を走らせてから再送出する。
-   4. 最後に自分の `exnc` が `id = inst` を確かめて `v` を返す。これが handle 式の値になる。
+   4. 最後に自分の `exnc` が `id = inst` を確かめて `v` を返す。再開する操作の節では、
+      これが handle 式の値になる。
 
    後始末が LIFO になるのは、この経路が fiber の入れ子をそのまま逆にたどるからである。
    評価器には、順序を管理するコードが無い。
@@ -698,6 +702,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    第11章が `RNeverOp` の印を付ける。
    この節は `resume` を持てないので、継続を捨てる時点を節の評価の前に動かせる。
    `effc` は、節を選んだ後、`discontinue k (Unwind (inst, 印))` で継続を捨てる。
+   印は、節の本体を評価する閉包(`VPending`)で、破棄ごとに新しく確保する。
    捨てる継続の中のハンドラは内側から外側の順に `cancel` 節を走らせ、
    最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、
    載っていた印を持って `discontinue` が戻る。
@@ -721,6 +726,16 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    先の操作の節の本体が走らない。
    印を使わずに常に本体を評価すると、本体が正常に終わった後に節の本体が走り、本体の値が捨てられる。
    回帰テストは `test/never_ops.t` の cancelnormal と cancelsame である。
+
+   印が、同じハンドラの再開する操作の節の、末尾でない `resume` の戻り値として届くこともある。
+   捨てる継続の中の `cancel` 節がその操作を起こし、その節が末尾でない `resume` で再開した場合で、
+   再開した計算が先の破棄で終わると、`continue` は印を持って戻る。
+   §14.4 の `Resume` は、戻り値が `VPending` ならその閉包を評価し、
+   その値を `resume` の返り値にする。
+   仕様(LangSpec.md §13.6)が、末尾位置にない `resume` で再開した計算の中では節の値がその `resume` の返り値になる、
+   と定めているのにあたる。
+   印を閉包ではなく値にすると、この経路で印が利用者の値として漏れ、節の本体が走らない。
+   回帰テストは `test/never_ops.t` の cancelresume である。
    仕様(LangSpec.md §13.6)は、再開しない操作の節の本体をハンドラの外側で評価し、
    ハンドラ自身の `return` 節と `cancel` 節を実行しないと定めている。
    内側の `cancel` 節が節の本体より先に走る順序は `test/never_ops.t` の order が、
@@ -810,6 +825,8 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    これは、第11章 §11.24 が cancel 節を外側の行で型付けているのと同じ事実を、
    実行の側から見たものである。
    届いた先の節が resume せずに抜けると、`Unwind` が cancel 節を通過しようとする。
+   `cancel` 節から再開しない操作を起こした場合に、
+   その操作のハンドラが送る `Unwind` も同じである(上の「再開しない操作の節」)。
    `run_cancel` はそれを cancel 節の中の例外として抑制し(仕様 sample.kel §9 の抑制規則)、
    ログに記録するだけで外へは出さない。
    回帰テストは `test/eval.t` の cancelouter と cancelnores である。

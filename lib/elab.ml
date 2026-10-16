@@ -2689,7 +2689,7 @@ and elab_handle env level eff clauses body =
    その後で、本体、return 節、cancel 節、操作節のガードと本体の順に推論する。
    そのため、操作節の引数パターンの誤りは、本体や各節の本体の誤りより先に報告される。
 
-   `check_resume_static` は、操作節の本体を推論する直前に呼ぶ(§11.21)。 *)
+   `check_resume_static` は、再開する操作の節の本体を推論する直前に呼ぶ(§11.21)。 *)
 
   (* 本体は対象エフェクトを積んだ行で推論する *)
   let body_ty = elab_exp env level (TRowExtend (target, t_unit, eff)) body in

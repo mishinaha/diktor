@@ -652,7 +652,7 @@ let add_data info =
    クラスメソッドと同じ形をしている(§6.10)。
 
    精緻化木では、操作を完全名、つまり `Console.write` を intern した oid で表す。
-   第5章(tree.ml)の `ROp` に入るのがこの完全名である。
+   第5章(tree.ml)の `ROp` と `RNeverOp` に入るのがこの完全名である。
    一方、本章の `ef_ops` と `op_index` は、非修飾の操作名を鍵にする。
    非修飾で書かれた `perform write(x)` を完全名に解決するために、`op_index` を使う。
 
