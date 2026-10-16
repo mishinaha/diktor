@@ -27,6 +27,7 @@
    | `perform op(args)` | `Effect.perform (Op (op, args))` |
    | `resume(e)` | `Effect.Deep.continue k v` |
    | resume を呼ばずに節を抜ける | `discontinue k (Unwind (inst, v))` |
+   | 再開しない操作の節 | 節の本体の前に `discontinue`、本体は `effc` の末尾で評価 |
    | `case return(x)` | `retc`(親のスタック上で走る) |
    | `case cancel` | `exnc` の中で節を走らせる |
    | 最も内側のハンドラが捕まえる | `effc` が `None` を返せば外側へ進む |
@@ -50,6 +51,7 @@
       包みの中で評価する。
       そのため、これらの中の末尾位置にある関数呼び出しは末尾にならない。
       操作節の本体の末尾の背骨にある `resume` だけは、包みを抜けてから継続を末尾で発行する(§14.9)。
+      再開しない操作の節の本体は、継続を捨てた後に包みの外で評価するので、末尾位置を保つ(§14.9)。
 
    2. 評価順序を let で固定する。
       OCaml は関数適用で引数を評価する順序を規定しておらず、現行のコンパイラは右から左に評価する。
@@ -656,7 +658,8 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    ### 3 つの経路
 
-   `effc` が返す関数は、節の評価がどう終わったかによって 3 つの経路に分かれる。
+   再開する操作の節では、`effc` が返す関数は、
+   節の評価がどう終わったかによって 3 つの経路に分かれる。
 
    | 節の終わり方 | 処理 | 理由 |
    |---|---|---|
@@ -686,6 +689,25 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    節本体が `???` でも内側の cancel 節が走ることを確かめる。
 
    この規約は、§13.6 の最も外側のハンドラ(`with_runtime` の `Console.write`)にも当てはまる。
+
+   ### 再開しない操作の節
+
+   返り値の型が `Never` の操作(再開しない操作。第11章 §11.15)の節には、
+   第11章が `RNeverOp` の印を付ける。
+   この節は `resume` を持てないので、継続を捨てる時点を節の評価の前に動かせる。
+   `effc` は、節を選んだ後、`discontinue k (Unwind (inst, unit))` で継続を捨てる。
+   捨てる継続の中のハンドラは内側から外側の順に `cancel` 節を走らせ、
+   最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、`discontinue` が戻る。
+   載せる値は使わないので `unit` でよい。
+   戻った後、節の本体を `effc` の関数の末尾で評価し、その値が handle 式の値になる。
+   継続が無いので、3 つの経路の包み(`match … with exception`)は要らない。
+   本体の実行時エラーはそのまま `effc` の外へ出て、自分の `exnc` を通らないので、
+   自分の `cancel` 節は走らない。
+   本体から同じ操作を起こして外側のハンドラへ移るときも同じである。
+   仕様(LangSpec.md §13.6)は、再開しない操作の節の本体をハンドラの外側で評価し、
+   ハンドラ自身の `return` 節と `cancel` 節を実行しないと定めている。
+   内側の `cancel` 節が節の本体より先に走る順序は `test/never_ops.t` の order が、
+   本体が末尾位置にあること(LangSpec.md §5.7)は `test/tail_calls.t` の retry が確かめる。
 
    ### 末尾 resume
 
@@ -742,6 +764,13 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    `continue` は値の枝、つまり例外を捕まえる範囲(trap)を抜けた後にあり、末尾での発行が保たれる。
    OCaml は、値の場合の枝を trap の外に置いてコンパイルする。
    一方、`continue` を trap の内側に置くと、perform のたびにスタックが伸びる。
+
+   `eval_handle` は `match_with` を末尾で呼ぶ。
+   `match_with` の結果を受け取ってから何かをする形にすると、`return` 節の経路で
+   `eval_handle` の枠が再帰の段ごとに残り、
+   `test/tail_calls.t` の retc.kel が小さいスタックの上限で落ちる。
+   再開しない操作の節の本体を、`match_with` の後ではなく `effc` の末尾で評価するのは、
+   このためである。
 
    ### アフィンな resume と second-class
 
