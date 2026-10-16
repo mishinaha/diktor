@@ -565,13 +565,13 @@ let capture[A, E](body: () => A @ {Print extends E}): {value: A, output: String}
 
 // --- 例外、後始末、キャンセル ---
 //
-// 専用の例外機構は持たない。resume を呼ばずに節を抜けると、
-// 中断した計算の断片を、言語が自動で巻き戻す（後入れ先出し）。
+// 専用の例外機構は持たない。返り値の型が Never の操作は再開しない操作で、その perform は周囲が要求する型になる。
+// その節には resume を書けず、言語は節の本体より先に、中断した計算の断片を自動で巻き戻す（後入れ先出し）。
 effect Fail = { throw: (String) => Never }
 
 let try_[A, E](body: () => A @ {Fail extends E}): #Ok(A) | #Err(String) @ E =
   body() handle {
-    case throw(e)  => #Err(e)                 // resume を呼ばないので、自動で巻き戻る
+    case throw(e)  => #Err(e)                 // 再開しない操作の節。本体より先に巻き戻る
     case return(x) => #Ok(x)
   }
 
