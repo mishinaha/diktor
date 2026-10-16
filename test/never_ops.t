@@ -34,7 +34,7 @@ perform の式が要求される型になる。match の腕にそのまま置け
   42
   s:y
 
-判定は型エイリアスを展開した後の型で行う:
+判定は型エイリアスを展開した後の型で行う。perform の側(式の型)も節の側(resume の拒否)も同じ:
 
   $ cat > alias.kel <<'EOF'
   > type Boom = Never
@@ -48,8 +48,17 @@ perform の式が要求される型になる。match の腕にそのまま置け
   $ diktor alias.kel
   caught none
   -1
+  $ cat > aliasresume.kel <<'EOF'
+  > type Boom = Never
+  > effect Fail = { throw: (String) => Boom }
+  > let r = { perform throw("x"); 1 } handle { case throw(e) => resume(???) }
+  > EOF
+  $ diktor aliasresume.kel
+  ! aliasresume.kel:3:61: 型エラー: 再開しない操作 throw の節には resume を書けません(操作の返り値の型が Never です)
+  [1]
 
-従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる(動作は変わらない):
+従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる
+(match {} を外した nevertype の形では警告は出ない。動作は変わらない):
 
   $ cat > absurd.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -84,8 +93,9 @@ perform の式が要求される型になる。match の腕にそのまま置け
   ! resumelambda.kel:2:79: 型エラー: 再開しない操作 throw の節には resume を書けません(操作の返り値の型が Never です)
   [1]
 
-節の本体の中の別のハンドラの操作節では、その節の resume を書ける。外側の再開する
-ハンドラの下で起きた再開しない操作も、外側へ届く:
+節の本体の中の別のハンドラの操作節では、その節の resume を書ける。再開するハンドラの
+下で起きた再開しない操作は、そのハンドラを越えて外側に届き、越えられたハンドラの
+cancel 節が節の本体より先に走る:
 
   $ cat > nested.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -98,16 +108,18 @@ perform の式が要求される型になる。match の腕にそのまま置け
   >   }
   > }
   > echoln(show(r))
-  > let r2 = ({ let a = perform ask(); if a > 5 then perform throw("big") else a }) handle {
-  >   case throw(e) => { echoln("outer catch " + e); 0 }
-  > } handle {
+  > let r2 = (({ let a = perform ask(); if a > 5 then perform throw("big") else a }) handle {
   >   case ask() => resume(9)
+  >   case cancel => echoln("cancel ask")
+  > }) handle {
+  >   case throw(e) => { echoln("outer catch " + e); 0 }
   > }
   > echoln(show(r2))
   > EOF
   $ diktor nested.kel
   nested 11
   11
+  cancel ask
   outer catch big
   0
 
@@ -137,19 +149,27 @@ perform の式が要求される型になる。match の腕にそのまま置け
   fail negative
   -1
 
-節のガードと絞り込みは再開する操作と同じに働く:
+節のガードと絞り込みは再開する操作と同じに働く。ガードは継続を捨てる前に評価する
+(偽のガードの出力が、内側の cancel 節の出力より先に出る):
 
   $ cat > guard.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
-  > let r = { perform throw("retry"); 1 } handle {
-  >   case throw(e) if e == "retry" => { echoln("guarded"); 7 }
-  >   case throw(e) => { echoln("other " + e); 0 }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("other") }) handle {
+  >   case use() => resume()
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case throw(e) if { echoln("guard " + e); e == "retry" } => 7
+  >   case throw("other") => { echoln("literal other"); 8 }
+  >   case throw(e) => 0
   > }
   > echoln(show(r))
   > EOF
   $ diktor guard.kel
-  guarded
-  7
+  guard other
+  cancel res
+  literal other
+  8
 
 巻き戻しの順序。処理系は節の本体を評価する前に中断していた計算を破棄するので、
 内側のハンドラの cancel 節が節の本体より先に走る:
@@ -183,7 +203,7 @@ perform の式が要求される型になる。match の腕にそのまま置け
   catch abort
   -1
 
-節の本体はハンドラの外側で評価する。本体が実行時エラーで脱出しても、
+節の本体はハンドラの外側で評価する。節の本体が実行時エラーで脱出しても、
 そのハンドラ自身の cancel 節は走らない(外側のハンドラの cancel 節は走る):
 
   $ cat > clauseerror.kel <<'EOF'
@@ -220,22 +240,31 @@ perform の式が要求される型になる。match の腕にそのまま置け
   実行時エラー: panic: in clause
   [3]
 
-節の本体で同じ操作を起こすと外側のハンドラに届く(再送出)。再開する操作の節から
-再開しない操作を起こすこともできる:
+節の本体で同じ操作を起こすと外側のハンドラに届く(再送出)。再送出するハンドラ自身の
+cancel 節は走らず、その外側で巻き戻されるハンドラ(oops)の cancel 節は走る:
 
   $ cat > rethrow.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
   > effect Other = { oops: (Int32) => Never }
   > let inner(): Int32 @ {Fail, Other} = { perform throw("x"); 1 }
-  > let mid(): Int32 @ {Fail, Other} = inner() handle {
+  > let mid(): Int32 @ {Fail, Other, Console} = inner() handle {
   >   case throw(e) => if e == "x" then perform throw("re:" + e) else 2
+  >   case cancel => echoln("cancel mid")
   > }
-  > let r = (mid() handle { case oops(n) => n }) handle { case throw(e) => { echoln("outer got " + e); 0 } }
+  > let r = (mid() handle { case oops(n) => n case cancel => echoln("cancel oops") }) handle {
+  >   case throw(e) => { echoln("outer got " + e); 0 }
+  > }
   > echoln(show(r))
   > EOF
   $ diktor rethrow.kel
+  cancel oops
   outer got re:x
   0
+
+再開する操作の節から再開しない操作を起こすこともできる。再開しない操作のハンドラが先に
+継続を捨てるので、内側の資源の cancel 節と、再開する操作のハンドラ自身の cancel 節
+(外側から巻き戻されるので走る)が、再開しない操作の節の本体より先に走る:
+
   $ cat > fromclause.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
   > effect Ask = { ask: () => Int32 }
@@ -249,6 +278,7 @@ perform の式が要求される型になる。match の腕にそのまま置け
   >   v
   > } handle {
   >   case ask() => { echoln("ask clause throws"); perform throw("from clause") }
+  >   case cancel => echoln("cancel ask")
   > } handle {
   >   case throw(e) => { echoln("caught " + e); 0 }
   > }
@@ -257,10 +287,14 @@ perform の式が要求される型になる。match の腕にそのまま置け
   $ diktor fromclause.kel
   ask clause throws
   cancel res
+  cancel ask
   caught from clause
   0
 
-cancel 節から再開しない操作を起こしても、その巻き戻しは抑制される(§13.6):
+cancel 節から再開しない操作を起こすと、その操作のハンドラが行う破棄は cancel 節の
+打ち切りで止まる(§13.6)。ハンドラは節の本体を評価せず(caught の行が出ない)、
+巻き戻しはそのまま続く。巻き戻しが実行時エラーによるものならプログラムはそれで終わり、
+内側のハンドラの破棄によるものなら本体が続き、その値がハンドラ式の値になる:
 
   $ cat > cancelperform.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -281,6 +315,32 @@ cancel 節から再開しない操作を起こしても、その巻き戻しは�
   cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
   実行時エラー: ゼロ除算です
   [3]
+  $ cat > cancelnormal.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Stop = { stop: () => Never }
+  > effect Res = { use: () => Unit }
+  > let r = {
+  >   let v = ({ perform use(); perform stop(); 1 }) handle {
+  >     case use() => resume()
+  >     case cancel => { echoln("cancel res"); perform throw("from cancel") }
+  >   } handle {
+  >     case stop() => { echoln("stop clause"); 2 }
+  >   }
+  >   echoln("after inner " + show(v))
+  >   v + 10
+  > } handle {
+  >   case throw(e) => { echoln("caught " + e); 0 }
+  >   case return(x) => { echoln("return " + show(x)); x }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor cancelnormal.kel
+  cancel res
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  stop clause
+  after inner 2
+  return 12
+  12
 
 トップレベルに残せない規則(§13.7)は再開しない操作にも同じに働く:
 

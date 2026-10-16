@@ -165,16 +165,28 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   true
 
 再開しない操作(返り値の型が Never。仕様 §13.1)の節の本体。処理系は継続を捨ててから
-本体をハンドラ式の末尾位置で評価する(§5.7、§13.6)ので、節から再帰で書いた再試行は
-領域を使わない:
+本体をハンドラ式の末尾位置で評価する(§5.7、§13.6)ので、節から再帰で書いた再試行は、
+回数によって領域が増えない。同じ形を再開する操作で書くと、節の本体は末尾位置に無いので
+(§5.7)、小さい上限では落ちる:
 
-  $ cat > retry.kel <<'EOF'
+  $ cat > retry.kel <<'KEL'
   > effect Fail = { throw: (String) => Never }
   > let rec retry(n: Int32): Int32 =
   >   (if n == 0 then 0 else perform throw("again")) handle {
   >     case throw(e) => retry(n - 1)
   >   }
   > echoln(show(retry(100000)))
-  > EOF
+  > KEL
   $ OCAMLRUNPARAM=l=100k diktor retry.kel
   0
+  $ cat > retryresume.kel <<'KEL'
+  > effect Again = { again: () => Unit }
+  > let rec retry(n: Int32): Int32 =
+  >   (if n == 0 then 0 else { perform again(); 1 }) handle {
+  >     case again() => retry(n - 1)
+  >   }
+  > echoln(show(retry(100000)))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retryresume.kel
+  実行時エラー: スタックオーバーフロー(再帰が深すぎます)
+  [3]
