@@ -118,6 +118,7 @@ type env = {
   values : ty SMap.t;
   types : ty SMap.t; (* 型パラメータの束縛(リージョン変数 h を含む) *)
   resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でだけ Some *)
+  never_clause : oid option; (* 再開しない操作の節の中でだけ Some(その操作名)。resume の診断に使う *)
   tops : Tree.gref SMap.t; (* values のうちトップレベルの実体を指す名前 → 実体。局所束縛は取り除く *)
 }
 
@@ -1903,7 +1904,8 @@ and elab_exp' env level eff node e =
          let pub_pure = is_pub_pure_row eff in
          if pub_pure then type_error "pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)"
          else type_error ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
-      op_ret
+      (* 再開しない操作(返り値の型が Never)の perform 式は、穴と同じく周囲が要求する型になる *)
+      if is_never op_ret then new_var level else op_ret
 (* ## 11.16 環境に置く resume の型
 
    `resume` の型付けは、`env.resume_ty` が `Some` のときだけ通る。
@@ -1928,7 +1930,10 @@ and elab_exp' env level eff node e =
   | T.Handle (body, clauses) -> elab_handle env level eff clauses body
   | T.Resume arg -> (
       match env.resume_ty with
-      | None -> type_error "resume は操作節の中でのみ使えます"
+      | None -> (
+          match env.never_clause with
+          | Some op -> type_error ("再開しない操作 " ^ display_of op ^ " の節には resume を書けません(操作の返り値の型が Never です)")
+          | None -> type_error "resume は操作節の中でのみ使えます")
       | Some (op_ret, tres) ->
           (match arg with
           | Some e -> Unify.unify (elab_exp env level eff e) op_ret
@@ -2333,6 +2338,9 @@ and check_resume_static ?(in_lambda = false) (((_, e) as node) : T.exp) =
   | T.Perform (_, a) -> go a
   | T.Run (_, b) -> go b
 
+(* 操作の返り値の型が Never かどうか。型エイリアスは elab_type が展開済みなので、構成子を見るだけでよい *)
+and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> false
+
 (* ## 11.22 handle の節を 3 種類に分ける
 
    handle の節は、エフェクト名ではなく操作名で書く。
@@ -2661,7 +2669,7 @@ and elab_handle env level eff clauses body =
       Tree.set_resolved cnode Tree.RReturnClause;
       if c.T.cl_guard <> None then type_error "return 節にガードは書けません";
       let seen = ref [] in
-      let env2 = elab_pat { env with resume_ty = None } level seen body_ty p in
+      let env2 = elab_pat { env with resume_ty = None; never_clause = None } level seen body_ty p in
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres;
       (* return 節の反駁可能なパターンも、節の本体を推論した後で網羅性検査のキューに
          積む。先に積むと、節の本体の中の let の drain に食われて行が早く閉じる *)
@@ -2671,23 +2679,27 @@ and elab_handle env level eff clauses body =
   | [ ((_, c) as cnode) ] ->
       Tree.set_resolved cnode Tree.RCancelClause;
       if c.T.cl_guard <> None then type_error "cancel 節にガードは書けません";
-      let env2 = { env with resume_ty = None } in
+      let env2 = { env with resume_ty = None; never_clause = None } in
       (* cancel 節の値は捨てられるので、Unit と単一化する *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
   | _ -> ());
   (* 操作節のガードと本体。引数パターンは §11.23 で型付けてある *)
   List.iter
-    (fun ((_, _, _, ((_, c) : T.clause)), env2, op_ret, _) ->
+    (fun ((op, _, _, ((_, c) : T.clause)), env2, op_ret, _) ->
       (* ガードは resume 無しで推論する。第14章はガードを resume = None で
          評価するので、ここで Some にすると、型は付くのに実行時に落ちる
          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
          ガードの resume はここで防ぐ *)
       (match c.T.cl_guard with
-      | Some g -> Unify.unify (elab_exp { env2 with resume_ty = None } level eff g) t_boolean
+      | Some g -> Unify.unify (elab_exp { env2 with resume_ty = None; never_clause = None } level eff g) t_boolean
       | None -> ());
-      (* 操作節では resume が使える。本体は外側の eff で推論する *)
-      let env2 = { env2 with resume_ty = Some (op_ret, tres) } in
-      check_resume_static c.T.cl_body;
+      (* 操作節では resume が使える。本体は外側の eff で推論する。再開しない操作の節では
+         resume_ty を None のままにし、never_clause に操作名を置いて診断に使う *)
+      let env2 =
+        if is_never op_ret then { env2 with resume_ty = None; never_clause = Some op }
+        else { env2 with resume_ty = Some (op_ret, tres); never_clause = None }
+      in
+      if not (is_never op_ret) then check_resume_static c.T.cl_body;
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
     op_clauses;
   tres
@@ -3472,6 +3484,7 @@ let initial_env () =
     values = List.fold_left (fun m (n, t, _) -> SMap.add n t m) SMap.empty refs;
     types = SMap.empty;
     resume_ty = None;
+    never_clause = None;
     tops = List.fold_left (fun m (n, _, g) -> SMap.add n g m) SMap.empty refs;
   }
 
