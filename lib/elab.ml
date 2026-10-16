@@ -1948,6 +1948,8 @@ and elab_exp' env level eff node e =
    `resume` に出会ったとき `never_clause` が `Some` なら、
    再開しない操作の節であることを名指しした診断を出す。
    閉包の本体の `resume` も、`resume_ty` が `None` の環境で推論されるので、この分岐で落ちる。
+   節の中に書いた入れ子の `handle` の本体の `resume` も、外側の節の継続を指すので同じ診断になる。
+   入れ子の `handle` の操作節の `resume` は、その節が `resume_ty` を置き直すので通る。
    そのため、再開しない操作の節では §11.21 の静的な検査は要らない。 *)
 
   | T.Handle (body, clauses) -> elab_handle env level eff clauses body

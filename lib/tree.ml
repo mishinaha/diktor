@@ -47,7 +47,7 @@ open Aux
 (* ## 5.1 elab から interp への受け渡し
 
    `resolved` は、型検査が解いた答えのうち、実行時には解けないものの一覧である。
-   ここに並ぶ 5 つは、どれも必要な情報が型検査の最中にしか揃わない。
+   ここに並ぶ 7 つは、どれも必要な情報が型検査の最中にしか揃わない。
    たとえば、perform を書いた位置のエフェクト行に現れるラベルは、実行時には残っていない。
    コンストラクタのフィールドの順序は、宣言表を引かないと分からない。
    節の分類は、宣言されたエフェクトの操作の集合を知って初めてできる。
@@ -58,7 +58,7 @@ open Aux
    | 値 | 書く場所 | 読む場所 | 読む側の用途 |
    |---|---|---|---|
    | `RVar` | トップレベルの値を指す `Ident` | 第14章 | 値の実体(組み込み、クラスメソッド、宣言した値) |
-   | `ROp` | `Perform` と操作節 | 第14章 | perform する操作、ハンドラの節の選択 |
+   | `ROp` | `Perform` と、再開する操作の操作節 | 第14章 | perform する操作、ハンドラの節の選択 |
    | `RNeverOp` | 再開しない操作の操作節 | 第14章 | 継続を先に捨てる経路の選択 |
    | `RReturnClause` | `return` 節 | 第14章 | 正常終了時に実行する節の選択 |
    | `RCancelClause` | `handle` の `cancel` 節 | 第14章 | 巻き戻し時に実行する節の選択 |
@@ -136,7 +136,7 @@ type gref =
 
 type resolved =
   | RVar of gref (* Ident。トップレベルの値の参照 *)
-  | ROp of oid (* perform と handle の操作節。Console.write のような完全な操作名の oid *)
+  | ROp of oid (* perform と、再開する操作の操作節。Console.write のような完全な操作名の oid *)
   | RNeverOp of oid (* 再開しない操作(返り値の型が Never)の操作節。oid は ROp と同じ完全な操作名 *)
   | RReturnClause (* handle の return 節 *)
   | RCancelClause (* handle の cancel 節 *)
