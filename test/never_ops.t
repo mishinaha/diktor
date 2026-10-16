@@ -493,6 +493,29 @@ cancel 節から再開しない操作を起こすと、その操作のハンド�
   H clause first
   1
 
+当のハンドラが再開する操作も持ち、cancel 節がその操作を起こし、その節が末尾でない
+resume で再開したときは、先の破棄で終わった計算の値、つまり再開しない操作の節の値が、
+その resume の返り値になる(§13.6):
+
+  $ cat > cancelresume.kel <<'EOF'
+  > effect Mixed = { ask: () => Int32, throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("first") }) handle {
+  >   case use() => resume()
+  >   case cancel => { echoln("cancel res"); let a = perform ask(); echoln("cancel got " + show(a)) }
+  > } handle {
+  >   case ask() => { let x = resume(5); echoln("ask clause got " + show(x)); x + 1000 }
+  >   case throw(e) => { echoln("H clause " + e); 7 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor cancelresume.kel
+  cancel res
+  cancel got 5
+  H clause first
+  ask clause got 7
+  1007
+
 トップレベルに残せない規則(§13.7)は再開しない操作にも同じに働く:
 
   $ cat > toplevel.kel <<'EOF'
