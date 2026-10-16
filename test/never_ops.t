@@ -34,7 +34,8 @@ perform の式が要求される型になる。match の腕にそのまま置け
   42
   s:y
 
-判定は型エイリアスを展開した後の型で行う。perform の側(式の型)も節の側(resume の拒否)も同じ:
+判定は型エイリアスを展開した後の型で行う。perform の側(式の型)も節の側(resume の拒否と、
+先に継続を捨てる順序)も同じ:
 
   $ cat > alias.kel <<'EOF'
   > type Boom = Never
@@ -56,9 +57,25 @@ perform の式が要求される型になる。match の腕にそのまま置け
   $ diktor aliasresume.kel
   ! aliasresume.kel:3:61: 型エラー: 再開しない操作 throw の節には resume を書けません(操作の返り値の型が Never です)
   [1]
+  $ cat > aliasorder.kel <<'EOF'
+  > type Boom = Never
+  > effect Fail = { throw: (String) => Boom }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("x") }) handle {
+  >   case use() => resume()
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case throw(e) => { echoln("caught " + e); 0 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor aliasorder.kel
+  cancel res
+  caught x
+  0
 
-従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる
-(match {} を外した nevertype の形では警告は出ない。動作は変わらない):
+従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる。
+同じ形から match {} を外すと警告は出ず、出力は同じである:
 
   $ cat > absurd.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -73,6 +90,20 @@ perform の式が要求される型になる。match の腕にそのまま置け
   > EOF
   $ diktor absurd.kel
   ⚠ match が非網羅的です。例えば _ が漏れています
+  3
+  -1
+  $ cat > absurdplain.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > let get(o: Option[Int32]): Int32 @ Fail = o match {
+  >   case Some(v) => v
+  >   case None => perform throw("none")
+  > }
+  > let r = get(Some(3)) handle { case throw(e) => 0 - 1 }
+  > echoln(show(r))
+  > let r2 = get(None) handle { case throw(e) => 0 - 1 }
+  > echoln(show(r2))
+  > EOF
+  $ diktor absurdplain.kel
   3
   -1
 
@@ -331,6 +362,36 @@ cancel 節は走らず、その外側で巻き戻されるハンドラ(oops)の 
   outer got re:x
   0
 
+別のエフェクトの再開しない操作で抜けるときも、再開する操作を起こして外側の節が resume
+しないときも同じで、抜けるハンドラ自身の cancel 節は走らない(§13.6):
+
+  $ cat > otherescape.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Other = { oops: (Int32) => Never }
+  > let mid(): Int32 @ {Other, Console} = ({ perform throw("x"); 1 }) handle {
+  >   case throw(e) => perform oops(9)
+  >   case cancel => echoln("cancel mid")
+  > }
+  > let r = mid() handle { case oops(n) => { echoln("oops " + show(n)); n } }
+  > echoln(show(r))
+  > EOF
+  $ diktor otherescape.kel
+  oops 9
+  9
+  $ cat > askescape.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Ask = { ask: () => Int32 }
+  > let mid(): Int32 @ {Ask, Console} = ({ perform throw("x"); 1 }) handle {
+  >   case throw(e) => perform ask() + 1
+  >   case cancel => echoln("cancel mid")
+  > }
+  > let r = mid() handle { case ask() => { echoln("ask: no resume"); 5 } }
+  > echoln(show(r))
+  > EOF
+  $ diktor askescape.kel
+  ask: no resume
+  5
+
 再開する操作の節から再開しない操作を起こすこともできる。再開しない操作のハンドラが先に
 継続を捨てるので、内側の資源の cancel 節と、再開する操作のハンドラ自身の cancel 節
 (外側から巻き戻されるので走る)が、再開しない操作の節の本体より先に走る:
@@ -364,7 +425,7 @@ cancel 節は走らず、その外側で巻き戻されるハンドラ(oops)の 
 cancel 節から再開しない操作を起こすと、その操作のハンドラが行う破棄は cancel 節の
 打ち切りで止まる(§13.6)。ハンドラは節の本体を評価せず(caught の行が出ない)、
 巻き戻しはそのまま続く。巻き戻しが実行時エラーによるものならプログラムはそれで終わり、
-内側のハンドラの破棄によるものなら本体が続き、その値がハンドラ式の値になる:
+内側のハンドラの破棄によるものならハンドラの本体が続き、その値がハンドラ式の値になる:
 
   $ cat > cancelperform.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
