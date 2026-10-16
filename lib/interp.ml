@@ -930,6 +930,9 @@ and eval_handle env body clauses =
         | Sys_error msg -> !cancel_log ("標準出力に書き出せません: " ^ msg)
         | ex -> !cancel_log (Printexc.to_string ex))
   in
+  (* 自分宛ての Unwind が自分の exnc に届いたか。再開しない操作の節が送った Unwind が
+     cancel 節の打ち切りで止まったときは false のままで、節の本体を評価しない *)
+  let discarded = ref false in
   let clause_arg_pats (c : T.clause') =
     match snd c.T.cl_pat with T.PCtor (_, aps) -> List.map (fun (ap : T.ctor_arg_pat) -> ap.T.cap_pat) aps | _ -> []
   in
@@ -948,7 +951,9 @@ and eval_handle env body clauses =
         (fun ex ->
           match ex with
           (* 自分宛ての巻き戻し。保留していた節の値が handle 式の値になる *)
-          | Unwind (id, v) when id = inst -> v
+          | Unwind (id, v) when id = inst ->
+              discarded := true;
+              v
           | ex ->
               (* 外側による巻き戻し(または実行時エラー)の通過。cancel 節を実行してから再送出する *)
               run_cancel ();
@@ -1001,9 +1006,10 @@ and eval_handle env body clauses =
                           (* 再開しない操作の節。継続を先に捨てて(捨てた継続の中の cancel 節を
                              走らせ、自分の exnc が Unwind を受け取る)、節の本体をこの関数の
                              末尾で評価する。継続は無いので、本体の例外に備える包みは要らず、
-                             自分の cancel 節も走らない *)
-                          let _ = Effect.Deep.discontinue k (Unwind (inst, unit)) in
-                          eval { env with locals; resume = None } c.T.cl_body
+                             自分の cancel 節も走らない。送った Unwind が cancel 節の打ち切りで
+                             止まり、本体が値を返したときは、節の本体を評価せずその値を返す *)
+                          let v = Effect.Deep.discontinue k (Unwind (inst, unit)) in
+                          if !discarded then eval { env with locals; resume = None } c.T.cl_body else v
                       | Some (locals, c, `Resumable tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
