@@ -151,6 +151,137 @@ perform の式が要求される型になる。match の腕にそのまま置け
   guarded
   7
 
+巻き戻しの順序。処理系は節の本体を評価する前に中断していた計算を破棄するので、
+内側のハンドラの cancel 節が節の本体より先に走る:
+
+  $ cat > order.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: (String) => Unit }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} = {
+  >   echoln("open " + name)
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => echoln("cancel " + name)
+  >   }
+  > }
+  > let r = {
+  >   with _ = with_res("outer")
+  >   with _ = with_res("inner")
+  >   perform throw("abort")
+  >   0
+  > } handle {
+  >   case throw(e) => { echoln("catch " + e); 0 - 1 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor order.kel
+  open outer
+  open inner
+  cancel inner
+  cancel outer
+  catch abort
+  -1
+
+節の本体はハンドラの外側で評価する。本体が実行時エラーで脱出しても、
+そのハンドラ自身の cancel 節は走らない(外側のハンドラの cancel 節は走る):
+
+  $ cat > clauseerror.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: (String) => Unit }
+  > let with_res[A, E](name: String, body: () => A @ {Res, Console extends E}): A @ {Console extends E} = {
+  >   echoln("open " + name)
+  >   body() handle {
+  >     case use(s)    => resume(echoln(name + " uses " + s))
+  >     case return(x) => { echoln("close " + name); x }
+  >     case cancel    => echoln("cancel " + name)
+  >   }
+  > }
+  > let r = {
+  >   with _ = with_res("outer")
+  >   let v = {
+  >     with _ = with_res("inner")
+  >     perform throw("boom")
+  >     1
+  >   } handle {
+  >     case throw(e) => { echoln("catch " + e); __panic("in clause") }
+  >     case cancel => echoln("cancel catcher")
+  >   }
+  >   v
+  > }
+  > echoln("unreachable")
+  > EOF
+  $ diktor clauseerror.kel
+  open outer
+  open inner
+  cancel inner
+  catch boom
+  cancel outer
+  実行時エラー: panic: in clause
+  [3]
+
+節の本体で同じ操作を起こすと外側のハンドラに届く(再送出)。再開する操作の節から
+再開しない操作を起こすこともできる:
+
+  $ cat > rethrow.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Other = { oops: (Int32) => Never }
+  > let inner(): Int32 @ {Fail, Other} = { perform throw("x"); 1 }
+  > let mid(): Int32 @ {Fail, Other} = inner() handle {
+  >   case throw(e) => if e == "x" then perform throw("re:" + e) else 2
+  > }
+  > let r = (mid() handle { case oops(n) => n }) handle { case throw(e) => { echoln("outer got " + e); 0 } }
+  > echoln(show(r))
+  > EOF
+  $ diktor rethrow.kel
+  outer got re:x
+  0
+  $ cat > fromclause.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Ask = { ask: () => Int32 }
+  > effect Res = { use: () => Unit }
+  > let r = {
+  >   let v = ({ perform use(); perform ask() + 1 }) handle {
+  >     case use() => resume()
+  >     case return(x) => { echoln("close res"); x }
+  >     case cancel => echoln("cancel res")
+  >   }
+  >   v
+  > } handle {
+  >   case ask() => { echoln("ask clause throws"); perform throw("from clause") }
+  > } handle {
+  >   case throw(e) => { echoln("caught " + e); 0 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor fromclause.kel
+  ask clause throws
+  cancel res
+  caught from clause
+  0
+
+cancel 節から再開しない操作を起こしても、その巻き戻しは抑制される(§13.6):
+
+  $ cat > cancelperform.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = {
+  >   let v = { perform use(); 1 / 0 } handle {
+  >     case use() => resume()
+  >     case cancel => { echoln("cancel res"); perform throw("from cancel") }
+  >   }
+  >   v
+  > } handle {
+  >   case throw(e) => { echoln("caught " + e); 0 }
+  > }
+  > echoln(show(r))
+  > EOF
+  $ diktor cancelperform.kel
+  cancel res
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  実行時エラー: ゼロ除算です
+  [3]
+
 トップレベルに残せない規則(§13.7)は再開しない操作にも同じに働く:
 
   $ cat > toplevel.kel <<'EOF'

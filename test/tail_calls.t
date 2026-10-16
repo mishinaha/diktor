@@ -163,3 +163,18 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   $ OCAMLRUNPARAM=l=100k diktor dict.kel
   100000
   true
+
+再開しない操作(返り値の型が Never。仕様 §13.1)の節の本体。処理系は継続を捨ててから
+本体をハンドラ式の末尾位置で評価する(§5.7、§13.6)ので、節から再帰で書いた再試行は
+領域を使わない:
+
+  $ cat > retry.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > let rec retry(n: Int32): Int32 =
+  >   (if n == 0 then 0 else perform throw("again")) handle {
+  >     case throw(e) => retry(n - 1)
+  >   }
+  > echoln(show(retry(100000)))
+  > EOF
+  $ OCAMLRUNPARAM=l=100k diktor retry.kel
+  0
