@@ -882,7 +882,8 @@ and eval_handle env body clauses =
     List.filter_map
       (fun (cl : T.clause) ->
         match Tree.get_resolved cl with
-        | Some (Tree.ROp op) -> Some (op, (cl, spine_has_resume (snd cl).T.cl_body))
+        | Some (Tree.ROp op) -> Some (op, (cl, `Resumable (spine_has_resume (snd cl).T.cl_body)))
+        | Some (Tree.RNeverOp op) -> Some (op, (cl, `Never))
         | _ -> None)
       clauses
   in
@@ -967,7 +968,14 @@ and eval_handle env body clauses =
                              捨てた継続の cancel 節を走らせる(3 つの経路の規約) *)
                           Effect.Deep.discontinue k
                             (Runtime_error ("handle のどの節にも一致しません: " ^ Type.display_of op ^ show args))
-                      | Some (locals, c, tail) -> (
+                      | Some (locals, c, `Never) ->
+                          (* 再開しない操作の節。継続を先に捨てて(捨てた継続の中の cancel 節を
+                             走らせ、自分の exnc が Unwind を受け取る)、節の本体をこの関数の
+                             末尾で評価する。継続は無いので、本体の例外に備える包みは要らず、
+                             自分の cancel 節も走らない *)
+                          let _ = Effect.Deep.discontinue k (Unwind (inst, unit)) in
+                          eval { env with locals; resume = None } c.T.cl_body
+                      | Some (locals, c, `Resumable tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
                               (* 節本体が resume そのものの短い経路(§14.9)。exception 節が覆うのは

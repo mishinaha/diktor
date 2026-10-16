@@ -129,6 +129,7 @@ type gref =
 type resolved =
   | RVar of gref (* Ident。トップレベルの値の参照 *)
   | ROp of oid (* perform と handle の操作節。Console.write のような完全な操作名の oid *)
+  | RNeverOp of oid (* 再開しない操作(返り値の型が Never)の操作節。oid は ROp と同じ完全な操作名 *)
   | RReturnClause (* handle の return 節 *)
   | RCancelClause (* handle の cancel 節 *)
   | RCtor of oid * oid * int array (* Construct。data、ctor、実引数の位置 → フィールドの位置 *)

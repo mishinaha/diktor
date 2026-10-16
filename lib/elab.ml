@@ -2570,13 +2570,14 @@ and elab_handle env level eff clauses body =
   let op_clauses =
     List.map
       (fun ((op, _, args, ((_, c) as cnode)) as cl) ->
-        Tree.set_resolved cnode (Tree.ROp (intern (name_of target ^ "." ^ name_of op)));
         let scheme = List.assoc op target_info.Decls.ef_ops in
         let args_row, op_ret =
           match repr (Unify.instantiate level scheme) with
           | TArrow (a, r, _) -> (a, r)
           | _ -> bug "操作スキーマが矢印型ではありません"
         in
+        let full = intern (name_of target ^ "." ^ name_of op) in
+        Tree.set_resolved cnode (if is_never op_ret then Tree.RNeverOp full else Tree.ROp full);
         let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
         if List.length args <> List.length param_tys then
           type_error
