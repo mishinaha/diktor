@@ -75,7 +75,7 @@ perform の式が要求される型になる。match の腕にそのまま置け
   0
 
 従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる。
-同じ形から match {} を外すと警告は出ず、出力は同じである:
+同じ形から match {} を外すか、照合対象を Never と注釈すると警告は出ず、出力は同じである:
 
   $ cat > absurd.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -105,6 +105,17 @@ perform の式が要求される型になる。match の腕にそのまま置け
   > EOF
   $ diktor absurdplain.kel
   3
+  -1
+  $ cat > absurdann.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > let get(o: Option[Int32]): Int32 @ Fail = o match {
+  >   case Some(v) => v
+  >   case None => { let z: Never = perform throw("none"); z match {} }
+  > }
+  > let r2 = get(None) handle { case throw(e) => 0 - 1 }
+  > echoln(show(r2))
+  > EOF
+  $ diktor absurdann.kel
   -1
 
 再開しない操作の節に resume は書けない。閉包の本体に書いても、節の中の入れ子の
@@ -180,7 +191,8 @@ cancel 節が節の本体より先に走る:
   next clause got 5
   1005
 
-同じエフェクトに再開する操作と再開しない操作を混ぜられる。判定は操作ごとである:
+同じエフェクトに再開する操作と再開しない操作を混ぜられる。判定は操作ごとで、
+再開しない操作の節だけが resume を拒まれる:
 
   $ cat > mixed.kel <<'EOF'
   > effect Parser = { next: () => Int32, fail: (String) => Never }
@@ -205,6 +217,16 @@ cancel 節が節の本体より先に走る:
   42
   fail negative
   -1
+  $ cat > mixedresume.kel <<'EOF'
+  > effect Parser = { next: () => Int32, fail: (String) => Never }
+  > let r = ({ perform next() }) handle {
+  >   case next() => resume(1)
+  >   case fail(m) => resume(???)
+  > }
+  > EOF
+  $ diktor mixedresume.kel
+  ! mixedresume.kel:4:19: 型エラー: 再開しない操作 fail の節には resume を書けません(操作の返り値の型が Never です)
+  [1]
 
 節のガードと絞り込みは再開する操作と同じに働く。ガードは継続を捨てる前に評価する
 (偽のガードの出力が、内側の cancel 節の出力より先に出る):
@@ -425,7 +447,8 @@ cancel 節は走らず、その外側で巻き戻されるハンドラ(oops)の 
 cancel 節から再開しない操作を起こすと、その操作のハンドラが行う破棄は cancel 節の
 打ち切りで止まる(§13.6)。ハンドラは節の本体を評価せず(caught の行が出ない)、
 巻き戻しはそのまま続く。巻き戻しが実行時エラーによるものならプログラムはそれで終わり、
-内側のハンドラの破棄によるものならハンドラの本体が続き、その値がハンドラ式の値になる:
+内側のハンドラ(stop)の破棄によるものならその節の本体が走ってハンドラの本体が続き、
+その値がハンドラ式の値になる:
 
   $ cat > cancelperform.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -474,14 +497,18 @@ cancel 節から再開しない操作を起こすと、その操作のハンド�
   12
 
 破棄を進めている当のハンドラがその操作を受け取っても同じで、打ち切られた操作の節の
-本体は走らず、先の操作の節の本体が走る:
+本体は走らず、巻き戻しは外側(mid の cancel 節)へ続き、先の操作の節の本体が走る:
 
   $ cat > cancelsame.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
   > effect Res = { use: () => Unit }
-  > let r = ({ perform use(); perform throw("first") }) handle {
+  > effect Mid = { tick: () => Unit }
+  > let r = (({ perform use(); perform throw("first") }) handle {
   >   case use() => resume()
   >   case cancel => { echoln("cancel res"); perform throw("from cancel") }
+  > }) handle {
+  >   case tick() => resume()
+  >   case cancel => echoln("cancel mid")
   > } handle {
   >   case throw(e) => { echoln("H clause " + e); 1 }
   > }
@@ -490,6 +517,7 @@ cancel 節から再開しない操作を起こすと、その操作のハンド�
   $ diktor cancelsame.kel
   cancel res
   cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  cancel mid
   H clause first
   1
 
