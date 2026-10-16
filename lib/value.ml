@@ -85,6 +85,7 @@ type t =
   | VMutArray of t array
   | VDict of dict (* 辞書。型検査が選んだインスタンスと前提の辞書(第5章 §5.1b の証拠を評価したもの) *)
   | VDictAbs of dict_abs (* 辞書パラメータを持つ束縛の値。辞書の列を受け取って値を返す *)
+  | VPending of (unit -> t) (* 再開しない操作の節の本体を評価する閉包。破棄の印として Unwind に載せ、受け取った側が評価する *)
 
 (* 辞書は、(クラス, 型構成子)と前提の辞書の列の組で表す。メソッドの実装は、メソッドを
    呼び出す時点でインスタンスの表から引く(第14章 §14.6)。最後の成分は選んだメソッドの覚え書き。
@@ -476,3 +477,4 @@ let rec show v =
   | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"
   | VDict _ -> "<dict>"
   | VDictAbs _ -> "<fn>"
+  | VPending _ -> "<pending>"

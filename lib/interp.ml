@@ -407,7 +407,9 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       (* この分岐に来るのは、節本体の末尾の背骨の外にある resume だけである。
          背骨の上の resume は §14.9 の eval_clause_tail が処理する *)
       let r, v = take_resume env arg in
-      Effect.Deep.continue r.r_k v
+      (* 末尾でない resume。再開した計算が再開しない操作の節で終わると、その節の本体の
+         閉包(破棄の印)が戻ってくるので、ここで評価した値を resume の返り値にする *)
+      (match Effect.Deep.continue r.r_k v with VPending f -> f () | v -> v)
   | T.Run (_, body) -> eval env body (* 実行時は恒等。リージョンの安全性は型が保証する *)
 
 (* ## 14.5 関数の適用
@@ -1017,14 +1019,17 @@ and eval_handle env body clauses =
                           (* 再開しない操作の節。継続を先に捨てて(捨てた継続の中の cancel 節を
                              走らせ、自分の exnc が Unwind を受け取る)、節の本体をこの関数の
                              末尾で評価する。継続は無いので、本体の例外に備える包みは要らず、
-                             自分の cancel 節も走らない。Unwind には破棄ごとに新しく確保した印を
-                             載せ、discontinue が同じ印(物理的に同じ値)を持って戻ったときだけ
-                             本体を評価する。印が戻らないのは、送った Unwind が cancel 節の
-                             打ち切りで止まったときで、本体の値か、先に送った別の破棄の印が戻る。
-                             そのときは節の本体を評価せず、戻った値をそのまま返す *)
-                          let tok = VText (String.make 1 'n') in
-                          let v = Effect.Deep.discontinue k (Unwind (inst, tok)) in
-                          if v == tok then eval { env with locals; resume = None } c.T.cl_body else v
+                             自分の cancel 節も走らない。Unwind には、節の本体を評価する閉包を
+                             破棄ごとに新しく確保して載せる。discontinue が同じ閉包(物理的に
+                             同じ値)を持って戻ったときだけ本体を評価する。閉包が戻らないのは、
+                             送った Unwind が cancel 節の打ち切りで止まったときで、本体の値か、
+                             先に送った別の破棄の閉包が戻る。そのときは本体を評価せず、戻った
+                             値をそのまま返す。閉包が末尾でない resume の戻り値として別の節に
+                             届いたときは、その節が評価する(§14.4 の Resume) *)
+                          let tok = VPending (fun () -> eval { env with locals; resume = None } c.T.cl_body) in
+                          (match Effect.Deep.discontinue k (Unwind (inst, tok)) with
+                          | VPending f as v when v == tok -> f ()
+                          | v -> v)
                       | Some (locals, c, `Resumable tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
