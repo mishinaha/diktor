@@ -544,6 +544,68 @@ resume で再開したときは、先の破棄で終わった計算の値、つ�
   ask clause got 7
   1007
 
+節の値が、同じハンドラの別の再開しない操作の打ち切りを経て、末尾でない resume に届く形と、
+2 つのハンドラの節の値がそれぞれの resume に届く形。打ち切られた操作の節の本体は走らず、
+各ハンドラの節の本体は 1 回だけ走る:
+
+  $ cat > cancelresumevia.kel <<'EOF'
+  > effect E = { throw: (String) => Never, abort2: (Int32) => Never, ask: () => Int32 }
+  > effect Res = { use: () => Unit }
+  > let r = ({ perform use(); perform throw("first") }) handle {
+  >   case use() => resume()
+  >   case cancel => { echoln("cancel res"); let a = perform ask(); echoln("cancel got " + show(a)); perform abort2(a); echoln("not reached") }
+  > } handle {
+  >   case throw(e) => { echoln("H throw " + e); 100 }
+  >   case abort2(n) => { echoln("H abort2 " + show(n)); 200 }
+  >   case ask() => { let x = resume(5); echoln("ask got " + show(x)); x + 1000 }
+  > }
+  > echoln("r=" + show(r))
+  > EOF
+  $ diktor cancelresumevia.kel
+  cancel res
+  cancel got 5
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  H throw first
+  ask got 100
+  r=1100
+  $ cat > cancelresumetwo.kel <<'EOF'
+  > effect E0 = { ask0: () => Int32, abort0: (String) => Never }
+  > effect E1 = { ask1: () => Int32, abort1: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let r = {
+  >   let w = {
+  >     let z = ({ perform use(); perform abort1("one"); 1 }) handle {
+  >       case use() => resume()
+  >       case cancel => { echoln("cancel res"); let a = perform ask0(); echoln("cancel got a=" + show(a)); let b = perform ask1(); echoln("cancel got b=" + show(b)); perform abort0("from cancel"); echoln("not reached") }
+  >     }
+  >     z
+  >   } handle {
+  >     case ask1() => { let y = resume(7); echoln("ask1 got " + show(y)); y + 50000 }
+  >     case abort1(e) => { echoln("H1 clause " + e); 10 }
+  >     case cancel => echoln("H1 cancel")
+  >   }
+  >   echoln("H1 value " + show(w))
+  >   w
+  > } handle {
+  >   case ask0() => { let x = resume(5); echoln("ask0 got " + show(x)); x + 1000 }
+  >   case abort0(e) => { echoln("H0 abort0 " + e); 20 }
+  >   case return(v) => { echoln("H0 return " + show(v)); v + 300 }
+  >   case cancel => echoln("H0 cancel")
+  > }
+  > echoln("r=" + show(r))
+  > EOF
+  $ diktor cancelresumetwo.kel
+  cancel res
+  cancel got a=5
+  cancel got b=7
+  cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  H1 clause one
+  ask1 got 10
+  H1 value 50010
+  H0 return 50010
+  ask0 got 50310
+  r=51310
+
 トップレベルに残せない規則(§13.7)は再開しない操作にも同じに働く:
 
   $ cat > toplevel.kel <<'EOF'

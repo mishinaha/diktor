@@ -192,3 +192,24 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   0
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
+
+再開しない操作の節の値が、同じハンドラの末尾でない resume の戻り値として届く形(§5.7 の
+但し書き)。保留していた節の評価が続くので、節の本体は末尾位置にならず、この実装では
+小さい上限で落ちる:
+
+  $ cat > retryresumepath.kel <<'KEL'
+  > effect E = { throw: (String) => Never, ask: () => Int32 }
+  > effect Res = { use: () => Unit }
+  > let rec retry(n: Int32, acc: Int32): Int32 =
+  >   (if n == 0 then acc else ({ perform use(); perform throw("again") }) handle {
+  >     case use() => resume()
+  >     case cancel => { let a = perform ask(); () }
+  >   }) handle {
+  >     case throw(e) => retry(n - 1, acc + 1)
+  >     case ask() => { let x = resume(1); x }
+  >   }
+  > echoln(show(retry(100000, 0)))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retryresumepath.kel
+  実行時エラー: スタックオーバーフロー(再帰が深すぎます)
+  [3]
