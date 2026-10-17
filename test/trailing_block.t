@@ -194,7 +194,8 @@ g(#C) は型エラーになる:
 
 コンストラクタ、構造的ヴァリアント、perform、resume には付けられない。
 コンストラクタと構造的ヴァリアントは、引数リストの有無によらず専用の診断になる。
-perform と resume は引数リストを必ず取り、引数リストの後ろに付けた形が専用の診断になる:
+perform と resume は、引数リストの後ろに付けた形が専用の診断になる。
+引数リストを書かずに付けた perf0.kel と res0.kel は、汎用の文面になる:
 
   $ echo 'let a = Some(1) { k }' > ctor.kel
   $ diktor --type-check ctor.kel
@@ -211,6 +212,14 @@ perform と resume は引数リストを必ず取り、引数リストの後ろ�
   $ echo 'let a = resume(1) { k }' > res.kel
   $ diktor --type-check res.kel
   res.kel:1:19: 構文エラー: resume には末尾ブロックを付けられません
+  [2]
+  $ echo 'let a = perform op { k }' > perf0.kel
+  $ diktor --type-check perf0.kel
+  perf0.kel:1:20: 構文エラー: 付近のトークンを確認してください
+  [2]
+  $ echo 'let a = resume { k }' > res0.kel
+  $ diktor --type-check res0.kel
+  res0.kel:1:16: 構文エラー: 付近のトークンを確認してください
   [2]
   $ echo 'let a = Foo { k }' > ctor0.kel
   $ diktor --type-check ctor0.kel
