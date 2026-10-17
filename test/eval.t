@@ -413,6 +413,25 @@ resumeinner は、ask(1) の節の resume で再開した計算の中で、同�
   実行時エラー: ゼロ除算です
   [3]
 
+resumeinnerdeep は、ask(1) と ask(0) の 2 つの節がどちらも自分の resume の中にいる間に、
+ハンドラの本体の 10 / 0 で失敗する形である。評価中の節はどれも自分の resume で再開した
+計算の中にいるので、再開した計算の中の誤りとして、ハンドラ自身の cancel 節が 1 回走る:
+
+  $ cat > resumeinnerdeep.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(0) + 10 / 0) handle {
+  >   case ask(n) => { echoln("clause " + show(n)); let v = resume(1); echoln("after " + show(n)); v }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumeinnerdeep.kel
+  clause 1
+  clause 0
+  cancel ask
+  実行時エラー: ゼロ除算です
+  [3]
+
 resumeinnerpre は resumeinner と同じ並びで、ask(0) の節が resume の引数 10 / n の評価中、
 つまり自分の resume を呼ぶ前に失敗する形である。評価中の ask(0) の節から見て継続は
 まだ生きているので、ハンドラ自身の cancel 節が 1 回走る:
