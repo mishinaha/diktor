@@ -757,7 +757,8 @@ let try_parse ~line ?(col = 0) source =
   | exception Parser'.Error ->
       if lx.Lexer'.prev = Some Lexer'.Parser.EOF then Incomplete
       else Failed (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lx.Lexer'.last_sp))
-  | exception Lexer.Lex_error (("unterminated string literal" | "unterminated block comment"), _) -> Incomplete
+  | exception Lexer.Lex_error (msg, _) when msg = Lexer.unterminated_text_msg || msg = Lexer.unterminated_comment_msg ->
+      Incomplete
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
   | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
   | exception Syntax.Syntax_error_at (pos, msg) -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg)

@@ -53,6 +53,10 @@
 
    字句解析の途中で本章が外へ出す例外は `Lex_error` だけで、メッセージと位置を持つ。
    第16章(driver.ml)がこれを終了コード 2 のエラーとして報告する。
+   メッセージは日本語の文で、利用者に見せる診断の本文になる。
+   閉じていない文字列リテラルとブロックコメントの 2 つだけは、
+   文面に `unterminated_text_msg` と `unterminated_comment_msg` の名前を付ける。
+   第16章の対話的な実行が、この 2 つを続きの行を待つ印として見分けるからである。
    不正な UTF-8 バイト列に対して sedlex のデコーダが投げる `Sedlexing.MalFormed` も、
    §2.7 の終わりで位置を付けて `Lex_error` に変えるので、外へは出ない。
    ほかに driver が受ける例外は `Sys_error` である。
@@ -62,6 +66,10 @@
 open Syntax
 
 exception Lex_error of string * Lexing.position
+
+let unterminated_text_msg = "文字列リテラルが閉じていません"
+
+let unterminated_comment_msg = "ブロックコメントが閉じていません"
 
 (* ## 2.1 数値リテラルは値ではなく表記を運ぶ
 
@@ -288,7 +296,7 @@ module Make (Data : Syntax.Data) = struct
    コメントは 2 種類ある。
    `//` は行末まで読み飛ばすが、改行は消費しない。
    改行を消費すると、ASI が文区切りを作れなくなるからである。
-   `/* */` は入れ子を数え、EOF に達したら「unterminated block comment」の字句エラーにする。
+   `/* */` は入れ子を数え、EOF に達したら「ブロックコメントが閉じていません」の字句エラーにする。
 
    改行を含むブロックコメントは、`NL` 1 個として扱う。
    コメントを足しただけで前後の行がつながってしまうのを防ぐためである。
@@ -320,9 +328,9 @@ module Make (Data : Syntax.Data) = struct
         | '\n' ->
             saw_nl := true;
             go depth
-        | eof -> raise (Lex_error ("unterminated block comment", cur_pos lexbuf))
+        | eof -> raise (Lex_error (unterminated_comment_msg, cur_pos lexbuf))
         | any -> go depth
-        | _ -> raise (Lex_error ("unterminated block comment", cur_pos lexbuf))
+        | _ -> raise (Lex_error (unterminated_comment_msg, cur_pos lexbuf))
     in
     go 1
 
@@ -369,7 +377,7 @@ module Make (Data : Syntax.Data) = struct
     let rec loop acc i =
       if i = limit then
         if Uchar.is_valid acc then Uchar.of_int acc
-        else raise (Lex_error ("invalid unicode escape (out of range or surrogate)", cur_pos lexbuf))
+        else raise (Lex_error ("Unicode エスケープの値がサロゲートか、U+10FFFF を超えています", cur_pos lexbuf))
       else
         let ret base_char base_value =
           loop ((acc * 16) + (Uchar.to_int (Sedlexing.lexeme_char lexbuf 0) - Char.code base_char) + base_value) (i + 1)
@@ -378,7 +386,7 @@ module Make (Data : Syntax.Data) = struct
         | '0' .. '9' -> ret '0' 0
         | 'a' .. 'f' -> ret 'a' 10
         | 'A' .. 'F' -> ret 'A' 10
-        | _ -> raise (Lex_error ("unexpected end of unicode escape", cur_pos lexbuf))
+        | _ -> raise (Lex_error ("Unicode エスケープの 16 進の桁が足りません", cur_pos lexbuf))
     in
     loop 0 0
 
@@ -396,14 +404,14 @@ module Make (Data : Syntax.Data) = struct
     | 'r' -> Uchar.of_char '\r'
     | 't' -> Uchar.of_char '\t'
     | 'v' -> Uchar.of_int 0x0b
-    | _ -> raise (Lex_error ("invalid escape sequence", cur_pos lexbuf))
+    | _ -> raise (Lex_error ("不正なエスケープです", cur_pos lexbuf))
 
   let read_text lexbuf =
     let buf = Buffer.create 64 in
     let rec aux () =
       match%sedlex lexbuf with
       | '"' -> Buffer.contents buf
-      | eof -> raise (Lex_error ("unterminated string literal", cur_pos lexbuf))
+      | eof -> raise (Lex_error (unterminated_text_msg, cur_pos lexbuf))
       | '\\' ->
           Buffer.add_utf_8_uchar buf (read_escape lexbuf);
           aux ()
@@ -413,7 +421,7 @@ module Make (Data : Syntax.Data) = struct
       | any ->
           Buffer.add_string buf (lexeme lexbuf);
           aux ()
-      | _ -> raise (Lex_error ("unterminated string literal", cur_pos lexbuf))
+      | _ -> raise (Lex_error (unterminated_text_msg, cur_pos lexbuf))
     in
     aux ()
 
@@ -429,14 +437,14 @@ module Make (Data : Syntax.Data) = struct
    複数文字の記号を上にまとめているのは、読みやすさのための整理である。
 
    末尾では、`eof` と `any` を別の分岐にしている。
-   `eof` だけが `EOF` を返し、`any` に落ちた文字は「unexpected character」の字句エラーにする。
+   `eof` だけが `EOF` を返し、`any` に落ちた文字は「予期しない文字です」の字句エラーにする。
    知らない文字を `EOF` として返すと、パーサにはそこでファイルが終わったように見え、
    その先のエラーメッセージがすべて的外れになる。
 
    一方で、`any` に落ちた文字をそのままメッセージに出すと、不可視の文字では診断が読めなくなる。
    その代表が BOM(U+FEFF)である。
    仕様 §0 は、文字列リテラルとコメントの外にある BOM を、位置によらず字句エラーと定めている。
-   BOM を生のまま出すと、`unexpected character: ` の後ろに見えない 3 バイトが並ぶだけで、
+   BOM を生のまま出すと、`予期しない文字です: ` の後ろに見えない 3 バイトが並ぶだけで、
    ゴールデンにも固定できない(エディタや差分ツールが黙って壊す)。
    そこで `any` の分岐は、次の文字だけを `U+XXXX` の表記で出し、それ以外の文字は字面のまま出す。
 
@@ -489,7 +497,7 @@ module Make (Data : Syntax.Data) = struct
         if Sedlexing.lexeme_start lexbuf = 0 then (
           skip_rest_of_line lexbuf;
           read_raw_token lexbuf)
-        else raise (Lex_error ("stray '#!'", cur_pos lexbuf))
+        else raise (Lex_error ("#! はファイルの先頭にだけ書けます", cur_pos lexbuf))
     | "???" -> here HOLE
     | "..." -> here DOTDOTDOT
     | "=>" -> here EQ_GREATER
@@ -549,8 +557,8 @@ module Make (Data : Syntax.Data) = struct
           || (cp >= 0x2060 && cp <= 0x2064)
         in
         let shown = if invisible then Printf.sprintf "U+%04X" cp else lexeme lexbuf in
-        raise (Lex_error ("unexpected character: " ^ shown, cur_pos lexbuf))
-    | _ -> raise (Lex_error ("unexpected input", cur_pos lexbuf))
+        raise (Lex_error ("予期しない文字です: " ^ shown, cur_pos lexbuf))
+    | _ -> raise (Lex_error ("予期しない入力です", cur_pos lexbuf))
 
 (* 不正な UTF-8 バイト列は、sedlex のデコーダが `Sedlexing.MalFormed` として投げる。
    この例外は位置を持たないので、ここで受けて位置つきの `Lex_error` に変える。
