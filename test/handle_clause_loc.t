@@ -1,8 +1,9 @@
-handle の誤りのうち、節を 1 つ取り上げて調べる検査で見つかるものは、
-その節のパターンかガードの式の位置で報告する。対象エフェクトを決める
-計算と、決まった対象の操作の網羅の検査で見つかる誤りには節の位置を
-付けないので、handle 式の位置を指す。各ブロックの前書きが、そのブロックで
-確かめる位置を述べる。
+handle の誤りのうち、節の頭の形、2 つ目の return 節と cancel 節、return 節と
+cancel 節の修飾、対象エフェクトへの所属、操作節の引数の個数とラベルの誤りは、
+その節のパターンの位置で報告し、return 節と cancel 節に書いたガードの誤りは
+ガードの式の位置で報告する。対象エフェクトを決める計算と網羅の検査の誤りと、
+節のガードや本体の型の不一致(下の guardty)は、handle 式の位置を指す。
+各ブロックの前書きが、そのブロックで確かめる位置を述べる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -290,4 +291,18 @@ unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指
   > KEL
   $ diktor --type-check noop.kel
   ! noop.kel:2:3: 型エラー: handle には少なくとも1つの操作節が必要です
+  [1]
+
+操作節のガードの型が合わない形は、1 つの節の中の誤りだが、handle 式の位置(3:3)を指す:
+
+  $ cat > guardty.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r =
+  >   perform ask(1) handle {
+  >     case ask(n) if "yes" => resume(n)
+  >     case ask(n) => resume(n)
+  >   }
+  > KEL
+  $ diktor --type-check guardty.kel
+  ! guardty.kel:3:3: 型エラー: 型が一致しません: String と Boolean
   [1]
