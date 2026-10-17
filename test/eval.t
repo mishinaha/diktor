@@ -450,6 +450,42 @@ x / 0 で失敗する形である。この場合もハンドラ自身の cancel 
   実行時エラー: ゼロ除算です
   [3]
 
+resumestop は、ask(1) の節の resume で再開した計算の中で、同じハンドラの再開しない操作
+stop の節の本体が失敗する形である。ハンドラ自身の cancel 節は走らない:
+
+  $ cat > resumestop.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32, stop: () => Never }
+  > let r = (perform ask(1) + perform stop()) handle {
+  >   case ask(n) => { echoln("clause " + show(n)); let v = resume(1); echoln("after " + show(n)); v }
+  >   case stop() => { echoln("stop"); 1 / 0 }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumestop.kel
+  clause 1
+  stop
+  実行時エラー: ゼロ除算です
+  [3]
+
+resumeguard は、ask(1) の節の resume で再開した計算の中で、ask(0) を選ぶときに同じ
+ハンドラの節のガード 10 / n > 0 が失敗する形である。ハンドラ自身の cancel 節が 1 回走る:
+
+  $ cat > resumeguard.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(0)) handle {
+  >   case ask(n) if 10 / n > 0 => { echoln("clause " + show(n)); let v = resume(1); echoln("after " + show(n)); v }
+  >   case ask(n) => resume(0)
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumeguard.kel
+  clause 1
+  cancel ask
+  実行時エラー: ゼロ除算です
+  [3]
+
 resume を呼ぶ前に節の本体から操作を起こし、外側のハンドラが resume せずに継続を捨てた
 場合も、ハンドラ自身の cancel 節が走る。外側の節は再開する操作の節なので、破棄はその節の
 値が決まった後に起き、cancel 節はその後に走る:
