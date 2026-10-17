@@ -537,7 +537,10 @@ let check_pub_annots ~params ~ret =
    カインドは原則として `same_kind` で比べる(第1章 §1.6)が、読み分けの判定はその例外である。
    `same_kind` は `KVar` を張るので、判定に使うと、
    未確定のパラメータがすべて `Row` に固定されてしまう。
-   同じ理由で `same_kind` を避ける箇所は、ほかに §11.6 の `elab_eff` の最後の分岐にある。
+   同じ理由で `same_kind` を避ける箇所は、ほかに 3 つある。
+   型引数の照合(`arg_kind_ok`)と、レコード行の `extends` の右とヴァリアント和の末尾は、
+   型変数への適用だけを構造で調べる。
+   §11.6 の `elab_eff` の最後の分岐は、読んだ結果をすべて構造で調べる。
    照合の側が `KVar` を張るのはむしろ望ましい。
    パス 1b の中(相互再帰する newtype が互いを参照する形)では、これがカインドの伝播路として働く。
 
@@ -617,6 +620,9 @@ let kind_error what ~expected ty =
   let k = kind_repr (Unify.kind_of ty) in
   let annot = match k with KVar _ -> "" | _ -> " :: " ^ show_kind k in
   type_error (what ^ "のカインドが " ^ expected ^ " ではありません: " ^ Show.show ty ^ annot)
+
+(* 結果のカインドが未確定の型。型変数への適用 F[E] がこれになる *)
+let unresolved_kind ty = match kind_repr (Unify.kind_of ty) with KVar _ -> true | _ -> false
 
 let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
 
@@ -822,6 +828,10 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
             let tt = elab_type env level ~expanding t in
             match repr tt with
             | TRecord row -> row (* {x: T extends Point}: レコード型の行を splice する *)
+            | TApp _ as t' when unresolved_kind t' ->
+                (* 型変数への適用 F[E] の結果のカインドは未確定の KVar である。
+                   same_kind で Row に張らず、§11.5 の arg_kind_ok と同じく落とす *)
+                kind_error "extends の右の型" ~expected:"Row" t'
             | t' ->
                 if Unify.kind_of t' = KRow || same_kind (Unify.kind_of t') KRow then t'
                 else type_error "extends の右は行かレコード型でなければなりません")
@@ -864,6 +874,9 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                     let _, tail = row_fields row in
                     if (not is_last) && repr tail <> TRowEmpty then type_error "ヴァリアント和の途中の要素は閉じていなければなりません"
                     else row
+                | TApp _ as t' when unresolved_kind t' ->
+                    (* 型変数への適用 F[E] は、extends の右と同じく構造の一致で調べる *)
+                    kind_error "ヴァリアント和の末尾の型" ~expected:"Row" t'
                 | t' ->
                     if same_kind (Unify.kind_of t') KRow then
                       if is_last then t' else type_error "ヴァリアント和の途中に行変数は置けません"
@@ -965,6 +978,7 @@ and elab_value_type env level ~expanding what t =
    same_kind は KVar を張るので、判定に使うと、未確定のパラメータをすべて Row に固定してしまう
    (§1.6 の原則の例外)。
    照合の側は same_kind でよく、パス 1b ではこれがカインドの伝播路になる。
+   ただし型変数への適用 F[E] だけは、arg_kind_ok が構造の一致で調べる。
    elab_eff を ~check_row:false で呼ぶのは、行にならなかったことを、
    すぐ下の照合が構成子名と引数の位置を添えて報告するからである。
    抑制しないと、より一般的な「エフェクト位置の型のカインドが Row ではありません」が先に出て、
@@ -988,13 +1002,35 @@ and elab_con_args env level ~expanding cname k args =
           else
             match kind_repr pk with KRow -> elab_eff ~check_row:false env level ~expanding a | _ -> elab_type env level ~expanding a
         in
-        if (not ambiguous) && not (same_kind pk (Unify.kind_of t)) then
+        if (not ambiguous) && not (arg_kind_ok pk t) then
           type_error
-            (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s を期待しましたが %s は %s です" cname (i + 1)
-               (show_kind pk) (Show.show t) (show_kind (Unify.kind_of t)));
+            (Printf.sprintf "型構成子 %s の第%d引数のカインドが一致しません: %s" cname (i + 1) (arg_kind_mismatch pk t));
         t :: go kr (i + 1) rest
   in
   go k 0 args
+
+(* 型引数のカインドの照合。elab_con_args と expand_alias が共用する。
+   照合は same_kind で行うが、Row のパラメータに型変数への適用(F[E])を渡した形だけは、
+   読んだ結果のカインドを構造の一致で調べる。
+   arity 0 の束縛子に引数を付けると drop_arrows が結果のカインドを KVar に張るので、
+   same_kind で照合すると、それは検査ではなく Row への既定化になる。
+   F のカインドが「何かを取って Row を返す」に固定されるが、
+   そのようなカインドの型構成子は言語に無いので、
+   閉じた行を渡す使用点で内部名の単一化の誤りになる。
+   §11.6 の elab_eff の最後の分岐が @ F[E] を落とすのと同じ規則である。
+   裸の型変数(エイリアスの展開結果が型パラメータそのものになる形を含む)は、
+   same_kind で Row に張ってよい。
+   それは行変数のカインドの推論であり、パス 1b の伝播路でもある *)
+and arg_kind_ok pk t =
+  match (kind_repr pk, repr t) with
+  | KRow, TApp _ -> kind_repr (Unify.kind_of t) = KRow
+  | _ -> same_kind pk (Unify.kind_of t)
+
+(* カインドが未確定のときは、:: の併記と同じ理由(§11.3 の kind_error)でカインドを印字しない *)
+and arg_kind_mismatch pk t =
+  let k = kind_repr (Unify.kind_of t) in
+  show_kind pk ^ " を期待しましたが " ^ Show.show t
+  ^ match k with KVar _ -> " は行になりません" | _ -> " は " ^ show_kind k ^ " です"
 
 and check_no_hole ((_, te) as t : T.type_exp) =
   match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
@@ -1129,10 +1165,9 @@ and expand_alias env level ~expanding info args =
               | KRow -> elab_eff ~check_row:false env level ~expanding a
               | _ -> elab_type env level ~expanding a
           in
-          if (not ambiguous) && not (same_kind pk (Unify.kind_of t)) then
+          if (not ambiguous) && not (arg_kind_ok pk t) then
             type_error
-              ("型エイリアス " ^ display_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
-             ^ " を期待しましたが " ^ Show.show t ^ " は " ^ show_kind (Unify.kind_of t) ^ " です");
+              ("型エイリアス " ^ display_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ arg_kind_mismatch pk t);
           t)
         args info.Decls.al_kinds
     in
@@ -1201,6 +1236,8 @@ and expand_alias env level ~expanding info args =
    カインドを `same_kind` で比べるという原則には、例外が 2 つある。
    §11.5 の `elab_con_args` の読み分け(同じ節の `expand_alias` も同じ規則で読み分ける)と、
    下で述べる最後の分岐の照合である。
+   型変数への適用 `F[E]` を行の位置で調べる箇所(§11.5 の `arg_kind_ok`、
+   レコード行の `extends` の右、ヴァリアント和の末尾)も、最後の分岐と同じ規則で構造を調べる。
    どれも、`same_kind` が `KVar` を張ると未確定のカインドが固定されてしまう位置で、
    構造で比べてよい理由をそれぞれの箇所に書いてある。
 
@@ -1283,7 +1320,8 @@ and expand_alias env level ~expanding info args =
    未確定のカインドが来るからこそ、構造で比べる。
    ここで `same_kind` を呼ぶと、それは検査ではなく `Row` への既定化になる。
    `F[E]` なら `F` のカインドが「Type を取って Row を返す」に固定されるが、
-   そのようなカインドの型構成子は言語に無いので、宣言できても呼べない `f` が残る。
+   そのようなカインドの型構成子は言語に無いので、
+   閉じた行を渡すと内部名の単一化の誤りになる `f` が残る。
    カインドが未確定のときは、`:: <カインド>` の併記を落とす。
    内部の連番が漏れると、番号がプレリュードの行数で変わり、診断が再現しなくなるからである
    (§11.3 の `kind_error`)。
@@ -1292,6 +1330,7 @@ and expand_alias env level ~expanding info args =
    false を渡すのは、型引数の読み分けの 2 か所(`elab_con_args` と `expand_alias`)だけである。
    そこでは呼び出し側が、「型構成子 Callback の第1引数のカインドが一致しません」のように、
    構成子名と引数の位置を添えて報告する(`test/kinds.t` の nest2)。
+   呼び出し側の照合(`arg_kind_ok`)も、型変数への適用にはこの分岐と同じ構造の一致を使う。
    既定値が `true` なので、`?check_row` を渡さない呼び出しはすべて照合する。
 
    エフェクト位置に名前や適用形を書き、読んだ結果が行にならなかったときの診断は 3 通りある。
@@ -5643,12 +5682,42 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           default_kind (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params));
           match Hashtbl.find_opt Decls.datas (intern n.T.nt_name) with
           | Some dd ->
-              List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params
+              List.iter (fun (i : var_info) -> default_kind i.vkind) dd.Decls.dd_params;
+              (* 行を返すカインドの検査。型変数への適用 F[E] を行カインドのパラメータに渡すと、
+                 elab_con_args は結果のカインドを構造の一致で調べて落とす(§11.5)。
+                 ただし相手の newtype が後ろで宣言されていると、1b の読みの時点では
+                 相手のパラメータのカインドが未確定で、same_kind が F の結果のカインドを
+                 相手のパラメータのセルに張り、相手の本体がそのセルを Row に決める。
+                 宣言順によらず落とすために、カインドが出揃ったここで、
+                 パラメータのカインドが矢印で、その行き先が Row になっていないかを確かめる *)
+              let rec codomain k = match kind_repr k with KArrow (_, r) -> codomain r | k -> k in
+              List.iter2
+                (fun (tp : type_param) (i : var_info) ->
+                  match kind_repr i.vkind with
+                  | KArrow _ when codomain i.vkind = KRow ->
+                      type_error
+                        ("newtype " ^ n.T.nt_name ^ " の型パラメータ " ^ tp.tp_name
+                       ^ " への適用が行として使われています(行を返す型構成子はありません)")
+                  | _ -> ())
+                n.T.nt_params dd.Decls.dd_params
           | None -> ())
       | T.DType t -> (
           match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
           | Some info ->
-              List.iter default_kind info.Decls.al_kinds
+              List.iter default_kind info.Decls.al_kinds;
+              (* 行を返すカインドの検査は、エイリアスのパラメータにも掛ける。1b より前の
+                 エイリアスの投機が、後ろで宣言する newtype に F[E] を渡す本体を読むと、
+                 newtype と同じく F の結果のカインドが相手のパラメータのセルに張られる *)
+              let rec codomain k = match kind_repr k with KArrow (_, r) -> codomain r | k -> k in
+              List.iter2
+                (fun (tp : type_param) k ->
+                  match kind_repr k with
+                  | KArrow _ when codomain k = KRow ->
+                      type_error
+                        ("型エイリアス " ^ t.T.ta_name ^ " の型パラメータ " ^ tp.tp_name
+                       ^ " への適用が行として使われています(行を返す型構成子はありません)")
+                  | _ -> ())
+                info.Decls.al_params info.Decls.al_kinds
           | None -> ())
       | _ -> ())
     decls;
