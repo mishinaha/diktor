@@ -44,7 +44,7 @@
 
    `NotImplemented` を `Type_error` と分けるのは、
    書けるが実装されていないものと、書いてはならないものを、利用者が区別できるようにするためである。
-   `module` の入れ子と `cancel(reason)` は、Diktor が実装していない機能である。
+   Diktor は `module` の入れ子と `cancel(reason)` を未実装として報告する。
    第11章はこれらに対して `noimpl` を呼び、第16章は終了コード 4 で終える。
    `1 + true` は書いてはならないものなので、第8章の `add_class` が `type_error` を呼び、
    第16章は終了コード 1 で終える。
