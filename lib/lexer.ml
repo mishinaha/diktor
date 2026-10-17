@@ -1130,7 +1130,7 @@ module Make (Data : Syntax.Data) = struct
    予約語と識別子と数値は綴りのまま表示し、`<NL>` や文字列は記号で始まるからである。
    返すのは、数値、その開始位置、数値の直後に続く綴りの 3 つである。
    この判定は診断の文面と位置を変えるだけで、字句の切り方も受理するプログラムも変えない。
-   `1else` のように数値に予約語が隙間なく続いても文法に合う入力は、従来どおり受理する。 *)
+   `1else` のように数値に予約語が隙間なく続いても文法に合う入力は受理する。 *)
 
   let glued_number t =
     let touches a b = a.ep.Lexing.pos_cnum = b.sp.Lexing.pos_cnum in
