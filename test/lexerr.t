@@ -1,4 +1,5 @@
-字句エラーの文面は日本語で、位置と終了コード 2 を伴う。
+字句エラーの文面は日本語で、位置を伴う。ファイルを読むときの終了コードは 2 で、
+対話的な実行ではセッションが続く。
 tokens.t と run_exit.t と errloc.t が固定していない形をここで固定する。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"

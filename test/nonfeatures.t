@@ -84,7 +84,7 @@ sample.kel:50-51)。大小は型の表示に現れないので、小文字で束
 束縛しても同じ型が出る(case7c のリージョンの位置の変数は h と出る)。
 リージョン変数を型パラメータの位置に小文字で書けるのもこの例外による。run が導入する
 リージョン変数のほうは小文字に限り、大文字始まりも _ も構文エラーになる(sample.kel:52。
-小文字の run h が通ることは test/region.t / test/parallel.t が固定している):
+小文字の run h が通ることは test/region.t が固定している):
 
   $ printf 'let f[a](x: a): a = x\n' > case7.kel
   $ diktor --type-check case7.kel
