@@ -35,9 +35,13 @@ tokens.t と run_exit.t と errloc.t が固定していない形をここで固�
   stray.kel:2:1: 字句エラー: #! はファイルの先頭にだけ書けます
   [2]
 
-対話的な実行では、閉じていないブロックコメントは続きの行を待ち、ほかの字句エラーは報告して続ける:
+対話的な実行では、閉じていないブロックコメントと文字列リテラルは続きの行を待つ。
+不正なエスケープは報告し、次の入力に進む:
 
-  $ printf '/* a\nb */ echoln("ok")\nlet a = "\\q"\necholn("next")\n' | diktor --repl
+  $ printf '/* a\nb */ echoln("ok")\nlet s = "x\ny"\necholn(s)\nlet a = "\\q"\necholn("next")\n' | diktor --repl
   ok
-  <stdin>:3:11: 字句エラー: 不正なエスケープです
+  s : String = "x\ny"
+  x
+  y
+  <stdin>:6:11: 字句エラー: 不正なエスケープです
   next
