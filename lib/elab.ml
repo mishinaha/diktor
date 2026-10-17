@@ -620,8 +620,9 @@ let kind_error what ~expected ty =
 
 let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
 
-(* newtype の本体の投機(§11.31)の最中だけ真。
-   型引数の読み分け(elab_con_args)がこれを見て、型としても行としても読める字面を飛ばす *)
+(* newtype とエイリアスの本体の投機(§11.31、§11.39)の最中だけ真。
+   型引数の読み分け(elab_con_args と expand_alias)がこれを見て、
+   型としても行としても読める字面をパラメータとの照合に使わない *)
 let speculating = ref false
 
 let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
@@ -1103,12 +1104,28 @@ and expand_alias env level ~expanding info args =
       List.map2
         (fun a pk ->
           let a = check_no_hole a in
-          let t =
-            match kind_repr pk with
-            | KRow -> elab_eff ~check_row:false env level ~expanding a
-            | _ -> elab_type env level ~expanding a
+          (* 投機の間は、カインドが未確定のパラメータへ渡した要素なしの波括弧({} と
+             {extends R})を、パラメータとの照合に使わない。
+             型として一度読むのは、extends の右の R のカインドを Row に決めるためで、
+             行カインドは 1 つなので、行として読んでも同じカインドになる。
+             本体へは、読んだ型の代わりに、カインドのセルをパラメータと共有する新しい型変数を渡す。
+             本体がその変数を使う位置が、パラメータのカインドを決める。
+             §11.5 の elab_con_args と違って Unit を渡さないのは、
+             エイリアスは本体を展開するので、渡した型が本体の中の別の型構成子の引数に届き、
+             そのパラメータを Type に張ってしまうからである *)
+          let ambiguous =
+            !speculating && match (kind_repr pk, snd a) with KVar _, T.EBraceRow ([], _) -> true | _ -> false
           in
-          if not (same_kind pk (Unify.kind_of t)) then
+          let t =
+            if ambiguous then (
+              ignore (elab_type env level ~expanding a);
+              new_var ~kind:pk level)
+            else
+              match kind_repr pk with
+              | KRow -> elab_eff ~check_row:false env level ~expanding a
+              | _ -> elab_type env level ~expanding a
+          in
+          if (not ambiguous) && not (same_kind pk (Unify.kind_of t)) then
             type_error
               ("型エイリアス " ^ display_of info.Decls.al_name ^ " の型引数のカインドが一致しません: " ^ show_kind pk
              ^ " を期待しましたが " ^ Show.show t ^ " は " ^ show_kind (Unify.kind_of t) ^ " です");
@@ -1178,7 +1195,7 @@ and expand_alias env level ~expanding info args =
    第8章の `rewrite_row` も、同じ理由で `same_kind` を使う(§8.6)。
 
    カインドを `same_kind` で比べるという原則には、例外が 2 つある。
-   §11.3 の `elab_con_args` の読み分け(§11.5 の `expand_alias` も同じ規則で読み分ける)と、
+   §11.5 の `elab_con_args` の読み分け(同じ節の `expand_alias` も同じ規則で読み分ける)と、
    下で述べる最後の分岐の照合である。
    どれも、`same_kind` が `KVar` を張ると未確定のカインドが固定されてしまう位置で、
    構造で比べてよい理由をそれぞれの箇所に書いてある。
@@ -1211,7 +1228,7 @@ and expand_alias env level ~expanding info args =
    このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
    `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
    EffectRow エイリアスの本体(`type` 宣言の右辺)、
-   行カインドのパラメータへの型引数(§11.3 の `elab_con_args` と §11.5 の `expand_alias`)である。
+   行カインドのパラメータへの型引数(§11.5 の `elab_con_args` と `expand_alias`)である。
    extends の右は、`EBraceRow` の分岐がその `ty` をそのまま `elab_eff` へ再帰で渡す。
    これらの位置からは、`@ {extends #Tag}` や `type W: EffectRow = #Tag` のように、
    `eff` では書けない型式もここへ届く。
@@ -4050,7 +4067,7 @@ let initial_env () =
    たとえば `newtype A[X] = MkA(B[{Print extends X}])` を `B` より前に置く。
    1b で `A` を処理する時点で `B` がまだ 1b を通っていないと、
    `B` のパラメータのカインドは `KVar` のままである。
-   すると §11.3 の読み分けは `{…}` を型として読み、
+   すると §11.5 の読み分けは `{…}` を型として読み、
    「エフェクトラベルはこの位置(レコード型)では使えません」で落ちる。
    行変数を渡す形(`B[X]`)は宣言順に依存しない。
    `KVar` のまま読んでも行変数がそのまま返り、あとから `same_kind` で張られるからである。
@@ -4089,17 +4106,24 @@ let initial_env () =
    (`test/kinds.t` の specfield / specfield2 と、前方参照の連鎖の specfwd)。
 
    2 つ目は、投機の間だけ、
-   要素なしの波括弧(`{}` と `{extends R}` の 2 つの形)を読まずに飛ばすことである。
-   飛ばすのは、カインドが未確定のパラメータへ渡したものに限る。
+   要素なしの波括弧(`{}` と `{extends R}` の 2 つの形)をパラメータとの照合に使わないことである。
+   照合に使わないのは、カインドが未確定のパラメータへ渡したものに限る。
    `newtype A[X] = MkA(B[{}], () => Unit @ X)` を `B` より前に置くと、
    `A` の投機の時点では `B` のパラメータのカインドが `KVar` のままである。
-   ここで `{}` を型として読むと、`elab_con_args` の照合が `B` のパラメータを `Type` に張り、
+   ここで `{}` を型として読んで照合すると、`elab_con_args` が `B` のパラメータを `Type` に張り、
    `B` 自身が「行カインドではない型パラメータです: E」で落ちる。
-   飛ばす対象をこの 2 つの形に限るのは、型としても行としても読めるのがこれだけだからである。
+   対象をこの 2 つの形に限るのは、型としても行としても読めるのがこれだけだからである。
    ラベルが 1 つでもあれば型として読むほうが失敗するので、張りは残らない。
-   飛ばしても失うものは無い。
+   照合に使わなくても失うものは無い。
    相手のカインドが決まった状態で、
    1b が同じ字面をもう一度読むからである(`test/kinds.t` の specunit / specunit2)。
+   §11.5 の `expand_alias` も同じ規則で読み分けるが、
+   照合に使わなかった引数の代わりに何を渡すかが違う。
+   newtype への型引数は本体を展開しないので、`elab_con_args` は `Unit` を渡す。
+   エイリアスは本体を展開するので、`Unit` を渡すと、それが本体の中の別の型構成子の引数に届いて、
+   そのパラメータを `Type` に張る。
+   そこで `expand_alias` は、カインドのセルをパラメータと共有する新しい型変数を渡す
+   (`test/kinds.t` の aliasunit3)。
 
    1 つのフィールドの中で行変数とラベルが並ぶ形
    (`MkB((() => Unit @ E, () => Unit @ {Log}))`)も、投機がフィールド全体を読むので、
@@ -4187,7 +4211,7 @@ let newtype_param_env env (n : T.newtype') =
    投機が要るのは、行カインドのパラメータへ具体的な行を前方参照つきで渡す形があるからである。
    たとえば `newtype A[X] = MkA(B[{Print extends X}])` を `B` より前に置くと、
    1b が B のパラメータのカインドをまだ知らないので、
-   §11.3 の読み分けが `{…}` を型として読む(`test/kinds.t` の fwdrow) *)
+   §11.5 の読み分けが `{…}` を型として読む(`test/kinds.t` の fwdrow) *)
 let speculate_newtype env (n : T.newtype') =
   match n.T.nt_rhs with
   | T.NtCtors ctors ->
@@ -4202,6 +4226,26 @@ let speculate_newtype env (n : T.newtype') =
       Fun.protect
         ~finally:(fun () -> speculating := false)
         (fun () -> List.iter (fun (c : T.ctor_decl) -> List.iter speculate c.T.cd_fields) ctors)
+
+(* 型エイリアスの本体を投機的に一度読み、パラメータのカインドだけを決める(§11.39)。
+   結果は捨て、診断も捨てる。
+   捕まえる例外は speculate_newtype と同じ 4 つで、Panic は捕まえない *)
+let speculate_alias env (t : T.type_alias') =
+  match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
+  | None -> ()
+  | Some info ->
+      speculating := true;
+      Fun.protect
+        ~finally:(fun () -> speculating := false)
+        (fun () ->
+          try
+            let rigids = make_rigids ~kinds:info.Decls.al_kinds 1 info.Decls.al_params in
+            let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
+            ignore
+              (match info.Decls.al_kind with
+              | Some "EffectRow" -> elab_eff env_ty 1 info.Decls.al_body
+              | _ -> elab_type env_ty 1 info.Decls.al_body)
+          with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ())
 
 let register_newtype env (n : T.newtype') =
   (* newtype のパラメータのカインドは、本体での使われ方から推論する。
@@ -5287,8 +5331,9 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    1b の `register_newtype` と違って、コンストラクタを登録しない。
    `Decls.add_data` も `Unify.generalize` も `pub` の完全注釈検査も呼ばないので、
    残る副作用は `elab_type` がカインドのセルに張る単一化だけである。
-   走っている間だけ `speculating` を立て、§11.3 の読み分けがそれを見て、
-   型としても行としても読める字面(要素なしの波括弧)を飛ばす(§11.31)。
+   走っている間だけ `speculating` を立てる。
+   §11.5 の読み分け(`elab_con_args` と `expand_alias`)がそれを見て、
+   型としても行としても読める字面(要素なしの波括弧)をパラメータとの照合に使わない(§11.31)。
 
    下で述べるエイリアスの投機と、道具は同じである。
    どちらも診断を捨て、`Panic` は捕まえない。
@@ -5370,7 +5415,7 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    module List { pub newtype List } のような宣言がプレリュード自身の型検査を壊す。
    プレリュードと組み込みのエフェクト名(Console や Heap)との衝突も、ここで拒否する。
    エフェクト名は型名と 1 つの名前空間を共有し、大域の同義語はエフェクト位置のエイリアスの解決
-   (§11.6 の find_row_alias)でも、effect の宣言表より先に引かれる。
+   (§11.5 の find_row_alias)でも、effect の宣言表より先に引かれる。
    衝突を許すと、module Console を 1 行足すだけで、プログラムのすべての @ Console が
    その module のエイリアスを指すようになる。
    利用者が宣言したエフェクトとの衝突は、平坦化が拒否する *)
@@ -5527,17 +5572,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
              捕まえる例外は with 節に並べた 4 つだけで、Panic は捕まえない。
              本体が途中で落ちる宣言では、落ちた先の使われ方が推論に届かず Type に
              既定化されるが、そのプログラムはどのみちパス 2 の同じ箇所で落ちる *)
-          match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
-          | None -> ()
-          | Some info -> (
-              try
-                let rigids = make_rigids ~kinds:info.Decls.al_kinds 1 info.Decls.al_params in
-                let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
-                ignore
-                  (match info.Decls.al_kind with
-                  | Some "EffectRow" -> elab_eff env_ty 1 info.Decls.al_body
-                  | _ -> elab_type env_ty 1 info.Decls.al_body)
-              with Type_error _ | Type_error_at _ | NotImplemented _ | NotImplemented_at _ -> ()))
+          speculate_alias env t)
       | _ -> ())
     decls;
   (* 1b の後始末の 2 周目: カインドの既定化。1b がすべて終わってから既定化する。宣言ごとに
