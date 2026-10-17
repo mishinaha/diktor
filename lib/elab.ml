@@ -97,9 +97,11 @@ module SMap = Map.Make (String)
    Generic を含む型がそのまま型スキーマの役を果たし、型スキーマ専用のデータ型は持たない。
    `types` は型パラメータの束縛を持ち、リージョン変数 `h` もここに載る。
    `resume_ty` は、操作節の中でだけ Some になる 2 つ組である。
-   `never_clause` は、再開しない操作(返り値の型が `Never` の操作)の節の中でだけ Some になり、
-   その操作名を持つ。
-   その節に `resume` を書いたときの診断に使う(§11.16)。
+   `no_resume` は、`resume` を書けない位置を表し、
+   その位置に `resume` を書いたときの診断に使う(§11.16)。
+   位置は、再開しない操作(返り値の型が `Never` の操作)の節、操作節のガード、
+   `return` 節、`cancel` 節の 4 種類で、再開しない操作の節はその操作名を持つ。
+   操作節の外では `None` である。
    `tops` は、`values` のうちトップレベルの実体を指す名前から、その実体(`Tree.gref`)を引く。
    局所の束縛は `add_local` が `tops` から取り除くので、局所の名前が同名のトップレベルの実体を覆う。
    変数参照は、`tops` に名前があれば、その実体を木に書く(§11.11)。
@@ -117,11 +119,13 @@ module SMap = Map.Make (String)
    関数適用(§11.12)の引数の個数の不一致は、この閉じた行の単一化でも検出される。
    ただし報告は、行に入る前に個数を比べる `check_call_arity`(§11.12)が行う。 *)
 
+type no_resume = No_never_clause of oid | No_guard | No_return_clause | No_cancel_clause
+
 type env = {
   values : ty SMap.t;
   types : ty SMap.t; (* 型パラメータの束縛(リージョン変数 h を含む) *)
   resume_ty : (ty * ty) option; (* (操作の返り値型, handle 式全体の型)。操作節の中でだけ Some *)
-  never_clause : oid option; (* 再開しない操作の節の中でだけ Some(その操作名)。resume の診断に使う *)
+  no_resume : no_resume option; (* resume を書けない位置。resume の診断に使う *)
   tops : Tree.gref SMap.t; (* values のうちトップレベルの実体を指す名前 → 実体。局所束縛は取り除く *)
 }
 
@@ -2067,20 +2071,32 @@ and elab_exp' env level eff node e =
    環境の形だけでは防げない閉包への閉じ込めは、§11.21 の 2 段の検査で扱う。
 
    再開しない操作(§11.15)の節では、`resume_ty` を `None` のままにし、
-   代わりに `never_clause` にその操作名を置く。
-   `resume` に出会ったとき `never_clause` が `Some` なら、
+   代わりに `no_resume` にその操作名を置く。
+   `resume` に出会ったとき `no_resume` がその操作名なら、
    再開しない操作の節であることを名指しした診断を出す。
    閉包の本体の `resume` も、`resume_ty` が `None` の環境で推論されるので、この分岐で落ちる。
    節の中に書いた入れ子の `handle` の本体の `resume` も、外側の節の継続を指すので同じ診断になる。
    入れ子の `handle` の操作節の `resume` は、その節が `resume_ty` を置き直すので通る。
-   そのため、再開しない操作の節では §11.21 の静的な検査は要らない。 *)
+   そのため、再開しない操作の節では §11.21 の静的な検査は要らない。
+
+   操作節のガード、`return` 節、`cancel` 節でも、`resume_ty` を `None` にし、
+   `no_resume` にその位置を置く。
+   `resume` に出会ったとき `no_resume` が `Some` なら、その位置を名指しした診断を出す。
+   位置は最も内側のものを使う。
+   例えば、再開しない操作の節の中の入れ子の `handle` の `return` 節では、`return` 節の診断になる。
+   `resume_ty` と `no_resume` がどちらも `None` なのは操作節の外だけなので、
+   そこで出す診断は、操作節の中でだけ使えることを述べる。 *)
 
   | T.Handle (body, clauses) -> elab_handle env level eff clauses body
   | T.Resume arg -> (
       match env.resume_ty with
       | None -> (
-          match env.never_clause with
-          | Some op -> type_error ("再開しない操作 " ^ display_of op ^ " の節には resume を書けません(操作の返り値の型が Never です)")
+          match env.no_resume with
+          | Some (No_never_clause op) ->
+              type_error ("再開しない操作 " ^ display_of op ^ " の節には resume を書けません(操作の返り値の型が Never です)")
+          | Some No_guard -> type_error "操作節のガードには resume を書けません(ガードは節が選ばれる前に評価されるので、継続を再開できません)"
+          | Some No_return_clause -> type_error "return 節には resume を書けません(再開する継続がありません)"
+          | Some No_cancel_clause -> type_error "cancel 節には resume を書けません(再開する継続がありません)"
           | None -> type_error "resume は操作節の中でのみ使えます")
       | Some (op_ret, tres) ->
           (match arg with
@@ -2823,7 +2839,8 @@ and elab_handle env level eff clauses body =
 
    - resume の型は「操作の返り値型 → handle 式全体の型」である。
      これを `resume_ty` に入れて節の本体を推論する(§11.16)。
-     return 節と cancel 節では `None` に戻す。そこに継続は存在しない。
+     return 節と cancel 節では `None` に戻し、
+     `no_resume` にその節の種類を置く。そこに継続は存在しない。
    - cancel 節の値は捨てられるので、Unit と単一化する。
    - 操作節の引数はラベルで書けず、位置引数だけである。
      操作の引数は宣言の並びで意味が決まるので、並べ替えを許す理由がない。
@@ -2834,10 +2851,10 @@ and elab_handle env level eff clauses body =
      型検査を通ったガードの式が実行時に黙って無視される。
      `case return(x) if c => a` と書きたいときは、節の本体で `c` を match すれば同じことを書ける。
    - 再開しない操作(返り値の型が `Never`。§11.15)の節では、`resume_ty` を `None`、
-     `never_clause` を操作名にして本体を推論する(§11.16)。
+     `no_resume` を操作名にして本体を推論する(§11.16)。
      `check_resume_static` は呼ばない。
      閉包の本体の `resume` も、`resume_ty` が `None` なら推論の時点で落ちるからである。
-   - 操作節のガードは受理するが、`resume` の無い環境で推論する。
+   - 操作節のガードは受理するが、`resume` の無い環境で推論し、`no_resume` にガードであることを置く。
      第14章はガードを resume の無い環境で評価するので、ここで resume を許すと、
      型は付くのに実行時に落ちるプログラムを通してしまう。
      §11.21 の静的な検査は節の本体しか走査しないので、ガードの resume はここで防ぐ。
@@ -2869,7 +2886,7 @@ and elab_handle env level eff clauses body =
       Tree.set_resolved cnode Tree.RReturnClause;
       Option.iter (fun g -> at_node g (fun () -> type_error "return 節にガードは書けません")) c.T.cl_guard;
       let seen = ref [] in
-      let env2 = elab_pat { env with resume_ty = None; never_clause = None } level seen body_ty p in
+      let env2 = elab_pat { env with resume_ty = None; no_resume = Some No_return_clause } level seen body_ty p in
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres;
       (* return 節の反駁可能なパターンも、節の本体を推論した後で網羅性検査のキューに
          積む。先に積むと、節の本体の中の let の drain に食われて行が早く閉じる *)
@@ -2879,7 +2896,7 @@ and elab_handle env level eff clauses body =
   | [ ((_, c) as cnode) ] ->
       Tree.set_resolved cnode Tree.RCancelClause;
       Option.iter (fun g -> at_node g (fun () -> type_error "cancel 節にガードは書けません")) c.T.cl_guard;
-      let env2 = { env with resume_ty = None; never_clause = None } in
+      let env2 = { env with resume_ty = None; no_resume = Some No_cancel_clause } in
       (* cancel 節の値は捨てられるので、Unit と単一化する *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
   | _ -> ());
@@ -2891,13 +2908,13 @@ and elab_handle env level eff clauses body =
          プログラムを通してしまう。§11.21 の静的な検査は本体しか走査しないので、
          ガードの resume はここで防ぐ *)
       (match c.T.cl_guard with
-      | Some g -> Unify.unify (elab_exp { env2 with resume_ty = None; never_clause = None } level eff g) t_boolean
+      | Some g -> Unify.unify (elab_exp { env2 with resume_ty = None; no_resume = Some No_guard } level eff g) t_boolean
       | None -> ());
       (* 操作節では resume が使える。本体は外側の eff で推論する。再開しない操作の節では
-         resume_ty を None のままにし、never_clause に操作名を置いて診断に使う *)
+         resume_ty を None のままにし、no_resume に操作名を置いて診断に使う *)
       let env2 =
-        if is_never op_ret then { env2 with resume_ty = None; never_clause = Some op }
-        else { env2 with resume_ty = Some (op_ret, tres); never_clause = None }
+        if is_never op_ret then { env2 with resume_ty = None; no_resume = Some (No_never_clause op) }
+        else { env2 with resume_ty = Some (op_ret, tres); no_resume = None }
       in
       if not (is_never op_ret) then check_resume_static c.T.cl_body;
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres)
@@ -3693,7 +3710,7 @@ let initial_env () =
     values = List.fold_left (fun m (n, t, _) -> SMap.add n t m) SMap.empty refs;
     types = SMap.empty;
     resume_ty = None;
-    never_clause = None;
+    no_resume = None;
     tops = List.fold_left (fun m (n, _, g) -> SMap.add n g m) SMap.empty refs;
   }
 
