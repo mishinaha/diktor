@@ -256,3 +256,87 @@ newtype のフィールドを経由して死んだリージョンの可変配列
   $ diktor --type-check nonew.kel
   ! nonew.kel:1:34: 型エラー: 未束縛の変数: Array.new
   [1]
+
+Ref の第 1 引数で 2 つの剛定数のリージョンが一致しないときは、ほかのリージョンの
+Ref を使おうとしたものとして報告する。regswap は run を含まず、@ Heap[h] の下で
+型パラメータ k のリージョンの参照を読む:
+
+  $ cat > regswap.kel <<'KEL'
+  > let swap[h, k](a: Ref[h, Int32], b: Ref[k, Int32]): Unit @ Heap[h] = Ref.set(a, Ref.get(b))
+  > KEL
+  $ diktor --type-check regswap.kel
+  ! regswap.kel:1:89: 型エラー: ほかのリージョンの Ref を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
+  [1]
+
+regannot は、内側の run の本体で、内側の参照を外側のリージョンの Ref と注釈する。
+注釈の検査の文言の内側に同じ言い換えが付く:
+
+  $ cat > regannot.kel <<'KEL'
+  > let g(): Int32 = run h {
+  >   let r = Ref.new(0)
+  >   run k {
+  >     let s = Ref.new(1)
+  >     let t: Ref[h, Int32] = s
+  >     0
+  >   }
+  > }
+  > KEL
+  $ diktor --type-check regannot.kel
+  ! regannot.kel:5:9: 型エラー: 注釈された型を満たしません(ほかのリージョンの Ref を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2))
+  [1]
+
+片方のリージョンがまだ決まっていない型変数のときは、包まずに元の文言で
+報告する。次の 2 つでは、その型変数に run のリージョン変数を束縛すると
+スコープの外へ漏れる。regesc は Ref の第 1 引数、regheapesc は Heap の引数で
+脱出の文言になる:
+
+  $ cat > regesc.kel <<'KEL'
+  > let mk[B](x: B): Ref[B, Int32] = ???
+  > let f(): Unit = {
+  >   let k = fn(z) => { let s = mk(z); run h { Ref.get(s); () } }
+  >   ()
+  > }
+  > KEL
+  $ diktor --type-check regesc.kel
+  mk : (A) => Ref[A, Int32]
+  ! regesc.kel:3:53: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+  $ cat > regheapesc.kel <<'KEL'
+  > let mk[B](x: B): () => Int32 @ Heap[B] = ???
+  > let f(): Unit = {
+  >   let k = fn(z) => { let s = mk(z); run h { s(); () } }
+  >   ()
+  > }
+  > KEL
+  $ diktor --type-check regheapesc.kel
+  mk : (A) => () => Int32 @ {Heap[A]}
+  ! regheapesc.kel:3:45: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+
+片方のリージョンがまだ決まっていない型変数で、相手が型変数でない型のときも、
+束縛の検査が失敗すればその文言で報告し、リージョンではないとは述べない。
+regoccurs は g の h を具体化した型変数に、その変数を含む Ref の型を束縛する
+occurs check、regescref は Ref の第 1 引数の型変数に、run の剛定数を含む
+Ref の型を束縛する脱出である:
+
+  $ cat > regoccurs.kel <<'KEL'
+  > let g[h](r: Ref[h, Int32], s: Ref[Ref[h, Int32], Int32]): Unit = ()
+  > let t(x) = g(x, x)
+  > KEL
+  $ diktor --type-check regoccurs.kel
+  g : (Ref[A, Int32], Ref[Ref[A, Int32], Int32]) => {}
+  ! regoccurs.kel:2:17: 型エラー: occurs check に失敗しました(無限型が発生します)
+  [1]
+  $ cat > regescref.kel <<'KEL'
+  > let mk[B](x: B): Ref[B, Int32] = ???
+  > let eq[A](x: A, y: A): Unit = ()
+  > let f(): Unit = {
+  >   let k = fn(z) => { let s = mk(z); run h { let t = Ref.new(0); eq(s, mk(t)); () } }
+  >   ()
+  > }
+  > KEL
+  $ diktor --type-check regescref.kel
+  mk : (A) => Ref[A, Int32]
+  eq : (A, A) => {}
+  ! regescref.kel:4:71: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
