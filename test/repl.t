@@ -278,6 +278,61 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   _ : ((Int32) => Int32, Int32) = (<fn>, 5)
   _ : Option[(Int32) => Int32] = Some(<fn>)
 
+制約付きで一般化した値束縛と式文の値は、関数でなければ、
+型の決まっていない辞書を渡して評価した値を表示する。
+関数の値は、組み込みの関数を選んだものも含めて <fn> と表示する。
+初期化式が穴に到達するときは、値の代わりに <unevaluated> を出し、入力は受理する:
+
+  $ diktor --repl <<'EOF2'
+  > let p = (show, 1)
+  > (show, eq, 3)
+  > let k = {f = show, n = 1}
+  > let m = Some(show)
+  > let v = #Tag(show)
+  > let idf[A](x: A): A = x
+  > let t = idf(show); t(2i32)
+  > let h: (Int32) => String = show
+  > let rec ev[A: Eq](x: A): Boolean = eq(x, x)
+  > (ev, 2)
+  > extern "prim" let ex1[A: Show](x: A): String
+  > (ex1, 1)
+  > let q = (show, ???)
+  > q
+  > EOF2
+  p : [A: Show] ((A) => String, Int32) = (<fn>, 1)
+  _ : [A: Show, B: Eq] ((A) => String, (B, B) => Boolean, Int32) = (<fn>, <fn>, 3)
+  k : [A: Show] {f: (A) => String, n: Int32} = {f = <fn>, n = 1}
+  m : [A: Show] Option[(A) => String] = Some(<fn>)
+  v : [A: Show] #Tag((A) => String) | R1 = #Tag(<fn>)
+  idf : (A) => A = <fn>
+  t : (Int32) => String @ {Console, Blocking, Print} = <fn>
+  _ : String = "2"
+  h : (Int32) => String = <fn>
+  ev : [A: Eq] (A) => Boolean = <fn>
+  _ : [A: Eq] ((A) => Boolean, Int32) = (<fn>, 2)
+  _ : [A: Show] ((A) => String, Int32) = (<fn>, 1)
+  q : [A: Show] ((A) => String, B) = <unevaluated>
+  _ : [A: Show] ((A) => String, B) = <unevaluated>
+
+型の頭が newtype で Show を満たす値は、評価した値を利用者の show に渡す。
+show が引数を照合しても、評価した値に照合する。
+初期化式が穴に到達するときは、show が引数を見なくても <unevaluated> を出す:
+
+  $ diktor --repl <<'EOF2'
+  > newtype W[A] = W(A)
+  > type instance[A] Show[W[_]] { let show(w) = w match { case W(_) => "W!" } }
+  > let x = W(show)
+  > x
+  > newtype U[A] = U(A)
+  > type instance[A] Show[U[_]] { let show(u) = "U!" }
+  > let y = U(show)
+  > let z = U((show, ???))
+  > EOF2
+  x : [A: Show] W[(A) => String] = W!
+  _ : [A: Show] W[(A) => String] = W!
+  y : [A: Show] U[(A) => String] = U!
+  z : [A: Show] U[((A) => String, B)] = <unevaluated>
+
 型エラーと曖昧性エラーで失敗した入力の中で宣言したインスタンスは、後の入力から見えない:
 
   $ diktor --repl <<'EOF2'
