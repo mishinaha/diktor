@@ -328,3 +328,88 @@ module 越しの前提つきインスタンス(頭は修飾名 M.L[_]):
   use1 : (P2[Int32, Int32]) => P2[Int32, Int32]
   ! pr19.kel:8:57: 型エラー: Opaque は Eq のインスタンスではありません。P2[Opaque] が Functor であるための前提として要求されました
   [1]
+
+前提をたどって届いた要求が満たされないとき、診断にたどり始めた型とクラスを添える
+ことがある。pr21 は List[List[Opaque]] の比較で、添えるのは外側の 1 組で、途中の
+List[Opaque] は書かない:
+
+  $ cat > pr21.kel <<'KEL'
+  > newtype Opaque = MkOpaque(Int32)
+  > let ng(xs: List[List[Opaque]]): Boolean = xs == xs
+  > KEL
+  $ diktor --type-check pr21.kel
+  ! pr21.kel:2:43: 型エラー: Opaque は Eq のインスタンスではありません。List[List[Opaque]] が Eq であるための前提として要求されました
+  [1]
+
+pr22 は、前提が未定変数に先に届き、その変数が後で具体型に決まる形で、これも
+出どころを添える(左の Nil が List[α] を Eq に結び付け、α が Opaque に決まるのは
+右辺を読んだ後):
+
+  $ cat > pr22.kel <<'KEL'
+  > newtype Opaque = MkOpaque(Int32)
+  > let ng = Nil == Cons(Cons(MkOpaque(1i32), Nil), Nil)
+  > KEL
+  $ diktor --type-check pr22.kel
+  ! pr22.kel:2:10: 型エラー: Opaque は Eq のインスタンスではありません。List[List[Opaque]] が Eq であるための前提として要求されました
+  [1]
+
+pr23 は前提が型パラメータに届いた形で、出どころを制約の書き方の案内より前に置く。
+pr24 は前提をたどらない要求(Opaque そのものの比較)で、何も添えない:
+
+  $ cat > pr23.kel <<'KEL'
+  > let f[A](xs: List[A], ys: List[A]): Boolean = xs == ys
+  > KEL
+  $ diktor --type-check pr23.kel
+  ! pr23.kel:1:47: 型エラー: 型パラメータ ς1 は Eq のインスタンスではありません。List[ς1] が Eq であるための前提として要求されました。[A: Eq] のように制約を書いてください
+  [1]
+  $ cat > pr24.kel <<'KEL'
+  > newtype Opaque = MkOpaque(Int32)
+  > let ng = MkOpaque(1i32) == MkOpaque(1i32)
+  > KEL
+  $ diktor --type-check pr24.kel
+  ! pr24.kel:2:10: 型エラー: Opaque は Eq のインスタンスではありません
+  [1]
+
+pr25 の f は A に Eq を付け、B には付けていないので、満たされないのは B である。
+診断の型と出どころの型は 1 つの名前の表で印字するので、前半の ς1 と、出どころ
+P2[ς2, ς1] の 2 つ目の位置(B の位置)の ς1 は同じ名前になる:
+
+  $ cat > pr25.kel <<'KEL'
+  > newtype P2[A, B] = MkP2(A, B)
+  > type instance[A: Eq, B: Eq] Eq[P2[_, _]] {
+  >   let eq(p, q) = (p, q) match { case (MkP2(a, b), MkP2(c, d)) => a == c && b == d }
+  > }
+  > let f[A: Eq, B](x: P2[A, B], y: P2[A, B]): Boolean = x == y
+  > KEL
+  $ diktor --type-check pr25.kel
+  ! pr25.kel:5:54: 型エラー: 型パラメータ ς1 は Eq のインスタンスではありません。P2[ς2, ς1] が Eq であるための前提として要求されました。[A: Eq] のように制約を書いてください
+  [1]
+
+出どころは、前提が未定変数に制約を付けた時点の要求である。pr26 では、診断の位置は
+x が Opaque に決まった 5 行目の x == o(前提をたどらない比較)を指し、出どころは
+4 行目の比較の List[Opaque] である。pr27 は、同じ比較を let で一般化される k の本体に
+置いた形で、使用点 k(o) で具体化した変数には出どころが引き継がれず、元の文言だけが出る:
+
+  $ cat > pr26.kel <<'KEL'
+  > newtype Opaque = MkOpaque(Int32)
+  > let ng(o: Opaque): Boolean = {
+  >   let k = fn(x) => {
+  >     let a = Cons(x, Nil) == Nil
+  >     x == o
+  >   }
+  >   k(o)
+  > }
+  > KEL
+  $ diktor --type-check pr26.kel
+  ! pr26.kel:5:5: 型エラー: Opaque は Eq のインスタンスではありません。List[Opaque] が Eq であるための前提として要求されました
+  [1]
+  $ cat > pr27.kel <<'KEL'
+  > newtype Opaque = MkOpaque(Int32)
+  > let ng(o: Opaque): Boolean = {
+  >   let k = fn(x) => Cons(x, Nil) == Nil
+  >   k(o)
+  > }
+  > KEL
+  $ diktor --type-check pr27.kel
+  ! pr27.kel:4:5: 型エラー: Opaque は Eq のインスタンスではありません
+  [1]
