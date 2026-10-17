@@ -1284,7 +1284,7 @@ rectpflowrev):
   > with_stdout(fn() => f(1))
   > KEL
   $ diktor --type-check recrejtpflow.kel
-  ! recrejtpflow.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! recrejtpflow.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。f の型パラメータ A が g の型に入り込んでいます。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3)
   [1]
   $ cat > rectpflowrev.kel <<'KEL'
   > let rec g[A](x: A): Unit @ {} = ()
