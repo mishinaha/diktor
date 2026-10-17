@@ -862,16 +862,16 @@ let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
 
    メソッドのスキーマは、§6.12 の `arrow1` / `arrow2` がその場で組み立てる。
    要点は 2 つある。
-   1 つ目は、最外の矢印の行を Generic の行変数にすることである。
+   1 つ目は、最外の矢印の行を閉じた空の行にすることである。
    仕様は、メソッドの最外の矢印で省略した `@` を `@ {}` と読み、
    どのインスタンスの実装も純粋でなければならないと定めている(仕様 §9、sample.kel:437-438)。
-   利用者が宣言したクラスのメソッドは、この読みどおり閉じた空の行を持つ(第11章 §11.33)。
-   組み込みのメソッドだけを行変数にするのは、演算子がこのスキーマを使うからである。
+   利用者が宣言したクラスのメソッド(第11章 §11.33)と同じく、
+   組み込みのメソッドもこの読みどおりの行を持つ。
+   名前で参照するときと呼び出すときは、使用時の開き(第11章 §11.26)が尾部を開く。
    `+` や前置の `-` は `T.BinOp` と `T.Neg` のノードで、
-   呼び出しの経路(第11章 §11.12)を通らずに、スキーマを呼ぶ側の行と直接単一化する(第11章 §11.13)。
-   使用時の開き(第11章 §11.26)が掛からないので、スキーマの行を閉じた空の行にすると、
-   `1 + 2` が `@ Console` の本体で型検査に通らなくなる。
-   行変数にしても、純粋な実装をどの行の文脈からも呼べることは、閉じた空の行と変わらない。
+   呼び出しの経路(第11章 §11.12)を通らないので、
+   第11章 §11.13 がスキーマを具体化した直後に同じ開きを掛ける。
+   開かずに単一化すると、`1 + 2` が `@ Console` の本体で型検査に通らなくなる。
    インスタンスの実装が純粋であることは、第11章の包摂検査(§11.38)が確かめる。
    入れ子の矢印で省略した `@` を `@ {}` と読む規則(sample.kel:498-504)もあるが、
    組み込みのメソッドはどれも高階ではないので、この規則が効く箇所は無い。
@@ -893,13 +893,14 @@ let intern = Type.intern
    それでも組み込みにするのは、実装が OCaml 側の値(§14.10)と切り離せず、
    プレリュードに型を置くと型と実装を別々に管理することになるからである(§15.1 の基準)。
 
-   ### 行を開いておく
+   ### 行は閉じ、使うときに開く
 
-   `heap_row h` は、`Heap[h]` を Generic の行変数の尾部の上に載せ、行を開いておく。
-   行を `Heap[h]` だけの閉じた行にすると、
-   `Console` の下でも `Print` の下でも `Ref.get` を呼べなくなる。
-   プログラムのほとんどは何かのエフェクトの下で走るので、
-   行を閉じるとこれらの操作は実質的に使えない。
+   `heap_row h` は、`Heap[h]` だけを持つ閉じた行を作る。
+   仕様は、標準環境の署名で省略した最外の `@` を `@ {}` と読むので、
+   `Ref.get` の行は `@ {Heap[h]}` である。
+   名前で参照するときと呼び出すときに、使用時の開き(第11章 §11.26)が尾部を新しい行変数で開くので、
+   `Console` の下でも `Print` の下でも `Ref.get` を呼べる。
+   利用者が同じ署名を `pub let` で宣言した関数も、同じ開きを受ける。
 
    ### `Ref` はリージョンを型に持つ
 
@@ -947,9 +948,8 @@ let intern = Type.intern
    nested2 は、この持ち出しが「スコープ付きの型 ς1 がスコープの外に漏れています」で落ちることを確かめる。
    flat は、要素が可変配列でなければ同じ形が通ることを確かめる。
 
-   `Array.length` と `Array.get` は純粋な操作なので、行に何も足さない。
-   ただし、これらの行は `TRowEmpty` ではなく Generic の行変数にする。
-   `TRowEmpty` にすると呼び出し側の行まで空に縛られ、`Console` の下から読めなくなる。
+   `Array.length` と `Array.get` は純粋な操作なので、行は閉じた空の行である。
+   使用時の開きがあるので、`Console` の下からも読める。
    `MutableArray.length` は、長さが変わらないのに `Heap[h]` を要求する。
    これは仕様の署名の一覧のとおりで、仕様はその理由も定めている。
    `Heap[h]` を要求するのは、長さが変わりうるからではなく(長さを変える操作は無い)、
@@ -986,21 +986,20 @@ let register_ref_array () =
   add_effect { ef_name = Type.eff_heap; ef_ops = [] };
   add_effect { ef_name = Type.eff_blocking; ef_ops = [] };
   let arrow args ret eff = Type.TArrow (Type.TRecord (closed_args_row args), ret, eff) in
-  let heap_row h = Type.TRowExtend (Type.eff_heap, h, generic ~kind:Type.KRow ()) in
+  let heap_row h = Type.TRowExtend (Type.eff_heap, h, Type.TRowEmpty) in
   let def name ty = builtin_ops := !builtin_ops @ [ (name, ty) ] in
-  (* Ref.new : [h, A] (A) => Ref[h, A] @ {Heap[h] extends ρ} *)
+  (* Ref.new : [h, A] (A) => Ref[h, A] @ {Heap[h]} *)
   (let h = generic () and a = generic () in
    def "Ref.new" (arrow [ a ] (Type.TCon (ref_oid, [ h; a ])) (heap_row h)));
   (let h = generic () and a = generic () in
    def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
-  (* Array は不変(仕様 §10)。読み出しは行に何も足さない。TRowEmpty ではなく Generic の
-     行変数にするのは、行を閉じると Console の下から読めなくなるため *)
+  (* Array は不変(仕様 §10)。読み出しの行は閉じた空の行で、使うときに開く *)
   (let a = generic () in
-   def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 (generic ~kind:Type.KRow ())));
+   def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 Type.TRowEmpty));
   (let a = generic () in
-   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a (generic ~kind:Type.KRow ())));
+   def "Array.get" (arrow [ Type.TCon (arr_oid, [ a ]); Type.t_int32 ] a Type.TRowEmpty));
   (let a = generic () and e = generic ~kind:Type.KRow () in
    def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e));
   (* MutableArray は h を型に持つ。すべての操作が Heap[h] を要求する。length も
@@ -1120,8 +1119,8 @@ let register_builtins () =
       };
     List.iter (fun con -> add_instance ~cls ~con:(intern con) []) insts
   in
-  let arrow2 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a; a ]), ret, generic ~kind:Type.KRow ()) in
-  let arrow1 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a ]), ret, generic ~kind:Type.KRow ()) in
+  let arrow2 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a; a ]), ret, Type.TRowEmpty) in
+  let arrow1 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a ]), ret, Type.TRowEmpty) in
   def_class "Add" ~derive:false ~methods:(fun a -> [ ("add", arrow2 a a) ]) ~instances:("String" :: numerics);
   def_class "Sub" ~derive:false ~methods:(fun a -> [ ("sub", arrow2 a a) ]) ~instances:numerics;
   def_class "Mul" ~derive:false ~methods:(fun a -> [ ("mul", arrow2 a a) ]) ~instances:numerics;
