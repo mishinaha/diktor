@@ -5884,7 +5884,8 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
      展開した本体が型パラメータそのもののエイリアス(`type Id[A] = A`、
      `type Id2[A] = Id[A]`)は照合しない。
      本体のカインドはパラメータのカインドで、型の宣言群の中の使い方で決まる。
-     型の宣言群の中で `Callback[Id[X]]` のように使うと、行に決まる(`test/kinds.t` の hktrowok)。
+     型の宣言群の中で型パラメータ `X` を `Callback[Id[X]]` の形で行のパラメータへ渡すと、行に決まる
+     (`test/kinds.t` の hktrowok)。
    - `DLet` / `DLetRec`：本体を推論し、既定化してから型を印字する。
    - `DExp`：式を推論し、網羅性の警告を流してから型を印字する。
    - `DExtern`：署名だけを登録する。
