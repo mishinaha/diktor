@@ -1317,7 +1317,7 @@ recrowclosed は、最外の行に行変数を書いた後ろの束縛 b を、�
   > and b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
   > KEL
   $ diktor --type-check recrowclosed.kel
-  ! recrowclosed.kel:1:40: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  ! recrowclosed.kel:1:40: 型エラー: 行 ς1 は注釈で固定された行変数なので、空の行と一致させられません
   [1]
   $ cat > recrowrev.kel <<'KEL'
   > let rec b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
@@ -1362,7 +1362,7 @@ a が本体で b を呼ぶので a の行変数が b の推論した型に流れ
   > and a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
   > KEL
   $ diktor --type-check recrowclosedmutrev.kel
-  ! recrowclosedmutrev.kel:1:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  ! recrowclosedmutrev.kel:1:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、空の行と一致させられません
   [1]
   $ cat > recrowone.kel <<'KEL'
   > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
@@ -1455,7 +1455,7 @@ recrowlamkeepopen は通る:
   > and b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
   > KEL
   $ diktor --type-check recrowlamcall.kel
-  ! recrowlamcall.kel:1:64: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  ! recrowlamcall.kel:1:64: 型エラー: 行 ς1 は注釈で固定された行変数なので、空の行と一致させられません
   [1]
   $ cat > recrowlamkeep.kel <<'KEL'
   > let keep(f: () => Int32 @ Console): Int32 = 0
@@ -1464,7 +1464,7 @@ recrowlamkeepopen は通る:
   > KEL
   $ diktor --type-check recrowlamkeep.kel
   keep : (() => Int32 @ {Console}) => Int32
-  ! recrowlamkeep.kel:2:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  ! recrowlamkeep.kel:2:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、空の行と一致させられません
   [1]
   $ cat > recrowlamkeepopen.kel <<'KEL'
   > let keep[R](f: () => Int32 @ {Console extends R}): Int32 = 0
