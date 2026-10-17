@@ -58,6 +58,23 @@ pub なら候補として案内される:
   ! vis4b.kel:2:10: 型エラー: 未知の型: Pub(M.Pub と修飾してください)
   [1]
 
+引数つきの型を修飾せずに書いたときも、vis4b と同じく pub の型を候補として案内する。
+vis4c は pub newtype の V[A]、vis4e は pub な Type エイリアスの T[A] で、どちらも修飾を案内する。
+vis4d は pub でない newtype で、案内は付かない:
+
+  $ printf 'module M { pub newtype V[A] = V(A) }\nlet u(x: V[Int32]): Int32 = 0\n' > vis4c.kel
+  $ diktor --type-check vis4c.kel
+  ! vis4c.kel:2:10: 型エラー: 未知の型: V(M.V と修飾してください)
+  [1]
+  $ printf 'module M { newtype V[A] = V(A) }\nlet u(x: V[Int32]): Int32 = 0\n' > vis4d.kel
+  $ diktor --type-check vis4d.kel
+  ! vis4d.kel:2:10: 型エラー: 未知の型: V
+  [1]
+  $ printf 'module M { pub type T[A] = (A, A) }\nlet u(x: T[Int32]): Int32 = 0\n' > vis4e.kel
+  $ diktor --type-check vis4e.kel
+  ! vis4e.kel:2:10: 型エラー: 未知の型: T(M.T と修飾してください)
+  [1]
+
 非 pub newtype のコンストラクタは外から使えない(D42 — コンストラクタの
 可視性は所属 newtype の pub に従う):
 
@@ -203,6 +220,32 @@ module の外から、引数の無い W を修飾せずに @ の後ろに書く�
   $ diktor --type-check visrow5.kel
   ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
   [1]
+
+引数つきの W[E] を、module の外から修飾せずに @ の後ろに書いたときも、未知のエフェクトとして
+拒否する。visrow4b は pub の EffectRow エイリアスで、引数の無い visrow4 と同じ案内が付く。
+visrow5b は pub でないエイリアスで、案内は付かない。visrow4c は extends の右、visrow4d は
+行を取る型引数の位置に書いた形で、どちらも visrow4b と同じ案内が付く。visrow4e は案内どおり
+M.W[Console] と修飾した形で、型検査を通る:
+
+  $ printf 'module M { pub type W[E]: EffectRow = {Print extends E} }\nlet g(x: Int32): Int32 @ W[Console] = x\n' > visrow4b.kel
+  $ diktor --type-check visrow4b.kel
+  ! visrow4b.kel:2:26: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
+  [1]
+  $ printf 'module M { type W[E]: EffectRow = {Print extends E} }\nlet g(x: Int32): Int32 @ W[Console] = x\n' > visrow5b.kel
+  $ diktor --type-check visrow5b.kel
+  ! visrow5b.kel:2:26: 型エラー: 未知のエフェクト: W
+  [1]
+  $ printf 'module M { pub type W[E]: EffectRow = {Print extends E} }\nlet g(x: Int32): Int32 @ {Console extends W[Print]} = x\n' > visrow4c.kel
+  $ diktor --type-check visrow4c.kel
+  ! visrow4c.kel:2:43: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
+  [1]
+  $ printf 'module M { pub type W[E]: EffectRow = {Print extends E} }\nnewtype Cb[E] = Cb(() => Unit @ E)\nlet h(c: Cb[W[Console]]): Int32 = 0\n' > visrow4d.kel
+  $ diktor --type-check visrow4d.kel
+  ! visrow4d.kel:3:13: 型エラー: 未知のエフェクト: W(M.W と修飾してください)
+  [1]
+  $ printf 'module M { pub type W[E]: EffectRow = {Print extends E} }\nlet g(x: Int32): Int32 @ M.W[Console] = x\n' > visrow4e.kel
+  $ diktor --type-check visrow4e.kel
+  g : (Int32) => Int32 @ {Print, Console}
 
 型の位置では、module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
 エフェクト位置の EffectRow エイリアスも、型の位置の T と同じく module の W を指し、
