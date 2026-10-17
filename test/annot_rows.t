@@ -1060,13 +1060,14 @@ rectpflowrev):
   f : (A) => {} @ {Print}
   _ : {}
 
-行変数も型パラメータなので、同じ制限に入る。前の束縛から後ろの束縛を呼ぶとき、後ろの
-束縛の行変数は具体化されず、前の束縛の検査がその行変数を何かの行に決めると落ちる。
-最外の行に行変数を書いた後ろの束縛を、行を注釈した前の束縛の本体で直接呼ぶと、
-呼び出しがその行変数を呼ぶ側の行に決めるので落ちる。呼ぶ側の行が自分の行変数 E を
-含む形(recrowfwd)でも、閉じた行の形(recrowclosed)でも同じである。recrowfwd を逆の
-順に書けば通る(recrowrev)。最外の行に行変数を書いた 2 本が本体で互いを直接呼ぶ形は、
-どちらの順でも落ちる(recrowmutual、recrowmutualrev):
+行変数も型パラメータなので、同じ制限に入る。前の束縛から後ろの束縛を参照するとき、
+後ろの束縛の行変数は具体化されず、それを何かの行に決めると落ちる。recrowfwd と
+recrowclosed は、最外の行に行変数を書いた後ろの束縛 b を、行を注釈した前の束縛 a の
+本体で呼ぶ形で、呼び出しが b の行変数を a の行に決めるので落ちる(a の行は recrowfwd
+では自分の行変数 E を含み、recrowclosed では閉じている)。recrowrev は recrowfwd を
+逆の順に書いた形で、通る。recrowmutual と recrowmutualrev は、最外の行に行変数を
+書いた 2 本が本体で互いを呼ぶ形を 2 つの順で書いたもので、どちらも前の束縛からの
+呼び出しが後ろの束縛の行変数を決めるので落ちる:
 
   $ cat > recrowfwd.kel <<'KEL'
   > let rec a[E](n: Int32): Int32 @ {Console extends E} = b(n)
@@ -1104,15 +1105,14 @@ rectpflowrev):
   ! recrowmutualrev.kel:1:55: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
-後ろの束縛から前の束縛への呼び出しでは、前の束縛の行変数は具体化される(例外は段落の
-終わりに書く)。閉じた行の束縛と行変数を取る束縛が本体で互いを直接呼ぶ形は、行変数を取る側を前に書けば通り
-(recrowclosedmut)、同じ 2 本を逆の順に書けば落ちる(recrowclosedmutrev)。行変数を
-取る束縛が 1 本だけの 2 本の群で、もう片方の行を注釈しなければ、どちらの順でも通る
-(recrowone、recrowonerev)。注釈しない束縛の本体が相手の行に無いラベルを起こすときは
-落ちる(recrowoneprint)。前の束縛が行を注釈しない後ろの束縛を呼ぶと、前の束縛の
-行変数が後ろの束縛の行に入り込み、後ろの束縛からの呼び出しでも具体化されない。
-with_stdout の中で呼んで Print を足すことを求めると落ち(recrowonews)、前の束縛が
-後ろの束縛を呼ばなければ通る(recrowonewsnocall):
+recrowclosedmut は、行変数を取る a を前に、閉じた行の b を後ろに書いて互いを呼ぶ形で、
+通る。recrowclosedmutrev は同じ 2 本を逆の順に書いた形で、b からの呼び出しが a の
+行変数を決めるので落ちる。recrowone と recrowonerev は、行変数を取る a と行を注釈
+しない b が互いを呼ぶ形を 2 つの順で書いたもので、どちらも通る。recrowoneprint は
+recrowone の b の本体が a の行に無い Print を起こす形で、落ちる。recrowonews では、
+a が本体で b を呼ぶので a の行変数が b の推論した型に流れ込み、群の終わりまで
+一般化されない。b からの参照でも具体化されず、with_stdout の中で Print を足すことを
+求めるので落ちる。a が b を呼ばない recrowonewsnocall は通る:
 
   $ cat > recrowclosedmut.kel <<'KEL'
   > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
@@ -1168,14 +1168,16 @@ with_stdout の中で呼んで Print を足すことを求めると落ち(recrow
   a : (Int32) => Int32 @ {Console extends R1}
   b : (Int32) => Int32 @ {Console extends R1}
 
-呼び出しが行変数を決めなければ通る。後ろの束縛が引数の関数型の行を行変数だけにする
-形では、エフェクトを起こさない関数式を渡す形は通り(recrowargpure)、Console を起こす
-関数式を渡す形は落ちる(recrowargeff)。引数の行が extends 付きなら Console を起こす
-関数式を渡しても行変数を決めないので通る(recrowargext)。呼ぶ側が自分の行変数を持つ
-関数を渡す形は落ちる(recrowargown)。最外の行に行変数を書いた後ろの束縛でも、型を
-注釈で決めない関数式の中で呼び、その関数式を呼ばなければ通る(recrowlam)。その関数式を
-呼ぶ形(recrowlamcall)と、閉じた行を注釈した引数に渡す形(recrowlamkeep)は落ち、
-行変数を含む行を注釈した引数に渡す形は通る(recrowlamkeepopen):
+recrowargpure、recrowargeff、recrowargext、recrowargown の後ろの束縛 b は、行変数 F を
+引数の関数型の行に書く。recrowargpure はエフェクトを起こさない関数式を渡すので F を
+決めず、通る。recrowargeff は Console を起こす関数式を渡して F に Console を求めるので
+落ちる。recrowargext は引数の行を {Console extends F} にした形で、Console を起こす
+関数式を渡しても F を決めないので通る。recrowargown は a が自分の行変数 E を持つ
+関数を渡して F を E に決めるので落ちる。最外の行に F を書いた b を、型を注釈しない
+関数式の中で呼び、その関数式を呼ばない recrowlam は、F を決めないので通る。その関数式を
+呼ぶ recrowlamcall と、行を Console と注釈した引数に渡す recrowlamkeep は、F を a の
+行や引数の行に決めるので落ちる。行を {Console extends R} と注釈した引数に渡す
+recrowlamkeepopen は通る:
 
   $ cat > recrowargpure.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = b(fn() => n)
