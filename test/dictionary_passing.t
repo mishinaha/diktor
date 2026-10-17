@@ -417,5 +417,5 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   > echoln(show(modulo(1.5, 1.0)))
   > KEL
   $ diktor negremf.kel
-  ! negremf.kel:2:1: 型エラー: Float64 は Rem のインスタンスではありません
+  ! negremf.kel:2:13: 型エラー: Float64 は Rem のインスタンスではありません
   [1]

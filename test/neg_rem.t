@@ -81,7 +81,7 @@ Neg は Int32、Int64、Float64 に、Rem は Int32 と Int64 にインスタン
 
   $ echo 'echoln(show(1.5 % 2.0))' > remf.kel
   $ diktor remf.kel
-  ! remf.kel:1:1: 型エラー: Float64 は Rem のインスタンスではありません
+  ! remf.kel:1:13: 型エラー: Float64 は Rem のインスタンスではありません
   [1]
   $ echo 'echoln(-"abc")' > negs.kel
   $ diktor negs.kel
