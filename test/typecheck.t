@@ -185,8 +185,8 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > let bad = 1u8
   > EOF
   $ diktor --type-check --no-prelude numbad2.kel
-  ! numbad2.kel:1:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
-  [4]
+  ! numbad2.kel:1:11: 型エラー: 数値リテラル 1u8 の接尾辞 u8 はありません(接尾辞は i32、i64、f64 だけです)
+  [1]
 
 型エイリアスの検査(非再帰・部分適用禁止):
 

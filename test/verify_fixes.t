@@ -347,8 +347,8 @@ let rec の非関数右辺を型検査で拒否:
 
   $ printf 'echoln(show(1i999999999999999999999))\n' > hugesuf.kel
   $ diktor hugesuf.kel
-  ! hugesuf.kel:1:13: 未実装: 数値接尾辞 1i999999999999999999999(v0 は i32/i64/f64 のみ)
-  [4]
+  ! hugesuf.kel:1:13: 型エラー: 数値リテラル 1i999999999999999999999 の接尾辞 i999999999999999999999 はありません(接尾辞は i32、i64、f64 だけです)
+  [1]
 
   $ printf 'module A { module B { let x = 1 } }\n' > nestmod.kel
   $ diktor nestmod.kel
