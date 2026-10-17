@@ -874,3 +874,47 @@ Ref[Int32, Int32] の注釈とは一致しない:
   $ diktor --type-check refkind5.kel
   ! refkind5.kel:1:28: 型エラー: 注釈された型を満たしません(Ref の第 1 引数 Int32 はリージョンではありません。Ref の第 1 引数には run のリージョン変数か型パラメータを書きます)
   [1]
+
+MutableArray の第 1 引数も同じ文言で報告する:
+
+  $ cat > refkind6.kel <<'KEL'
+  > let v: Int32 = run h { let a: MutableArray[String, Int32] = MutableArray.new(3, 0); 0 }
+  > KEL
+  $ diktor --type-check refkind6.kel
+  ! refkind6.kel:1:28: 型エラー: 注釈された型を満たしません(MutableArray の第 1 引数 String はリージョンではありません。MutableArray の第 1 引数には run のリージョン変数か型パラメータを書きます)
+  [1]
+
+run を経由しない Heap どうしの不一致でも、リージョンでない型を名指しする。
+@ Heap[String] の関数から @ Heap[Int32] の関数を呼ぶと、2 つの型のうち Int32 を
+述べる:
+
+  $ cat > refkind7.kel <<'KEL'
+  > let f(): Int32 @ Heap[Int32] = 0
+  > let g(): Int32 @ Heap[String] = f()
+  > KEL
+  $ diktor --type-check refkind7.kel
+  f : () => Int32 @ {Heap[Int32]}
+  ! refkind7.kel:2:33: 型エラー: Heap の引数 Int32 はリージョンではありません。Heap の引数には run のリージョン変数か型パラメータを書きます
+  [1]
+
+関数の型の注釈の中の Heap[h] と一致させる場合も同じである:
+
+  $ cat > refkind8.kel <<'KEL'
+  > let f(): Int32 @ Heap[Int32] = 0
+  > let g(): Int32 = run h { let k: () => Int32 @ Heap[h] = f; k() }
+  > KEL
+  $ diktor --type-check refkind8.kel
+  f : () => Int32 @ {Heap[Int32]}
+  ! refkind8.kel:2:30: 型エラー: 注釈された型を満たしません(Heap の引数 Int32 はリージョンではありません。Heap の引数には run のリージョン変数か型パラメータを書きます)
+  [1]
+
+どちらの Heap の引数もリージョンを表す型変数のときは、別の run のスコープの
+ヒープを使おうとしたものとして報告する。型パラメータ A のヒープの関数を
+run h の本体で呼ぶ:
+
+  $ cat > refkind9.kel <<'KEL'
+  > let f[A](g: () => Int32 @ Heap[A]): Int32 = run h { g() }
+  > KEL
+  $ diktor --type-check refkind9.kel
+  ! refkind9.kel:1:53: 型エラー: 別の run スコープのヒープを使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
+  [1]
