@@ -374,6 +374,25 @@ let trailing_param = "%arg"
 let trailing_record pos =
   raise (Syntax_error_at (pos, "末尾ブロックの中身にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)"))
 
+(* 末尾ブロックの位置に来た、末尾ブロックにならない波括弧の 3 つの形 *)
+type trailing_other = Tb_record | Tb_params of Lexing.position | Tb_annot of Lexing.position
+
+let trailing_other pos = function
+  | Tb_record -> trailing_record pos
+  | Tb_params pos ->
+      raise (Syntax_error_at (pos,
+        "末尾ブロックの引数は小文字の識別子 1 個です(2 個以上の引数を取る関数は fn(x, y) => 式 と書いて括弧の中に渡します)"))
+  | Tb_annot pos ->
+      raise (Syntax_error_at (pos,
+        "末尾ブロックの引数に型注釈は書けません(型注釈の要る関数は fn(x: T) => 式 と書いて括弧の中に渡します)"))
+
+let trailing_misplaced pos =
+  raise (Syntax_error_at (pos, "コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません"))
+
+let trailing_after_paren pos =
+  raise (Syntax_error_at (pos,
+    "括弧で囲んだ式には末尾ブロックを付けられません(関数を括弧の中の引数として渡します)"))
+
 let trailing_call sloc callee args (lbrace_pos, prev_end, k) =
   if lbrace_pos.Lexing.pos_lnum <> prev_end.Lexing.pos_lnum then
     raise (Syntax_error_at (lbrace_pos, "末尾ブロックの { は、呼び出しと同じ行に書きます"));
@@ -984,11 +1003,27 @@ tb_call:
       { trailing_call $sloc (dot_select $sloc $1 $3) [] ($startpos($4), $endpos($3), $4) }
   | lower_id trailing_block
       { trailing_call $sloc (mk $loc($1) (Ident (LongId [ $1 ]))) [] ($startpos($2), $endpos($1), $2) }
-  | postfix_exp LPAREN call_args RPAREN record_exp { trailing_record $startpos($5) }
-  | postfix_exp DOT lower_id record_exp            { trailing_record $startpos($4) }
-  | lower_id record_exp                            { trailing_record $startpos($2) }
+  | postfix_exp LPAREN call_args RPAREN trailing_other { trailing_other $startpos($5) $5 }
+  | postfix_exp DOT lower_id trailing_other            { trailing_other $startpos($4) $4 }
+  | lower_id trailing_other                            { trailing_other $startpos($2) $2 }
   | tb_call trailing_block
       { raise (Syntax_error_at ($startpos($2), "末尾ブロックは 1 つの呼び出しに 1 個までです")) }
+  | tb_call trailing_other
+      { raise (Syntax_error_at ($startpos($2), "末尾ブロックは 1 つの呼び出しに 1 個までです")) }
+  | upper_id tb_brace                                  { trailing_misplaced $startpos($2) }
+  | postfix_exp DOT upper_id tb_brace                  { trailing_misplaced $startpos($4) }
+  | HASH_IDENT tb_brace                                { trailing_misplaced $startpos($2) }
+  | paren_exp tb_brace                                 { trailing_after_paren $startpos($2) }
+
+trailing_other:
+  | record_exp                          { Tb_record }
+  | LBRACE_RECORD field_list EQ_GREATER
+      { let punned (l, e) = match e with _, Ident (LongId [ x ]) -> x = l | _ -> false in
+        if List.length $2 >= 2 && List.for_all punned $2 then Tb_params $startpos($2) else Tb_record }
+  | LBRACE_TYPE lower_id                { Tb_annot $startpos($2) }
+  | LBRACE_TYPE upper_id                { Tb_annot $startpos($2) }
+
+tb_brace: LBRACE_BLOCK {} | LBRACE_RECORD {} | LBRACE_TYPE {}
 
 trailing_block:
   | block                         { mk $sloc (Lambda { l_params = []; l_body = $1 }) }
@@ -1000,6 +1035,9 @@ lambda_block:
   | LBRACE_BLOCK LOWLINE EQ_GREATER items RBRACE
       { raise (Syntax_error_at ($startpos($2),
           "末尾ブロックの引数に _ は書けません(引数なしは { 式 }、引数を捨てる 1 引数は { case _ => 式 })")) }
+  | LBRACE_BLOCK paren_exp EQ_GREATER
+      { raise (Syntax_error_at ($startpos($2),
+          "末尾ブロックの引数は小文字の識別子 1 個です(引数のない関数は { 式 }、タプルを分解する関数は { case (a, b) => 式 } と書きます)")) }
   | LBRACE_BLOCK clause clauses RBRACE
       { let v = mk $sloc (Ident (LongId [ trailing_param ])) in
         mk $sloc (Lambda { l_params = [ mk $sloc (PVar trailing_param) ];
