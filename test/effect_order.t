@@ -73,7 +73,7 @@ effect の操作の型と、型クラスのメソッドの型も、後ろの eff
   3
   w
 
-どこにも宣言していないラベルは、これまでどおり未知のエフェクトである(effunknown):
+どこにも宣言していないラベルは、未知のエフェクトである(effunknown):
 
   $ printf 'newtype N = N(() => Unit @ {Nope})\neffect Log = { log: (String) => Unit }\n' > effunknown.kel
   $ diktor --type-check effunknown.kel

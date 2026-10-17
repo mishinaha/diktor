@@ -421,7 +421,7 @@ pub でなくても(visrow25)、同じ診断になる:
 
 同名の EffectRow エイリアスは、行の要素では型パラメータより先に当たる(visrow26)。
 `@ E` と書くと型パラメータが当たる(visrow26b)ので、`@ E` と `@ {E}` は別のものを指す。
-`@ Print` を `@ {Print}` の略記とする doc/sample.kel の規則とは食い違う、現状の振る舞いである:
+これは `@ Print` を `@ {Print}` の略記とする doc/sample.kel の規則と食い違う:
 
   $ printf 'module M {\n  type E: EffectRow = {Print}\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow26.kel
   $ diktor --type-check visrow26.kel
