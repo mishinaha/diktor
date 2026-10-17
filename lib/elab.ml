@@ -4802,7 +4802,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    返り値を渡すと、返り値の食い違いが本体の単一化で先に落ちて、
    「クラス宣言の型を満たしません」の言い換えを通らない形が出る。
    最外の行を渡さないのは、純粋性を名指しする包摂の言い換えと、包摂の後の初期化式の行の検査を、
-   これまでどおり推論の後で行うためである。 *)
+   推論の後で行うためである。 *)
 
 let check_instance_bodies env eff0 inode (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
