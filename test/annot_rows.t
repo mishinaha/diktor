@@ -1441,7 +1441,7 @@ recrowlamkeepopen は通る:
   > and b[F](g: () => Int32 @ F): Int32 = 0
   > KEL
   $ diktor --type-check recrowargown.kel
-  ! recrowargown.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! recrowargown.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。a の型パラメータ E が b の型に入り込んでいます。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3)
   [1]
   $ cat > recrowlam.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = { let g = fn() => b(n); n }
