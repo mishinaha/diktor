@@ -2463,10 +2463,20 @@ and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> fal
    同じ操作の節を書くと、その節には到達しないので、警告を出す(§11.24)。
 
    分類の結果は、`set_resolved` で木に書く。
-   評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。 *)
+   評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。
+
+   1 つの節だけで決まる誤りは、その節の位置で報告する。
+   節の頭の形の誤り、2 つ目の return 節と cancel 節、対象エフェクトに属さない操作、
+   操作節の引数の個数とラベルの誤りは、節のパターン(`case` の直後)を指す。
+   return 節と cancel 節のガードの誤りは、ガードの式を指す。
+   handle 式全体の位置で報告すると、どの節の誤りかを位置から読めないからである。
+   対象エフェクトの決定(§11.23)で起きる誤りと、操作節が 1 つも無い誤りは、
+   特定の 1 節に帰せないので、handle 式の位置で報告する。
+   `test/handle_clause_loc.t` が、それぞれの位置を確かめる。 *)
 
 and elab_handle env level eff clauses body =
   let classify ((_, c) as cnode : T.clause) =
+    at_node c.T.cl_pat @@ fun () ->
     match snd c.T.cl_pat with
     | T.PVar "cancel" -> `Cancel cnode
     | T.PCtor (LongId comps, args) -> (
@@ -2495,8 +2505,12 @@ and elab_handle env level eff clauses body =
   let ops = List.filter_map (function `Op (op, q, args, cnode) -> Some (op, q, args, cnode) | _ -> None) classified in
   let rets = List.filter_map (function `Return (p, cnode) -> Some (p, cnode) | _ -> None) classified in
   let cancels = List.filter_map (function `Cancel cnode -> Some cnode | _ -> None) classified in
-  (if List.length rets > 1 then type_error "return 節は1つまでです");
-  (if List.length cancels > 1 then type_error "cancel 節は1つまでです");
+  (match rets with
+  | _ :: (_, (_, c)) :: _ -> at_node c.T.cl_pat (fun () -> type_error "return 節は1つまでです")
+  | _ -> ());
+  (match cancels with
+  | _ :: (_, c) :: _ -> at_node c.T.cl_pat (fun () -> type_error "cancel 節は1つまでです")
+  | _ -> ());
   (if ops = [] then type_error "handle には少なくとも1つの操作節が必要です");
 (* ## 11.23 対象エフェクトの決定
 
@@ -2623,9 +2637,10 @@ and elab_handle env level eff clauses body =
   let target_info = Option.get (Decls.find_effect target) in
   (* 対象が決まったら、全節の所属と、全操作の網羅を調べる *)
   List.iter
-    (fun (op, _, _, _) ->
+    (fun (op, _, _, ((_, c) : T.clause)) ->
       if not (List.mem_assoc op target_info.Decls.ef_ops) then
-        type_error ("操作 " ^ display_of op ^ " はエフェクト " ^ display_of target ^ " に属しません"))
+        at_node c.T.cl_pat (fun () ->
+            type_error ("操作 " ^ display_of op ^ " はエフェクト " ^ display_of target ^ " に属しません")))
     ops;
   List.iter
     (fun (op, _) ->
@@ -2648,11 +2663,12 @@ and elab_handle env level eff clauses body =
         let full = intern (name_of target ^ "." ^ name_of op) in
         Tree.set_resolved cnode (if is_never op_ret then Tree.RNeverOp full else Tree.ROp full);
         let param_tys = match repr args_row with TRecord row -> List.map snd (fst (row_fields row)) | _ -> [] in
-        if List.length args <> List.length param_tys then
-          type_error
-            (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (display_of op) (List.length param_tys)
-               (List.length args));
-        List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args;
+        (at_node c.T.cl_pat @@ fun () ->
+         if List.length args <> List.length param_tys then
+           type_error
+             (Printf.sprintf "操作 %s は %d 引数です(節には %d 個書かれています)" (display_of op) (List.length param_tys)
+                (List.length args));
+         List.iter (fun (a : T.ctor_arg_pat) -> if a.T.cap_label <> None then type_error "操作節の引数にラベルは書けません") args);
         let seen = ref [] in
         let env2 =
           List.fold_left2
@@ -2766,7 +2782,7 @@ and elab_handle env level eff clauses body =
   (match rets with
   | [ (p, ((_, c) as cnode)) ] ->
       Tree.set_resolved cnode Tree.RReturnClause;
-      if c.T.cl_guard <> None then type_error "return 節にガードは書けません";
+      Option.iter (fun g -> at_node g (fun () -> type_error "return 節にガードは書けません")) c.T.cl_guard;
       let seen = ref [] in
       let env2 = elab_pat { env with resume_ty = None; never_clause = None } level seen body_ty p in
       Unify.unify (elab_exp env2 level eff c.T.cl_body) tres;
@@ -2777,7 +2793,7 @@ and elab_handle env level eff clauses body =
   (match cancels with
   | [ ((_, c) as cnode) ] ->
       Tree.set_resolved cnode Tree.RCancelClause;
-      if c.T.cl_guard <> None then type_error "cancel 節にガードは書けません";
+      Option.iter (fun g -> at_node g (fun () -> type_error "cancel 節にガードは書けません")) c.T.cl_guard;
       let env2 = { env with resume_ty = None; never_clause = None } in
       (* cancel 節の値は捨てられるので、Unit と単一化する *)
       Unify.unify (elab_exp env2 level eff c.T.cl_body) t_unit
