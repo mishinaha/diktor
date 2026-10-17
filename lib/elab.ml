@@ -65,7 +65,7 @@
    | `make_rigids` / `release_rigids` | 注釈の skolem 化の 2 つの手順 |
    | `open_closed_arrow` / `subsume_closed` | 閉じた行の使用時の開き |
    | `register_newtype` ほか `register_*` | パス 1 の宣言登録 |
-   | `fully_effected` / `check_pub_annots` | pub の完全注釈検査 |
+   | `unwritten_effect` / `check_pub_annots` | pub の完全注釈検査 |
    | `signature_of_binding` | パス 1c の前方参照の署名 |
    | `check_instance_bodies` | インスタンス本体の包摂検査 |
    | `process_decls` / `type_check_decls` / `type_check` | 入口 |
@@ -451,21 +451,101 @@ let outer_eff_written (b : T.let_binding') =
   | Some _ -> b.T.lb_eff <> None
   | None -> ( match b.T.lb_ret with Some (_, T.EArrow (_, _, eff)) -> eff <> None | Some _ -> true | None -> false)
 
-(* 注釈の中のすべての矢印に @ が明示されているか。pub の完全注釈検査
+(* 注釈の中の矢印のうち、@ を省略したものを探す。pub の完全注釈検査
    (check_pub_annots と、§11.31 の pub newtype のフィールド)が使う。
-   パス 1c の前方参照の署名は、頭の矢印だけを見る別の判定を使う(§11.36) *)
-let rec fully_effected ((_, te) : T.type_exp) =
+   パス 1c の前方参照の署名は、頭の矢印だけを見る別の判定を使う(§11.36)。
+
+   エイリアスは透過なので、注釈に書いたエイリアスの本体の矢印も、注釈の中の矢印として数える。
+   数えなければ、矢印をエイリアスに包むだけで要求を逃れられる。
+   仕様 §9 も、型エイリアスを展開した矢印を入れ子の矢印に数える(sample.kel:487、:500)。
+   本体は宣言の位置の名前で読む。
+   そこで、本体を見る間は §11.5 の expand_alias と同じく単位と module を立て直し、
+   エイリアスのパラメータを、同じ名前のエイリアスを隠す名前として扱う。
+   型引数は、使う側の位置で、注釈に直接書いた型として調べる。
+   本体でパラメータを使うかどうかに関わらず調べるので、展開で消える型引数の矢印も数える。
+   束縛の型パラメータと、外側で束縛した型パラメータ(tparams)は、§11.3 の優先順位のとおり、
+   同じ名前のエイリアスを隠す。
+   EffectRow エイリアスの本体は見ない。
+   エフェクト行の中は、注釈に直接書いたものも見ないからである。
+
+   見つからなければ None、注釈に直接書いた矢印なら Some None、
+   エイリアスの本体の矢印なら、その矢印を本体に書いたエイリアスの名前を添えて Some (Some 名前) を返す。
+   エイリアスの再帰、引数の個数が合わない使用、使う位置から見えないエイリアスは、
+   本体を見ずに打ち切る。
+   その診断は、後で注釈を精緻化するときに §11.3 と §11.5 が出す。 *)
+type pub_scope = {
+  ps_module : string option;
+  ps_unit : Decls.unit_id;
+  ps_tparams : string list;
+  ps_alias : string option;
+}
+
+let rec unwritten_effect ~expanding sc ((_, te) : T.type_exp) =
+  let nested t = unwritten_effect ~expanding sc t in
+  let first f l = List.find_map f l in
+  let lookup_alias name =
+    let saved = !Decls.current_module and saved_unit = !Decls.current_unit in
+    Decls.current_module := sc.ps_module;
+    Decls.current_unit := sc.ps_unit;
+    Fun.protect
+      ~finally:(fun () ->
+        Decls.current_module := saved;
+        Decls.current_unit := saved_unit)
+      (fun () ->
+        let oid = Decls.resolve_con (intern name) in
+        match (Hashtbl.find_opt Decls.aliases oid, Hashtbl.find_opt Decls.con_visibility oid) with
+        | _, Some v when not (Decls.visible_here v) -> None
+        | Some info, _ -> Some (oid, info)
+        | None, _ -> None)
+  in
+  let alias_body li nargs =
+    match li with
+    | LongId [ n ] when List.mem n sc.ps_tparams -> None
+    | _ -> (
+        match lookup_alias (show_long_id li) with
+        | None -> None
+        | Some (_, info) when info.Decls.al_kind = Some "EffectRow" -> None
+        | Some (oid, _) when List.mem oid expanding -> None
+        | Some (_, info) when nargs <> List.length info.Decls.al_params -> None
+        | Some (oid, info) ->
+            let sc' =
+              {
+                ps_module = info.Decls.al_module;
+                ps_unit = info.Decls.al_unit;
+                ps_tparams = List.map (fun (tp : type_param) -> tp.tp_name) info.Decls.al_params;
+                ps_alias = Some (display_of oid);
+              }
+            in
+            unwritten_effect ~expanding:(oid :: expanding) sc' info.Decls.al_body)
+  in
   match te with
-  | T.EArrow (params, ret, eff) -> eff <> None && List.for_all fully_effected params && fully_effected ret
-  | T.EApply (f, args) -> fully_effected f && List.for_all fully_effected args
-  | T.EBraceRow (elems, ext) ->
-      List.for_all
-        (function T.BField (_, t) -> fully_effected t | T.BLabel (_, ts) -> List.for_all fully_effected ts)
-        elems
-      && (match ext with Some t -> fully_effected t | None -> true)
-  | T.EVariantCase (_, Some t) -> fully_effected t
-  | T.EUnion ts -> List.for_all fully_effected ts
-  | T.EVariantCase (_, None) | T.EIdent _ | T.EHole -> true
+  | T.EArrow (params, ret, eff) -> if eff = None then Some sc.ps_alias else first nested (params @ [ ret ])
+  | T.EIdent li -> alias_body li 0
+  | T.EApply ((_, T.EIdent li), args) -> (
+      match first nested args with Some _ as r -> r | None -> alias_body li (List.length args))
+  | T.EApply (f, args) -> first nested (f :: args)
+  | T.EBraceRow (elems, ext) -> (
+      match
+        first (function T.BField (_, t) -> nested t | T.BLabel (_, ts) -> first nested ts) elems
+      with
+      | Some _ as r -> r
+      | None -> Option.bind ext nested)
+  | T.EVariantCase (_, Some t) -> nested t
+  | T.EUnion ts -> first nested ts
+  | T.EVariantCase (_, None) | T.EHole -> None
+
+let pub_scope tparams =
+  { ps_module = !Decls.current_module; ps_unit = !Decls.current_unit; ps_tparams = tparams; ps_alias = None }
+
+(* 名前を隠す型パラメータ。束縛自身の型パラメータと、外側の束縛やインスタンスの型パラメータ *)
+let pub_tparams (env : env) (tps : type_param list) =
+  List.map (fun (tp : type_param) -> tp.tp_name) tps @ List.map fst (SMap.bindings env.types)
+
+(* pub の完全注釈検査の診断。エイリアスの本体の矢印なら、エイリアスの名前を添える *)
+let pub_effect_error what = function
+  | None -> ()
+  | Some None -> type_error (what ^ "には完全な型注釈が必要です(注釈の中の矢印に @ がありません)")
+  | Some (Some a) -> type_error (what ^ "には完全な型注釈が必要です(型エイリアス " ^ a ^ " の本体の矢印に @ がありません)")
 
 (* pub の完全注釈検査。引数と返り値に注釈があるだけでなく、注釈の中の矢印にも @ が要る。
    入れ子の矢印の省略 @ は @ {} と読むので、この規則は健全性のためのものではない。
@@ -481,36 +561,34 @@ let rec fully_effected ((_, te) : T.type_exp) =
    推論に任せず `@ {}` と読み、本体に純粋を要求するという意味である。
    値束縛の頭の矢印も同じ扱いであることは、仕様 §9 の表が定めている(:494)。
 
-   `fully_effected_value_head` と `fully_effected` の違いは、値束縛の頭の矢印の扱いだけである。
-   頭が矢印リテラルなら、引数と返り値だけを検査し、頭の `@` の有無は問わない。
-   頭が矢印でない注釈(型エイリアスなど)には最外の矢印が無いので、そのまま `fully_effected` に渡す。
+   値束縛の注釈の頭が矢印なら、引数と返り値だけを `unwritten_effect` に渡し、
+   頭の `@` の有無は問わない。
+   頭が矢印でない注釈(型エイリアスなど)には最外の矢印が無いので、そのまま渡す。
+   エイリアスを展開して頭に現れた矢印は、最外ではなく入れ子の矢印である(sample.kel:487)。
    関数束縛の `lb_ret` は返り値の型、つまり入れ子の位置なので、すべての矢印に `@` が要る。
 
    頭を数えずに済むのは、呼び出し側が頭の省略に意味を与える分岐を持つからである。
    `let` の値束縛(§11.28)も `let rec` の値束縛(§11.29)も、`pub` で頭の `@` を省略すれば
    `@ {}` と読み、本体が純粋であることを確かめる。 *)
-let fully_effected_value_head ((_, te) as t : T.type_exp) =
-  match te with
-  | T.EArrow (params, ret, _) -> List.for_all fully_effected params && fully_effected ret
-  | _ -> fully_effected t
-
-let check_pub_annots ~params ~ret =
+let check_pub_annots ~tparams ~params ~ret =
+  let sc = pub_scope tparams in
+  let what = "pub な宣言" in
   (match params with
   | Some ps ->
       List.iter
         (fun ((_, p) : T.pat) ->
           match p with
-          | T.PAnnot (_, te) ->
-              if not (fully_effected te) then
-                type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
+          | T.PAnnot (_, te) -> pub_effect_error what (unwritten_effect ~expanding:[] sc te)
           | _ -> type_error "pub な宣言には完全な型注釈が必要です(引数に型注釈がありません)")
         ps
   | None -> ());
   match ret with
   | None -> type_error "pub な宣言には完全な型注釈が必要です(返り値の型注釈がありません)"
-  | Some te ->
-      let ok = match params with None -> fully_effected_value_head te | _ -> fully_effected te in
-      if not ok then type_error "pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)"
+  | Some te -> (
+      let check t = pub_effect_error what (unwritten_effect ~expanding:[] sc t) in
+      match (params, te) with
+      | None, (_, T.EArrow (ps, r, _)) -> List.iter check (ps @ [ r ])
+      | _ -> check te)
 
 (* ## 11.3 型式の精緻化
 
@@ -3423,7 +3501,8 @@ and elab_binding ?expected_params env level eff ((_, b) as node : T.let_binding)
   at_node node @@ fun () ->
   (* pub の完全注釈検査。注釈が無ければ、@ の省略を純粋と読む約束も
      立てられない。検査は冒頭で、本体を見る前に行う *)
-  (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
+  (if b.T.lb_pub then
+    check_pub_annots ~tparams:(pub_tparams env b.T.lb_tparams) ~params:b.T.lb_params ~ret:b.T.lb_ret);
   let is_fun = b.T.lb_params <> None in
   (* 値制限。本体の未定変数を一般化してよいのは関数定義か値だけ(§11.28) *)
   let gen = is_fun || is_value b.T.lb_body in
@@ -3949,7 +4028,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
          member_marks := (bnode, Unify.hole_mark ()) :: !member_marks;
          (* pub の完全注釈検査と、@ の省略を @ {} と読む規則は、let(§11.28)と同じ。
             値束縛の頭の矢印も最外として扱う(§11.29) *)
-         (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
+         (if b.T.lb_pub then check_pub_annots ~tparams:(pub_tparams env_rec b.T.lb_tparams) ~params:b.T.lb_params ~ret:b.T.lb_ret);
          let env_ty = { env_rec with types = types_with env_rec rigids } in
          let fn_ty =
            match b.T.lb_params with
@@ -4229,7 +4308,7 @@ let initial_env () =
    `pub newtype` のフィールドには完全な型注釈を要求する(仕様 §13)。
    入れ子の矢印で省略した `@` は `@ {}` を意味するが、公開 API では、
    純粋を意図したのか書き忘れたのかを読み手が区別できなければならない、というのが仕様の理由である。
-   判定には、`let` の `check_pub_annots` と同じ `fully_effected` を使う(`test/pub.t` の pubnt)。
+   判定には、`let` の `check_pub_annots` と同じ `unwritten_effect` を使う(`test/pub.t` の pubnt)。
    sample.kel の `Parser` が `@ {}` を明示しているのは、そのためである。
 
    フィールドの型のカインドが `Type` であることも、ここで確かめる。
@@ -4348,9 +4427,12 @@ let register_newtype env (n : T.newtype') =
                        (sample.kel:825-831。フィールドへの適用は :828-829 に
                        明記されている)。診断はそのフィールドの型を指す。
                        宣言の先頭を指すと、どのフィールドが悪いかを位置から読めない *)
-                    (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
+                    (if n.T.nt_pub then
                        at_node f.T.fd_ty (fun () ->
-                           type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)"));
+                           pub_effect_error "pub な newtype のフィールド"
+                             (unwritten_effect ~expanding:[]
+                                (pub_scope (List.map (fun (tp : type_param) -> tp.tp_name) n.T.nt_params))
+                                f.T.fd_ty)));
                     let ty = elab_type env' 1 f.T.fd_ty in
                     (* フィールドの型のカインドは Type。値の型の位置に対する一般の検査
                        (§11.3)をフィールドに当てはめたものなので、照合そのものは
@@ -4920,7 +5002,7 @@ let register_instance (i : T.instance_decl') =
    `g` の `@` を省略していても署名になる(`test/typecheck_m6.t` の fwdsig)。
    入れ子の矢印にまで `@` を要求すると、
    この 1 つの省略だけで前方参照が「未束縛の変数: helper」で落ち、受理が宣言順に依存する。
-   注釈の中のすべての矢印に `@` を求める `fully_effected` は、pub の完全注釈検査(§11.31)が使う。
+   注釈の中のすべての矢印に `@` を求める `unwritten_effect` は、pub の完全注釈検査(§11.31)が使う。
 
    値束縛でも、`pub` なら、`@` を省略した注釈から署名を作る。
    `pub` で省略した `@` は `@ {}`(本体は純粋)という意味に確定しているので、
@@ -5902,7 +5984,8 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           if ex.T.ex_abi <> "prim" && ex.T.ex_abi <> "C" then
             type_error ("未知の extern リンケージ: " ^ ex.T.ex_abi ^ "(prim か C を指定してください)");
           (* pub の完全注釈検査。let の側(§11.28)と同じ規則 *)
-          (if ex.T.ex_pub then check_pub_annots ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
+          (if ex.T.ex_pub then
+            check_pub_annots ~tparams:(List.map (fun (tp : type_param) -> tp.tp_name) ex.T.ex_tparams) ~params:(Some ex.T.ex_params) ~ret:ex.T.ex_ret);
           (* プレリュード保護は実装名(非修飾)で、二重宣言の検査は修飾名で行う(§6.2) *)
           Decls.add_extern ~unit:!Decls.current_unit ~prim:ex.T.ex_prim ex.T.ex_name;
           let lvl = 1 in
