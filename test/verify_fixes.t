@@ -477,7 +477,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check gresume.kel
-  ! gresume.kel:3:17: 型エラー: resume は操作節の中でのみ使えます
+  ! gresume.kel:3:17: 型エラー: 操作節のガードには resume を書けません(ガードは節が選ばれる前に評価されるので、継続を再開できません)
   [1]
 
 クロージャに包んでも同じ(§11.21 の迂回にならない):
@@ -492,7 +492,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check gresume2.kel
-  ! gresume2.kel:3:33: 型エラー: resume は操作節の中でのみ使えます
+  ! gresume2.kel:3:33: 型エラー: 操作節のガードには resume を書けません(ガードは節が選ばれる前に評価されるので、継続を再開できません)
   [1]
 
 操作節の中の関数束縛の本体に書いた resume は、その関数を節の中で呼ぶだけでも
