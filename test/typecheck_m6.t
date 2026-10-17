@@ -298,7 +298,7 @@ qual5 から flush の節を落とすと、残る誤りは網羅漏れだけに�
   > let bad(): Unit @ {} = perform print("x")
   > EOF
   $ diktor --type-check --no-prelude efferr.kel
-  ! efferr.kel:3:24: 型エラー: エフェクト Print をここでは実行できません(ラベル Print がありません(行は閉じています))
+  ! efferr.kel:3:24: 型エラー: エフェクト Print をここでは実行できません(ラベル Print がありません(行は閉じています))(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
   $ cat > efferr2.kel <<'EOF'
