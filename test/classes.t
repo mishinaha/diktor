@@ -242,6 +242,47 @@ instance 本体にも宣言終端の掃き出しが掛かる(M17 検証)。値�
   ! clsbarerow.kel:3:30: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド pr2 の本体がエフェクトを起こしています。元の報告: 行 ς1 は注釈で固定された行変数なので、ラベル Console を足せません(注釈側に Console を(必要なら引数つきで)書き足してください)
   [1]
 
+名指しの後半は実装の側の束縛で言い分ける。clsannotrow は、実装の関数束縛が最外に
+@ Print を書き、本体は何も起こしていない形で、後半は本体ではなく注釈を指す(本体が
+echo を呼び、注釈を書かない形は上の clsimpure):
+
+  $ cat > clsannotrow.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type class Sizer[T] { val size: (T) => Int32 }
+  > type instance Sizer[Box] { let size(b: Box): Int32 @ Print = b match { case Box(x) => x } }
+  > KEL
+  $ diktor --type-check clsannotrow.kel
+  ! clsannotrow.kel:3:32: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド size の注釈に @ {} 以外の行を書いています。元の報告: ラベル Print がありません(行は閉じています)
+  [1]
+
+clsannotalias は、実装の値束縛の注釈の頭に、行が Print の矢印のエイリアス Fn を書いた形で、
+これも後半は注釈を指す:
+
+  $ cat > clsannotalias.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > type Fn = (Box) => Int32 @ Print
+  > type class Sizer[T] { val size: (T) => Int32 }
+  > type instance Sizer[Box] { let size: Fn = fn(b) => 1 }
+  > KEL
+  $ diktor --type-check clsannotalias.kel
+  ! clsannotalias.kel:4:32: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド size の注釈に @ {} 以外の行を書いています。元の報告: ラベル Print がありません(行は閉じています)
+  [1]
+
+clsvalrow は、注釈を書かない値束縛の初期化式で、@ Print と注釈した関数 sizeP を名前で
+渡すだけの形である。行は初期化式の値の型から来て、何も起こしていないので、後半は本体とも
+注釈とも言わずに初期化式の値の型を述べる:
+
+  $ cat > clsvalrow.kel <<'KEL'
+  > newtype Box = Box(Int32)
+  > let sizeP(b: Box): Int32 @ Print = 1
+  > type class Sizer[T] { val size: (T) => Int32 }
+  > type instance Sizer[Box] { let size = sizeP }
+  > KEL
+  $ diktor --type-check clsvalrow.kel
+  sizeP : (Box) => Int32 @ {Print}
+  ! clsvalrow.kel:4:32: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド size の初期化式の値の型の最外の行が空ではありません。元の報告: ラベル Print がありません(行は閉じています)
+  [1]
+
 名指しは最外の行の単一化で失敗したときのものなので、同じ宣言でも実装しだいで
 文言が変わる。高階の引数を呼ばない実装は最外の行まで届き、呼ぶ実装は引数の
 単一化のほうが先に失敗する(どちらも落ちることは変わらない):
