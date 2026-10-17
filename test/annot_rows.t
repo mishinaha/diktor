@@ -122,7 +122,7 @@ effect の操作型の引数の矢印も入れ子(D44 の対象外という裁�
   > let bad(f: () => Unit @ Async2): Unit @ NurP = perform spawnp(f)
   > KEL
   $ diktor --type-check --no-prelude opsig2.kel
-  ! opsig2.kel:4:48: 型エラー: ラベル Async2 がありません(行は閉じています)
+  ! opsig2.kel:4:63: 型エラー: ラベル Async2 がありません(行は閉じています)
   [1]
 
 V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。改訂前は
