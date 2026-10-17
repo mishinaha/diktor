@@ -125,6 +125,64 @@ effect の操作型の引数の矢印も入れ子(D44 の対象外という裁�
   ! opsig2.kel:4:63: 型エラー: ラベル Async2 がありません(行は閉じています)(操作 spawnp の引数の型が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)
   [1]
 
+操作の型は型パラメータを持たないので、操作の型の矢印の空の行は、書いた
+@ {} か @ の省略から来る。その行と渡した関数の行が一致しないときだけ §9 の
+案内を添える。resume の引数でも、操作の返り値の型の矢印の空の行と一致
+しなければ同じ案内が付く:
+
+  $ cat > opsigresume.kel <<'KEL'
+  > type Unit = {}
+  > effect Async2 = { yield2: () => Unit }
+  > effect Mk = { mk: () => (() => Unit) }
+  > let g(f: () => Unit @ Async2): Unit = (perform mk())() handle {
+  >   case mk() => resume(f)
+  >   case return(x) => x
+  > }
+  > KEL
+  $ diktor --type-check --no-prelude opsigresume.kel
+  ! opsigresume.kel:5:23: 型エラー: ラベル Async2 がありません(行は閉じています)(操作の返り値の型が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)
+  [1]
+
+操作の型の空の行の矢印に無名関数を直接渡すと、本体はその空の行の下で
+推論されるので、本体の perform は、閉じた空の行の位置の perform として
+拒否され、この位置の行が空 = 純粋であることの案内が付く:
+
+  $ cat > opsiglam.kel <<'KEL'
+  > type Unit = {}
+  > effect Async2 = { yield2: () => Unit }
+  > effect NurP = { spawnp: (() => Unit) => Unit }
+  > let bad(): Unit @ {NurP, Async2} = perform spawnp(fn() => perform yield2())
+  > KEL
+  $ diktor --type-check --no-prelude opsiglam.kel
+  ! opsiglam.kel:4:59: 型エラー: エフェクト Async2 をここでは実行できません(ラベル Async2 がありません(行は閉じています))(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
+引数の型の不一致は行より先に報告されるので、案内は付かない:
+
+  $ cat > opsigargty.kel <<'KEL'
+  > type Unit = {}
+  > effect Async2 = { yield2: () => Unit }
+  > effect NurP = { spawnp: ((Int32) => Unit) => Unit }
+  > let bad(f: (String) => Unit @ Async2): Unit @ NurP = perform spawnp(f)
+  > KEL
+  $ diktor --type-check --no-prelude opsigargty.kel
+  ! opsigargty.kel:4:69: 型エラー: 型が一致しません: String と Int32
+  [1]
+
+操作の型の矢印の行が空でないときの行の不一致は、@ の省略と関係が無いので、
+案内は付かない:
+
+  $ cat > opsigrow.kel <<'KEL'
+  > type Unit = {}
+  > effect Async2 = { yield2: () => Unit }
+  > effect Nur = { spawn: (() => Unit @ Async2) => Unit }
+  > effect Other = { o: () => Unit }
+  > let bad(f: () => Unit @ Other): Unit @ Nur = perform spawn(f)
+  > KEL
+  $ diktor --type-check --no-prelude opsigrow.kel
+  ! opsigrow.kel:5:60: 型エラー: ラベル Other がありません(行は閉じています)
+  [1]
+
 V14(高階位置の省略 @ によるエフェクト洗浄)が閉じたこと。改訂前は
 `side!side!side!8` を印字して通った(実測):
 

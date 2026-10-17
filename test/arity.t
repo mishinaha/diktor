@@ -133,3 +133,22 @@ newtype のコンストラクタの関数のフィールド、pub の値束縛�
   > KEL
   $ diktor ok.kel
   9
+
+perform の引数に書いた無名関数の引数の個数の誤りも、操作の型の矢印と
+比べて個数の文面で報告する。ここでの操作の型の矢印は @ を省略しているので、
+行は閉じた空の行である:
+
+  $ cat > perfarity.kel <<'KEL'
+  > effect Reg = { reg: ((Int32) => Int32) => Unit }
+  > let use(): Unit @ Reg = perform reg(fn(x, y) => x)
+  > KEL
+  $ diktor --type-check perfarity.kel
+  ! perfarity.kel:2:37: 型エラー: 引数の個数が一致しません: (_A, _B) => _A と (Int32) => Int32 @ {}(引数は 2 個と 1 個です)
+  [1]
+  $ cat > perfarity0.kel <<'KEL'
+  > effect Reg = { reg: ((Int32) => Int32) => Unit }
+  > let use(): Unit @ Reg = perform reg(fn() => 1)
+  > KEL
+  $ diktor --type-check perfarity0.kel
+  ! perfarity0.kel:2:37: 型エラー: 引数の個数が一致しません: () => _A と (Int32) => Int32 @ {}(引数は 0 個と 1 個です)
+  [1]
