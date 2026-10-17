@@ -2548,9 +2548,14 @@ and elab_handle env level eff clauses body =
    型エラーとして報告すべきものが OCaml の例外としてそのまま外に出る。
 
    対象が決まったら、逆向きの検査を 2 つ行う。
-   対象の全操作が節にあるかどうかと、すべての節が対象に属するかどうかである。
+   すべての節が対象に属するかどうかと、対象の全操作が節にあるかどうかである。
    網羅を要求するのは、handle 式の行から対象エフェクトを除く型付けにしているからである(§11.24)。
-   網羅を先に調べるので、両方の誤りを含む入力では網羅漏れを報告する。
+   所属を先に調べるので、両方の誤りを含む入力では所属違反を報告する。
+   所属違反は書かれた節を名指しし、網羅漏れは書かれていない操作を名指しする。
+   書かれた節の誤りを先に示すほうが、どこを直せばよいかが入力から読める。
+   所属違反を直すと、網羅漏れが残っていればそれが次に報告される。
+   この 2 つの検査が働くのは、対象を修飾から決めたときだけである。
+   修飾の無い handle では、対象を決める段で両方の条件を満たす候補だけを残すので、ここでは落ちない。
    `test/typecheck_m6.t` の qual5 が、この順序を確かめる。 *)
 
   (* 対象エフェクトは、全節が属し全操作が網羅される候補として一意に決まらなければならない *)
@@ -2616,17 +2621,17 @@ and elab_handle env level eff clauses body =
              ^ ")。" ^ display_of (List.hd es) ^ "." ^ display_of (List.hd op_names) ^ " のように修飾してください"))
   in
   let target_info = Option.get (Decls.find_effect target) in
-  (* 対象が決まったら、全操作の網羅と、全節の所属を調べる *)
-  List.iter
-    (fun (op, _) ->
-      if not (List.mem op op_names) then
-        type_error ("ハンドラが操作を網羅していません: " ^ display_of target ^ " の " ^ display_of op ^ " が漏れています"))
-    target_info.Decls.ef_ops;
+  (* 対象が決まったら、全節の所属と、全操作の網羅を調べる *)
   List.iter
     (fun (op, _, _, _) ->
       if not (List.mem_assoc op target_info.Decls.ef_ops) then
         type_error ("操作 " ^ display_of op ^ " はエフェクト " ^ display_of target ^ " に属しません"))
     ops;
+  List.iter
+    (fun (op, _) ->
+      if not (List.mem op op_names) then
+        type_error ("ハンドラが操作を網羅していません: " ^ display_of target ^ " の " ^ display_of op ^ " が漏れています"))
+    target_info.Decls.ef_ops;
   (* 操作節の引数パターンを型付ける。
      総和性の検査は引数の型を見て判定するので、パターンだけを先にここで型付ける。
      本体、return 節、cancel 節、操作節のガードと本体は、この後で推論する(§11.24)。
