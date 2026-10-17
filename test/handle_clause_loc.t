@@ -2,7 +2,8 @@ handle の誤りのうち、節の頭の形、2 つ目の return 節と cancel �
 cancel 節の修飾、対象エフェクトへの所属、操作節の引数の個数とラベルの誤りは、
 その節のパターンの位置で報告し、return 節と cancel 節に書いたガードの誤りは
 ガードの式の位置で報告する。対象エフェクトを決める計算と網羅の検査の誤りと、
-節のガードや本体の型の不一致(下の guardty)は、handle 式の位置を指す。
+操作節のガードの式の型が Boolean でない誤り(下の guardty)と、節の値の型が節の
+間で合わない誤り(下の bodyty)は、handle 式の位置を指す。
 各ブロックの前書きが、そのブロックで確かめる位置を述べる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
@@ -305,4 +306,18 @@ unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指
   > KEL
   $ diktor --type-check guardty.kel
   ! guardty.kel:3:3: 型エラー: 型が一致しません: String と Boolean
+  [1]
+
+操作節の本体の値の型が return 節の値の型と合わない形も、handle 式の位置(3:3)を指す:
+
+  $ cat > bodyty.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r =
+  >   perform ask(1) handle {
+  >     case ask(n) => "s"
+  >     case return(v) => v
+  >   }
+  > KEL
+  $ diktor --type-check bodyty.kel
+  ! bodyty.kel:3:3: 型エラー: 型が一致しません: String と Int32
   [1]
