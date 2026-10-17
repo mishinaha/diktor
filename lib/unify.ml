@@ -17,7 +17,7 @@
 
    | 関数 | 使う章 |
    |---|---|
-   | `unify` / `add_class` | 第11章(elab.ml)の全規則、第10章(exhaust.ml)の 1 か所 |
+   | `unify` / `add_class` | 第11章(elab.ml)の全規則、第10章(exhaust.ml)の 2 か所 |
    | `generalize` | 第11章の let 束縛と、宣言から作るスキーマ |
    | `check_ambiguity` / `default_numerics` | 第11章の let 束縛と宣言の終わり |
    | `lower_levels` / `class_mark` | 第11章の一般化しない let 束縛 |
@@ -34,7 +34,8 @@
    `bind` も外から見えるが、呼ぶのは本章の `unify` と、
    `generalize` / `default_numerics` が使う `default_to` だけである。
    外向けの関数ではないので、§8.5 で内部の手続きとして扱う。
-   第10章が `unify` を呼ぶのは構造的ヴァリアントの行を閉じる 1 か所だけで、
+   第10章が `unify` を呼ぶのは、構造的ヴァリアントの行を閉じるところ(§10.9)と、
+   節のない `match` の照合対象の型変数を `Never` に決めるところ(§10.13)の 2 か所で、
    それ以外は型を読むだけである。
 
    Keleut の型には、単一化の実装に効く特徴が次のようにある。
