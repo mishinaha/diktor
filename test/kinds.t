@@ -323,6 +323,88 @@ effect の名前は投機より前(1a)に宣言表に置くので、() => Unit @
   $ diktor --type-check --no-prelude speclab2.kel
   f : (A18[R1]) => A18[R1]
 
+ラベルを略記(@ Log)で書いても、module の中に置いても同じである:
+
+  $ cat > specbare.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, () => Unit @ Log))
+  > let f(x: A): A = x
+  > EOF
+  $ diktor --type-check --no-prelude specbare.kel
+  f : (A) => A
+  $ cat > specmod.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > module M {
+  >   pub newtype A = MkA(B[{}])
+  >   pub newtype B[E] = MkB((() => Unit @ E, () => Unit @ {Log}))
+  > }
+  > let f(x: M.A): M.A = x
+  > EOF
+  $ diktor --type-check --no-prelude specmod.kel
+  f : (M.A) => M.A
+
+相手の本体が、さらに後ろの newtype にラベルつきの行を渡す形。1 周目の投機は
+C[{Log}] を読む時点で C のパラメータのカインドを知らずに落ちるが、決まった
+カインドが増えなくなるまで投機を繰り返すので、2 周目に読める:
+
+  $ cat > specfix.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, C[{Log}]))
+  > newtype C[F] = MkC(() => Unit @ F)
+  > let f(x: A): A = x
+  > EOF
+  $ diktor --type-check --no-prelude specfix.kel
+  f : (A) => A
+
+同じ繰り返しは、型エイリアスのパラメータのカインドが決まったことも数える。
+ここでは Al1 のカインドが Al2 から決まった後の周で、B の E に届く:
+
+  $ cat > specalias.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, Al1[{Log}]))
+  > type Al1[F] = Al2[F]
+  > type Al2[G] = () => Unit @ G
+  > let f(x: A): A = x
+  > EOF
+  $ diktor --type-check --no-prelude specalias.kel
+  f : (A) => A
+
+宣言の無いラベル(綴りの誤り)は、投機の中でも読めないので、1b が未知の
+エフェクトとして報告する:
+
+  $ cat > spectypo.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, () => Unit @ {Lgo}))
+  > EOF
+  $ diktor --type-check --no-prelude spectypo.kel
+  ! spectypo.kel:4:50: 型エラー: 未知のエフェクト: Lgo
+  [1]
+
+前方参照で {} を渡した値を作り、実行できる:
+
+  $ cat > specrun.kel <<'EOF'
+  > effect Log = { log: (String) => Unit }
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, () => Unit @ {Log}))
+  > let main() = {
+  >   let a = MkA(MkB((fn() => {}, fn() => perform log("x"))))
+  >   a match { case MkA(MkB((g, _))) => g() }
+  >   echoln("ok")
+  > }
+  > main()
+  > EOF
+  $ diktor specrun.kel
+  ok
+
 型エイリアスの型引数も、パラメータのカインドが決まる前に読む位置がある。後ろで
 宣言するエイリアスに {} を渡す形も通る。{} は、エイリアスの本体が E を使う位置
 (ここでは @ の右)で空のエフェクト行と読む:
@@ -599,6 +681,23 @@ newtype のフィールドから、後ろで宣言するエイリアス経由で
   > EOF
   $ diktor fwdalias2.kel
   wr
+
+newtype の投機がエイリアスを読んでパラメータに届く形(fwdalias3)と、エイリアスの
+本体が後ろの newtype に具体的な行を渡す形(fwdalias4)。どちらも、決まったカインドが
+増えなくなるまで投機を繰り返すので通る:
+
+  $ cat > fwdalias3.kel <<'EOF'
+  > newtype A = MkA(B[{}])
+  > newtype B[E] = MkB((() => Unit @ E, Th[{Print}]))
+  > type Th[E] = () => Unit @ E
+  > EOF
+  $ diktor --type-check fwdalias3.kel
+  $ cat > fwdalias4.kel <<'EOF'
+  > newtype H = MkH(K[{}])
+  > type K[E] = (() => Unit @ E, Callback[{Print}])
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > EOF
+  $ diktor --type-check fwdalias4.kel
 
 エイリアスの先の newtype の本体で、行のパラメータより右に同じ宣言群のエフェクト
 ラベルがある形も、エイリアスを挟んで通る:
