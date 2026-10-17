@@ -26,7 +26,7 @@ LangSpec の cancel 節は case cancel の形だけで、Diktor は case cancel(
 
   $ printf 'effect E = { op: () => Int32 }\nlet r = (1) handle { case op() => resume(1) case cancel(e) => () }\n' > cr.kel
   $ diktor cr.kel; echo "exit: $?"
-  ! cr.kel:2:9: 未実装: cancel(reason)(v0 は case cancel のみ)
+  ! cr.kel:2:50: 未実装: cancel(reason)(v0 は case cancel のみ)
   exit: 4
 
 言語に無い数値の接尾辞は型エラーで exit 1(LangSpec §4.2、§15.5):

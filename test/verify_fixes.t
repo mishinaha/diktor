@@ -429,7 +429,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check retguard.kel
-  ! retguard.kel:2:9: 型エラー: return 節にガードは書けません
+  ! retguard.kel:4:21: 型エラー: return 節にガードは書けません
   [1]
 
   $ cat > cancelguard.kel <<'KEL'
@@ -442,7 +442,7 @@ return / cancel 節にガードは書けない(型検査を通ったガードが
   > echoln(show(r))
   > KEL
   $ diktor --type-check cancelguard.kel
-  ! cancelguard.kel:2:9: 型エラー: cancel 節にガードは書けません
+  ! cancelguard.kel:5:18: 型エラー: cancel 節にガードは書けません
   [1]
 
 同名メソッドを持つ型クラスの重複宣言を拒否(非修飾名の勝者が elab

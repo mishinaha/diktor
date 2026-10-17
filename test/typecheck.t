@@ -214,7 +214,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   > EOF2
   $ diktor --type-check --no-prelude mix.kel
   ok : Int32
-  ! mix.kel:3:11: 未実装: cancel(reason)(v0 は case cancel のみ)
+  ! mix.kel:3:52: 未実装: cancel(reason)(v0 は case cancel のみ)
   [4]
 
 標準環境の名前は再宣言できない(LangSpec §16.1。newtype、型エイリアス、effect、

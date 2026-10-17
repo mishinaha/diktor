@@ -46,7 +46,7 @@ Blocking は操作を持たないので handle の対象にできない(禁止�
   >   }
   > KEL
   $ diktor --type-check bh.kel
-  ! bh.kel:2:3: 型エラー: 操作 nope はエフェクト Blocking に属しません
+  ! bh.kel:3:10: 型エラー: 操作 nope はエフェクト Blocking に属しません
   [1]
 
 Blocking に操作を足す宣言は拒否する(標準環境の名前なので再宣言できない):

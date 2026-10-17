@@ -200,7 +200,7 @@ File. の修飾だけを外すと対象が決まらなくなり、診断が変�
   > EOF
   $ diktor --type-check --no-prelude qual4.kel
   prog : () => String @ {File}
-  ! qual4.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
+  ! qual4.kel:8:8: 型エラー: 操作 flush はエフェクト File に属しません
   [1]
 
   $ cat > qual4b.kel <<'EOF'
@@ -235,7 +235,7 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   > EOF
   $ diktor --type-check --no-prelude qual5.kel
   prog : () => String @ {File}
-  ! qual5.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
+  ! qual5.kel:7:8: 型エラー: 操作 flush はエフェクト File に属しません
   [1]
 
 qual5 から flush の節を落とすと、残る誤りは網羅漏れだけになり、それが
@@ -272,7 +272,7 @@ qual5 から flush の節を落とすと、残る誤りは網羅漏れだけに�
   > EOF
   $ diktor --type-check --no-prelude qualret.kel
   prog : () => String @ {File}
-  ! qualret.kel:4:19: 型エラー: return 節は修飾できません(return は操作名ではなく handle の節の名前です。修飾を外してください)
+  ! qualret.kel:7:8: 型エラー: return 節は修飾できません(return は操作名ではなく handle の節の名前です。修飾を外してください)
   [1]
 
   $ cat > qualcancel.kel <<'EOF'
@@ -287,7 +287,7 @@ qual5 から flush の節を落とすと、残る誤りは網羅漏れだけに�
   > EOF
   $ diktor --type-check --no-prelude qualcancel.kel
   prog : () => String @ {File}
-  ! qualcancel.kel:4:19: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
+  ! qualcancel.kel:7:8: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
   [1]
 
 未処理エフェクト・網羅性・resume の誤用のエラー:
