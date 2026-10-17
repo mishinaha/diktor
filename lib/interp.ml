@@ -692,6 +692,10 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    `effc` からの素の `raise` は親のスタック上を伝播するので、自分の `exnc` を通らない。
    回帰テストは `test/eval.t` の holecancel.kel で、
    節本体が `???` でも内側の cancel 節が走ることを確かめる。
+   仕様(LangSpec.md §13.6)は、`resume` を呼ぶ前に節が脱出したとき、継続はまだ生きているので、
+   そのハンドラ自身の `cancel` 節を実行すると定めている。
+   `resume` が戻った後の脱出では、継続は消費済みなので、自分の `cancel` 節は走らない。
+   回帰テストは `test/eval.t` の clauseerr、clauseresumed、clausestop である。
 
    この規約は、§13.6 の最も外側のハンドラ(`with_runtime` の `Console.write`)にも当てはまる。
 
