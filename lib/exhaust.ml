@@ -932,7 +932,27 @@ let rec show_ipat = function
 
    `reset` は、宣言の処理を始める前にキューを空にする。
    キューは大域状態である。
-   空にしないと、前のファイルの処理やエラーで中断した推論が積んだエントリが残る。 *)
+   空にしないと、前のファイルの処理やエラーで中断した推論が積んだエントリが残る。
+
+   ### 照合対象の型が検査の時点で未定の節のない `match`
+
+   節のない `match {}` の照合対象の型が、検査の時点で未束縛の型変数のままのことがある。
+   注釈のない引数を照合する `fn(x) => x match {}` がその例である。
+   照合対象の型変数が束縛の型に現れるので、
+   上の小節(節のない `match` の照合対象を `Never` に決める)の 4 つ目の条件を満たさず、
+   `Never` に決めない。
+   型変数の完全シグネチャは `None` なので、§10.10 の反例は `_` になる。
+   ただ、「例えば _ が漏れています」という文面は、節を足せば直ると読める。
+   この場合の原因は、検査の時点で照合対象の型がコンストラクタを持たない型と分かっていないことなので、
+   その事実を言う文面に替える。
+   検査の後で同じ宣言の中の単一化が変数を `Int32` などに決めることもある。
+   文面は検査の時点の事実に限って言い、型が決まらないとは言わない。
+
+   対象は、節が 1 つもなく、照合対象が述語を持たない未束縛の型変数のときに限る。
+   `Integral` や `Fractional` の述語を持つ変数は宣言の終わりに数値型へ既定化されるので、
+   型が決まらないとは言えない。
+   型パラメータ(`Rigid`)の値の照合は型が決まっているので、従来の文面のままにする。
+   ガード付きの節だけを持つ `match` も、原因はガードの側にあるので従来の文面のままにする。 *)
 
 type entry = { qe_rows : (T.pat * bool (* ガードつき *)) list; qe_ty : ty }
 
@@ -955,6 +975,17 @@ let settle_empty e =
   | Some _, (TVar _ as v) -> ( try Unify.unify v t_never with Type_error _ -> ())
   | _ -> ()
 
+(* 節のない match の照合対象が、述語を持たない未束縛の型変数か。
+   数値の述語を持つ変数は宣言の終わりに既定化されるので、型が決まらないとは言えない *)
+let undetermined ty =
+  match repr ty with
+  | TVar { contents = Unbound i } -> not (List.exists Unify.is_predicate i.vcls)
+  | _ -> false
+
+let undetermined_msg =
+  "match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません"
+  ^ "(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)"
+
 let check_entry { qe_rows; qe_ty } =
   let out = ref [] in
   let all = List.map (fun (p, guarded) -> ([ convert p ], guarded)) qe_rows in
@@ -968,6 +999,7 @@ let check_entry { qe_rows; qe_ty } =
   let single = match qe_rows with [ _ ] -> true | _ -> false in
   (* ガード付き節は必ず一致する節として数えない(sample.kel:322-324)ので、網羅性の判定から除く *)
   (match missing unguarded tys with
+  | Some _ when qe_rows = [] && undetermined qe_ty -> out := !out @ [ undetermined_msg ]
   | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
   | None -> ());
   (* 到達不能の判定では、先行するガードのない節だけを被覆として数える *)
