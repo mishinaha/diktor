@@ -1349,15 +1349,18 @@ and expand_alias env level ~expanding info args =
    ラベルの引数の欄がそのままエフェクトのパラメータで、
    パラメータを持たないエフェクトはそこに `Unit` を置く。
    行変数の中置の合成(`{E1, Print}` の `E1`)は受け付けない。
-   波括弧の中に引数なしで書いた型パラメータは、同名の EffectRow エイリアスが無ければ、
-   行にならないエイリアスや可視性を調べる前に、この合成として拒否する。
-   同名の Type エイリアスや Type エイリアスのコンパニオンがあっても、診断は変わらない
-   (`test/visibility.t` の visrow22 から visrow25)。
-   同名の EffectRow エイリアスがあれば、波括弧の中ではエイリアスが先に当たる(visrow26)。
-   そのエイリアスが pub でないコンパニオンなら、可視性の誤りになる。
-   `@ W` の形は 1 の判定で型パラメータを先に引くので、
-   型パラメータと EffectRow エイリアスが同名のとき、`@ W` と `@ {W}` は別のものを指す
-   (visrow26 と visrow26b)。
+   波括弧の中に引数なしで書いた型パラメータは、エイリアスや可視性を調べる前に、
+   この合成として拒否する。
+   型パラメータは、型の位置と同じく、同名のエイリアスとコンパニオンを種類を問わず覆う。
+   同名の Type エイリアス、EffectRow エイリアス、pub でないコンパニオンがあっても、
+   この診断になる(`test/visibility.t` の visrow22 から visrow28)。
+   `@ W` の形も 1 の判定で型パラメータを先に引くので、
+   型パラメータと EffectRow エイリアスが同名のとき、`@ W` と `@ {W}` はどちらも型パラメータを指す
+   (visrow26b と visrow29)。
+   引数つきの要素 `{W[E]}` でも、型パラメータと同名のエイリアスは引かない。
+   型パラメータへの適用は行の要素になれないので、effect の宣言表に無ければ未知のエフェクトになる
+   (visrow30)。
+   `@ W[E]` の形も、型パラメータと同名のエイリアスを引かない。
    行の合成を末尾の `extends` だけに限ると、
    `row_append` の左辺が常に閉じているという不変条件を保てる。
    例外は、開いた行に展開されるエイリアスの splice である。
@@ -1519,24 +1522,20 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
           match elem with
           | T.BLabel (li, args) -> (
               let n = show_long_id li in
-              (* エイリアスを先に調べ、引数の有無で経路を分けない。エフェクト名と型名は
-                 同じ名前空間(claim_type_name)にあるので、Heap[h](ラベルの引数)と
-                 WithPrint[E](エイリアスの適用)を取り違えない。修飾名(M.W)も同じ
-                 経路で引く。effect は module に宣言できないので、修飾名が指しうるのは
-                 エイリアスだけで、ほかは unknown_effect の診断になる *)
-              (* `{E1, Print}` のような行変数の合成は受け付けない(末尾の extends だけ)。
-                 引数つきのときに env.types を見ないのは、型パラメータへの適用が
-                 行の要素になれないからである。
-                 型パラメータは、同名の EffectRow エイリアスの次に調べる。
-                 EffectRow エイリアスは型パラメータより先に当たるが、
-                 行にならないエイリアスは型パラメータを覆わない。
-                 find_alias より先に調べるので、型パラメータと同名の Type エイリアスや
-                 pub でない Type エイリアスのコンパニオンがあっても、
-                 診断は行変数の位置の誤りのままである *)
-              if args = [] && SMap.mem n env.types && Option.is_none (find_row_alias n) then
-                type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
+              (* 型パラメータでなければエイリアスを先に調べ、引数の有無で経路を分けない。
+                 エフェクト名と型名は同じ名前空間(claim_type_name)にあるので、
+                 Heap[h](ラベルの引数)と WithPrint[E](エイリアスの適用)を取り違えない。
+                 修飾名(M.W)も同じ経路で引く。effect は module に宣言できないので、
+                 修飾名が指しうるのはエイリアスだけで、ほかは unknown_effect の診断になる *)
+              (* 型パラメータは find_alias より先に調べ、同名のエイリアスとコンパニオンを覆う。
+                 @ W の形の 1 番目の分岐と同じ順である。
+                 `{E1, Print}` のような行変数の合成は受け付けない(末尾の extends だけ)。
+                 引数つきの型パラメータは、型パラメータへの適用が行の要素になれないので、
+                 エイリアスを引かずに effect の宣言表へ進む *)
+              let is_param = SMap.mem n env.types in
+              if args = [] && is_param then type_error ("行変数 " ^ n ^ " は extends の位置にのみ書けます")
               else
-                match find_alias n with
+                match if is_param then None else find_alias n with
                 | Some info when info.Decls.al_kind = Some "EffectRow" ->
                     splice_row n (expand_alias env level ~expanding info args) acc (* 行を splice する *)
                 | Some _ -> type_error ("エフェクト行に Type エイリアス " ^ n ^ " は置けません(: EffectRow を付けてください)")
