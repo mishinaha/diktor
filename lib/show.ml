@@ -135,7 +135,11 @@ let show_all ts =
   let region t =
     match repr t with TVar { contents = Unbound i | Generic i } -> Hashtbl.replace regions i.vid () | _ -> ()
   in
-  let rec collect t =
+  (* structural は、いま走査している行がレコードかヴァリアントの行であることを表す。
+     ヴァリアントのコンストラクタ #Heap のラベルも eff_heap と同じ名前なので、
+     Heap ラベルの引数をリージョンとして数えるのはそれ以外の行に限る *)
+  let rec collect t = collect_in ~structural:false t
+  and collect_in ~structural t =
     match repr t with
     | TCon (n, args) ->
         note n;
@@ -148,12 +152,12 @@ let show_all ts =
         collect p;
         collect r;
         collect e
-    | TRecord row | TVariant row -> collect row
+    | TRecord row | TVariant row -> collect_in ~structural:true row
     | TRowExtend (l, f, rest) ->
         note l;
-        if l = eff_heap then region f;
+        if l = eff_heap && not structural then region f;
         collect f;
-        collect rest
+        collect_in ~structural rest
     | TRowEmpty | TVar _ -> ()
   in
   List.iter collect ts;

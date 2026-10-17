@@ -563,7 +563,10 @@ let item_arity t =
       if repr tail = TRowEmpty && List.for_all (fun (l, _) -> l = l_item) fields then Some (List.length fields) else None
   | _ -> None
 
-let rec unify a b =
+let rec unify a b = unify_in ~structural:false a b
+
+(* structural は、単一化している行がレコードかヴァリアントの行であることを表す(§8.8) *)
+and unify_in ~structural a b =
   let t1 = repr a in
   let t2 = repr b in
   let same_var = match (t1, t2) with TVar r1, TVar r2 -> r1 == r2 | _ -> false in
@@ -598,11 +601,11 @@ let rec unify a b =
             unify p1 p2;
             unify r1 r2;
             unify e1 e2
-        | TRecord r1, TRecord r2 -> unify r1 r2
-        | TVariant r1, TVariant r2 -> unify r1 r2
+        | TRecord r1, TRecord r2 -> unify_in ~structural:true r1 r2
+        | TVariant r1, TVariant r2 -> unify_in ~structural:true r1 r2
         | TRowEmpty, TRowEmpty -> ()
-        | TRowExtend (l, f, rest), _ -> unify_row l f rest t2
-        | _, TRowExtend (l, f, rest) -> unify_row l f rest t1
+        | TRowExtend (l, f, rest), _ -> unify_row ~structural l f rest t2
+        | _, TRowExtend (l, f, rest) -> unify_row ~structural l f rest t1
         (* ここに来る TVar は Rigid(Unbound は上で処理済み)なので、専用の
            エラーにする。相手が空の行のときは、閉じた行と剛な行変数の衝突で
            あることを述べる分岐を先に置く。「{} と ς1」の不一致とだけ
@@ -681,16 +684,16 @@ and split_last = function
 
 (* 書き換え前に rest の末尾変数を覚え、書き換え後に束縛されていたらエラーにする。
    ρ = <l : τ | ρ> という無限行の検出 *)
-and unify_row label field rest row2 =
+and unify_row ~structural label field rest row2 =
   let tail_before = row_tail_var rest in
   let field2, rest2 = rewrite_row row2 label in
   (match tail_before with
   | Some tv -> ( match !tv with Link _ -> type_error "再帰的な行型が発生しました" | _ -> ())
   | None -> ());
-  if label = eff_heap then
+  if label = eff_heap && not structural then
     unify_region "Heap の引数" (fun msg -> "ほかのリージョンのヒープを使おうとしています(" ^ msg ^ ")") field field2
   else unify field field2;
-  unify rest rest2
+  unify_in ~structural rest rest2
 
 (* リージョンの位置の 2 つの型を単一化する。
    失敗したとき、どちらも剛定数なら、元の文言を both で包んで報告する。
