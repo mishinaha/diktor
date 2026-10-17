@@ -92,7 +92,9 @@ r.k(閉じた @ {})と並べたときにその変数が {} に決まるので、
 構文上の値でない初期化式を持ち、注釈の最外の @ を省略した値束縛 g は一般化しない
 ので、行は最初の呼び出しで決まる。perform ask() と同じ式の中で先に呼ぶと g の行に
 Ask が入り、後の Console の文脈からの呼び出しが落ちる(逆の順序は
-test/verify_fixes.t の vrgen が通す):
+test/verify_fixes.t の vrgen が通す)。本体が x + 1 のように演算子を使う形は、演算子が
+開いた尾部が無名関数の行になり、束縛の終わりに閉じた行に戻るので、同じ順序で呼んでも
+通る(test/builtin_rows.t の bopweak):
 
   $ cat > ordervr.kel <<'KEL'
   > effect Ask = { ask: () => Int32 }

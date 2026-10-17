@@ -49,7 +49,7 @@ test/dictionary_passing.t の read と pureamb):
   > KEL
   $ diktor --type-check --no-prelude ml9e.kel
   idf : (A) => A
-  weak : [_A: Show] (_A) => String
+  weak : [_A: Show] (_A) => String @ {}
   _ : String
 
 ファイルの終わりまでに型が決まらなければ、曖昧性エラーになる。辞書はファイルごとに
@@ -61,7 +61,7 @@ test/dictionary_passing.t の read と pureamb):
   > KEL
   $ diktor --type-check --no-prelude ml9e2.kel
   idf : (A) => A
-  weak : [_A: Show] (_A) => String
+  weak : [_A: Show] (_A) => String @ {}
   ! ml9e2.kel:2:16: 型エラー: 曖昧な制約: Show を満たす型が決まりません(一般化しない束縛か式文の型変数です。注釈で型を決めてください)
   [1]
 

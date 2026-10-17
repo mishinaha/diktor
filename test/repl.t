@@ -305,7 +305,7 @@ Show のインスタンスを持つ newtype の値は Show.show で表示し、�
   m : [A: Show] Option[(A) => String] = Some(<fn>)
   v : [A: Show] #Tag((A) => String) | R1 = #Tag(<fn>)
   idf : (A) => A = <fn>
-  t : (Int32) => String @ {Console, Blocking, Print} = <fn>
+  t : (Int32) => String @ {} = <fn>
   _ : String = "2"
   h : (Int32) => String = <fn>
   ev : [A: Eq] (A) => Boolean = <fn>
