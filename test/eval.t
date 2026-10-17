@@ -672,6 +672,47 @@ Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Optio
   ! opcover.kel:2:9: 型エラー: 操作 ask には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case ask(_) を最後に置いてください
   [1]
 
+拒否の診断が案内する節は、その操作の最初の節の引数の個数だけ `_` を並べた形である。
+opnone0 は引数の無い操作 ask にガードつきの節だけを書いた形で、case ask() を案内する。
+opnone2 は 2 引数の操作 pair に絞り込みの節だけを書いた形で、case pair(_, _) を案内する。
+opnone2ok は opnone2 の最後に、案内のとおりガードの無い case pair(_, _) を足した形で、
+型検査を通って 1 を出力する:
+
+  $ cat > opnone0.kel <<'EOF2'
+  > effect Ask = { ask: () => Int32 }
+  > let flag = true
+  > let r = perform ask() handle {
+  >   case ask() if flag => resume(1)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor opnone0.kel
+  ! opnone0.kel:3:9: 型エラー: 操作 ask には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case ask() を最後に置いてください
+  [1]
+  $ cat > opnone2.kel <<'EOF2'
+  > effect Pair = { pair: (Int32, Boolean) => Int32 }
+  > let r = perform pair(1, true) handle {
+  >   case pair(n, true) => resume(n)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor opnone2.kel
+  ! opnone2.kel:2:9: 型エラー: 操作 pair には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case pair(_, _) を最後に置いてください
+  [1]
+  $ cat > opnone2ok.kel <<'EOF2'
+  > effect Pair = { pair: (Int32, Boolean) => Int32 }
+  > let r = perform pair(1, true) handle {
+  >   case pair(n, true) => resume(n)
+  >   case pair(_, _) => resume(0)
+  >   case return(x) => x
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor opnone2ok.kel
+  1
+
 操作節の引数パターンの誤りは、取りこぼしより先に報告する。tell には絞り込みの節
 tell(0) しか無いが、報告するのは、その後ろにある ask の節の未知のコンストラクタである:
 
