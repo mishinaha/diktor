@@ -1400,7 +1400,9 @@ let exec_decl env ((_, d) as node : T.decl) =
       in
       bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), v) ]
   | T.DType _ | T.DNewtype _ | T.DEffect _ | T.DClass _ -> env
-  | T.DModule _ -> runtime_error "module の評価は未実装です(M10)"
+  | T.DModule _ ->
+      (* 平坦化を通っていれば到達しない。来たら不変条件の違反で、処理系の欠陥である *)
+      bug "module が平坦化されていません(flatten_modules を先に呼んでください)"
 
 (* ## 14.13 run
 
