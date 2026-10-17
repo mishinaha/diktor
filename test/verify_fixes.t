@@ -342,7 +342,7 @@ let rec の非関数右辺を型検査で拒否:
 
   $ printf 'let x = 1\n// \xff\xfe\n' > badutf8.kel
   $ diktor badutf8.kel
-  badutf8.kel: 字句エラー: 不正な UTF-8 バイト列です
+  badutf8.kel:2:4: 字句エラー: 不正な UTF-8 バイト列です
   [2]
 
   $ printf 'echoln(show(1i999999999999999999999))\n' > hugesuf.kel

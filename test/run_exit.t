@@ -60,7 +60,7 @@ import の誤りも 1:
   $ diktor exitutf8.kel 2> /dev/null; echo "exit: $?"
   exit: 2
   $ diktor exitutf8.kel > /dev/null; echo "exit: $?"
-  exitutf8.kel: 字句エラー: 不正な UTF-8 バイト列です
+  exitutf8.kel:2:10: 字句エラー: 不正な UTF-8 バイト列です
   exit: 2
 
 実行時エラーは 3。止まるまでに標準出力へ書いた内容は残り、診断は標準エラーに出る:
