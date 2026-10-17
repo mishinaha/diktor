@@ -127,6 +127,50 @@ g(#C) は型エラーになる:
   wild.kel:1:13: 構文エラー: 末尾ブロックの引数に _ は書けません(引数なしは { 式 }、引数を捨てる 1 引数は { case _ => 式 })
   [2]
 
+引数は小文字の識別子 1 個に限る。括弧で囲んだパターン、型注釈、2 個以上の
+引数は、それぞれ専用の診断になり、_ と同じく引数の位置を指す。
+{ x: T => ... } の { は字句の分類でレコード型、{ x, y => ... } の { は
+レコードになるが、末尾ブロックの位置では引数の誤りとして報告する:
+
+  $ echo 'let a = f { (a, b) => a + b }' > ptup.kel
+  $ diktor --type-check ptup.kel
+  ptup.kel:1:13: 構文エラー: 末尾ブロックの引数は小文字の識別子 1 個です(引数のない関数は { 式 }、タプルを分解する関数は { case (a, b) => 式 } と書きます)
+  [2]
+  $ echo 'let a = f { () => 1 }' > punit.kel
+  $ diktor --type-check punit.kel
+  punit.kel:1:13: 構文エラー: 末尾ブロックの引数は小文字の識別子 1 個です(引数のない関数は { 式 }、タプルを分解する関数は { case (a, b) => 式 } と書きます)
+  [2]
+  $ echo 'let a = g(1) { x: Int32 => x }' > pannot.kel
+  $ diktor --type-check pannot.kel
+  pannot.kel:1:16: 構文エラー: 末尾ブロックの引数に型注釈は書けません(型注釈の要る関数は fn(x: T) => 式 と書いて括弧の中に渡します)
+  [2]
+  $ echo 'let a = M.f { x, y => x + y }' > ptwo.kel
+  $ diktor --type-check ptwo.kel
+  ptwo.kel:1:15: 構文エラー: 末尾ブロックの引数は小文字の識別子 1 個です(2 個以上の引数を取る関数は fn(x, y) => 式 と書いて括弧の中に渡します)
+  [2]
+
+=> の前が名前だけの並びでないとき(x = 1 や末尾のカンマ)は、レコードの形の
+診断になる:
+
+  $ echo 'let a = f { x = 1 => 2 }' > prec.kel
+  $ diktor --type-check prec.kel
+  prec.kel:1:11: 構文エラー: 末尾ブロックの中身にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)
+  [2]
+  $ echo 'let a = f { x, => 1 }' > prec2.kel
+  $ diktor --type-check prec2.kel
+  prec2.kel:1:11: 構文エラー: 末尾ブロックの中身にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)
+  [2]
+
+{ x => } のように文の列が空なら、本体の値は Unit である:
+
+  $ cat > pempty.kel <<'EOF'
+  > let each3[E](f: (Int32) => Unit @ E): Unit @ E = { f(1); f(2); f(3) }
+  > each3 { x => }
+  > echoln("done")
+  > EOF
+  $ diktor pempty.kel
+  done
+
 中身がレコードの形(空の {} を含む)の末尾ブロックはエラーにする。
 末尾ブロックは常に関数を渡す:
 
@@ -170,6 +214,14 @@ g(#C) は型エラーになる:
   $ diktor --type-check tag0.kel
   tag0.kel:1:14: 構文エラー: コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません
   [2]
+  $ echo 'let a = M.Foo { k }' > mctor0.kel
+  $ diktor --type-check mctor0.kel
+  mctor0.kel:1:15: 構文エラー: コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません
+  [2]
+  $ echo 'let a = Foo {}' > ctorrec.kel
+  $ diktor --type-check ctorrec.kel
+  ctorrec.kel:1:13: 構文エラー: コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません
+  [2]
 
 末尾ブロックは 1 つの呼び出しに 1 個まで:
 
@@ -180,6 +232,10 @@ g(#C) は型エラーになる:
   $ echo 'let a = g(1) { x => x } { 2 }' > two2.kel
   $ diktor --type-check two2.kel
   two2.kel:1:25: 構文エラー: 末尾ブロックは 1 つの呼び出しに 1 個までです
+  [2]
+  $ echo 'let a = f { 1 } {}' > two3.kel
+  $ diktor --type-check two3.kel
+  two3.kel:1:17: 構文エラー: 末尾ブロックは 1 つの呼び出しに 1 個までです
   [2]
 
 括弧で囲んだ式の後ろには書けない。(g(1)) { k } は g(1) の結果への適用にも、
@@ -237,6 +293,21 @@ g(1, fn() => k) にもならず、構文エラーになる:
   (dlet (binding f = 1))
   (dlet (binding r = f))
   (exp 1)
+
+match の節の並びの波括弧の中でも、改行はブロックの中と同じ規則で区切りになる。
+節の本体の後ろに区切りを置けないので、節の本体の呼び出しの { を次の行に
+書くと、どの中身でも構文エラーになる。誤りの位置は区切りになった改行を指す:
+
+  $ cat > nlarm.kel <<'EOF'
+  > let a = 1 match {
+  >   case 1 => f
+  >     { 2 }
+  >   case _ => 0
+  > }
+  > EOF
+  $ diktor --type-check nlarm.kel
+  nlarm.kel:2:14: 構文エラー: 付近のトークンを確認してください
+  [2]
 
 末尾ブロックの本体は無名関数の本体なので、操作節の中の末尾ブロックには
 その節の resume を書けない(LangSpec §13.5)。末尾ブロックの中の別の handle
