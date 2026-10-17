@@ -74,8 +74,9 @@ perform の式が要求される型になる。match の腕にそのまま置け
   caught x
   0
 
-従来の書き方 perform op(..) match {} は、照合対象の型が決まらないので網羅漏れの警告になる。
-同じ形から match {} を外すか、照合対象を Never と注釈すると警告は出ず、出力は同じである:
+従来の書き方 perform op(..) match {} は、照合対象の型変数に制約が付かず、束縛の型にも
+現れないので Never に決まり(§11.2)、網羅漏れの警告は出ない。同じ形から match {} を外しても、
+照合対象を Never と注釈しても、出力は同じである:
 
   $ cat > absurd.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -89,7 +90,6 @@ perform の式が要求される型になる。match の腕にそのまま置け
   > echoln(show(r2))
   > EOF
   $ diktor absurd.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
   3
   -1
   $ cat > absurdplain.kel <<'EOF'
