@@ -54,3 +54,20 @@
   > KEL
   $ diktor s8.kel
   ok
+
+標準環境と同じ名前のクラスの宣言は、メソッドの型を照合せず、名前で拒否する。sc/lib/s.kel は
+import されたファイル(起点でない単位)で、show の型が標準環境と違う Show を宣言する。
+p10.kel は --prelude で差し替えたプレリュードで、標準環境と同じ型の Show を宣言する。
+どちらも同じ文面で落ちる:
+
+  $ mkdir -p sc/lib
+  $ printf 'pub type class Show[A] { val show: (A) => Boolean }\n' > sc/lib/s.kel
+  $ printf 'from "./lib/s" import Show\necholn("x")\n' > sc/s9.kel
+  $ (cd sc && diktor --type-check s9.kel)
+  ! lib/s.kel:1:1: 型エラー: 標準環境の type class Show は再宣言できません
+  [1]
+  $ printf 'type class Show[A] { val show: (A) => String }\n' > p10.kel
+  $ printf 'echoln("x")\n' > s10.kel
+  $ diktor --prelude p10.kel --type-check s10.kel
+  ! p10.kel:1:1: 型エラー: 標準環境の type class Show は再宣言できません
+  [1]
