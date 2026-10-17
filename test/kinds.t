@@ -845,8 +845,8 @@ Ref[Int32, Int32] や MutableArray[String, Int32] も拒否しない(LangSpec §
   g : (Ref[A, Int32]) => Int32
   h : (MutableArray[String, Int32]) => Int32
 
-@ Heap[Int32] と注釈した関数も型検査に通るが、run の本体からは別のスコープの
-ヒープとして、トップレベルからは Heap のラベルが無いとして呼べない:
+@ Heap[Int32] と注釈した関数も型検査に通るが、run の本体からは Heap の引数が
+リージョンではないとして、トップレベルからは Heap のラベルが無いとして呼べない:
 
   $ cat > refkind3.kel <<'KEL'
   > let f(): Int32 @ Heap[Int32] = 0
@@ -854,7 +854,7 @@ Ref[Int32, Int32] や MutableArray[String, Int32] も拒否しない(LangSpec §
   > KEL
   $ diktor --type-check refkind3.kel
   f : () => Int32 @ {Heap[Int32]}
-  ! refkind3.kel:2:26: 型エラー: 別の run スコープのヒープを使おうとしています(スコープ付きの型が一致しません: Int32 と ς1)
+  ! refkind3.kel:2:26: 型エラー: Heap の引数 Int32 はリージョンではありません。Heap の引数には run のリージョン変数か型パラメータを書きます
   [1]
   $ cat > refkind4.kel <<'KEL'
   > let f(): Int32 @ Heap[Int32] = 0
@@ -872,5 +872,5 @@ Ref[Int32, Int32] の注釈とは一致しない:
   > let v: Int32 = run h { let r: Ref[Int32, Int32] = Ref.new(0); 0 }
   > KEL
   $ diktor --type-check refkind5.kel
-  ! refkind5.kel:1:28: 型エラー: 注釈された型を満たしません(スコープ付きの型が一致しません: Int32 と ς1)
+  ! refkind5.kel:1:28: 型エラー: 注釈された型を満たしません(Ref の第 1 引数 Int32 はリージョンではありません。Ref の第 1 引数には run のリージョン変数か型パラメータを書きます)
   [1]
