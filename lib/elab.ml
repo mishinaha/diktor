@@ -1596,8 +1596,9 @@ let rec is_value ((_, e) : T.exp) =
    `Hole`(`???`)は新しい型変数を型とし、実行時に評価されると落ちる。 *)
 
 (* 再帰群の束縛の本体を検査する前の pre の形。Open は未定変数の位置で、Fixed は決まっていた
-   位置の型の構成子の種類と子の形である(§11.29) *)
-type pre_shape = Open | Fixed of int * pre_shape list
+   位置の型の構成子の種類と子の形、Row は決まっていた行の欄のラベルと形、および行の残りの形
+   である(§11.29) *)
+type pre_shape = Open | Fixed of int * pre_shape list | Row of (oid * pre_shape) list * pre_shape
 
 (* 再帰群の記録。群の束縛の pre と束縛ノード、いま検査している束縛、pre を通した参照の列。
    参照は群の終わりに、参照先の辞書パラメータの正準順で証拠を組み直す(§11.29) *)
@@ -3555,15 +3556,32 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    その束縛と型パラメータの名前を挙げる(`test/rec_tparam_note.t` の twotp)。
    もう一方がそれ以外の型で、落ちたのが `pre` と本体の型の単一化のときは、
    本体を検査する前に写し取った `pre` の形と、本体の型とを並べてたどる。
-   写しで決まっていた位置に、本体の型の側で、衝突した束縛自身の型パラメータの剛定数があれば、
+   写しで未定変数だった位置はたどらない。
+   写しで決まっていた位置では、本体の型の側にある、衝突した束縛自身の型パラメータの剛定数を集める。
+   行(レコードとバリアントの中身)は、欄を並びの位置ではなくラベルで対応づけてたどる。
+   レコード式のラベルの順は型に影響しないので(§7)、
+   位置で対にすると別のラベルの欄どうしを比べてしまうからである。
+   ラベルが片方の行にしかない欄があるときは、本体の型の側のその欄と行の残りを、
+   写しで決まっていたものとみなし、その中の剛定数をすべて集める。
+   写しと本体の型とで型の構成子の種類が違う位置も、同じく決まっていたものとみなし、
+   本体の型の側の部分木の剛定数をすべて集める。
+   写しの `Option[Int32]` と本体の型の `F[Int32]`(型パラメータ F の適用)を比べる位置が、
+   その例である。
+   このように迷う位置では、注記を付ける側に倒す。
+   集めた剛定数に衝突した剛定数があれば、
    前にある束縛のうち検査している束縛を参照したものの名前を挙げる(concrete)。
    このときの末尾には、具体的な型を渡す形を書いた §18.2 も挙げる。
    挙げる名前は群の中の参照の記録から取り、その位置を決めた参照に絞らない。
-   型パラメータの位置が本体の前に決まっていなければ、それを決めたのは束縛自身の本体の検査なので、
-   前の束縛の参照を原因として挙げない。
    selfrec は前の束縛が g を名前で参照するだけの形で、
    selfret は前の束縛が g の返り値の位置を `Int32` に決め、
    型パラメータ B の位置(引数)を未定のまま残す形である。
+   どちらも B の位置が写しで未定変数なので、前の束縛を挙げない。
+   recfield は、前の束縛が g の注釈と違うラベルの順のレコード式を渡し、
+   g の型パラメータ B の欄を `Int32` に決める形で、f を挙げる。
+   recfieldself は、前の束縛が B の欄を未定のまま残し、
+   B の欄を `Int32` に決めるのが g 自身の本体の呼び出しである形で、f を挙げない。
+   rechkt は、前の束縛が高カインドの型パラメータ F の位置に `Option` を渡す形で、
+   構成子の種類が違う位置として f を挙げる。
    衝突した剛定数のどれも検査している束縛自身の型パラメータでなければ、何も添えない。
    notp では、f の型パラメータ A が f から g への参照を通って g の `pre` に入り込み、
    g の `pre` と本体の型の単一化で `Int32` とぶつかる。
@@ -3698,9 +3716,10 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
       (List.assq pre pre_vars)
   in
   (* 本体の前の pre の形を写し取り、本体の後で本体の型 fn_ty と並べてたどる。写しで決まって
-     いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。写しを
-     取るのは、本体の検査が pre の未定変数を決めると、どれが前から決まっていたかを型の側から
-     区別できなくなるからである *)
+     いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。行の欄は
+     ラベルで対応づける。ラベルが片方にしかない欄や、構成子の種類が両側で違う位置では、fn_ty
+     の側の部分木の剛定数をすべて集める。写しを取るのは、本体の検査が pre の未定変数を決める
+     と、どれが前から決まっていたかを型の側から区別できなくなるからである *)
   let kids t =
     match t with
     | TArrow (a, r, _) -> (1, [ a; r ])
@@ -3711,20 +3730,51 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
     | TApp (f, a) -> (6, [ f; a ])
     | TVar _ | TRowEmpty -> (0, [])
   in
+  let rec row_fields t =
+    match repr t with
+    | TRowExtend (l, f, rest) ->
+        let fs, tl = row_fields rest in
+        ((l, f) :: fs, tl)
+    | t' -> ([], t')
+  in
   let rec shape t =
     match repr t with
     | TVar { contents = Unbound _ } -> Open
+    | TRowExtend _ as t' ->
+        let fs, tl = row_fields t' in
+        Row (List.map (fun (l, f) -> (l, shape f)) fs, shape tl)
     | t' ->
         let k, ts = kids t' in
         Fixed (k, List.map shape ts)
   in
+  let rec rigids_in own t =
+    match repr t with TVar r when List.memq r own -> [ r ] | t' -> List.concat_map (rigids_in own) (snd (kids t'))
+  in
+  let rec take l = function
+    | [] -> None
+    | (l', sh) :: rest when l' = l -> Some (sh, rest)
+    | x :: rest -> Option.map (fun (sh, rest') -> (sh, x :: rest')) (take l rest)
+  in
   let rec fixed_rigids own sh f =
     match (sh, repr f) with
     | Open, _ -> []
-    | Fixed _, TVar r when List.memq r own -> [ r ]
+    | _, TVar r when List.memq r own -> [ r ]
+    | Row (sfs, stl), (TRowExtend _ as f') ->
+        let bfs, btl = row_fields f' in
+        let left, found =
+          List.fold_left
+            (fun (sfs, acc) (l, bf) ->
+              match take l sfs with
+              | Some (sh, sfs') -> (sfs', acc @ fixed_rigids own sh bf)
+              | None -> (sfs, acc @ rigids_in own bf))
+            (sfs, []) bfs
+        in
+        found @ (match left with [] -> fixed_rigids own stl btl | _ -> rigids_in own btl)
     | Fixed (k, shs), f' ->
         let k', ts = kids f' in
-        if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own) shs ts) else []
+        if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own) shs ts)
+        else rigids_in own f'
+    | Row _, f' -> rigids_in own f'
   in
   Unify.last_rigid_clash := None;
   let group_note ~at_pre cur =
