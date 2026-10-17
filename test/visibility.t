@@ -249,7 +249,7 @@ module に宣言すると、module の中では、引数の無い形も引数つ
   M.k : (Int32) => Int32 @ {Print extends R1}
   M.o : (Int32) => Int32 @ {Console}
   m : (Int32) => Int32 @ {Console}
-  n : (Int32) => Int32 @ {Heap[A]}
+  n : (Int32) => Int32 @ {Heap[h]}
 
 module の中でエフェクト名を EffectRow エイリアスで覆うと、エイリアスの本体に書いた
 同じ名前もエイリアス自身を指すので、使う箇所が無くても、宣言を再帰として拒否する。
@@ -282,8 +282,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   $ diktor --type-check visrow10.kel
   M.f : (Int32) => Int32 @ {Console}
   M.g : (Int32) => Int32 @ {Print, Console}
-  M.h : (Int32) => Int32 @ {Heap[A]}
-  M.k : (Int32) => Int32 @ {Heap[A]}
+  M.h : (Int32) => Int32 @ {Heap[h]}
+  M.k : (Int32) => Int32 @ {Heap[h]}
   $ cat > visrow10b.kel <<'KEL'
   > module N {
   >   pub newtype Heap[A] = MkH(A)
@@ -297,8 +297,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   $ diktor --type-check visrow10b.kel
   N.f : (Int32) => Int32 @ {Console}
   N.g : (Int32) => Int32 @ {Console, Print}
-  N.h : (Int32) => Int32 @ {Heap[A]}
-  N.k : (Int32) => Int32 @ {Heap[A]}
+  N.h : (Int32) => Int32 @ {Heap[h]}
+  N.k : (Int32) => Int32 @ {Heap[h]}
 
 同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
 エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
@@ -495,7 +495,7 @@ module 名そのものは予約しない。組み込みに無い綴りを同じ 
   Array.sum : (Array[Int32]) => Int32 @ {}
   $ printf 'module Ref { pub let swap[A](a: Ref[A, Int32]): Int32 = 0 }\n' > visbi4.kel
   $ diktor --type-check visbi4.kel
-  Ref.swap : (Ref[A, Int32]) => Int32 @ {}
+  Ref.swap : (Ref[h, Int32]) => Int32 @ {}
 
 --prelude で差し替えたプレリュードも、ユーザのプログラムと同じに拒否される。
 平坦化は in_prelude のフラグが立つ前に走るので、プレリュードだからという免除が

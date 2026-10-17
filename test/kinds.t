@@ -842,7 +842,7 @@ Ref[Int32, Int32] や MutableArray[String, Int32] も拒否しない(LangSpec §
   > KEL
   $ diktor --type-check refkind.kel
   f : (Ref[Int32, Int32]) => Int32
-  g : (Ref[A, Int32]) => Int32
+  g : (Ref[h, Int32]) => Int32
   h : (MutableArray[String, Int32]) => Int32
 
 @ Heap[Int32] と注釈した関数も型検査に通るが、run の本体からは Heap の引数が

@@ -81,10 +81,10 @@ test/tokens.t の `{p with …}` のブロックが固定している。)
 
 型パラメータの束縛子はこの規則の例外で、大小を問わない(裁定 D110。仕様 §0、
 sample.kel:50-51)。大小は型の表示に現れないので、小文字で束縛しても大文字で
-束縛しても同じ型が出る。リージョン変数を型パラメータの位置に小文字で書けるのも
-この例外による。run が導入するリージョン変数のほうは小文字に限り、大文字始まりも
-_ も構文エラーになる(sample.kel:52。小文字の run h が通ることは test/region.t /
-test/parallel.t が固定している):
+束縛しても同じ型が出る(case7c のリージョンの位置の変数は h と出る)。
+リージョン変数を型パラメータの位置に小文字で書けるのもこの例外による。run が導入する
+リージョン変数のほうは小文字に限り、大文字始まりも _ も構文エラーになる(sample.kel:52。
+小文字の run h が通ることは test/region.t / test/parallel.t が固定している):
 
   $ printf 'let f[a](x: a): a = x\n' > case7.kel
   $ diktor --type-check case7.kel
@@ -94,7 +94,7 @@ test/parallel.t が固定している):
   f : (A) => A
   $ printf 'let use[h, A](r: Ref[h, A]): A @ Heap[h] = Ref.get(r)\n' > case7c.kel
   $ diktor --type-check case7c.kel
-  use : (Ref[A, B]) => B @ {Heap[A]}
+  use : (Ref[h, A]) => A @ {Heap[h]}
   $ printf 'let g(): Int32 = run H { 1 }\n' > case8.kel
   $ diktor --type-check case8.kel
   case8.kel:1:22: 構文エラー: 付近のトークンを確認してください

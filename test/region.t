@@ -34,7 +34,7 @@
   >   MutableArray.set(a, 0, 42)
   > KEL
   $ diktor --type-check honest.kel
-  bump : (MutableArray[A, Int32]) => {} @ {Heap[A] extends R1}
+  bump : (MutableArray[h, Int32]) => {} @ {Heap[h] extends R1}
 
 MutableArray.length も Heap[h] を要求する(長さは変わらないが、可変配列に
 触れること自体が行に載る — 仕様 §10 の署名一覧と、その理由を書いた
@@ -161,11 +161,11 @@ inner へ書いた 99 が、frozen 越しに読める:
 
 MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧が断る「ここだけの
 表記」(sample.kel:679)はパラメータの並びの話であって、型式を禁じてはいない
-(sample.kel:697。D137)。印字は型パラメータを付け直すので、h は A として出る:
+(sample.kel:697。D137)。印字では h と出る(名付け方は次の regionshow):
 
   $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
   $ diktor --type-check maannot.kel
-  use : (MutableArray[A, B], Int32) => B @ {Heap[A]}
+  use : (MutableArray[h, A], Int32) => A @ {Heap[h]}
 
 添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
 
@@ -298,7 +298,7 @@ regannot は、内側の run の本体で、内側の参照を外側のリージ
   > }
   > KEL
   $ diktor --type-check regesc.kel
-  mk : (A) => Ref[A, Int32]
+  mk : (h) => Ref[h, Int32]
   ! regesc.kel:3:53: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
   $ cat > regheapesc.kel <<'KEL'
@@ -309,7 +309,7 @@ regannot は、内側の run の本体で、内側の参照を外側のリージ
   > }
   > KEL
   $ diktor --type-check regheapesc.kel
-  mk : (A) => () => Int32 @ {Heap[A]}
+  mk : (h) => () => Int32 @ {Heap[h]}
   ! regheapesc.kel:3:45: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
@@ -324,7 +324,7 @@ Ref の型を束縛する脱出である:
   > let t(x) = g(x, x)
   > KEL
   $ diktor --type-check regoccurs.kel
-  g : (Ref[A, Int32], Ref[Ref[A, Int32], Int32]) => {}
+  g : (Ref[h, Int32], Ref[Ref[h, Int32], Int32]) => {}
   ! regoccurs.kel:2:17: 型エラー: occurs check に失敗しました(無限型が発生します)
   [1]
   $ cat > regescref.kel <<'KEL'
@@ -336,7 +336,7 @@ Ref の型を束縛する脱出である:
   > }
   > KEL
   $ diktor --type-check regescref.kel
-  mk : (A) => Ref[A, Int32]
+  mk : (h) => Ref[h, Int32]
   eq : (A, A) => {}
   ! regescref.kel:4:71: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]

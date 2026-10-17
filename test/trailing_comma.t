@@ -27,7 +27,7 @@ ty_args は instance の型引数とエフェクト行のラベル引数でも�
   > KEL
   $ diktor --type-check tc2.kel
   n : Int32
-  g : (Ref[A, Int32]) => Int32 @ {Heap[A]}
+  g : (Ref[h, Int32]) => Int32 @ {Heap[h]}
 
 末尾カンマが付くのは最後の**要素**の後だけ。...rest と extends T は
 要素ではなく終端子なので、その後には付けられない(検証で確定した境界):

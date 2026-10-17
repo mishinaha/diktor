@@ -284,7 +284,7 @@ Int32 がプレリュードの List を黙って奪った):
 
   $ printf 'let g[h](r: Ref[h, Int32]): Int32 @ Heap[h] = Ref.get(r)\n' > effshort.kel
   $ diktor --type-check effshort.kel
-  g : (Ref[A, Int32]) => Int32 @ {Heap[A]}
+  g : (Ref[h, Int32]) => Int32 @ {Heap[h]}
 
 組み込みクラスのメソッドスキーマ(arrow1 / arrow2 の 1 枚から出る):
 

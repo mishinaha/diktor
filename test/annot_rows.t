@@ -1245,7 +1245,7 @@ pub で @ を省略した関数は @ {} と読み、宣言より前から参照�
   > and g[k](n: Int32): Int32 @ {} = n
   > KEL
   $ diktor --type-check recfwdheap.kel
-  f : (Ref[A, Int32], Int32) => Int32 @ {Heap[A], Print}
+  f : (Ref[h, Int32], Int32) => Int32 @ {Heap[h], Print}
   g : (Int32) => Int32 @ {}
   $ cat > recfwdval.kel <<'KEL'
   > let rec a: (Int32) => Int32 @ {Console, Print} = fn(n) => b(n)

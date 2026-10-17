@@ -342,7 +342,7 @@ MiniLang §16-7(run と脱出検査、全6例。§9.3 の期待どおり):
   $ diktor --type-check --no-prelude st.kel
   ok1 : Int32
   ok2 : Int32
-  poly : (A) => Ref[B, Int32] @ {Heap[B] extends R1}
+  poly : (A) => Ref[h, Int32] @ {Heap[h] extends R1}
 
   $ cat > stbad1.kel <<'EOF'
   > let bad = run h { Ref.new(0) }
