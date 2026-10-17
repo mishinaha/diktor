@@ -1,7 +1,7 @@
 再帰群の中で前にある束縛から後ろにある束縛への参照は単相である(LangSpec §6.3)。
 前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決めると、2 つの剛定数か、
 剛定数と具体的な型が一致せずに型エラーになる。下の twotp、twotprev、concrete は、
-その報告に原因に近い事実を括弧で添える形で、recfield と rechkt も添える形である。
+その報告に原因に近い事実を括弧で添える形で、recfield、rechkt、alias3 も添える形である。
 selfrec、selfret、recfieldself、notp、region は添えない形である。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
@@ -134,6 +134,26 @@ Option[Int32] の値を渡し、F を Option に決める形で、f を挙げる
   $ diktor --type-check rechkt.kel
   ! rechkt.kel:2:5: 型エラー: スコープ付きの型が一致しません: Option と ς1(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。f の本体が、型パラメータを持つ g を参照しています。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3、§18.2)
   [1]
+
+alias3 は、前にある f の本体の fn(x) => g(x, x) が、g の型パラメータ B と C の位置を
+具体的な型に決めずに同じ未定変数につなぐ形で、f を挙げる。B と C はその未定変数を通して
+一致させられ、g の名前の型と本体の型を一致させるところで 2 つの剛定数がぶつかる。
+alias3rev は 2 つを逆の順に書いた形で、g の本体の検査が f の参照より先に終わるので通る:
+
+  $ cat > alias3.kel <<'KEL'
+  > let rec f(n: Int32): Int32 = { let h = fn(x) => g(x, x); n }
+  > and g[B, C](p: B, q: C): Int32 = 0
+  > KEL
+  $ diktor --type-check alias3.kel
+  ! alias3.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。f の本体が、型パラメータを持つ g を参照しています。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3、§18.2)
+  [1]
+  $ cat > alias3rev.kel <<'KEL'
+  > let rec g[B, C](p: B, q: C): Int32 = 0
+  > and f(n: Int32): Int32 = { let h = fn(x) => g(x, x); n }
+  > KEL
+  $ diktor --type-check alias3rev.kel
+  g : (A, B) => Int32
+  f : (Int32) => Int32
 
 notp は、型パラメータを持たない g の Int32 の位置に、f が自分の型パラメータ A の値を渡す
 形で、何も添えない。notprev は 2 つを逆の順に書いた形で、これも落ち、何も添えない:
