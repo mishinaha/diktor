@@ -1,6 +1,8 @@
-handle の 1 つの節だけで決まる誤りは、その節の位置で報告する。
-節の頭の誤り(引数の個数、ラベル、所属、形、修飾)は節のパターンを、
-return 節と cancel 節のガードの誤りはガードの式を指す。
+handle の誤りのうち、節を 1 つ取り上げて調べる検査で見つかるものは、
+その節のパターンかガードの式の位置で報告する。対象エフェクトを決める
+計算と、決まった対象の操作の網羅の検査で見つかる誤りには節の位置を
+付けないので、handle 式の位置を指す。各ブロックの前書きが、そのブロックで
+確かめる位置を述べる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -138,6 +140,9 @@ handle 式の先頭(3:9)ではない:
   ! twocancel.kel:6:10: 型エラー: cancel 節は1つまでです
   [1]
 
+cancel 節を cancel(x) の形で書くと、未実装として、その節(5:10)を指して
+終了状態 4 で終わる:
+
   $ cat > cancelarg.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
   > let r =
@@ -167,6 +172,34 @@ handle 式の先頭(3:9)ではない:
   ! notbelong.kel:6:10: 型エラー: 操作 tell はエフェクト Ask に属しません
   [1]
 
+return 節と cancel 節に修飾を書くと、その節(5:10)を指す:
+
+  $ cat > qualret.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r =
+  >   perform ask(1) handle {
+  >     case ask(n) => resume(n)
+  >     case Ask.return(v) => v
+  >   }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check qualret.kel
+  ! qualret.kel:5:10: 型エラー: return 節は修飾できません(return は操作名ではなく handle の節の名前です。修飾を外してください)
+  [1]
+
+  $ cat > qualcancel.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r =
+  >   perform ask(1) handle {
+  >     case ask(n) => resume(n)
+  >     case Ask.cancel => ()
+  >   }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check qualcancel.kel
+  ! qualcancel.kel:5:10: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
+  [1]
+
 return 節のガードは、ガードの式(5:23)を指す:
 
   $ cat > retguard.kel <<'KEL'
@@ -182,7 +215,23 @@ return 節のガードは、ガードの式(5:23)を指す:
   ! retguard.kel:5:23: 型エラー: return 節にガードは書けません
   [1]
 
-対象エフェクトの決定の誤りは、特定の 1 節に帰せないので、handle 式の位置(3:3)を指す:
+cancel 節のガードも、ガードの式(5:20)を指す:
+
+  $ cat > cancelguard.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r =
+  >   perform ask(1) handle {
+  >     case ask(n) => resume(n)
+  >     case cancel if true => ()
+  >   }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check cancelguard.kel
+  ! cancelguard.kel:5:20: 型エラー: cancel 節にガードは書けません
+  [1]
+
+対象エフェクトを決める計算の誤りは、handle 式の位置(3:3)を指す。missing は、
+修飾の無い節の操作をすべて宣言するエフェクトが、自分の操作を網羅されていない形である:
 
   $ cat > missing.kel <<'KEL'
   > effect Two = { one: () => Int32, two: () => Int32 }
@@ -196,6 +245,10 @@ return 節のガードは、ガードの式(5:23)を指す:
   $ diktor --type-check missing.kel
   ! missing.kel:3:3: 型エラー: ハンドラが操作を網羅していません: Two の two が漏れています
   [1]
+
+unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指す形である。誤りは
+その 1 節の修飾から決まるが、対象エフェクトを決める計算の中で見つかるので、
+やはり handle 式の位置を指す:
 
   $ cat > unknownqual.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
