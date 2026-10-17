@@ -35,7 +35,7 @@
    |---|---|---|
    | 1a | エイリアスの表、newtype の頭、effect の名前 | 型の本体を書く前に、型構成子のカインドとエフェクトの名前を引けるようにする |
    | 1a′ | (登録しない)newtype とエイリアスの本体の投機 | パラメータのカインドを宣言順に依存せず決める |
-   | 1b | newtype のコンストラクタ、effect の操作、class のメソッド | 型の本体を書くのでカインドの表とエフェクトの名前が要る。投機が相手のパラメータのカインドを決められない形(§11.31)を除き、宣言順に依存しない |
+   | 1b | newtype のコンストラクタ、effect の操作、class のメソッド | 型の本体を書くのでカインドの表とエフェクトの名前が要る。投機の後なので、宣言順に依存しない |
    | 1c | インスタンスの頭、前方参照できる let の署名 | 頭の検査にクラス表が要る。署名は前方参照に使う |
    | 2 | let / let rec / 式 / extern / インスタンス本体 | 本体を宣言順に推論し、順に型を印字する |
 
@@ -4079,7 +4079,7 @@ let initial_env () =
    1b に着いた時点で `B` のパラメータが行だと分かっているので、読み分けは `{…}` を行として読む。
    `test/kinds.t` の fwdrow / fwdrow2 が両方の宣言順を確かめ、
    fwdrow3 と fwdrowmod / fwdrowmod2 が連鎖と module の中の形を確かめる。
-   投機は宣言順に 1 周するだけだが、連鎖にも届く。
+   連鎖の多くは、宣言順の 1 周で届く。
    `same_kind` はカインドのセルどうしを張るので、連鎖の末端で行が決まれば、
    手前まで一度に伝わるからである。
 
@@ -4097,7 +4097,8 @@ let initial_env () =
    パス 1a が名前だけを置き、操作を 1b で書き込むからである(§11.32、§11.39)。
    そのため、`() => Unit @ {Log}` のような普通のフィールドも、投機の中で読める。
 
-   投機には手当てが 2 つある。
+   投機には手当てが 3 つある。
+
    1 つ目は、例外をフィールドごとに握り潰すことである。
    本体全体を 1 つの `try` で包むと、
    あるフィールドの読みが落ちたとき、後続のフィールドが読まれず、
@@ -4125,18 +4126,22 @@ let initial_env () =
    そこで `expand_alias` は、カインドのセルをパラメータと共有する新しい型変数を渡す
    (`test/kinds.t` の aliasunit3)。
 
+   3 つ目は、決まったパラメータのカインドの数が増えなくなるまで、投機を繰り返すことである。
+   1 周では届かない形があるからである。
+   `newtype B[E] = MkB((() => Unit @ E, C[{Log}]))` を `C` より前に置くと、
+   `B` を読む時点で `C` のパラメータのカインドが未確定なので、
+   右端の `C[{Log}]` を型として読んで落ち、`E` に届かない。
+   次の周では、`C` のパラメータが前の周で `Row` に決まっているので、`{Log}` を行として読める
+   (`test/kinds.t` の specfix)。
+   数えるのは newtype とエイリアスの両方のパラメータである。
+   エイリアスのカインドだけが増えた周の後にも、
+   そのエイリアスを読む newtype が前の周で落ちていることがある
+   (`test/kinds.t` の specalias)。
+   数はパラメータの総数を超えないので、繰り返しは止まる。
+
    1 つのフィールドの中で行変数とラベルが並ぶ形
    (`MkB((() => Unit @ E, () => Unit @ {Log}))`)も、投機がフィールド全体を読むので、
    どちらの宣言順でも `E` のカインドが決まる(`test/kinds.t` の specinner / specinner2 と speclab / speclab2)。
-
-   投機は宣言順に 1 周だけ走るので、投機が相手のパラメータのカインドを決められない形が残る。
-   `newtype B[E] = MkB((() => Unit @ E, C[{Log}]))` の後ろに `C` を置くと、
-   `B` の投機の時点では `C` のパラメータのカインドが `KVar` のままなので、
-   右端の `C[{Log}]` を型として読んで落ち、`E` に届かない。
-   このとき、`B` より前に置いた宣言が `B[{}]` を渡すと、
-   1b でその宣言を読む時点で `elab_con_args` の照合が `E` を `Type` に張り、
-   `B` 自身が「行カインドではない型パラメータです: E」で落ちる。
-   `C`、`B`、`A` の順に置けば通る。
 
    右辺を省いた `newtype T` は、コンストラクタが 0 個のデータ型として登録する。
    値の無い型になるので、`match {}` は網羅的で、`case _` には一致する値が無い。
@@ -4204,7 +4209,7 @@ let newtype_param_env env (n : T.newtype') =
   in
   (params, { env with types })
 
-(* newtype の本体を 1b より前に一度だけ投機的に読み、パラメータのカインドだけを決める(§11.31)。
+(* newtype の本体を 1b より前に投機的に読み、パラメータのカインドだけを決める(§11.31)。
    型エイリアスの投機(§11.39)と同じ道具を使い、コンストラクタの登録も pub の注釈検査も
    generalize もせず、elab_type の副作用であるカインドの張りだけを残す。
    診断は捨てる(握り潰す節として 4 つの例外だけを捕まえ、Panic は捕まえない)。
@@ -5325,8 +5330,8 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    プレリュードの型の頭が利用者の宣言で書き換わることはない。
 
    **1a の後始末**：newtype とエイリアスの本体を投機する。
-   1a が終わった直後に宣言列をもう一度なめ、
-   newtype とエイリアスの本体を宣言順に一度だけ投機的に精緻化する。
+   1a が終わった直後に宣言列をなめ、newtype とエイリアスの本体を宣言順に投機的に精緻化する。
+   決まったパラメータのカインドの数が増えなくなるまで、これを繰り返す(§11.31)。
    目的は、パラメータのカインドを宣言順に依存せずに決めることだけで、
    `speculate_newtype` と `speculate_alias` は型を `elab_type` に渡すほかは何もしない。
    1b の `register_newtype` と違って、コンストラクタを登録しない。
@@ -5358,11 +5363,9 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
 
    **1b**：コンストラクタ、操作、メソッドを登録する。
    型の本体を精緻化して宣言表に登録するのは、このパスである。
-   1a とその後始末が終わっているので、原則として宣言の順序に依存しない。
+   1a とその後始末が終わっているので、カインドについては宣言の順序に依存しない。
    newtype どうしが互いを参照しても、effect が後ろの newtype を使っても、
    型の本体に後ろの effect のラベルを書いても通る。
-   例外は、§11.31 で述べた、投機が相手のパラメータのカインドを決められない形へ、
-   波括弧で書いた行を前方参照で渡す場合である。
    クラスのメソッドは、非修飾名(`map`)と修飾名(`Functor.map`)の両方で値環境に登録する。
    どちらでも書けるという仕様を、環境に 2 つ入れるという最も単純な方法で実現している。
 
@@ -5515,13 +5518,40 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       | _ -> ())
     decls;
   (* パス 1a の後始末: newtype とエイリアスの本体の投機。宣言順に依存せずにパラメータの
-     カインドを決めるため、登録の前に本体を一度読んで捨てる *)
-  List.iter
-    (fun ((_, d) as node : T.decl) ->
-      at_node node @@ fun () ->
-      with_decl_module node @@ fun () ->
-      match d with T.DNewtype n -> speculate_newtype env n | T.DType t -> speculate_alias env t | _ -> ())
-    decls;
+     カインドを決めるため、登録の前に本体を読んで捨てる。1 周で決まったカインドが、前の
+     周で落ちた本体を読めるようにすることがあるので、決まったパラメータの数が増えなく
+     なるまで繰り返す。数はパラメータの総数を超えないので、繰り返しは止まる *)
+  let speculate_all () =
+    List.iter
+      (fun ((_, d) as node : T.decl) ->
+        at_node node @@ fun () ->
+        with_decl_module node @@ fun () ->
+        match d with T.DNewtype n -> speculate_newtype env n | T.DType t -> speculate_alias env t | _ -> ())
+      decls
+  in
+  let settled () =
+    let known k = match kind_repr k with KVar _ -> 0 | _ -> 1 in
+    let rec count k = match kind_repr k with KArrow (a, r) -> known a + count r | _ -> 0 in
+    List.fold_left
+      (fun acc ((_, d) as node : T.decl) ->
+        match d with
+        | T.DNewtype n ->
+            with_decl_module node @@ fun () ->
+            acc + count (Decls.con_kind (intern n.T.nt_name) (List.length n.T.nt_params))
+        | T.DType t -> (
+            with_decl_module node @@ fun () ->
+            match Hashtbl.find_opt Decls.aliases (intern t.T.ta_name) with
+            | Some info -> List.fold_left (fun acc k -> acc + known k) acc info.Decls.al_kinds
+            | None -> acc)
+        | _ -> acc)
+      0 decls
+  in
+  let rec speculate_until_stable prev =
+    speculate_all ();
+    let now = settled () in
+    if now > prev then speculate_until_stable now
+  in
+  speculate_until_stable (settled ());
   (* パス 1b: newtype のコンストラクタ、effect、type class の登録(相互再帰と前方参照を許す)。
      クラスのメソッドの型パラメータの検査は、後始末まで class_checks に預ける *)
   let class_checks = ref [] in
