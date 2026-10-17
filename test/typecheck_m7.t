@@ -178,7 +178,7 @@ test/dictionary_passing.t の pure と pureamb):
   >  val f: (A) => String }
   > KEL
   $ diktor --type-check --no-prelude c15.kel
-  ! c15.kel:1:1: 型エラー: メソッド f が二重に宣言されています
+  ! c15.kel:2:9: 型エラー: メソッド f が二重に宣言されています
   [1]
 
 module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフォール

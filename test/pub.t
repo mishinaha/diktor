@@ -130,7 +130,7 @@ pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省�
 
   $ printf 'module P { pub newtype Parser[A] = Parser((String) => Option[A]) }\n' > pubnt.kel
   $ diktor --type-check pubnt.kel
-  ! pubnt.kel:1:12: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  ! pubnt.kel:1:43: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)
   [1]
   $ printf 'module P { pub newtype Parser[A] = Parser((String) => Option[A] @ {}) }\n' > pubnt2.kel
   $ diktor --type-check pubnt2.kel

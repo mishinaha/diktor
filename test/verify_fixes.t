@@ -642,12 +642,12 @@ return / cancel は操作名として予約(D68。handle の節分類が名前�
 
   $ printf 'effect E = { cancel: () => Int32 }\n' > opres.kel
   $ diktor --type-check opres.kel
-  ! opres.kel:1:1: 型エラー: 操作名 cancel は予約されています(handle の cancel 節と衝突するため宣言できません)
+  ! opres.kel:1:22: 型エラー: 操作名 cancel は予約されています(handle の cancel 節と衝突するため宣言できません)
   [1]
 
   $ printf 'effect E2 = { return: () => Int32 }\n' > opres2.kel
   $ diktor --type-check opres2.kel
-  ! opres2.kel:1:1: 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
+  ! opres2.kel:1:23: 型エラー: 操作名 return は予約されています(handle の return 節と衝突するため宣言できません)
   [1]
 
 終了は必ず safe_exit を通る(260829-5 M13 検証修正。exit の at_exit が
@@ -688,7 +688,7 @@ SIGPIPE は無視して出力エラー 74 に落とす(D33。既定のままだ�
 
   $ printf 'effect E3 = { _foo: (Int32) => Int32 }\n' > opus.kel
   $ diktor --type-check opus.kel
-  ! opus.kel:1:1: 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
+  ! opus.kel:1:21: 型エラー: 操作名 _foo は英小文字で始めてください(handle の節が操作名として読めません)
   [1]
 
 Run モードの診断は stderr(D54。stdout はプログラム出力専用):
