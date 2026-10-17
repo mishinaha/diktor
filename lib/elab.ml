@@ -4643,6 +4643,19 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    そこで、この行変数は空の行に決めてから上の扱いに入る。
    空の行は行の最小元なので、こう決めた実装は、宣言がどの行を名乗っていてもその行の下で呼べる。
 
+   インスタンスの本体の束縛は、新しい行変数の下で推論し、包摂の後でその行を許す行と照らす。
+   初期化式の行を推論の前に閉じた行に決めると、効果多相の関数を初期化式で呼んだとき、
+   その関数の行変数が初期化式の行に固まり、返す関数の行にも流れ込む。
+   すると、何もエフェクトを起こさない実装が純粋性の検査で落ちることがある。
+   包摂の後に照らせば、返す関数と共有された行変数は包摂が空の行に決めた後なので、
+   この形は落ちない。
+   宣言の実行で 1 回だけ評価する初期化式の許す行は、トップレベルの行である。
+   トップレベルの初期化に含まれるからである(LangSpec §13.7、§15.4)。
+   前提を持つインスタンスと制約を持つメソッドの初期化式は、メソッドを使うたびに評価するので、
+   許す行は空の行である(LangSpec §6.4)。
+   許す行の外のエフェクトは、その名前を挙げる型エラーになる。
+   位置は、そのエフェクトを起こした式ではなく、メソッドの束縛を指す。
+
    実装が純粋でなければ、包摂は失敗する。
    最外の行の単一化で失敗したときは、診断がその規則を名指しする。
 
@@ -4711,7 +4724,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    本体は普通の `elab_binding` / `elab_rec_bindings` で推論する。
    そのため、注釈つきのメソッドも `let rec` のメソッドも同じ経路で通る(sample.kel:443-446)。 *)
 
-let check_instance_bodies env inode (i : T.instance_decl') =
+let check_instance_bodies env eff0 inode (i : T.instance_decl') =
   let cls, con, _holes = instance_head i in
   let ci = match Decls.find_class cls with Some ci -> ci | None -> bug "instance: class 未登録" in
   let imark = Unify.hole_mark () in
@@ -4802,21 +4815,57 @@ let check_instance_bodies env inode (i : T.instance_decl') =
         wrap (fun () -> Unify.unify inf skol);
         finish_adapter ()
   in
+  (* 初期化式が起こしたエフェクトの行 rho のラベルを、許す行と照らす。包摂の後に呼ぶ。
+     包摂が決まっていない実装の行を空の行に決めるので、
+     初期化式の行と返す関数の行が共有されていても、ここでは空の行として届く。
+     前提を持つインスタンスと、制約を持つメソッドの初期化式は、メソッドを使うたびに評価するので、
+     許す行は空の行である。それ以外の初期化式は宣言の実行で 1 回だけ評価するので、
+     許す行はトップレベルの行 eff0 である *)
+  let check_init_row bnode mname rho =
+    let mk = match Tree.get_dict bnode with Tree.DMethod (_, mk, _) -> mk | _ -> [] in
+    let per_use = pk <> [] || mk <> [] in
+    let allowed = if per_use then TRowEmpty else eff0 in
+    let top = List.map fst (fst (row_fields allowed)) in
+    let extra = List.filter (fun (l, _) -> not (List.mem l top)) (fst (row_fields rho)) in
+    (match extra with
+     | [] -> ()
+     | _ ->
+         let names = String.concat "、" (List.map (fun (l, _) -> display_of l) extra) in
+         if per_use then
+           type_error
+             ("エフェクト " ^ names ^ " をインスタンスメソッド " ^ mname
+            ^ " の初期化式では実行できません(メソッドを使うたびに評価する初期化式は、エフェクトを起こせません)")
+         else
+           type_error
+             ("エフェクト " ^ names ^ " をインスタンスメソッド " ^ mname
+            ^ " の初期化式では実行できません(初期化式が起こせるのはトップレベルの評価と同じエフェクトです)"));
+    (* ラベルを照らし終えた行の尾部は空の行で閉じる。許す行と単一化すると、
+       let rec の群で行を共有するとき、先に照らした束縛の許す行のラベルが、後の束縛の行に残る *)
+    match repr (snd (row_fields rho)) with TVar _ as tail -> Unify.unify tail TRowEmpty | _ -> ()
+  in
   List.iter
     (fun ((_, d) : T.decl) ->
       match d with
       | T.DLet ((_, b) as bnode) ->
           let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
-          let env2 = elab_binding env 0 (new_row_var 0) bnode in
+          let rho = new_row_var 0 in
+          let env2 = elab_binding env 0 rho bnode in
           (* 包摂のエラーは、そのメソッドの束縛を指す。宣言の先頭を指すと、複数のメソッドの
              どれが悪いかを位置から読めない *)
-          at_node bnode (fun () -> subsume bnode mname (SMap.find mname env2.values))
+          at_node bnode (fun () -> subsume bnode mname (SMap.find mname env2.values));
+          at_node bnode (fun () -> check_init_row bnode mname rho)
       | T.DLetRec bs ->
-          let env2 = elab_rec_bindings env 0 (new_row_var 0) bs in
+          let rho = new_row_var 0 in
+          let env2 = elab_rec_bindings env 0 rho bs in
           List.iter
             (fun (((_, b) as bnode) : T.let_binding) ->
               let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
               at_node bnode (fun () -> subsume bnode mname (SMap.find mname env2.values)))
+            bs;
+          List.iter
+            (fun (((_, b) as bnode) : T.let_binding) ->
+              let mname = match binding_name b with Some x -> x | None -> bug "instance: 名前なし" in
+              at_node bnode (fun () -> check_init_row bnode mname rho))
             bs
       | _ -> type_error "インスタンス本体には let だけが書けます")
     i.T.ins_body;
@@ -5305,7 +5354,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       | T.DEffect _ -> env (* パス 1 で登録済み *)
       | T.DClass _ -> env (* パス 1 で登録済み *)
       | T.DInstance i ->
-          check_instance_bodies env node i;
+          check_instance_bodies env eff0 node i;
           (* インスタンス本体にも、宣言の終わりの曖昧性検査を掛ける。値制限で一般化されない
              本体の let は all=false の検査(gen のガード)を通らないので、ここで掛けないと、
              曖昧な制約が台帳ごと捨てられる。到達集合は、各メソッドの束縛の型 *)
