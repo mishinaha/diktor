@@ -167,13 +167,14 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
   $ diktor --type-check maannot.kel
   use : (MutableArray[h, A], Int32) => A @ {Heap[h]}
 
-印字は型パラメータを付け直す。Ref と MutableArray の第 1 引数か Heap の引数に
-現れる変数は h、h1 の順に名付け、ほかの型の変数とは別に数える(two)。束縛子の
+印字は型パラメータを付け直す。Ref と MutableArray の第 1 引数かエフェクトの
+Heap の引数に現れる変数は h、h1 の順に名付け、ほかの型の変数とは別に数える(two)。束縛子の
 綴り r、s は表示に残らない。同じ変数が値の型の位置にも現れるときも h と書く
 (both)。一般化されない変数には下線が付く(w)。利用者の newtype の型引数は
 リージョンの位置に数えないので、Box[k] の k は、同じ印字に Ref[k, Int32] が
-現れる unbox では h、現れない size では A と出る。run の剛定数は ς のまま出る
-(regionshow2):
+現れる unbox では h、現れない size では A と出る。regionshow2 は run の本体で
+Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置にある run の剛定数が h
+ではなく ς1 と出る:
 
   $ cat > regionshow.kel <<'KEL'
   > let two[r, s, A](x: Ref[r, A], y: MutableArray[s, Int32]): A @ {Heap[r], Heap[s]} = Ref.get(x)
@@ -191,9 +192,9 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
   w : (_A) => Ref[_h, _A] @ {Heap[_h]}
   unbox : (Box[h]) => Ref[h, Int32]
   size : (Box[A]) => Int32
-  $ printf 'let main(): Int32 = run h { let r = Ref.new(1); r }\n' > regionshow2.kel
+  $ printf 'let g(): Int32 = run h { let r = Ref.new(0); let x: Int32 = r; 0 }\n' > regionshow2.kel
   $ diktor --type-check regionshow2.kel
-  ! regionshow2.kel:1:21: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  ! regionshow2.kel:1:50: 型エラー: 注釈された型を満たしません(型が一致しません: Int32 と Ref[ς1, _A])
   [1]
 
 構造的ヴァリアントのコンストラクタ #Heap のラベルは、エフェクトの Heap と同じ
