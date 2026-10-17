@@ -797,6 +797,138 @@ let rec の値束縛も頭を最外として読む。pub で頭の @ を省略�
   a : () => {} @ {}
   use : () => {} @ {Console}
 
+名前の参照でない式も、perform の引数では、操作の型の対応する部分が関数型
+なら閉じた行を開いてから単一化する。呼び出しの結果 mk() を、1 引数の操作と
+2 引数の操作に渡す形は受理する:
+
+  $ cat > nnperform.kel <<'KEL'
+  > effect Reg = { reg: (() => Unit @ Console) => Unit }
+  > effect Reg2 = { reg2: (() => Unit @ Console, Int32) => Unit }
+  > let a(): Unit @ {} = ()
+  > let mk(): () => Unit @ {} = a
+  > let use(): Unit @ Reg = perform reg(mk())
+  > let use2(): Unit @ Reg2 = perform reg2(mk(), 1)
+  > KEL
+  $ diktor --type-check nnperform.kel
+  a : () => {} @ {}
+  mk : () => () => {} @ {}
+  use : () => {} @ {Reg}
+  use2 : () => {} @ {Reg2}
+
+perform の引数に直接書いたタプル式の要素と、フィールドの選択 r.go も同じく
+開く:
+
+  $ cat > nnperformtup.kel <<'KEL'
+  > effect Reg = { reg: ((() => Unit @ Console, Int32)) => Unit }
+  > effect Reg2 = { reg2: (() => Unit @ Console) => Unit }
+  > let a(): Unit @ {} = ()
+  > let mk(): () => Unit @ {} = a
+  > let use(): Unit @ Reg = perform reg((mk(), 1))
+  > let use2(r: {go: () => Unit @ {}}): Unit @ Reg2 = perform reg2(r.go)
+  > KEL
+  $ diktor --type-check nnperformtup.kel
+  a : () => {} @ {}
+  mk : () => () => {} @ {}
+  use : () => {} @ {Reg}
+  use2 : ({go: () => {} @ {}}) => {} @ {Reg2}
+
+resume の引数も、操作の返り値の型が関数型なら開く:
+
+  $ cat > nnresume.kel <<'KEL'
+  > effect Get = { get: () => () => Unit @ Console }
+  > let a(): Unit @ {} = ()
+  > let mk(): () => Unit @ {} = a
+  > let use(): Unit @ Console = {
+  >   let g = perform get()
+  >   g()
+  > } handle {
+  >   case get() => resume(mk())
+  > }
+  > KEL
+  $ diktor --type-check nnresume.kel
+  a : () => {} @ {}
+  mk : () => () => {} @ {}
+  use : () => {} @ {Console}
+
+perform の引数に直接書いた無名関数の本体は、操作の型の矢印の行の下で推論
+する。reg の引数の型は () => Unit @ File なので、外側の行に Console が
+あっても、本体の修飾しない write は File.write に解決し、内側のハンドラが
+捕まえて x を出力する:
+
+  $ cat > lamperform.kel <<'KEL'
+  > effect File = { write: (String) => Unit }
+  > effect Reg = { reg: (() => Unit @ File) => Unit }
+  > let main(): Unit @ Console = {
+  >   perform reg(fn() => perform write("x"))
+  > } handle {
+  >   case reg(f) => {
+  >     { f() } handle { case write(s) => { echoln(s); resume() } }
+  >     resume()
+  >   }
+  > }
+  > main()
+  > KEL
+  $ diktor --type-check lamperform.kel
+  main : () => {} @ {Console}
+  _ : {}
+  $ diktor lamperform.kel
+  x
+
+resume の引数に直接書いた無名関数の本体も、操作の返り値の型の矢印の行の
+下で推論する。use の行には File と Console があるが、本体の write は
+File.write に解決する:
+
+  $ cat > lamresume.kel <<'KEL'
+  > effect File = { write: (String) => Unit }
+  > effect Get = { get: () => () => Unit @ File }
+  > let use(): Unit @ {File, Console} = {
+  >   let g = perform get()
+  >   g()
+  > } handle {
+  >   case get() => resume(fn() => perform write("x"))
+  > }
+  > KEL
+  $ diktor --type-check lamresume.kel
+  use : () => {} @ {File, Console}
+
+無名関数がタプル式の要素や別の無名関数の本体の中にあっても、操作の型の
+対応する部分の矢印の行の下で推論する:
+
+  $ cat > lamnest.kel <<'KEL'
+  > effect File = { write: (String) => Unit }
+  > effect Reg = { reg: ((() => Unit @ File, Int32)) => Unit }
+  > effect Reg2 = { reg2: (() => () => Unit @ File) => Unit }
+  > let use(): Unit @ {Reg, Console} = perform reg((fn() => perform write("x"), 1i32))
+  > let use2(): Unit @ {Reg2, Console} = perform reg2(fn() => fn() => perform write("x"))
+  > KEL
+  $ diktor --type-check lamnest.kel
+  use : () => {} @ {Reg, Console}
+  use2 : () => {} @ {Reg2, Console}
+
+操作の型の矢印の行に、修飾しない操作名を宣言するエフェクトが 2 つ現れる
+ときは、その行の中で曖昧なので拒否する:
+
+  $ cat > lamambig.kel <<'KEL'
+  > effect File = { write: (String) => Unit }
+  > effect Reg = { reg: (() => Unit @ {File, Console}) => Unit }
+  > let use(): Unit @ {Reg} = perform reg(fn() => perform write("x"))
+  > KEL
+  $ diktor --type-check lamambig.kel
+  ! lamambig.kel:3:47: 型エラー: 操作 write は、この位置の行に現れる複数のエフェクト(Console, File)に属します。Console.write、File.write のどれかに修飾してください
+  [1]
+
+操作の型の矢印の行が空なら、無名関数の本体はその空の行の下で推論するので、
+本体で Console の関数を呼ぶと、関数呼び出しの位置と同じ言い換えの付いた
+型エラーになる:
+
+  $ cat > lampure.kel <<'KEL'
+  > effect Reg = { reg: (() => Unit @ {}) => Unit }
+  > let use(): Unit @ {Reg, Console} = perform reg(fn() => echoln("x"))
+  > KEL
+  $ diktor --type-check lampure.kel
+  ! lampure.kel:2:56: 型エラー: ラベル Console がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
+  [1]
+
 @ {} の関数と @ Console の関数を同じリストに入れて順に呼ぶ形は、実行まで確かめる:
 
   $ cat > noheadrun.kel <<'KEL'
