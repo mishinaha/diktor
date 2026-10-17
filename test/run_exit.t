@@ -159,3 +159,59 @@ import の誤りも 1:
   $ diktor initinst.kel > /dev/null; echo "exit: $?"
   実行時エラー: R[L] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)
   exit: 3
+
+型検査に要する領域が処理系の限度を超えたときは、型検査での拒否と同じ 1 で終わる。
+初期化を始めないので、標準出力は空である。
+OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段の入れ子の式を型検査させる:
+
+  $ awk 'BEGIN { print "echoln(\"before\")"; s = "1"; for (i = 0; i < 20000; i++) s = "1 + (" s ")"; print "let x = " s; print "echoln(show(x))" }' > deep.kel
+  $ OCAMLRUNPARAM=l=100k diktor deep.kel 2> /dev/null; echo "exit: $?"
+  exit: 1
+  $ OCAMLRUNPARAM=l=100k diktor deep.kel > /dev/null; echo "exit: $?"
+  ! 処理系の限度: 型検査で再帰が深すぎます(スタックオーバーフロー)
+  exit: 1
+
+--type-check では、それまでの型の行に続けて同じ診断を標準出力に出す:
+
+  $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel; echo "exit: $?"
+  _ : {}
+  ! 処理系の限度: 型検査で再帰が深すぎます(スタックオーバーフロー)
+  exit: 1
+
+上限を 8M 語に広げれば、同じプログラムは型検査に通り、実行する:
+
+  $ OCAMLRUNPARAM=l=8M diktor deep.kel; echo "exit: $?"
+  before
+  20001
+  exit: 0
+
+対話的な実行では、型検査が限度を超えた入力を受理せず、続く入力を処理する:
+
+  $ printf 'let y = 1\n' > deeprepl.txt
+  $ sed -n 2p deep.kel >> deeprepl.txt
+  $ printf 'echoln(show(y))\n' >> deeprepl.txt
+  $ OCAMLRUNPARAM=l=100k diktor --repl < deeprepl.txt; echo "exit: $?"
+  y : Int32 = 1
+  ! 処理系の限度: 型検査で再帰が深すぎます(スタックオーバーフロー)
+  1
+  exit: 0
+
+構文解析に要する領域が処理系の限度を超えたときは、字句と構文の誤りと同じ 2 で終わる。
+ブロックの文の列は、文の数に比例するスタックで畳まれる。
+OCAMLRUNPARAM=l=16k でスタックの上限を 16384 語に絞り、2 万文のブロックを読ませる:
+
+  $ awk 'BEGIN { print "echoln(\"before\")"; print "let x = {"; for (i = 0; i < 20000; i++) print "  let a" i " = 1"; print "  1"; print "}"; print "echoln(show(x))" }' > seq.kel
+  $ OCAMLRUNPARAM=l=16k diktor seq.kel 2> /dev/null; echo "exit: $?"
+  exit: 2
+  $ OCAMLRUNPARAM=l=16k diktor --type-check seq.kel; echo "exit: $?"
+  seq.kel: 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)
+  exit: 2
+
+対話的な実行では、構文解析が限度を超えた入力を受理せず、続く入力を処理する:
+
+  $ awk 'BEGIN { print "let y = 1"; s = "let x = {"; for (i = 0; i < 20000; i++) s = s " let a" i " = 1;"; print s " 1 }"; print "echoln(show(y))" }' > seqrepl.txt
+  $ OCAMLRUNPARAM=l=16k diktor --repl < seqrepl.txt; echo "exit: $?"
+  y : Int32 = 1
+  <stdin>: 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)
+  1
+  exit: 0
