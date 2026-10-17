@@ -342,6 +342,28 @@ r(1) を先に書くと、宣言の終わりの既定化で r が (Int32) => Int
   $ inv aliasrow_a.kel aliasrow_b.kel
   same: exit 0
 
+§18.4。型の宣言群の中で、後ろで宣言するエイリアスに {} を渡す位置も置き換えられる。
+{} は、エイリアスの本体がパラメータを使う位置(@ の右)で空のエフェクト行と読む:
+
+  $ cat > aliasfwd_a.kel <<'KEL'
+  > newtype Box = Box(() => Unit @ {})
+  > type Use = (Int32) => Unit @ {}
+  > let u: Use = fn(x) => ()
+  > Box(fn() => u(1)) match { case Box(g) => g() }
+  > echoln("ok")
+  > KEL
+  $ cat > aliasfwd_b.kel <<'KEL'
+  > newtype Box = Box(Th[{}])
+  > type Use = A[{}]
+  > type Th[E] = () => Unit @ E
+  > type A[E] = (Int32) => Unit @ E
+  > let u: Use = fn(x) => ()
+  > Box(fn() => u(1)) match { case Box(g) => g() }
+  > echoln("ok")
+  > KEL
+  $ inv aliasfwd_a.kel aliasfwd_b.kel
+  same: exit 0
+
 §18.4 の 3 つ目の除外。pub のない値束縛の注釈の先頭の矢印で省略した @ は本体からの
 推論を表し、エイリアスの本体の矢印で省略した @ は @ {} を表すので、置き換えると型が変わる:
 
