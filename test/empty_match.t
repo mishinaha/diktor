@@ -1,6 +1,6 @@
 節のない match {} の照合対象の型が網羅性を調べる時点で未定の型変数のとき、処理系はその型を
-Never に決めることがある(§11.2)。変数に制約が付かないことと、match を含む束縛の外から観測
-できないことが、決める条件に含まれる。決めると match {} は網羅的になる。
+Never に決めることがある(§11.2)。変数に制約が付かないことと、網羅性を検査する束縛の型に
+変数が現れないことが、決める条件に含まれる。決めると match {} は網羅的になる。
 
 direct は、再開しない操作の perform の結果を関数の中で直接照合する。警告は出ず、
 --strict-exhaustive でも終了コードは 0 である:
@@ -18,11 +18,11 @@ direct は、再開しない操作の perform の結果を関数の中で直接�
   $ diktor --strict-exhaustive direct.kel
   -1
 
-次の 4 本は、照合対象が perform の式そのものではない。helper は返り値を注釈しない
-補助関数 fail の結果を照合し、--strict-exhaustive でも終了コードは 0 である。
-valbind は perform の結果を局所の値束縛 z で受けてから照合する。abort は返り値を型パラメータに
-した補助関数の結果を照合する。mutual は let rec の群の中で perform の結果を照合する。
-どれも警告は出ない:
+次の 4 本も関数の本体で照合し、direct とは照合対象の作り方か関数の束縛の仕方が違う。
+helper は返り値を注釈しない補助関数 fail の結果を照合し、--strict-exhaustive でも終了コードは
+0 である。valbind は perform の結果を局所の値束縛 z で受けてから照合する。abort は返り値を
+型パラメータにした補助関数の結果を照合する。mutual は let rec の群の中で perform の式そのものを
+照合する。どれも警告は出ない:
 
   $ cat > helper.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -135,8 +135,13 @@ elim の引数の型変数を決めないので、use の elim(v) は型が合�
 
 r1_nongen_top の h は、値制限で一般化しない最上位の束縛である。照合対象 y の型変数は h の
 型に現れるので決めず、警告になる。決めないので、後の h(3) は型が合い、k(false) は 0 を
-返す。w1 の局所の g は、前の最上位の束縛 p の弱い型変数を照合する。その変数は最上位の
-レベルにあるので決めず、警告になる。決めないので、後の p(3) は型が合い、3 を出力する:
+返す。
+
+w1 の p は値制限で一般化しない最上位の束縛で、--type-check の出力のとおり型は (_A) => _A
+である。最上位の t の中の局所の g は p(loop()) を照合する。loop の型は () => A で、照合対象の
+型を p の型変数 _A にするために使う(g は呼ばない)。_A は前の最上位の束縛 p の型変数で最上位の
+レベルにあるので決めず、警告になる。決めないので、後の p(3) は型が合い、3 を出力する。w1id は
+p を一般化する id に替えただけのもので、警告は出ない:
 
   $ cat > r1_nongen_top.kel <<'EOF'
   > let id(x) = x
@@ -149,18 +154,35 @@ r1_nongen_top の h は、値制限で一般化しない最上位の束縛であ
   0
   $ cat > w1.kel <<'EOF'
   > let id(x) = x
+  > let rec loop[A](): A = loop()
   > let p = id(fn(y) => y)
-  > fn(u: Int32) => { let g = fn(v) => p(v) match {}; u }
+  > let t(u: Int32): Int32 = { let g = fn(w: Int32) => p(loop()) match {}; u }
   > echoln(show(p(3)))
   > EOF
   $ diktor w1.kel
   ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   3
+  $ diktor --type-check w1.kel
+  id : (A) => A
+  loop : () => A
+  p : (_A) => _A
+  t : (Int32) => Int32
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
+  _ : {}
+  $ cat > w1id.kel <<'EOF'
+  > let id(x) = x
+  > let rec loop[A](): A = loop()
+  > let t(u: Int32): Int32 = { let g = fn(w: Int32) => id(loop()) match {}; u }
+  > echoln(show(id(3)))
+  > EOF
+  $ diktor --strict-exhaustive w1id.kel
+  3
 
 rigid は、利用者が明示した型パラメータ A の値 x を、局所の束縛 q の中で照合する。A は
 未定の型変数でないので決めず、警告になる。numvar は、perform の結果を局所の値束縛 r で
-受け、let a の中で照合し、後で r == 0 と比べる。比べると r の型変数に数値の制約が付くので
-決めず、警告になる:
+受け、let a の中で照合し、後で r == 0 と比べる。nocmp は numvar の条件 r == 0 を true に
+替えたものである。2 本の違いはこの比較だけで、numvar だけが警告になる。比べると r の型変数に
+数値の制約が付き、制約の付いた変数は決めないからである:
 
   $ cat > rigid.kel <<'EOF'
   > let f[A](x: A): Int32 = { let q = x match {}; 0 }
@@ -176,6 +198,13 @@ rigid は、利用者が明示した型パラメータ A の値 x を、局所�
   > EOF
   $ diktor numvar.kel
   ⚠ match が非網羅的です。例えば _ が漏れています
+  ok
+  $ cat > nocmp.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > let f(): Int32 @ Fail = { let r = perform throw("x"); let a = r match {}; if true then 1 else 2 }
+  > echoln("ok")
+  > EOF
+  $ diktor --strict-exhaustive nocmp.kel
   ok
 
 toplevelstmt は、最上位の値でない式文に、局所の束縛で包まずに match {} を直接書く。
