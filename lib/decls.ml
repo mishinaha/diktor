@@ -662,7 +662,7 @@ let add_data info =
    同じ操作名を持つので、操作名を大域で一意にするという素朴な規則は使えない。
    そこで Diktor は操作名の重複した宣言を許す。
    `op_index` は、非修飾の操作名から、その操作を持つエフェクトを宣言の順に並べた列を引く表である。
-   `add_effect` が `prev @ [ ef_name ]` と末尾に足すのは、この列を宣言の順に保つためである。
+   `set_effect_ops` が `prev @ [ ef_name ]` と末尾に足すのは、この列を宣言の順に保つためである。
 
    ### 選ぶのは表ではなく、その地点のエフェクト行
 
@@ -695,26 +695,40 @@ let effects : (oid, effect_info) Hashtbl.t = Hashtbl.create 32
    非修飾の操作名 → その操作を持つエフェクトの、宣言順の列 *)
 let op_index : (oid, oid list) Hashtbl.t = Hashtbl.create 64
 
-let add_effect info =
+(* エフェクトの登録は 2 段に分かれる。
+   `declare_effect` は名前だけを表に置き、操作を持たない項目を作る。
+   `set_effect_ops` は操作のスキーマを書き込み、操作の索引に足す。
+   第11章のパス 1a が前者を、パス 1b が後者を呼ぶ。
+   型の本体に書いたエフェクトラベルは、表に名前があるかどうかだけを見るので、
+   1b の newtype のフィールドや effect の操作の型が、後ろで宣言されたエフェクトを参照できる。
+   名前の重複と予約の検査は、名前を置く `declare_effect` が行う。 *)
+let declare_effect name =
   (* 組み込みスカラーの名前は effect でも奪えない(add_alias と同じ検査)。型名の
      名前空間も newtype やエイリアスと共有する(effect List は List の再宣言になる。
      §6.1 の後の type_namespace) *)
-  if Hashtbl.mem reserved_type_names info.ef_name && not !in_prelude then
-    type_error ("組み込み型 " ^ Type.display_of info.ef_name ^ " は effect で再宣言できません")
-  else check_std_type_twin "effect" info.ef_name;
-  claim_type_name "effect" info.ef_name;
-  if Hashtbl.mem effects info.ef_name then
-    if prelude_owned "effect" info.ef_name then
-      type_error ("標準環境の effect " ^ Type.display_of info.ef_name ^ " は再宣言できません")
-    else type_error ("effect " ^ Type.display_of info.ef_name ^ " が二重に宣言されています")
+  if Hashtbl.mem reserved_type_names name && not !in_prelude then
+    type_error ("組み込み型 " ^ Type.display_of name ^ " は effect で再宣言できません")
+  else check_std_type_twin "effect" name;
+  claim_type_name "effect" name;
+  if Hashtbl.mem effects name then
+    if prelude_owned "effect" name then
+      type_error ("標準環境の effect " ^ Type.display_of name ^ " は再宣言できません")
+    else type_error ("effect " ^ Type.display_of name ^ " が二重に宣言されています")
   else (
-    Hashtbl.add effects info.ef_name info;
-    mark "effect" info.ef_name;
-    List.iter
-      (fun (op, _) ->
-        let prev = Option.value ~default:[] (Hashtbl.find_opt op_index op) in
-        Hashtbl.replace op_index op (prev @ [ info.ef_name ]))
-      info.ef_ops)
+    Hashtbl.add effects name { ef_name = name; ef_ops = [] };
+    mark "effect" name)
+
+let set_effect_ops info =
+  Hashtbl.replace effects info.ef_name info;
+  List.iter
+    (fun (op, _) ->
+      let prev = Option.value ~default:[] (Hashtbl.find_opt op_index op) in
+      Hashtbl.replace op_index op (prev @ [ info.ef_name ]))
+    info.ef_ops
+
+let add_effect info =
+  declare_effect info.ef_name;
+  set_effect_ops info
 
 let find_effect e = Hashtbl.find_opt effects e
 
