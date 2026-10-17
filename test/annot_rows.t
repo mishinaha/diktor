@@ -125,10 +125,10 @@ effect の操作型の引数の矢印も入れ子(D44 の対象外という裁�
   ! opsig2.kel:4:63: 型エラー: ラベル Async2 がありません(行は閉じています)(操作 spawnp の引数の型が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)
   [1]
 
-操作の型は型パラメータを持たないので、操作の型の矢印の空の行は、書いた
-@ {} か @ の省略から来る。その行と渡した関数の行が一致しないときだけ §9 の
-案内を添える。resume の引数でも、操作の返り値の型の矢印の空の行と一致
-しなければ同じ案内が付く:
+操作の型は型パラメータを持たないので、操作の型の矢印の行は、型エイリアスを
+展開した後の操作の型に書いたもので決まる。opsig2 は、その行が空(@ の省略)で、
+渡した関数の行 Async2 と一致しないので、§9 の案内が付く形である。opsigresume は
+resume の引数で、操作の返り値の型の矢印の空の行と一致しないので、同じ案内が付く:
 
   $ cat > opsigresume.kel <<'KEL'
   > type Unit = {}
@@ -141,6 +141,18 @@ effect の操作型の引数の矢印も入れ子(D44 の対象外という裁�
   > KEL
   $ diktor --type-check --no-prelude opsigresume.kel
   ! opsigresume.kel:5:23: 型エラー: ラベル Async2 がありません(行は閉じています)(操作の返り値の型が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)
+  [1]
+
+空の行のエイリアス P を @ P と書いた操作の型の矢印も、展開すると @ {} なので、
+同じ案内が付く:
+
+  $ cat > opsigalias.kel <<'KEL'
+  > type P: EffectRow = {}
+  > effect Reg = { reg: (() => Unit @ P) => Unit }
+  > let use(f: () => Unit @ Console): Unit @ Reg = perform reg(f)
+  > KEL
+  $ diktor --type-check opsigalias.kel
+  ! opsigalias.kel:3:60: 型エラー: ラベル Console がありません(行は閉じています)(操作 reg の引数の型が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)
   [1]
 
 操作の型の空の行の矢印に無名関数を直接渡すと、本体はその空の行の下で
@@ -973,6 +985,40 @@ File.write に解決する:
   > KEL
   $ diktor --type-check lamambig.kel
   ! lamambig.kel:3:47: 型エラー: 操作 write は、この位置の行に現れる複数のエフェクト(Console, File)に属します。Console.write、File.write のどれかに修飾してください
+  [1]
+
+修飾しない操作名は、無名関数の本体の行、つまり操作の型の矢印の行 {Console, File}
+の中で解決するので、本体が先に Console を起こしていても、write を宣言する
+エフェクトがその行に 2 つあることは変わらず、拒否する。lamambigq は perform の
+引数の本体が先に perform Console.write を書く形、lamambigqr は resume の引数の
+本体が先に echoln を呼ぶ形である。lamambigqc は lamambigq と同じ本体を、仮引数の
+型が同じ矢印である関数の呼び出しの実引数に書いた形で、関数呼び出しの実引数でも
+同じく拒否することを示す:
+
+  $ cat > lamambigq.kel <<'KEL'
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Reg = { reg: (() => Unit @ {Console, File}) => Unit }
+  > let use(): Unit @ {Reg} = perform reg(fn() => { perform Console.write("a"); perform write("b") })
+  > KEL
+  $ diktor --type-check lamambigq.kel
+  ! lamambigq.kel:3:77: 型エラー: 操作 write は、この位置の行に現れる複数のエフェクト(Console, File)に属します。Console.write、File.write のどれかに修飾してください
+  [1]
+  $ cat > lamambigqr.kel <<'KEL'
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect G = { get: () => () => Unit @ {Console, File} }
+  > let use(): Unit = { let f = perform get(); () } handle { case get() => resume(fn() => { echoln("a"); perform write("b") }) }
+  > KEL
+  $ diktor --type-check lamambigqr.kel
+  ! lamambigqr.kel:3:102: 型エラー: 操作 write は、この位置の行に現れる複数のエフェクト(Console, File)に属します。Console.write、File.write のどれかに修飾してください
+  [1]
+  $ cat > lamambigqc.kel <<'KEL'
+  > effect File = { read: () => String, write: (String) => Unit }
+  > let call(g: () => Unit @ {Console, File}): Unit = ()
+  > let use(): Unit = call(fn() => { perform Console.write("a"); perform write("b") })
+  > KEL
+  $ diktor --type-check lamambigqc.kel
+  call : (() => {} @ {Console, File}) => {}
+  ! lamambigqc.kel:3:62: 型エラー: 操作 write は、この位置の行に現れる複数のエフェクト(Console, File)に属します。Console.write、File.write のどれかに修飾してください
   [1]
 
 操作の型の矢印の行が空なら、無名関数の本体はその空の行の下で推論するので、
