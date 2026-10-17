@@ -170,8 +170,8 @@ pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省�
   ! pubaliasarg4.kel:2:23: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)
   [1]
 
-エイリアスの本体の名前は、エイリアスを宣言した位置で読む(§15.1)。module の中の
-pub let は、同じ module のエイリアスの本体を見る:
+pubaliasmod では、module M の中の pub let h の注釈の F が M.F に当たり、
+M.F の本体の矢印には @ があるので通る:
 
   $ cat > pubaliasmod.kel <<'KEL'
   > type F = (Int32) => Int32
@@ -183,6 +183,20 @@ pub let は、同じ module のエイリアスの本体を見る:
   > KEL
   $ diktor pubaliasmod.kel
   2
+
+エイリアスの本体の名前は、エイリアスを宣言した位置で読む(§15.1)。
+次の 2 つでは、module M の中の pub type G = F の F が M.F に当たり、
+module の外の pub let h が M.G を使う。
+pubaliasmod2 は M.F の矢印に @ があるので通り、
+pubaliasmod3 は M.F の矢印に @ が無いので、外の F に @ があっても拒否する:
+
+  $ printf 'type F = (Int32) => Int32\nmodule M {\n  type F = (Int32) => Int32 @ {}\n  pub type G = F\n}\npub let h(g: M.G): Int32 = g(1)\n' > pubaliasmod2.kel
+  $ diktor --type-check pubaliasmod2.kel
+  h : ((Int32) => Int32 @ {}) => Int32 @ {}
+  $ printf 'type F = (Int32) => Int32 @ {}\nmodule M {\n  type F = (Int32) => Int32\n  pub type G = F\n}\npub let h(g: M.G): Int32 = g(1)\n' > pubaliasmod3.kel
+  $ diktor --type-check pubaliasmod3.kel
+  ! pubaliasmod3.kel:6:9: 型エラー: pub な宣言には完全な型注釈が必要です(型エイリアス M.F の本体の矢印に @ がありません)
+  [1]
 
 import したエイリアスにも、同じ要求が働く:
 
