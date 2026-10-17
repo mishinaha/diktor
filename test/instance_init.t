@@ -7,18 +7,21 @@
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
 前提を持たないインスタンスの初期化式は、トップレベルの行にある Console を起こせる。
-init は宣言の実行で 1 回だけ出て、show を 2 回使っても繰り返さない:
+init は宣言の実行で、その後の echoln("b") より前に 1 回だけ出て、show を 2 回使っても
+繰り返さない:
 
   $ cat > instinitcon.kel <<'KEL'
   > newtype Foo = Foo
   > type instance Show[Foo] {
   >   let show: (Foo) => String = { echoln("init"); fn(x) => "foo" }
   > }
+  > echoln("b")
   > echoln(show(Foo))
   > echoln(show(Foo))
   > KEL
   $ diktor instinitcon.kel
   init
+  b
   foo
   foo
 
@@ -63,8 +66,8 @@ Show のメソッド(instweakrow)も、利用者のクラスで @ E と書いた
   foo
 
 memo は効果多相の関数で、初期化式で呼ぶと、その行変数 E は初期化式の行と返す関数の
-行に共有される。初期化式の行を照らすのは包摂が返す関数の行を空の行に決めた後なので、
-instinitpoly は受理する。instinitpolylocal は、memo の結果を初期化式の中の局所の
+行に共有される。memo に渡す fn(x) => 7i32 はエフェクトを起こさない。instinitpoly は
+この形を受理して 7 を出す。instinitpolylocal は、memo の結果を初期化式の中の局所の
 束縛 m に置き、返す関数の本体から m を呼ぶ形で、これも受理する:
 
   $ cat > instinitpoly.kel <<'KEL'
@@ -185,19 +188,21 @@ Ref.new を起こす instinitheap は、エフェクトの名前とメソッド�
   n3
 
 対話的な実行ではトップレベルの行が Print を含むので、perform print を起こす初期化式を
-受理し、宣言の実行で init を出す。memo の結果を局所の束縛に置く instinitpolylocal の
-形も受理する:
+受理し、宣言の実行で、次の入力の echoln("x") より前に init を出す。memo の結果を
+局所の束縛に置く instinitpolylocal の形も受理する:
 
   $ diktor --repl <<'EOF2'
   > type class Sz[A] { val sz: (A) => Int32 }
   > newtype Foo = Foo
   > type instance Sz[Foo] { let sz = { perform print("init"); fn(x: Foo) => 1i32 } }
+  > echoln("x")
   > echoln(show(sz(Foo)))
   > let memo[E](f: (Foo) => Int32 @ E): (Foo) => Int32 @ E = { let v = f(Foo); fn(x) => v }
   > newtype Bar = Bar
   > type instance Sz[Bar] { let sz = { let m = memo(fn(x) => 3i32); fn(x: Bar) => m(Foo) } }
   > echoln(show(sz(Bar)))
   > EOF2
-  init1
+  initx
+  1
   memo : ((Foo) => Int32) => (Foo) => Int32 = <fn>
   3
