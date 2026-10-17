@@ -117,7 +117,10 @@ module SMap = Map.Make (String)
 
    `closed_item_row` は、引数の型のリストを閉じた `_item` 行に畳むだけの補助関数である。
    関数適用(§11.12)の引数の個数の不一致は、この閉じた行の単一化でも検出される。
-   ただし報告は、行に入る前に個数を比べる `check_call_arity`(§11.12)が行う。 *)
+   実引数にラベルが無く、仮引数の行が閉じた `_item` 行に決まっている呼び出しでは、
+   行に入る前に `check_call_arity`(§11.12)が個数を比べて報告する。
+   ラベル付きの実引数を含む呼び出しと、仮引数の型がまだ決まっていない呼び出しは比べず、
+   単一化の報告がそのまま出る。 *)
 
 type no_resume = No_never_clause of oid | No_guard | No_return_clause | No_cancel_clause
 
