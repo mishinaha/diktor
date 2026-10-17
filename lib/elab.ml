@@ -358,6 +358,12 @@ let check_call_arity what arg params =
        ^ " 個を渡しています")
   | _ -> ()
 
+(* perform の引数と resume の引数で、期待型の矢印の行が空のときに、行の不一致に添える文言(§11.19)。
+   操作の型は型パラメータを持たないので、その空の行は操作の型に書いた @ {} か @ の省略から来る *)
+let op_row_note what =
+  "(" ^ what
+  ^ "が求める関数の行は空 = 純粋です。操作の型の矢印は書いたとおりに読み、@ の省略は @ {} と読みます。エフェクトを起こす関数を通すなら、操作の型のその矢印に @ で行を書いてください。§9)"
+
 (* 最外の行が閉じた矢印の尾部を、新しい行変数で開く(使用時の開き。§11.26)。
    名前で参照した関数の型(§11.11)と、呼び出し先の関数の型(§11.12)に掛ける。
    開いてから単一化すると、閉じた行のラベルを含むどの行の下からでも使える。
@@ -1987,6 +1993,20 @@ and elab_exp' env level eff node e =
    `mk()` のような名前の参照でない式は、操作の型の対応する部分が関数型なら、
    閉じた行を開いてから単一化する。
 
+   引数の矢印の行が、操作の型が求める空の行と一致しないときは、
+   `elab_check` に渡した文言(`op_row_note`)を添えて、操作の型の矢印は書いたとおりに読み、
+   `@` の省略は `@ {}` と読むこと(仕様 §9)を案内する。
+   操作の型は型パラメータを持たないので、期待型の空の行は、
+   操作の型に書いた `@ {}` か `@` の省略から来る。
+   引数の型の不一致には添えない(§11.19)。
+
+   perform の位置の行が閉じた空の行で、エフェクトを足せずに落ちたときは、
+   関数呼び出し(§11.12)と同じく、この位置の行が空 = 純粋であることを添える。
+   `@ {}` と注釈した関数とインスタンスメソッドの本体、その中の handle の節の本体、
+   操作の型の矢印や `@ {}` の矢印を期待する位置に書いた無名関数の本体で、
+   操作を起こす形がそうである。
+   トップレベル、`pub` で `@` を省略した宣言、行変数を注釈した本体は、この分岐に入らない。
+
    ### 再開しない操作の perform の型
 
    返り値の型が `Never` の操作は再開しない操作である。
@@ -2009,7 +2029,7 @@ and elab_exp' env level eff node e =
         | _ -> bug "操作スキーマが矢印型ではありません"
       in
       check_call_arity ("操作 " ^ display_of op ^ " は") arg args_row;
-      elab_check env level eff arg args_row;
+      elab_check ~row_note:(op_row_note ("操作 " ^ display_of op ^ " の引数の型")) env level eff arg args_row;
       (try Unify.unify eff (TRowExtend (eff_name, t_unit, new_row_var level))
        with Type_error msg ->
          (* pub で @ を省略した宣言の本体の行は、純粋を表す印のセルである(§11.26)。その行と
@@ -2017,6 +2037,10 @@ and elab_exp' env level eff node e =
             「行型ではありません: ς1」では原因に結びつかない) *)
          let pub_pure = is_pub_pure_row eff in
          if pub_pure then type_error "pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください)"
+         else if repr eff = TRowEmpty then
+           type_error
+             ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg
+            ^ ")(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
          else type_error ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
       (* 再開しない操作(返り値の型が Never)の perform 式は、穴と同じく周囲が要求する型になる *)
       if is_never op_ret then new_var level else op_ret
@@ -2028,6 +2052,7 @@ and elab_exp' env level eff node e =
 
    2 つ組の中身は、操作の返り値型と handle 式全体の型である。
    `resume(v)` は、操作の返り値型を期待型として `v` を検査し(§11.19)、handle 式全体の型を返す。
+   行の不一致に添える文言は、perform の引数と同じである(§11.15)。
    これは深いハンドラの型付けそのものである。
    resume を呼ぶと残りの計算が同じハンドラの下で最後まで走り、その最終結果が返ってくることを、
    この型が表している。
@@ -2059,7 +2084,7 @@ and elab_exp' env level eff node e =
           | None -> type_error "resume は操作節の中でのみ使えます")
       | Some (op_ret, tres) ->
           (match arg with
-          | Some e -> elab_check env level eff e op_ret
+          | Some e -> elab_check ~row_note:(op_row_note "操作の返り値の型") env level eff e op_ret
           | None ->
               (* 引数省略は操作の返り値型が Unit のときだけ(sample.kel:549) *)
               Unify.unify t_unit op_ret);
@@ -2250,13 +2275,37 @@ and elab_construct env level node cname ?eff args =
    その期待型が矢印なら `fallback` で開く。
    入れ子になっていても同じである。
 
+   `row_note` は、行の不一致に添える文言である。
+   perform の引数と resume の引数(§11.15、§11.16)だけが渡す。
+   `fallback` は、文言があり、推論した型と期待型がどちらも矢印で、期待型の行が閉じた空の行のときに、
+   引数、返り値、行の順に単一化し、最後の行の単一化の失敗にだけ文言を添える。
+   `Unify.unify` の矢印の分岐と同じ順序なので、受理と拒否は変わらない。
+   引数の型の不一致は行の単一化より先に報告されるので、文言は付かない。
+   エラーの文字列で行の失敗を見分ける `row_failure` を使わないのは、
+   レコードのフィールドの誤り(`ラベル y がありません`)のような行の不一致でない誤りも、
+   行の失敗と同じ文字列になるからである。
+   関数呼び出しの引数には渡さない。
+   仮引数の型が型変数のとき、期待型の空の行は先の引数から決まったものかもしれず、
+   @ の省略を案内すると原因を取り違えるからである。
+
    検査に成功したノードにも、`set_ty` で型を書く。
    期待型を押し込んだノードは `elab_exp` を通らないので、ここで書かないと、
    木に型の無いノードが残る。 *)
 
-and elab_check env level eff ((_, e) as node : T.exp) expected =
+and elab_check ?row_note env level eff ((_, e) as node : T.exp) expected =
   at_node node @@ fun () ->
-  let fallback () = Unify.unify (subsume_closed level (elab_exp env level eff node) expected) expected in
+  let fallback () =
+    let ty = subsume_closed level (elab_exp env level eff node) expected in
+    match (row_note, repr ty, repr expected) with
+    | Some note, TArrow (p1, r1, e1), TArrow (p2, r2, e2) when repr e2 = TRowEmpty -> (
+        (* 引数の個数、引数、返り値を先に調べ、最後の行の単一化の失敗だけを言い換える。
+           Unify.unify の矢印の分岐と同じ順序なので、受理と拒否は変わらない *)
+        Unify.check_arity ty expected p1 p2;
+        Unify.unify p1 p2;
+        Unify.unify r1 r2;
+        try Unify.unify e1 e2 with Type_error msg -> type_error (msg ^ note))
+    | _ -> Unify.unify ty expected
+  in
   match (e, repr expected) with
   | T.Lambda { l_params; l_body }, TArrow (pexp, rexp, eexp) -> (
       match repr pexp with
@@ -2270,7 +2319,7 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
             let seen = ref [] in
             let env2 = List.fold_left2 (fun env p (_, t) -> elab_pat env level seen t p) env l_params fields in
             Tree.set_ty node expected;
-            elab_check env2 level eexp l_body rexp;
+            elab_check ?row_note env2 level eexp l_body rexp;
             (* 検査モードのラムダも、引数パターンを網羅性検査のキューに積む。注釈の
                ある高階関数の引数に渡したラムダはこちらを通るので、推論側だけで積むと、
                最も普通のラムダが検査を素通りする。本体の後に積むのは、本体の中の
@@ -2282,8 +2331,8 @@ and elab_check env level eff ((_, e) as node : T.exp) expected =
       match Unify.rewrite_row row (intern l) with
       | fty, rest_row ->
           Tree.set_ty node expected;
-          elab_check env level eff v fty;
-          elab_check env level eff rest (TRecord rest_row)
+          elab_check ?row_note env level eff v fty;
+          elab_check ?row_note env level eff rest (TRecord rest_row)
       | exception Type_error _ -> fallback ())
   | _ -> fallback ()
 
