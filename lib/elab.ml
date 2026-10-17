@@ -626,6 +626,20 @@ let unresolved_kind ty = match kind_repr (Unify.kind_of ty) with KVar _ -> true 
 
 let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
 
+(* 注記の無いエイリアスと : Type のエイリアスの本体は、行であってはならない。
+   本体が行のエイリアスは、値の型の位置ではカインドで落ち、エフェクト位置では
+   Type エイリアスとして落ちるので、どこにも書けない。
+   使用点を待たずに宣言の位置で落とし、: EffectRow の注記を案内する。
+   高階カインドの本体(type Q[F[_]] = F)は App[Q[F]] の形で使えるので落とさない。
+   カインドを照合ではなく照会で見るので、未確定のカインド変数を張らない *)
+let check_alias_body_kind name ty =
+  match kind_repr (Unify.kind_of ty) with
+  | KRow ->
+      type_error
+        ("Type エイリアス " ^ name ^ " の本体のカインドが Type ではありません: " ^ Show.show ty
+       ^ " :: Row(行に名前を付けるには : EffectRow を付けてください)")
+  | _ -> ()
+
 (* newtype とエイリアスの本体の投機(§11.31、§11.39)の最中だけ真。
    型引数の読み分け(elab_con_args と expand_alias)がこれを見て、
    型としても行としても読める字面をパラメータとの照合に使わない *)
@@ -955,7 +969,10 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
 
    `al_kind` が `EffectRow` のときだけ、本体をエフェクト行として精緻化する。
    Keleut では行変数とエフェクト名が構文上同じ形なので、
-   エイリアスの側にカインドの注記が要る(§11.6)。 *)
+   エイリアスの側にカインドの注記が要る(§11.6)。
+   注記の無いエイリアスの本体は値の型として読み、そのカインドが行なら、
+   パス 2 が宣言の位置で落とす(§11.40)。
+   本体が行の Type エイリアスは、値の型の位置にもエフェクト位置にも書けないからである。 *)
 
 (* 値の型の位置で読んだ型のカインドが Type であることを確かめる。
    矢印の引数と返り値、レコードのフィールド(タプルの要素を含む)、ヴァリアントの積載、
@@ -5777,6 +5794,12 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
    - `DType`：パス 1a で表に入っているので、ここでは検査のためだけに本体を精緻化し、結果を捨てる。
      未知の型、再帰、部分適用がこの時点で報告されるので、
      使われないエイリアスの誤りも黙って残らない。
+     `EffectRow` の注記が無いエイリアスでは、本体のカインドが行でないこともここで照合する
+     (`check_alias_body_kind`。`test/kinds.t` の aliasrow)。
+     展開した本体が型パラメータそのもののエイリアス(`type Id[A] = A`、
+     `type Id2[A] = Id[A]`)は照合しない。
+     本体のカインドはパラメータのカインドで、`Callback[Id[X]]` のように使う位置が行に決めうる
+     (`test/kinds.t` の hktrowok)。
    - `DLet` / `DLetRec`：本体を推論し、既定化してから型を印字する。
    - `DExp`：式を推論し、網羅性の警告を流してから型を印字する。
    - `DExtern`：署名だけを登録する。
@@ -5800,15 +5823,24 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       let env' =
         match d with
       | T.DType t ->
-          (* 実在検査(未知の型、再帰、部分適用)をここで走らせる。結果は捨てる *)
+          (* 実在検査(未知の型、再帰、部分適用)と本体のカインドの照合をここで走らせる。結果は捨てる *)
           let info = Hashtbl.find Decls.aliases (intern t.T.ta_name) in
           let lvl = 1 in
           let rigids = make_rigids ~kinds:info.Decls.al_kinds lvl info.Decls.al_params in
           let env_ty = { env with types = List.fold_left (fun m (n, ty, _) -> SMap.add n ty m) env.types rigids } in
-          ignore
-            (match info.Decls.al_kind with
-            | Some "EffectRow" -> elab_eff env_ty lvl info.Decls.al_body
-            | _ -> elab_type env_ty lvl info.Decls.al_body);
+          (match info.Decls.al_kind with
+          | Some "EffectRow" -> ignore (elab_eff env_ty lvl info.Decls.al_body)
+          | _ ->
+              let ty = elab_type env_ty lvl info.Decls.al_body in
+              (* 展開した本体が型パラメータそのもの(type Id[A] = A、type Id2[A] = Id[A])なら、
+                 本体のカインドはパラメータのカインドで、使う位置が決めたものである。照合しない *)
+              let bare_param =
+                match Type.repr ty with
+                | TVar r' -> List.exists (fun (_, _, r) -> r == r') rigids
+                | _ -> false
+              in
+              if not bare_param then
+                at_node info.Decls.al_body @@ fun () -> check_alias_body_kind (Type.display t.T.ta_name) ty);
           release_rigids rigids;
           env
       | T.DLet b ->
