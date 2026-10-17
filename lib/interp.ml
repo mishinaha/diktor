@@ -83,18 +83,18 @@ module T = Tree.Tree
    要る表は、利用者が宣言したインスタンスの `instance_impls` と、
    第13章の組み込みのメソッド表である。
    型構成子は第1章のインターン表の oid で、型の側と同じ番号を使う。
-   辞書パラメータは局所環境 `locals` に名前で置くので、
-   閉包が辞書を字句的に捕まえる仕組みを別に持たない。 *)
+   辞書パラメータは環境の `dicts` に鍵 (型変数の vid, クラスの oid) で置く(第12章 §12.3)。
+   `dicts` は環境の一部なので、閉包は `c_env` とともに辞書を字句的に捕まえ、別の仕組みを持たない。
+   鍵を整数の組のまま比べるので、辞書を引くたびに名前の文字列を作らない。 *)
 
 (* 利用者が宣言したインスタンスのメソッド。(クラス, 型構成子) → メソッド名 → 前提と
    メソッド自身の辞書を受け取って実装を返す関数。exec_decl の DInstance だけが jreplace で書く *)
 let instance_impls : (oid * oid, (oid * (Value.t list -> Value.t)) list) Hashtbl.t = Hashtbl.create 32
 
-(* 辞書パラメータの鍵(型変数の vid, クラスの oid)を局所環境の名前にする。
-   利用者の識別子は英字か _ で始まるので、$ で始まる名前とは衝突しない *)
+(* 辞書パラメータの鍵(型変数の vid, クラスの oid)を診断のために文字列にする *)
 let dkey_name ((v, c) : Tree.dkey) = "$d" ^ string_of_int v ^ ":" ^ string_of_int c
 
-let bind_dicts env ks ds = { env with locals = List.fold_left2 (fun l k d -> SMap.add (dkey_name k) d l) env.locals ks ds }
+let bind_dicts env ks ds = { env with dicts = List.fold_left2 (fun m k d -> DMap.add k d m) env.dicts ks ds }
 
 (* 辞書パラメータを含まない証拠の辞書は、穴ごとに 1 回だけ作って覚える *)
 let closed_cache : (oid, Value.t) Hashtbl.t = Hashtbl.create 64
@@ -475,7 +475,7 @@ and op_dict env node = match Tree.get_dict node with Tree.DUse [ h ] -> eval_ev 
 and eval_ev env (ev : Tree.evidence) =
   match ev with
   | Tree.EvParam k -> (
-      match SMap.find_opt (dkey_name k) env.locals with Some d -> d | None -> bug ("辞書パラメータが束縛されていません: " ^ dkey_name k))
+      match DMap.find_opt k env.dicts with Some d -> d | None -> bug ("辞書パラメータが束縛されていません: " ^ dkey_name k))
   | Tree.EvInst (c, n, subs) -> VDict (DInst (c, n, List.map (eval_ev env) subs, ref []))
   | Tree.EvRecord fs -> VDict (DRecord (List.map (fun (l, e) -> (l, eval_ev env e)) fs))
   | Tree.EvVariant fs -> VDict (DVariant (List.map (fun (l, e) -> (l, eval_ev env e)) fs))
@@ -1431,7 +1431,7 @@ let start_program () =
   let globals = Hashtbl.create 512 in
   register_builtin_values globals;
   register_class_methods globals;
-  { globals; locals = SMap.empty; resume = None }
+  { globals; locals = SMap.empty; dicts = DMap.empty; resume = None }
 
 (* 単位 1 個の宣言を、前の単位までの大域の環境の上で実行する。
    値の参照は型検査が木に書いた実体で引くので、単位をまたいでも名前は衝突しない *)
@@ -1490,9 +1490,8 @@ let run ~sink decls = run_units ~sink [ decls ]
    辞書パラメータを含まない証拠の辞書は穴ごとに 1 回だけ作り、
    辞書を受け取る値は直前に受け取った辞書の列と結果を覚えるので、
    同じ呼び出し地点を繰り返しても辞書を作り直さない。
-   制約付きの多相関数の再帰は、再帰のたびに辞書を局所環境から引いて渡すので、
-   単相の関数より遅い。
-   辞書パラメータを名前の文字列で引くことがその費用の中心である。
+   制約付きの多相関数の再帰は、再帰のたびに辞書パラメータを `dicts` から引いて渡し、
+   演算子の辞書からメソッドを選ぶので、その分だけ単相の関数より遅い。
 
    最後に、本章で外すと気づかれずに壊れるものを並べる。
 

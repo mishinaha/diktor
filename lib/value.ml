@@ -33,6 +33,15 @@ open Syntax
 module T = Tree.Tree
 module SMap = Map.Make (String)
 
+(* 辞書パラメータの鍵(型変数の vid, クラスの oid)の Map *)
+module DMap = Map.Make (struct
+  type t = int * int
+
+  let compare ((v1, c1) : t) ((v2, c2) : t) =
+    let r = Int.compare v1 v2 in
+    if r <> 0 then r else Int.compare c1 c2
+end)
+
 (* ## 12.1 値の一覧
 
    | コンストラクタ | 表すもの |
@@ -159,11 +168,17 @@ and prim = { p_name : string; p_fn : t -> t (* 引数レコードを受け取る
 
    その代わり、局所束縛を 1 つ追加するたびに、Map への挿入に対数時間がかかる。
    この 2 層の構成は、環境をハッシュ表 1 つにして push と pop で管理する実装と比べると、
-   深い再帰ではわずかに遅いが、クロージャによる環境の捕獲を O(1) で正しく行える。 *)
+   深い再帰ではわずかに遅いが、クロージャによる環境の捕獲を O(1) で正しく行える。
+
+   型クラスの辞書パラメータは局所の層に属し、`locals` と別の不変の Map `dicts` に、
+   鍵 (型変数の vid, クラスの oid) で置く(第14章 §14.1)。
+   利用者の名前と鍵の空間が分かれるので衝突せず、整数の組で比べるので引くのが安い。
+   `locals` と同じく不変なので、クロージャは `c_env` に持つだけで辞書も捕まえる。 *)
 
 and env = {
   globals : (Tree.gref, t) Hashtbl.t;
   locals : t SMap.t;
+  dicts : t DMap.t;
   resume : resume option;
 }
 
@@ -182,7 +197,7 @@ and env = {
    `resume` をレコードや配列に入れたり、関数から返したりできてしまう。
    `t` にそのコンストラクタが無いので、継続を値としてどこかへ運ぶことはできない。
 
-   その代わり、継続は環境の 3 つ目のフィールド `resume` に入れて運ぶ。
+   その代わり、継続は環境のフィールド `resume` に入れて運ぶ。
    このフィールドは、操作節の本体を評価するあいだだけ `Some` になる。
    第14章はハンドラの `effc` で `{ env with locals; resume = Some r }` を作り、
    `return` 節、`cancel` 節、ガード式では `resume = None` にする。
