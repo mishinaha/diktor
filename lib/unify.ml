@@ -566,7 +566,14 @@ let rec rewrite_row row label =
    直し方は、衝突した束縛の種類と、空の行がどちらの側にあるかで変わり、
    単一化はそのどちらも知らない。
    値束縛は型パラメータを取れないので、行変数を新しく導入する直し方は使えない。
-   空の行が初期化式や呼び出した関数の側にあるときは、注釈ではなくその関数の側を直す。 *)
+   空の行が初期化式や呼び出した関数の側にあるときは、注釈ではなくその関数の側を直す。
+
+   剛定数が一致しない分岐は、衝突した 2 つの型を `last_rigid_clash` に残してから報告する。
+   第11章の再帰群(§11.29)は、報告を受け取った後でこの組を見て、
+   衝突した剛定数が群のどの束縛の型パラメータかを調べ、原因に近い事実を報告に添える。
+   報告の文面は型を表示用の名前でしか持たないので、剛定数の同一性はこの組からしか分からない。 *)
+
+let last_rigid_clash : (ty * ty) option ref = ref None
 
 let item_arity t =
   match repr t with
@@ -625,7 +632,9 @@ and unify_in ~structural a b =
         | ((TVar _ as rv), TRowEmpty) | (TRowEmpty, (TVar _ as rv)) ->
             type_error
               ("行 " ^ show rv ^ " は注釈で固定された行変数なので、空の行と一致させられません")
-        | (TVar _, _ | _, TVar _) -> type_error ("スコープ付きの型が一致しません: " ^ show2 t1 t2)
+        | (TVar _, _ | _, TVar _) ->
+            last_rigid_clash := Some (t1, t2);
+            type_error ("スコープ付きの型が一致しません: " ^ show2 t1 t2)
         | _ -> type_error ("型が一致しません: " ^ show2 t1 t2))
 
 (* 引数の行がどちらも閉じた _item 行で、個数が違えば、行の単一化に入る前に

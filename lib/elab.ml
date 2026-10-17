@@ -334,17 +334,18 @@ let rec is_pub_pure_row eff =
   | TRowExtend (_, _, rest) -> is_pub_pure_row rest
   | _ -> false
 
+let has_sub sub s =
+  let n = String.length sub and m = String.length s in
+  let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
+  go 0
+
 (* 失敗が行の単一化に由来するかどうか(エラー文言を言い換えるかどうかの判定)。
    引数の型の不一致まで、仕様 §9 の行の話にしないために使う。
    pub の言い換え(§11.12、§11.28、§11.29)、行が空の位置の言い換え(§11.12)、
    newtype のフィールドの言い換え(§11.18)、
    インスタンスメソッドの純粋性の言い換え(§11.38)が共用する *)
 let row_failure msg =
-  let has sub s =
-    let n = String.length sub and m = String.length s in
-    let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in
-    go 0
-  in
+  let has = has_sub in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
 
 (* 呼び出しの実引数の並び(_item の RecordExtend の連なり)の個数。
@@ -3510,6 +3511,25 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    前の束縛の剛定数は、相手の `pre` に入り込んでいなければ本体の検査の後に Generic に変わるので、
    後ろの本体はそれを参照するたびに具体化できる(下の小節の recandpoly と同じ仕組み)。
 
+   ### 型パラメータの衝突の報告
+
+   上の形の報告は、表示用の名前 `ς1` と `ς2` しか含まず、
+   どの束縛のどの型パラメータが衝突したかを利用者がたどれない。
+   そこで、剛定数の衝突で落ちたときに、第8章の `last_rigid_clash` が残した 2 つの型を見て、
+   原因に近い事実を報告に添える(`group_note`)。
+   添えるのは、衝突した一方が検査している束縛自身の型パラメータの剛定数のときに限る。
+   もう一方が群のほかの束縛の型パラメータで、
+   その剛定数が検査している束縛の `pre` に入り込んでいれば、
+   その束縛と型パラメータの名前を挙げる(`test/rec_tparam_note.t` の twotp)。
+   もう一方がそれ以外の型で、落ちたのが `pre` と本体の型の単一化で、
+   本体を検査する前に `pre` の未定変数のどれかがすでに決まっていたなら、
+   前にある束縛のうち検査している束縛を参照したものの名前を挙げる(concrete)。
+   このときの末尾には、具体的な型を渡す形を書いた §18.2 も挙げる。
+   本体を検査する前に `pre` が決まっていなければ、`pre` を決めたのは束縛自身の本体なので、
+   前の束縛の参照を原因として挙げない(selfrec)。
+   本体の中で起きた衝突のうち、ほかの束縛の型パラメータと関わらないもの(別の `run` のヒープなど)には添えない。
+   群の参照と関わらない誤りに、群の順序の話を添えないためである(notp、region)。
+
    ### 剛定数の解放は、相手に入り込んだものだけ群の終わりに行う
 
    束縛が作った型パラメータの剛定数のうち、
@@ -3614,49 +3634,118 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
   let g = { g_pres = List.map2 (fun (_, pre) bn -> (pre, bn)) names bs; g_cur = ref None; g_refs = [] } in
   group_stack := g :: !group_stack;
   let member_marks = ref [] in
+  (* 剛定数の衝突に、群の中の参照が単相であることから来る事実を添える(§11.29)。
+     at_pre は、pre と本体の型の単一化で落ちたときに真である *)
+  let members = List.combine bs (List.combine names tps) in
+  (* pre の中の未定変数を群の入り口で集め、各束縛の本体の前に、そのどれかがすでに
+     決まっていたか(前にある束縛の参照が決めたか)を記録する *)
+  let rec unbound_vars acc t =
+    match repr t with
+    | TVar ({ contents = Unbound _ } as r) -> if List.memq r acc then acc else r :: acc
+    | TVar _ | TRowEmpty -> acc
+    | TCon (_, args) -> List.fold_left unbound_vars acc args
+    | TApp (f, a) -> unbound_vars (unbound_vars acc f) a
+    | TArrow (a, ret, _) -> unbound_vars (unbound_vars acc a) ret
+    | TRecord row | TVariant row -> unbound_vars acc row
+    | TRowExtend (_, f, rest) -> unbound_vars (unbound_vars acc f) rest
+  in
+  let pre_vars = List.map (fun (_, pre) -> (pre, unbound_vars [] pre)) names in
+  let settled_before = ref [] in
+  let settled pre =
+    List.exists
+      (fun r -> match repr (TVar r) with TVar { contents = Unbound _ } -> false | _ -> true)
+      (List.assq pre pre_vars)
+  in
+  Unify.last_rigid_clash := None;
+  let group_note ~at_pre cur =
+    let clashed =
+      match !Unify.last_rigid_clash with
+      | Some (t1, t2) -> List.filter_map (fun t -> match repr t with TVar r -> Some r | _ -> None) [ t1; t2 ]
+      | None -> []
+    in
+    let (x, pre), own = List.assq cur members in
+    let flowed =
+      List.concat_map
+        (fun (_, ((y, pre_y), rigids)) ->
+          List.filter_map
+            (fun (tp, _, r) ->
+              if pre_y != pre && List.memq r clashed && mentions r pre then
+                Some (Printf.sprintf "%s の型パラメータ %s が %s の型に入り込んでいます" y tp x)
+              else None)
+            rigids)
+        members
+    in
+    let callers =
+      List.sort_uniq compare
+        (List.filter_map
+           (fun (_, from, tgt, _) ->
+             match from with Some f when tgt == cur && f != cur -> Some (fst (fst (List.assq f members))) | _ -> None)
+           g.g_refs)
+    in
+    let facts =
+      if not (List.exists (fun (_, _, r) -> List.memq r clashed) own) then []
+      else if flowed <> [] then flowed
+      else if at_pre && List.memq cur !settled_before then List.map (fun y -> Printf.sprintf "%s の本体が、型パラメータを持つ %s を参照しています" y x) callers
+      else []
+    in
+    let sections = if flowed <> [] then "§6.3" else "§6.3、§18.2" in
+    match facts with
+    | [] -> None
+    | _ ->
+        Some
+          ("(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。" ^ String.concat "。" facts
+         ^ "。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。" ^ sections ^ ")")
+  in
+  let clash msg = has_sub "スコープ付きの型が一致しません" msg && not (has_sub "再帰群の中で、前にある束縛" msg) in
   Fun.protect ~finally:(fun () -> group_stack := List.filter (fun g' -> g' != g) !group_stack) @@ fun () ->
   List.iter2
     (fun ((_, b) as bnode) (((_, pre), (sig_eff, sig_vty)), rigids) ->
-      at_node bnode @@ fun () ->
-      g.g_cur := Some bnode;
-      member_marks := (bnode, Unify.hole_mark ()) :: !member_marks;
-      (* pub の完全注釈検査と、@ の省略を @ {} と読む規則は、let(§11.28)と同じ。
-         値束縛の頭の矢印も最外として扱う(§11.29) *)
-      (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
-      let env_ty = { env_rec with types = types_with env_rec rigids } in
-      let fn_ty =
-        match b.T.lb_params with
-        | Some params ->
-            let seen = ref [] in
-            let param_tys = method_param_tys lvl (match snd b.T.lb_name with T.PVar x -> expected_params x | _ -> None) params in
-            let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
-            (* 本体を検査する行は、先に pre に置いた行と同じものを使う(§11.29) *)
-            let fn_eff = match sig_eff with Some e -> e | None -> new_row_var lvl in
-            let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
-            let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
-            Unify.unify ret_ty (subsume_closed lvl body_ty ret_ty);
-            (* 引数パターンの網羅性検査の項目は、群のすべての本体の後に積む(下)。
-               ここで積むと、後続の束縛の本体の中の let の drain に食われて行が
-               早く閉じ、受理すべきプログラムが型エラーになる *)
-            rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
-            TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
-        | None ->
-            (* 値束縛の注釈は、先に pre に置いた sig_vty を使う(§11.29)。pub で頭の @ を
-               省略した注釈の行は {} に読んであり、本体がエフェクトを起こす失敗は
-               let(§11.28)と同じ言い換えをする *)
-            let vty = match sig_vty with Some t -> t | None -> new_var lvl in
-            (try Unify.unify vty (subsume_closed lvl (elab_exp env_ty lvl eff b.T.lb_body) vty)
-             with Type_error msg when b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg ->
-               type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"));
-            vty
-      in
-      Unify.unify pre fn_ty;
-      Tree.set_ty bnode fn_ty;
-      let shared, own =
-        List.partition (fun (_, _, r) -> List.exists (fun (_, other) -> other != pre && mentions r other) names) rigids
-      in
-      release_rigids own;
-      group_rigids := shared @ !group_rigids)
+      (try
+         at_node bnode @@ fun () ->
+         g.g_cur := Some bnode;
+         if settled pre then settled_before := bnode :: !settled_before;
+         member_marks := (bnode, Unify.hole_mark ()) :: !member_marks;
+         (* pub の完全注釈検査と、@ の省略を @ {} と読む規則は、let(§11.28)と同じ。
+            値束縛の頭の矢印も最外として扱う(§11.29) *)
+         (if b.T.lb_pub then check_pub_annots ~params:b.T.lb_params ~ret:b.T.lb_ret);
+         let env_ty = { env_rec with types = types_with env_rec rigids } in
+         let fn_ty =
+           match b.T.lb_params with
+           | Some params ->
+               let seen = ref [] in
+               let param_tys = method_param_tys lvl (match snd b.T.lb_name with T.PVar x -> expected_params x | _ -> None) params in
+               let env2 = List.fold_left2 (fun env p t -> elab_pat env lvl seen t p) env_ty params param_tys in
+               (* 本体を検査する行は、先に pre に置いた行と同じものを使う(§11.29) *)
+               let fn_eff = match sig_eff with Some e -> e | None -> new_row_var lvl in
+               let ret_ty = match b.T.lb_ret with Some t -> elab_value_type env_ty lvl "返り値の型注釈" t | None -> new_var lvl in
+               let body_ty = elab_exp env2 lvl fn_eff b.T.lb_body in
+               Unify.unify ret_ty (subsume_closed lvl body_ty ret_ty);
+               (* 引数パターンの網羅性検査の項目は、群のすべての本体の後に積む(下)。
+                  ここで積むと、後続の束縛の本体の中の let の drain に食われて行が
+                  早く閉じ、受理すべきプログラムが型エラーになる *)
+               rec_arg_queue := (params, param_tys) :: !rec_arg_queue;
+               TArrow (TRecord (closed_item_row param_tys), ret_ty, fn_eff)
+           | None ->
+               (* 値束縛の注釈は、先に pre に置いた sig_vty を使う(§11.29)。pub で頭の @ を
+                  省略した注釈の行は {} に読んであり、本体がエフェクトを起こす失敗は
+                  let(§11.28)と同じ言い換えをする *)
+               let vty = match sig_vty with Some t -> t | None -> new_var lvl in
+               (try Unify.unify vty (subsume_closed lvl (elab_exp env_ty lvl eff b.T.lb_body) vty)
+                with Type_error msg when b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg ->
+                  type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"));
+               vty
+         in
+         (try Unify.unify pre fn_ty
+          with Type_error msg when clash msg -> (
+            match group_note ~at_pre:true bnode with Some note -> type_error (msg ^ note) | None -> type_error msg));
+         Tree.set_ty bnode fn_ty;
+         let shared, own =
+           List.partition (fun (_, _, r) -> List.exists (fun (_, other) -> other != pre && mentions r other) names) rigids
+         in
+         release_rigids own;
+         group_rigids := shared @ !group_rigids
+       with Type_error_at (loc, msg) when clash msg -> (
+         match group_note ~at_pre:false bnode with Some note -> raise (Type_error_at (loc, msg ^ note)) | None -> raise (Type_error_at (loc, msg)))))
     bs
     (List.combine (List.combine names sigs) tps);
   release_rigids !group_rigids;
