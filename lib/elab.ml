@@ -630,6 +630,10 @@ let check_pub_annots ~tparams ~params ~ret =
    3. 宣言表の型構成子。カインドを引いて引数の個数を照合し、
       パラメータのカインドで引数を読み分けて照合する。
 
+   どれにも無ければ未知の型である。
+   スコープ外の module に同名の pub の型があれば、引数の有無によらず修飾名を案内する
+   (`unknown_type`。`test/visibility.t` の vis4b と vis4c)。
+
    `elab_type` は、型構成子とエイリアスの名前を必ず `Decls.resolve_con` を通して引く。
    module の平坦化(§11.42)の同義語表を引くためである。
    `module Parser` の中で `Parser` と書いても、外から `Parser.Parser` と書いても、
@@ -725,6 +729,22 @@ let check_alias_body_kind name ty =
    型としても行としても読める字面をパラメータとの照合に使わない *)
 let speculating = ref false
 
+(* 修飾しない名前 n を引いて、エイリアスにも宣言表にも無かったときの診断。
+   引数の有無によらず同じ文面にする(W と W[A] の両方)。
+   スコープ外の module の内部型なら候補を添える。
+   案内するのは pub の型だけで、非 pub の型は従っても直らない。
+   引数の個数は見ないので、修飾した後の個数の誤りは修飾名の分岐が報告する *)
+let unknown_type n oid =
+  match
+    List.filter
+      (fun q -> match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
+      (Decls.con_synonym_candidates oid)
+  with
+  | _ :: _ as cands -> "未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)"
+  | _ ->
+      if List.mem n absent_numeric then "未知の型: " ^ n ^ "(数値型は Int32、Int64、Float64 だけです)"
+      else "未知の型: " ^ n
+
 let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type_exp) : ty =
   (* 内部の再帰にも at_node を掛ける。入口だけを包むと、入れ子の注釈のどこで落ちても、
      注釈全体の先頭が診断の位置になってしまう *)
@@ -743,21 +763,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                 match Decls.con_kind oid 0 with
                 | KStar -> TCon (oid, [])
                 | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
-              else
-                (* スコープ外の module の内部型なら候補を添える。
-                   案内するのは pub の型だけで、非 pub の型は従っても直らない *)
-                match
-                  List.filter
-                    (fun q -> match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
-                    (Decls.con_synonym_candidates oid)
-                with
-                | _ :: _ as cands ->
-                    type_error
-                      ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)")
-                | _ ->
-                    if List.mem n absent_numeric then
-                      type_error ("未知の型: " ^ n ^ "(数値型は Int32、Int64、Float64 だけです)")
-                    else type_error ("未知の型: " ^ n)))
+              else type_error (unknown_type n oid)))
   | T.EIdent li -> (
       (* 平坦化済みの module の修飾型参照(Parser.Parser など)。
          修飾名でもエイリアスを引く(M.A の形) *)
@@ -819,7 +825,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                 if expected <> List.length args then
                   type_error (Printf.sprintf "型構成子 %s の引数は %d 個必要です(%d 個与えられました)" n expected (List.length args))
                 else TCon (oid, elab_con_args env level ~expanding n k args))
-              else type_error ("未知の型: " ^ n)))
+              else type_error (unknown_type n oid)))
   | T.EApply _ -> type_error "型適用の頭は型名でなければなりません"
 (* ## 11.4 矢印、レコード行、ヴァリアント和
 
