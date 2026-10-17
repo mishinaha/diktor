@@ -31,8 +31,36 @@ let rec の値束縛の形で書いた d3 の仮引数 n には署名の型を�
   ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   [1]
 
-insnever と同じく、Describe[Never] の describe の n の型は Never に決まる。節が 1 つの
-match の case _ には、照合に値が来ないので警告を出さない:
+insnever と同じく、Describe[Never] の describe の n の型は Never に決まる。それを示すため、
+case _ を 2 つ並べた match を Describe[Never] と Describe[String] に書いて比べる。
+inswild2never では n の型が Never なので、第 1 節と第 2 節の両方を到達不能と報告する。
+inswild2str では第 1 節が String の値を受けるので、第 2 節だけを報告する:
+
+  $ cat > inswild2never.kel <<'KEL'
+  > type class Describe[A] { val describe: (A) => String }
+  > type instance Describe[Never] { let describe(n) = n match { case _ => "never" case _ => "never2" } }
+  > type instance Describe[Int32] { let describe(n) = show(n) }
+  > echo(describe(3i32))
+  > KEL
+  $ diktor --strict-exhaustive --type-check inswild2never.kel
+  ⚠ 第 1 節は到達不能です(冗長)
+  ⚠ 第 2 節は到達不能です(冗長)
+  _ : {}
+  [1]
+  $ cat > inswild2str.kel <<'KEL'
+  > type class Describe[A] { val describe: (A) => String }
+  > type instance Describe[String] { let describe(n) = n match { case _ => "s" case _ => "s2" } }
+  > type instance Describe[Int32] { let describe(n) = show(n) }
+  > echo(describe(3i32))
+  > KEL
+  $ diktor --strict-exhaustive --type-check inswild2str.kel
+  ⚠ 第 2 節は到達不能です(冗長)
+  _ : {}
+  [1]
+
+同じ Describe[Never] で節を 1 つにした inswildnever は、値の無い型を受ける 1 つの
+パターンの扱い(uninhabited_pattern.t)に当たり、警告を出さない。--strict-exhaustive
+でも終了状態は 0 である:
 
   $ cat > inswildnever.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
