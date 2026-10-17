@@ -414,16 +414,31 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
 // `Show[String]` は引用符を付けない恒等写像なので、`show(Cons("a", Nil))` は `[a]` になる。
 // この非対称は `Show[String]` の側の性質で、本章では変えない。
 //
-// 再帰を `show` 自身ではなく `let rec go` に持たせたのは、括弧を付けるのが 1 回だけだからである。
+// 再帰を `show` 自身ではなく本体の中の `let rec` に持たせたのは、
+// 括弧を付けるのが 1 回だけだからである。
 // `show` は `[` と `]` を付けるので、尾を `show(t)` で畳むと、
 // `[1, [2, [3, []]]]` のように括弧が入れ子になる。
-// `go` は区切りの `, ` だけを担当し、括弧はメソッドの最後で 1 回だけ付ける。
+// 補助の関数は要素と区切りの `, ` だけを担当し、括弧はメソッドの最後で 1 回だけ付ける。
 //
-// その `go` を、インスタンス本体にメソッドと並べて書くことはできない。
-// 本体に書けるのはクラスのメソッドだけで、`go` を並べて書くと
-// 「クラス Show にメソッド go はありません」で落ちる(第11章)。
-// 補助関数をプレリュードのトップレベルに置くと大域の名前が 1 つ増えるので、
-// `go` はメソッド本体のブロックの中に閉じ込めた。
+// 要素を先頭から `Show.show(h) + ", " + go(t)` の形で畳むと、
+// 複写の量がリストの長さの 2 乗に比例する。
+// `String` の `+` は両辺を複写して新しい文字列を作るので、
+// 尾の文字列を要素の数だけ複写し直すからである。
+// そこで、隣り合う 2 つの文字列をつなぐ処理を、文字列が 1 つになるまで繰り返す。
+// `strs` は、要素を先頭から 4 つずつ表示して `, ` でつなぎ、その塊を逆順に並べたリストを返す。
+// `bwd` は逆順のリストを、`fwd` は正順のリストを、先頭から 2 つずつつないで、
+// 逆の向きのリストを返す。
+// `join` は、いまのリストがどちらの向きかを `rev` で持ち、この 2 つを交互に呼ぶ。
+// 1 回つなぐごとにリストの長さは半分になり、1 回でつなぐ文字列の長さの合計は出力の長さを超えない。
+// したがって、複写の量は全体で、出力の長さとリストの長さの対数の積で押さえられる。
+// 4 つずつの塊にするのは、短いリストでつなぐ回数とリストのセルを減らすためである。
+// 要素の `show` を呼ぶ順序は先頭からで、出力も先頭から畳む形と同じである。
+//
+// 補助の関数を、インスタンス本体にメソッドと並べて書くことはできない。
+// 本体に書けるのはクラスのメソッドだけで、`strs` を並べて書くと
+// 「クラス Show にメソッド strs はありません」で落ちる(第11章)。
+// 補助関数をプレリュードのトップレベルに置くと大域の名前が増えるので、
+// `strs`、`fwd`、`bwd`、`join` はメソッド本体のブロックの中に閉じ込めた。
 //
 // 要素の側を `Show.show` と修飾したのは、クラスのメソッドを呼んでいることを綴りで示すためである。
 // ここでは非修飾の `show` でも同じ意味になる。
@@ -436,14 +451,35 @@ let with_stdout[A, E](body: () => A @ {Print, Console extends E}): A @ {Console 
 
 type instance[A: Show] Show[List[_]] {
   let show(xs) = {
-    let rec go(ys) = ys match {
-      case Nil => ""
-      case Cons(head = h, tail = t) => t match {
-        case Nil => Show.show(h)
-        case _   => Show.show(h) + ", " + go(t)
+    let rec strs(ys, acc) = ys match {
+      case Cons(a, Cons(b, Cons(c, Cons(d, t)))) => {
+        let s = Show.show(a) + ", " + Show.show(b) + ", " + Show.show(c) + ", " + Show.show(d)
+        strs(t, Cons(s, acc))
       }
+      case Cons(a, Cons(b, Cons(c, Nil))) =>
+        Cons(Show.show(a) + ", " + Show.show(b) + ", " + Show.show(c), acc)
+      case Cons(a, Cons(b, Nil)) => Cons(Show.show(a) + ", " + Show.show(b), acc)
+      case Cons(a, Nil) => Cons(Show.show(a), acc)
+      case Nil => acc
     }
-    "[" + go(xs) + "]"
+    let rec fwd(ss, acc) = ss match {
+      case Cons(a, Cons(b, t)) => fwd(t, Cons(a + ", " + b, acc))
+      case Cons(a, Nil) => Cons(a, acc)
+      case Nil => acc
+    }
+    let rec bwd(ss, acc) = ss match {
+      case Cons(b, Cons(a, t)) => bwd(t, Cons(a + ", " + b, acc))
+      case Cons(a, Nil) => Cons(a, acc)
+      case Nil => acc
+    }
+    let rec join(ss, rev) = ss match {
+      case Cons(s, Nil) => s
+      case _ => if rev then join(bwd(ss, Nil), false) else join(fwd(ss, Nil), true)
+    }
+    xs match {
+      case Nil => "[]"
+      case _ => "[" + join(strs(xs, Nil), true) + "]"
+    }
   }
 }
 
