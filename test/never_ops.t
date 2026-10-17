@@ -696,3 +696,63 @@ resume で再開したときは、先の破棄で終わった計算の値、つ�
   $ diktor toplevel.kel
   ! toplevel.kel:2:9: 型エラー: エフェクト Fail をここでは実行できません(ラベル Fail がありません(行は閉じています))
   [1]
+
+宣言の最外の行に Fail を書いたメソッド parse の実装は、再開しない操作 throw で失敗できる
+(LangSpec §12.2、§13.2)。Parse[Int32] の実装は throw を起こし、呼ぶ側のハンドラが
+捕まえる。Parse[Boolean] は同じ宣言の下の純粋な実装である:
+
+  $ cat > clsfail.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > type class Parse[A] {
+  >   val parse: (String) => A @ Fail
+  > }
+  > type instance Parse[Int32] {
+  >   let parse(s) = if s == "1" then 1 else perform throw("bad: " + s)
+  > }
+  > type instance Parse[Boolean] {
+  >   let parse(s) = s == "t"
+  > }
+  > let r: Int32 = parse("2") handle { case throw(e) => { echoln("caught " + e); 0 - 1 } }
+  > echoln(show(r))
+  > let b: Boolean = parse("t") handle { case throw(e) => false }
+  > echoln(show(b))
+  > KEL
+  $ diktor clsfail.kel
+  caught bad: 2
+  -1
+  true
+
+宣言の行を {Fail extends E} と行変数で開いた形でも、実装は throw で失敗できる。制約
+[A: Parse] の補助関数 p を通して呼び、呼ぶ側のハンドラが捕まえる:
+
+  $ cat > clsfailrow.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > type class Parse[A] {
+  >   val parse[E]: (String) => A @ {Fail extends E}
+  > }
+  > type instance Parse[Int32] {
+  >   let parse[E](s: String): Int32 @ {Fail extends E} = if s == "1" then 1 else perform throw("bad: " + s)
+  > }
+  > let p[A: Parse, E](s: String): A @ {Fail extends E} = parse(s)
+  > let r: Int32 = p("2") handle { case throw(e) => { echoln("caught " + e); 0 - 1 } }
+  > echoln(show(r))
+  > KEL
+  $ diktor clsfailrow.kel
+  caught bad: 2
+  -1
+
+宣言の最外の @ を省略したメソッドの実装は純粋でなければならない。実装の側に @ Fail と
+書いて throw を起こす clsfailpure は、純粋性の規則を名指しする文面で拒否する:
+
+  $ cat > clsfailpure.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > type class Parse[A] {
+  >   val parse: (String) => A
+  > }
+  > type instance Parse[Int32] {
+  >   let parse(s: String): Int32 @ Fail = if s == "1" then 1 else perform throw("bad: " + s)
+  > }
+  > KEL
+  $ diktor --type-check clsfailpure.kel
+  ! clsfailpure.kel:6:7: 型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド parse の本体がエフェクトを起こしています。元の報告: ラベル Fail がありません(行は閉じています)
+  [1]
