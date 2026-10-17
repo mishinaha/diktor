@@ -34,7 +34,7 @@
    | パス | 登録するもの | 独立のパスにする理由 |
    |---|---|---|
    | 1a | エイリアスの表、newtype の頭、effect の名前 | 型の本体を書く前に、型構成子のカインドとエフェクトの名前を引けるようにする |
-   | 1a′ | (登録しない)newtype の本体の投機 | パラメータのカインドを宣言順に依存せず決める |
+   | 1a′ | (登録しない)newtype とエイリアスの本体の投機 | パラメータのカインドを宣言順に依存せず決める |
    | 1b | newtype のコンストラクタ、effect の操作、class のメソッド | 型の本体を書くのでカインドの表とエフェクトの名前が要る。投機が相手のパラメータのカインドを決められない形(§11.31)を除き、宣言順に依存しない |
    | 1c | インスタンスの頭、前方参照できる let の署名 | 頭の検査にクラス表が要る。署名は前方参照に使う |
    | 2 | let / let rec / 式 / extern / インスタンス本体 | 本体を宣言順に推論し、順に型を印字する |
@@ -926,7 +926,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    透過なエイリアスは展開後に痕跡を残さない。
    そのため、パラメータのカインドだけは表(`al_kinds`、第6章 §6.5)に残しておかないと、
    使用点で読み分けられない。
-   カインドは、1b の後始末が本体を一度投機的に精緻化して決める(§11.39)。
+   カインドは、1b の前と 1b の後始末で、本体を投機的に精緻化して決める(§11.39)。
    読み分けと照合の規則は `elab_con_args` と同じで、
    `type Cb[E] = Callback[E]` に対して `Cb[{Print}]` と書ける(`test/kinds.t` の alias)。
    仮に型引数をすべて型として読むと、
@@ -1262,8 +1262,8 @@ and expand_alias env level ~expanding info args =
    `drop_arrows` が `KArrow (KVar, KVar)` を張った結果の新しい `KVar` が届く。
    もう 1 つは、パラメータのカインドがまだ推論されていない型エイリアスの適用で、
    こちらは `TVar` が返る。
-   エイリアスのカインドの推論は 1b の後始末で走るので、
-   1b の newtype の本体から見ると、`al_kinds` は `KVar` のままである
+   本体がパラメータのカインドを決めないエイリアスでは、
+   1b の newtype の本体から見ても、`al_kinds` は `KVar` のままである
    (`type Id[A] = A` と `newtype N[X] = MkN(() => Unit @ Id[X])` を並べると、
    展開結果の `A` が `KVar` のカインドで最後の分岐へ返る)。
    つまり、構造で比べるのは、この分岐に未確定のカインドが来ないからではない。
@@ -4074,8 +4074,8 @@ let initial_env () =
 
    Diktor はこの形を**投機**で扱う。
    パス 1a の直後に宣言列をもう一度なめ、
-   newtype の本体を一度だけ読んでパラメータのカインドを決めてから、1b に入る。
-   この処理は `speculate_newtype` が行う(§11.39)。
+   newtype とエイリアスの本体を読んでパラメータのカインドを決めてから、1b に入る。
+   この処理は `speculate_newtype` と `speculate_alias` が行う(§11.39)。
    1b に着いた時点で `B` のパラメータが行だと分かっているので、読み分けは `{…}` を行として読む。
    `test/kinds.t` の fwdrow / fwdrow2 が両方の宣言順を確かめ、
    fwdrow3 と fwdrowmod / fwdrowmod2 が連鎖と module の中の形を確かめる。
@@ -5324,10 +5324,11 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    頭のカインドを登録する前に拒否するので、
    プレリュードの型の頭が利用者の宣言で書き換わることはない。
 
-   **1a の後始末**：newtype の本体を投機する。
-   1a が終わった直後に宣言列をもう一度なめ、newtype の本体を一度だけ投機的に精緻化する。
+   **1a の後始末**：newtype とエイリアスの本体を投機する。
+   1a が終わった直後に宣言列をもう一度なめ、
+   newtype とエイリアスの本体を宣言順に一度だけ投機的に精緻化する。
    目的は、パラメータのカインドを宣言順に依存せずに決めることだけで、
-   `speculate_newtype` はフィールドの型を `elab_type` に渡すほかは何もしない。
+   `speculate_newtype` と `speculate_alias` は型を `elab_type` に渡すほかは何もしない。
    1b の `register_newtype` と違って、コンストラクタを登録しない。
    `Decls.add_data` も `Unify.generalize` も `pub` の完全注釈検査も呼ばないので、
    残る副作用は `elab_type` がカインドのセルに張る単一化だけである。
@@ -5335,20 +5336,20 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    §11.5 の読み分け(`elab_con_args` と `expand_alias`)がそれを見て、
    型としても行としても読める字面(要素なしの波括弧)をパラメータとの照合に使わない(§11.31)。
 
-   下で述べるエイリアスの投機と、道具は同じである。
-   どちらも診断を捨て、`Panic` は捕まえない。
+   エイリアスを 1b の前にも投機するのは、
+   newtype の本体からエイリアスへ具体的な行を渡す形(`MkN(Cb[{Print}])`)があるからである。
+   1b の読み分けは、エイリアスのパラメータのカインドを見る。
+
+   どちらの投機も診断を捨て、`Panic` は捕まえない。
    捕まえるのは、握り潰す節に並べた 4 つの例外
    (`Type_error` / `Type_error_at` / `NotImplemented` / `NotImplemented_at`)だけである。
-   違いは 2 つある。
-   1 つ目は走る位置で、エイリアスの投機が 1b の後に来るのに対し、newtype の投機は 1b の前に置く。
-   1b の読み分けが相手のパラメータのカインドを見るので、それより前に済ませる必要がある(§11.31)。
-   2 つ目は握り潰す単位で、newtype の投機はフィールドごとに握り潰す。
+   newtype の投機はフィールドごとに握り潰す。
    エイリアスは本体が 1 つなので差が出ないが、newtype で本体全体を 1 つの `try` に包むと、
    1 つのフィールドで例外が飛んだときに、後続のフィールドの張りまで失う(§11.31)。
-   投機と既定化は、newtype の投機(1a の後)、1b、エイリアスの投機(1b の後始末の 1 周目)、
-   既定化(2 周目)の順に並ぶ。
+   投機と既定化は、newtype とエイリアスの投機(1a の後)、1b、
+   エイリアスの 2 回目の投機(1b の後始末の 1 周目)、既定化(2 周目)の順に並ぶ。
 
-   newtype の投機のループも `with_decl_module` で包む。
+   1a の後の投機のループも `with_decl_module` で包む。
    module の中の newtype のフィールド型は module の内部型を非修飾で参照するので、
    包み忘れたパスだけが「未知の型」になる。
    これを見張るのは `test/kinds.t` の fwdrowmod2 で、module の中の深さ 2 の連鎖である。
@@ -5371,7 +5372,9 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
    未知のクラスや予約述語が無いかを確かめることである。
    1b の中で確かめると、後ろで宣言されるクラスを制約に書いた形が落ちるので、
    クラス表が出揃うのを待つ。
-   2 つ目は、型エイリアスの本体を一度投機的に精緻化して、パラメータのカインドを推論することである。
+   2 つ目は、型エイリアスの本体をもう一度投機的に精緻化して、
+   パラメータのカインドを推論することである。
+   1b の後なので、1b が newtype の本体を読んで決めたカインドも使える。
    3 つ目は、newtype とエイリアスのパラメータのカインドを既定化することである。
 
    2 つ目の処理を投機と呼ぶのは、診断を捨てるからである。
@@ -5511,13 +5514,13 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           Decls.declare_effect (intern e.T.ef_name)
       | _ -> ())
     decls;
-  (* パス 1a の後始末: newtype の本体の投機。宣言順に依存せずにパラメータのカインドを
-     決めるため、登録の前に本体を一度読んで捨てる *)
+  (* パス 1a の後始末: newtype とエイリアスの本体の投機。宣言順に依存せずにパラメータの
+     カインドを決めるため、登録の前に本体を一度読んで捨てる *)
   List.iter
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
       with_decl_module node @@ fun () ->
-      match d with T.DNewtype n -> speculate_newtype env n | _ -> ())
+      match d with T.DNewtype n -> speculate_newtype env n | T.DType t -> speculate_alias env t | _ -> ())
     decls;
   (* パス 1b: newtype のコンストラクタ、effect、type class の登録(相互再帰と前方参照を許す)。
      クラスのメソッドの型パラメータの検査は、後始末まで class_checks に預ける *)

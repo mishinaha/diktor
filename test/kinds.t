@@ -374,6 +374,39 @@ effect の名前は投機より前(1a)に宣言表に置くので、() => Unit @
   $ diktor --type-check --no-prelude aliasunit4.kel
   v : Int32
 
+newtype のフィールドから、前に宣言したエイリアスへ具体的な行({Print})を渡す形
+(N22)と、後ろで宣言するエイリアスへ {} を渡す形(M22)。{Print} を渡す形では、
+1b の読み分けの時点でエイリアスのパラメータのカインドが決まっている必要があるので、
+エイリアスの本体も 1b の前に投機する:
+
+  $ cat > ntalias.kel <<'EOF'
+  > type Unit = {}
+  > effect Print = { print: (String) => Unit }
+  > newtype Callback22[E] = MkCb22(() => Unit @ E)
+  > type Cb22[E] = Callback22[E]
+  > newtype N22 = MkN22(Cb22[{Print}])
+  > newtype M22 = MkM22(A22[{}])
+  > type A22[E] = (Int32) => Unit @ E
+  > let f(n: N22, m: M22): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude ntalias.kel
+  f : (N22, M22) => Int32
+
+エイリアスの本体の中で、行のパラメータより右に同じ宣言群のエフェクトラベルがある
+形。effect の名前は 1a で宣言表に置くので、投機の中でもラベルを読み、パラメータの
+カインドが決まる:
+
+  $ cat > aliaslab.kel <<'EOF'
+  > type Unit = {}
+  > effect Log = { log: (String) => Unit }
+  > type Cb23[E] = (() => Unit @ E, () => Unit @ {Log})
+  > newtype N23 = MkN23(Cb23[{}])
+  > newtype M23 = MkM23(Cb23[{Log}])
+  > let f(n: N23, m: M23): Int32 = 0
+  > EOF
+  $ diktor --type-check --no-prelude aliaslab.kel
+  f : (N23, M23) => Int32
+
 投機の中でも、ラベルとして読むのは effect の宣言表に名前がある場合である。effect
 でない型の名前(aliaslab2 の Q24)と宣言の無い名前(aliaslab3 の Nope)は、
 エイリアスの本体の位置で、それぞれの診断になる:
@@ -542,6 +575,41 @@ sample.kel:252-255)。Row のパラメータの位置ではエフェクト行と
   $ diktor --type-check --no-prelude aliasfwd.kel
   f : (A6[R1]) => A6[R1]
   g : (A6[{Print}]) => Int32
+
+newtype のフィールドから、後ろで宣言するエイリアス経由で具体的な行を渡す形。
+エイリアスの本体も 1b より前に投機するので、1b の読み分けがエイリアスのパラメータの
+カインドを知っている。ラベルを書いた行(fwdalias)も、要素なしの波括弧(fwdalias2)も、
+行として読む:
+
+  $ cat > fwdalias.kel <<'EOF'
+  > newtype H = MkH(Cb[{Print}])
+  > type Cb[E] = Callback[E]
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > let fire(h: H): Unit @ Print = h match { case MkH(Callback(f)) => f() }
+  > let h = MkH(Callback(fn() => println("hello")))
+  > with_stdout(fn() => fire(h))
+  > EOF
+  $ diktor fwdalias.kel
+  hello
+  $ cat > fwdalias2.kel <<'EOF'
+  > newtype J = MkJ(() => Unit @ Wr[{}])
+  > type Wr[E]: EffectRow = {Print extends E}
+  > let j = MkJ(fn() => println("wr"))
+  > with_stdout(fn() => j match { case MkJ(f) => f() })
+  > EOF
+  $ diktor fwdalias2.kel
+  wr
+
+エイリアスの先の newtype の本体で、行のパラメータより右に同じ宣言群のエフェクト
+ラベルがある形も、エイリアスを挟んで通る:
+
+  $ cat > fwdalias5.kel <<'EOF'
+  > effect Log = { log: (String) => Unit }
+  > newtype H = MkH(Cb[{}])
+  > type Cb[E] = B[E]
+  > newtype B[E] = MkB((() => Unit @ E, () => Unit @ {Log}))
+  > EOF
+  $ diktor --type-check fwdalias5.kel
 
 行カインドのパラメータに型を渡すと、エイリアスの側の診断で落ちる:
 
