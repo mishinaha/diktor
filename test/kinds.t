@@ -445,8 +445,8 @@ C[{Log}] を読む時点で C のパラメータのカインドを知らずに�
   f : ((Int32) => {}) => {}
   h : ((Int32) => {} @ {}) => {}
 
-本体でパラメータを使わないエイリアスでは、パラメータのカインドが Type に決まる。
-このとき {extends R} は、宣言の位置で R を行とするレコード型として読む:
+A26 は本体でパラメータを使わず、C26 はその型引数に {extends R} を渡す。
+aliasunit4 の C26[{}] は通る。aliasunit4b の C26[Int32] は、R に行が要るとして拒否する:
 
   $ cat > aliasunit4.kel <<'EOF'
   > type C26[R] = A26[{extends R}]
@@ -455,6 +455,10 @@ C[{Log}] を読む時点で C のパラメータのカインドを知らずに�
   > EOF
   $ diktor --type-check --no-prelude aliasunit4.kel
   v : Int32
+  $ printf 'type C26[R] = A26[{extends R}]\ntype A26[E] = Int32\nlet w: C26[Int32] = 1\n' > aliasunit4b.kel
+  $ diktor --type-check --no-prelude aliasunit4b.kel
+  ! aliasunit4b.kel:3:12: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  [1]
 
 newtype のフィールドから、前に宣言したエイリアスへ具体的な行({Print})を渡す形
 (N22)と、後ろで宣言するエイリアスへ {} を渡す形(M22)。{Print} を渡す形では、
@@ -1196,8 +1200,9 @@ Type ではないが、別のエイリアスの引数(App[Q[F]])の形で使え�
   $ diktor aliasrow4.kel
   5
 
-この照合はパス 2 で宣言順に走る。エイリアスより前の宣言がそれを使っていれば、
-使用点の診断が先に出る:
+この照合はパス 2 で宣言順に走るので、エイリアスより前の宣言の誤りが先に出る。
+aliasrow5 では、前の宣言がパラメータの無い Q を @ Q と書いており、この使用が
+それだけで Type エイリアスとして誤りになるので、使用点の診断が出る:
 
   $ cat > aliasrow5.kel <<'EOF'
   > effect Log = { log: (String) => Unit }
