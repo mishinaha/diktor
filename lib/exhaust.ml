@@ -935,6 +935,35 @@ let rec show_ipat = function
    キューは大域状態である。
    空にしないと、前のファイルの処理やエラーで中断した推論が積んだエントリが残る。
 
+   ### 値の無い型を受ける 1 つのパターン
+
+   関数の引数、let のパターン束縛、return 節、節が 1 つの `match` のエントリは、行が 1 つである。
+   受ける型に値が無ければ、その位置に値が来ることはない。
+   照合が失敗して実行時エラーになることもないので、`check_entry` はこのエントリに警告を出さない。
+   網羅漏れの警告も、一致する値が無いという警告も出さない。
+
+   §10.11 の `useful` は、パターンの中でコンストラクタが 0 個の型を受ける位置に届くと、
+   その行を到達不能と判定する。
+   この判定をそのまま報告すると、警告の有無がパターンの形で変わる。
+   `newtype Absurd = MkA(Never)` の値を `MkA(n)` で受けると警告が出て、変数 `a` で受けると出ない。
+   `a` は `IWild` なので、`Absurd` の完全シグネチャを開かずに `default_matrix` で降りるからである。
+   型の側で判定すれば、形によらず、どちらにも警告は出ない。
+
+   値があるかどうかは `inhabited` が調べる。
+   完全シグネチャ(§10.7)のどれかのコンストラクタについて、引数の型すべてに値があれば、値がある。
+   シグネチャが `None` の型は、値があるとみなす。
+   再帰するデータ型をたどって同じ名前に戻ったときも、値があるとみなして打ち切る。
+   どちらも、警告を出す側に倒れる。
+   1 回の判定の中で調べ終えたデータ型は、型引数まで含めた鍵で結果を覚え、たどり直さない。
+   たどり直すと、2 つのコンストラクタがどちらも次の段の型を引数に持つ型が段になって続く形で、
+   段数に対して指数の時間がかかる。
+   `close_variant_rows` は行を閉じて型を決めるので、`inhabited` はその後で呼ぶ。
+   開いたままのヴァリアント行は、値があるとみなされる。
+
+   節が 2 つ以上の `match` は、この扱いの対象にしない。
+   値の無い型を照合する節は、§10.11 のとおり到達不能と報告する。
+   ペイロードの型に値の無いケースの節(`#Err(Never)` に対する `case #Err(e)`)も同じである。
+
    ### 照合対象の型が検査の時点で未定の節のない `match`
 
    節のない `match {}` の照合対象の型が、検査の時点で未束縛の型変数のままのことがある。
@@ -991,6 +1020,63 @@ let undetermined_msg =
   "match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません"
   ^ "(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)"
 
+(* 型を表の鍵にする文字列。値の有無を決める部分だけを書き出す。
+   シグネチャが None になる型(関数型、型変数、型適用)は区別しない。
+   どれも値があるとみなすからである *)
+let ty_key ty =
+  let b = Buffer.create 32 in
+  let rec go ty =
+    match repr ty with
+    | TCon (n, args) ->
+        Buffer.add_string b (string_of_int n);
+        Buffer.add_char b '[';
+        List.iter (fun a -> go a; Buffer.add_char b ',') args;
+        Buffer.add_char b ']'
+    | TRecord r -> Buffer.add_char b '{'; go r; Buffer.add_char b '}'
+    | TVariant r -> Buffer.add_char b '<'; go r; Buffer.add_char b '>'
+    | TRowEmpty -> Buffer.add_char b '.'
+    | TRowExtend (l, f, rest) ->
+        Buffer.add_string b (string_of_int l);
+        Buffer.add_char b ':';
+        go f;
+        Buffer.add_char b ';';
+        go rest
+    | TArrow _ | TApp _ | TVar _ -> Buffer.add_char b '_'
+  in
+  go ty;
+  Buffer.contents b
+
+(* 型に値があるかどうか。完全シグネチャのどれかのコンストラクタについて、
+   引数の型すべてに値があれば、値がある。
+   シグネチャが None の型(Int32、型変数、開いたヴァリアント行、不透明な型)は、値があるとみなす。
+   seen は、たどっている途中のデータ型の名前である。
+   同じ名前に戻ったら、値があるとみなして打ち切る。
+   newtype L = C(L) のように本当は値の無い型も、値があるほうに倒れる。
+   memo は、1 回の判定の中で調べ終えたデータ型の結果を、型引数まで含めた鍵で覚える。
+   同じ型を 2 度は開かない *)
+let inhabited ty =
+  let memo = Hashtbl.create 16 in
+  let rec go seen ty =
+    let ty = repr ty in
+    match ty with
+    | TCon (n, _) when Hashtbl.mem Decls.datas n -> (
+        let k = ty_key ty in
+        match Hashtbl.find_opt memo k with
+        | Some r -> r
+        | None ->
+            if List.mem n seen then true
+            else
+              let r = expand (n :: seen) ty in
+              Hashtbl.replace memo k r;
+              r)
+    | _ -> expand seen ty
+  and expand seen ty =
+    match complete_sig ty with
+    | None -> true
+    | Some cs -> List.exists (fun c -> List.for_all (go seen) (sub_types c ty)) cs
+  in
+  go [] ty
+
 let check_entry { qe_rows; qe_ty } =
   let out = ref [] in
   let all = List.map (fun (p, guarded) -> ([ convert p ], guarded)) qe_rows in
@@ -1002,25 +1088,29 @@ let check_entry { qe_rows; qe_ty } =
      節番号を出すと、利用者が存在しない第 1 節を探すことになる。
      節が 1 つだけの match も同じ扱いになる *)
   let single = match qe_rows with [ _ ] -> true | _ -> false in
-  (* ガード付き節は必ず一致する節として数えない(sample.kel:322-324)ので、網羅性の判定から除く *)
-  (match missing unguarded tys with
-  | Some _ when qe_rows = [] && undetermined qe_ty -> out := !out @ [ undetermined_msg ]
-  | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
-  | None -> ());
-  (* 到達不能の判定では、先行するガードのない節だけを被覆として数える *)
-  List.iteri
-    (fun i (row, _) ->
-      let prior = List.filteri (fun j _ -> j < i) all in
-      let prior_unguarded = List.filter_map (fun (r, g) -> if g then None else Some r) prior in
-      if not (useful prior_unguarded row tys) then
-        out :=
-          !out
-          @ [
-              (if single then "このパターンには一致する値がありません"
-               else Printf.sprintf "第 %d 節は到達不能です(冗長)" (i + 1));
-            ])
-    all;
-  !out
+  (* パターンが 1 つのエントリは、受ける型に値が無ければ警告しない。
+     その位置には値が来ないので、照合が失敗して実行時エラーになることもない *)
+  if single && not (inhabited qe_ty) then []
+  else (
+    (* ガード付き節は必ず一致する節として数えない(sample.kel:322-324)ので、網羅性の判定から除く *)
+    (match missing unguarded tys with
+    | Some _ when qe_rows = [] && undetermined qe_ty -> out := !out @ [ undetermined_msg ]
+    | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
+    | None -> ());
+    (* 到達不能の判定では、先行するガードのない節だけを被覆として数える *)
+    List.iteri
+      (fun i (row, _) ->
+        let prior = List.filteri (fun j _ -> j < i) all in
+        let prior_unguarded = List.filter_map (fun (r, g) -> if g then None else Some r) prior in
+        if not (useful prior_unguarded row tys) then
+          out :=
+            !out
+            @ [
+                (if single then "このパターンには一致する値がありません"
+                 else Printf.sprintf "第 %d 節は到達不能です(冗長)" (i + 1));
+              ])
+      all;
+    !out)
 
 (* 型 t に型変数 r が現れるか *)
 let rec mentions_var r t =
