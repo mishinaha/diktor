@@ -585,7 +585,7 @@ and eval_binding_value_plain env ((_, b) : T.let_binding) =
 and eval_binding_value env bnode =
   match dict_params_of bnode with
   | [] -> eval_binding_value_plain env bnode
-  | ks -> VDictAbs { da_last = None; da_name = "let"; da_fn = (fun ds -> eval_binding_value_plain (bind_dicts env ks ds) bnode) }
+  | ks -> VDictAbs { da_last = None; da_name = "let"; da_arity = List.length ks; da_fn = (fun ds -> eval_binding_value_plain (bind_dicts env ks ds) bnode) }
 
 and eval_binding env ((_, b) as bnode : T.let_binding) =
   let v = eval_binding_value env bnode in
@@ -614,7 +614,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
         | ks ->
             ( name,
               VDictAbs
-                { da_last = None; da_name = name; da_fn = (fun ds -> VClosure { c_env = bind_dicts !genv ks ds; c_params = ps; c_body = body }) },
+                { da_last = None; da_name = name; da_arity = List.length ks; da_fn = (fun ds -> VClosure { c_env = bind_dicts !genv ks ds; c_params = ps; c_body = body }) },
               None ))
       bs
   in
@@ -1241,6 +1241,7 @@ let method_selector (ci : Decls.class_info) (m, scheme) =
     {
       da_last = None;
       da_name = cls_name ^ "." ^ m;
+      da_arity = List.length cs;
       da_fn =
         (fun ds ->
           let d = List.nth ds idx in
@@ -1394,7 +1395,7 @@ let exec_decl env ((_, d) as node : T.decl) =
       let prim = VPrim { p_name = ex.T.ex_name; p_fn = impl } in
       let v =
         match Tree.get_dict node with
-        | Tree.DAbs (_ :: _) -> VDictAbs { da_last = None; da_name = ex.T.ex_name; da_fn = (fun _ -> prim) }
+        | Tree.DAbs (_ :: _ as ks) -> VDictAbs { da_last = None; da_name = ex.T.ex_name; da_arity = List.length ks; da_fn = (fun _ -> prim) }
         | _ -> prim
       in
       bind_globals env [ (Tree.GDecl (Tree.oid_of node, ex.T.ex_name), v) ]
@@ -1560,10 +1561,10 @@ let exec_input ?(print = false) ?(show = fun _ -> ()) s ~sink decls =
             bind_globals env (List.map (fun ((m, _) as ms) -> (Tree.GMethod (cls_name ^ "." ^ m), method_selector ci ms)) ci.Decls.ci_methods)
         | None -> env)
     | T.DExp e ->
-        (* 辞書パラメータを持つ式文は評価せず、辞書を受け取る値として表示する(<fn>) *)
+        (* 辞書パラメータを持つ式文は宣言の位置で評価せず、辞書を受け取る値にする。表示は第16章 §16.6b が評価する *)
         let v =
           match Tree.get_dict node with
-          | Tree.DAbs ks -> VDictAbs { da_last = None; da_name = "_"; da_fn = (fun ds -> eval (bind_dicts env ks ds) e) }
+          | Tree.DAbs ks -> VDictAbs { da_last = None; da_name = "_"; da_arity = List.length ks; da_fn = (fun ds -> eval (bind_dicts env ks ds) e) }
           | _ -> eval env e
         in
         shown := ("_", `Exp e, v) :: !shown;

@@ -870,6 +870,12 @@ let type_check_files ?(quiet = false) options =
    値は、型の頭が newtype で、その型が `Show` を満たすときだけ `Show.show` で表示する。
    満たすかどうかは、型検査器に `Show` の制約を足して確かめ、足した書き換えはすぐ戻す。
    それ以外は `Value.show` で表示する。
+   関数の値は、組み込みの関数も含めて `<fn>` と表示する。
+   辞書を受け取る値(制約付きで一般化した値束縛と式文)は、型の決まっていない辞書を渡して評価し、
+   その値を表示する。
+   型の頭が newtype で `Show.show` を使うときも、渡すのは評価した後の値である。
+   初期化式は構文上の値なので、この評価は停止し、エフェクトを起こさない。
+   初期化式が穴に到達したときだけ、値の代わりに `<unevaluated>` を出す。
    組み込みの `Show[String]` は引用符を付けないので、
    文字列を `Show.show` で出すと識別子と区別できない。
 
@@ -942,22 +948,36 @@ let probe f =
       undo ();
       raise ex
 
+(* 辞書を受け取る値は、型の決まっていない辞書(DPending)を渡して評価してから表示する。
+   初期化式は構文上の値なので停止し、エフェクトを起こさない。
+   穴に到達して実行時エラーになったときは、評価しない印を出す *)
+let force_for_display v =
+  match v with
+  | Value.VDictAbs da -> (
+      match da.Value.da_fn (List.init da.Value.da_arity (fun _ -> Value.VDict Value.DPending)) with
+      | v -> Some v
+      | exception Value.Runtime_error _ -> None)
+  | v -> Some v
+
 let show_value ty v =
-  let open Syntax.Type in
-  let shows =
-    match repr ty with
-    | TCon (c, _) when Hashtbl.mem Decls.datas c -> (
-        try probe (fun () -> Unify.add_class ty (intern "Show"); true) with Aux.Type_error _ | Aux.Type_error_at _ -> false)
-    | _ -> false
-  in
-  if shows then
-    (* 型から Show の証拠を組み、辞書にしてメソッドを選ぶ。型の決まらない部分の辞書は DPending になる *)
-    let env = { Value.globals = Hashtbl.create 1; locals = Value.SMap.empty; dicts = Value.DMap.empty; resume = None } in
-    let d = Interp.eval_ev env (Unify.display_evidence (intern "Show") ty) in
-    match Interp.apply (Interp.select_method ~cls:(intern "Show") d "show" []) (Value.VRecord [ (l_item, v) ]) with
-    | Value.VText s -> s
-    | v -> Value.show v
-  else Value.show v
+  match force_for_display v with
+  | None -> "<unevaluated>"
+  | Some v ->
+      let open Syntax.Type in
+      let shows =
+        match repr ty with
+        | TCon (c, _) when Hashtbl.mem Decls.datas c -> (
+            try probe (fun () -> Unify.add_class ty (intern "Show"); true) with Aux.Type_error _ | Aux.Type_error_at _ -> false)
+        | _ -> false
+      in
+      if shows then
+        (* 型から Show の証拠を組み、辞書にしてメソッドを選ぶ。型の決まらない部分の辞書は DPending になる *)
+        let env = { Value.globals = Hashtbl.create 1; locals = Value.SMap.empty; dicts = Value.DMap.empty; resume = None } in
+        let d = Interp.eval_ev env (Unify.display_evidence (intern "Show") ty) in
+        match Interp.apply (Interp.select_method ~cls:(intern "Show") d "show" []) (Value.VRecord [ (l_item, v) ]) with
+        | Value.VText s -> s
+        | v -> Value.show ~fn_name:false v
+      else Value.show ~fn_name:false v
 
 let repl options =
   let print_owned () = Decls.prelude_owned "effect" (Syntax.Type.intern "Print") in

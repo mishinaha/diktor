@@ -105,8 +105,9 @@ and dict =
   | DVariant of (oid * t) list
   | DPending
 
-(* 辞書を受け取る値。直前に受け取った辞書の列(物理的に同じもの)と結果を覚える *)
-and dict_abs = { da_name : string; da_fn : t list -> t; mutable da_last : (t list * t) option }
+(* 辞書を受け取る値。da_arity は受け取る辞書の個数。
+   直前に受け取った辞書の列(物理的に同じもの)と結果を覚える *)
+and dict_abs = { da_name : string; da_arity : int; da_fn : t list -> t; mutable da_last : (t list * t) option }
 
 (* ## 12.2 クロージャの環境が可変である理由
 
@@ -468,9 +469,11 @@ let float_repr f =
     in
     if String.exists (fun c -> c = '.' || c = 'e' || c = 'E') s then s else s ^ ".0"
 
-  (* ---- 印字(実行時エラーの表示用) ---- *)
+  (* ---- 印字(実行時エラーと対話的な実行の表示用) ----
+     fn_name が偽なら、組み込みの関数も <fn> と印字する(対話的な実行の表示) *)
 
-let rec show v =
+let rec show ?(fn_name = true) v =
+  let show v = show ~fn_name v in
   match v with
   | VBool b -> string_of_bool b
   | VInt32 n -> Int32.to_string n
@@ -489,7 +492,7 @@ let rec show v =
       if Array.length d_fields = 0 then Type.display_of d_ctor
       else Type.display_of d_ctor ^ "(" ^ String.concat ", " (Array.to_list (Array.map show d_fields)) ^ ")"
   | VClosure _ -> "<fn>"
-  | VPrim p -> "<prim " ^ Type.display p.p_name ^ ">"
+  | VPrim p -> if fn_name then "<prim " ^ Type.display p.p_name ^ ">" else "<fn>"
   | VRef _ -> "<ref>"
   | VArray a -> "[" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]"
   | VMutArray a -> "<mutable [" ^ String.concat ", " (Array.to_list (Array.map show a)) ^ "]>"
