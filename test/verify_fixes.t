@@ -723,12 +723,12 @@ resume の引数はラベルを取らない(F7。ペイロードは操作の返�
   > }
   > KEL
   $ diktor --type-check reslabel.kel
-  reslabel.kel:7:3: 構文エラー: resume の引数にラベルは付けられません
+  reslabel.kel:6:17: 構文エラー: resume の引数にラベルは付けられません
   [2]
 
   $ sed 's/resume(x = 1)/resume(1, 2)/' reslabel.kel > res2.kel
   $ diktor --type-check res2.kel
-  res2.kel:7:3: 構文エラー: resume の引数は高々1個です
+  res2.kel:6:17: 構文エラー: resume の引数は高々1個です
   [2]
 
 組み込みメソッド表の全 39 組が実際に選ばれる(C2 / D37 の網羅回帰):

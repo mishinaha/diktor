@@ -45,7 +45,7 @@ with だけを見るので基底に式は書けず、大文字始まりは字句
 
   $ printf 'let p = {x = 1}\nlet q = {P with x = 3}\n' > updbase3.kel
   $ diktor --type-check updbase3.kel
-  updbase3.kel:3:1: 構文エラー: レコード更新の基底は小文字始まりの識別子 1 個です
+  updbase3.kel:2:10: 構文エラー: レコード更新の基底は小文字始まりの識別子 1 個です
   [2]
 
 (小文字の基底が通ることは test/typecheck.t / test/eval.t / test/ast.t /

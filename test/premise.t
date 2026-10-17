@@ -254,7 +254,7 @@ AST ダンプ(束縛子があるときだけ tparams が出る):
   [2]
   $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\npub type instance[A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr15.kel
   $ diktor --type-check --no-prelude pr15.kel
-  pr15.kel:3:1: 構文エラー: type instance に pub は付けられません
+  pr15.kel:2:1: 構文エラー: type instance に pub は付けられません
   [2]
 
 instance と [ の間には空白・改行・ブロックコメントのどれを挟んでもよく、束縛子
