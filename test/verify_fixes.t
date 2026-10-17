@@ -46,7 +46,7 @@ spec_gaps.t の ordervr で見張る:
   > effect Ask = { ask: () => Int32 }
   > let idf[A](x: A): A = x
   > let main(): Unit @ {Console} = {
-  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
+  >   let g: (Int32) => Int32 = idf(fn(x) => x)
   >   let a = g(1)
   >   let b = (g(2) + perform ask()) handle {
   >     case ask() => resume(10)
@@ -57,7 +57,7 @@ spec_gaps.t の ordervr で見張る:
   > main()
   > EOF
   $ diktor vrgen.kel
-  15
+  13
 
 g の本体を無名関数(値)に替えると、g は一般化され、同じく 2 つの文脈から呼べる:
 

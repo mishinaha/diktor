@@ -98,7 +98,7 @@ test/verify_fixes.t の vrgen が通す):
   > effect Ask = { ask: () => Int32 }
   > let idf[A](x: A): A = x
   > let main(): Unit @ {Console} = {
-  >   let g: (Int32) => Int32 = idf(fn(x) => x + 1)
+  >   let g: (Int32) => Int32 = idf(fn(x) => x)
   >   let b = (g(2) + perform ask()) handle {
   >     case ask() => resume(10)
   >     case return(x) => x
