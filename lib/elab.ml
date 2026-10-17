@@ -3561,8 +3561,10 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    行(レコードとバリアントの中身)は、欄を並びの位置ではなくラベルで対応づけてたどる。
    レコード式のラベルの順は型に影響しないので(§7)、
    位置で対にすると別のラベルの欄どうしを比べてしまうからである。
-   ラベルが片方の行にしかない欄があるときは、本体の型の側のその欄と行の残りを、
-   写しで決まっていたものとみなし、その中の剛定数をすべて集める。
+   本体の型の側にしかないラベルの欄は、写しで決まっていたものとみなし、
+   その中の剛定数をすべて集める。
+   どちらかの側にしかないラベルの欄があるときは、本体の型の側の行の残りも同じように扱う。
+   両側のラベルがすべて対応するときは、行の残りどうしを並べてたどる。
    写しと本体の型とで型の構成子の種類が違う位置も、同じく決まっていたものとみなし、
    本体の型の側の部分木の剛定数をすべて集める。
    写しの `Option[Int32]` と本体の型の `F[Int32]`(型パラメータ F の適用)を比べる位置が、
@@ -3578,7 +3580,7 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    どちらも B の位置が写しで未定変数なので、前の束縛を挙げない。
    recfield は、前の束縛が g の注釈と違うラベルの順のレコード式を渡し、
    g の型パラメータ B の欄を `Int32` に決める形で、f を挙げる。
-   recfieldself は、前の束縛が B の欄を未定のまま残し、
+   recfieldself は、前の束縛が g の注釈と違うラベルの順のレコード式で B の欄を未定のまま残し、
    B の欄を `Int32` に決めるのが g 自身の本体の呼び出しである形で、f を挙げない。
    rechkt は、前の束縛が高カインドの型パラメータ F の位置に `Option` を渡す形で、
    構成子の種類が違う位置として f を挙げる。
@@ -3717,8 +3719,9 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
   in
   (* 本体の前の pre の形を写し取り、本体の後で本体の型 fn_ty と並べてたどる。写しで決まって
      いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。行の欄は
-     ラベルで対応づける。ラベルが片方にしかない欄や、構成子の種類が両側で違う位置では、fn_ty
-     の側の部分木の剛定数をすべて集める。写しを取るのは、本体の検査が pre の未定変数を決める
+     ラベルで対応づける。fn_ty の側にしかないラベルの欄と、構成子の種類が両側で違う位置では、
+     fn_ty の側の部分木の剛定数をすべて集める。どちらかの側にしかないラベルがあれば、fn_ty
+     の側の行の残りも同じように集める。写しを取るのは、本体の検査が pre の未定変数を決める
      と、どれが前から決まっていたかを型の側から区別できなくなるからである *)
   let kids t =
     match t with
@@ -3761,15 +3764,15 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
     | _, TVar r when List.memq r own -> [ r ]
     | Row (sfs, stl), (TRowExtend _ as f') ->
         let bfs, btl = row_fields f' in
-        let left, found =
+        let left, found, extra =
           List.fold_left
-            (fun (sfs, acc) (l, bf) ->
+            (fun (sfs, acc, extra) (l, bf) ->
               match take l sfs with
-              | Some (sh, sfs') -> (sfs', acc @ fixed_rigids own sh bf)
-              | None -> (sfs, acc @ rigids_in own bf))
-            (sfs, []) bfs
+              | Some (sh, sfs') -> (sfs', acc @ fixed_rigids own sh bf, extra)
+              | None -> (sfs, acc @ rigids_in own bf, true))
+            (sfs, [], false) bfs
         in
-        found @ (match left with [] -> fixed_rigids own stl btl | _ -> rigids_in own btl)
+        found @ if left = [] && not extra then fixed_rigids own stl btl else rigids_in own btl
     | Fixed (k, shs), f' ->
         let k', ts = kids f' in
         if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own) shs ts)
