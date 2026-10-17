@@ -292,6 +292,53 @@ module の中の非修飾名も、再帰群の参照として記録する。制�
   ! nooccur.kel:1:1: 型エラー: メソッド f の型にクラスパラメータが現れません(どのインスタンスのメソッドかを型から決められません)
   [1]
 
+メソッド自身の型パラメータ B に付けた制約は、B がメソッドの型に現れることを要求する。
+mtpabsent の B は (A) => String に現れないので、クラスの宣言の位置(1:1)で曖昧性エラーに
+なる。mtpabsent2 はインスタンスも使用も無いクラスの宣言だけで同じく落ち、制約
+Show + Eq のうち最初の Show を挙げる:
+
+  $ cat > mtpabsent.kel <<'KEL'
+  > type class Pp[A] { val pp[B: Show]: (A) => String }
+  > type instance Pp[Int32] { let pp(x) = "i" + show(x) }
+  > echoln(pp(3i32))
+  > KEL
+  $ diktor mtpabsent.kel
+  ! mtpabsent.kel:1:1: 型エラー: 曖昧な制約: メソッド pp の型パラメータ B の制約 Show をメソッドの型から決められません(メソッドの型に現れない型パラメータに制約が付いています)
+  [1]
+  $ cat > mtpabsent2.kel <<'KEL'
+  > type class Pp[F[_]] { val pp[A, B: Show + Eq]: (F[A]) => String }
+  > KEL
+  $ diktor mtpabsent2.kel
+  ! mtpabsent2.kel:1:1: 型エラー: 曖昧な制約: メソッド pp の型パラメータ B の制約 Show をメソッドの型から決められません(メソッドの型に現れない型パラメータに制約が付いています)
+  [1]
+
+mtpbogus の Bogus と mtpfrac の Fractional は、B が型に現れないが、曖昧性エラーではなく
+それぞれ未知のクラスと予約述語の診断で落ちる。制約のクラス名の検査が、型に現れるかの
+検査より先に走るからである:
+
+  $ cat > mtpbogus.kel <<'KEL'
+  > type class C3[A] { val m[B: Bogus]: (A) => A }
+  > KEL
+  $ diktor mtpbogus.kel
+  ! mtpbogus.kel:1:1: 型エラー: 未知のクラス: Bogus
+  [1]
+  $ cat > mtpfrac.kel <<'KEL'
+  > type class C4[A] { val m[B: Show + Fractional]: (A) => A }
+  > KEL
+  $ diktor mtpfrac.kel
+  ! mtpfrac.kel:1:1: 型エラー: Fractional は予約されたリテラル述語です(制約には書けません、D8)
+  [1]
+
+制約の無い型パラメータ B は、メソッドの型に現れなくても受理する:
+
+  $ cat > mtpfree.kel <<'KEL'
+  > type class Pp[A] { val pp[B]: (A) => String }
+  > type instance Pp[Int32] { let pp(x) = "i" + show(x) }
+  > echoln(pp(3i32))
+  > KEL
+  $ diktor mtpfree.kel
+  i3
+
 弱い型変数を持つ s の Show の辞書は、後ろの g で Foo に決まる。Foo のインスタンスが
 s より後ろで宣言されていても、辞書はファイル全体を見て決まる:
 
