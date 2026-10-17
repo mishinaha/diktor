@@ -606,6 +606,79 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
      2  foo
      3  <EOF>
 
+数値の綴り間違いも最長一致で割れ、字句エラーにはならない(LangSpec 付録 A.2)。
+割れた続きのトークンでパースが詰まったとき、診断は数値の先頭を指し、
+数値とその直後のトークンを名指す。終了コードは構文エラーの 2 のまま:
+
+  $ printf 'let a = 0b102\n' > glued1.kel
+  $ diktor --type-check glued1.kel
+  glued1.kel:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ printf 'let a = 0x\n' > glued2.kel
+  $ diktor --type-check glued2.kel
+  glued2.kel:1:9: 構文エラー: 数値リテラル 0 の直後に x が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ printf 'let a = 1u\n' > glued3.kel
+  $ diktor --type-check glued3.kel
+  glued3.kel:1:9: 構文エラー: 数値リテラル 1 の直後に u が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ printf 'let a = 1.2.3\n' > glued4.kel
+  $ diktor --type-check glued4.kel
+  glued4.kel:1:9: 構文エラー: 数値リテラル 1.2 の直後に .3 が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ diktor --type-check projnum.kel
+  projnum.kel:1:9: 構文エラー: 数値リテラル 1. の直後に _0 が続いています(数値リテラルの綴りを確認してください)
+  [2]
+
+詰まる位置が式の途中でもパターンでも、負の数値リテラルでも同じ。REPL は同じ文面を出して続く:
+
+  $ cat > gluedpos.kel <<'KEL'
+  > let g(x: Int32, y: Int32): Int32 = x
+  > let a = g(1, 2x)
+  > KEL
+  $ diktor --type-check gluedpos.kel
+  gluedpos.kel:2:14: 構文エラー: 数値リテラル 2 の直後に x が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ cat > gluedpat.kel <<'KEL'
+  > let f(x: Int32): Int32 = x match {
+  >   case 0b102 => 1
+  >   case _ => 0
+  > }
+  > KEL
+  $ diktor --type-check gluedpat.kel
+  gluedpat.kel:2:8: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ printf 'let a = -0b102\n' > gluedneg.kel
+  $ diktor --type-check gluedneg.kel
+  gluedneg.kel:1:10: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  [2]
+  $ printf 'let a = 0b102\n1 + 1\n' | diktor --repl
+  <stdin>:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  _ : Int32 = 2
+
+数値と続きのトークンの間に空白がある形と、続きが英数字でも . でもない形は、
+従来の文面のまま。浮動小数の後ろの . はフィールド選択として文法に合うので、
+その後ろの予約語で詰まる形は数値の綴りの誤りとはしない(後ろのトークンによって
+予約語の誤用か汎用の文面になる。test/reserved_word.t)。
+数値に予約語が隙間なく続いても文法に合えば受理する:
+
+  $ printf 'let a = 1 x\n' > gluedsp.kel
+  $ diktor --type-check gluedsp.kel
+  gluedsp.kel:1:11: 構文エラー: 付近のトークンを確認してください
+  [2]
+  $ printf 'let a = 1"s"\n' > gluedtext.kel
+  $ diktor --type-check gluedtext.kel
+  gluedtext.kel:1:10: 構文エラー: 付近のトークンを確認してください
+  [2]
+  $ printf 'let a = 1.2.match { case _ => 1 }\n' > gluedkw.kel
+  $ diktor --type-check gluedkw.kel
+  gluedkw.kel:1:13: 構文エラー: 予約語 match はここには書けません(予約語は識別子に使えません)
+  [2]
+  $ printf 'let c = true\nlet a = if c then 1else 2\n' > gluedelse.kel
+  $ diktor --type-check gluedelse.kel
+  c : Boolean
+  a : Int32
+
 `{` の読み分けの 3 文脈(仕様 §0、sample.kel:26-28)。実装は文脈で先読みを
 止めるのではなく、3 種を束ねた %inline lbrace で受ける(D12 / FIX-2b)。
 したがって分類の結果は文脈ではなく先読みで決まるが、どの分類でも同じ木になる:
