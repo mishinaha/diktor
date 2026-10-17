@@ -1374,10 +1374,17 @@ and expand_alias env level ~expanding info args =
    名前が型として登録されているなら、綴りの誤りではなく位置の誤りなので、
    `Callback[Int32]` には「型 Int32 はエフェクトではありません」と報告する(`unknown_effect`)。
 
+   頭がどこにも宣言されていない適用(module の外から修飾せずに書いた `@ W[E]`)も、
+   未知のエフェクトとして報告する。
+   最後の分岐へ回すと、`elab_type` が「未知の型」として落とし、エフェクトの語も修飾の案内も出ない。
+   引数の無い `@ W` や行の要素の `{W[E]}` と同じく、
+   スコープ外の module にある pub の EffectRow エイリアスを修飾名として案内する
+   (`test/visibility.t` の visrow4b)。
+
    上の分岐のどれにも当たらなかった型式は、最後の分岐に進む。
    `@` の後(文法の `eff` / `eff_name`)に書いた型式のうち、ここへ届く形は 2 つある。
    module 修飾の名前とその適用(`M.T` / `M.W` / `M.W[E]`)と、
-   エフェクト名でも EffectRow エイリアスでもない頭への適用
+   エフェクト名でも EffectRow エイリアスでもない、宣言のある頭への適用
    (型パラメータへの適用 `F[E]`、`MutableArray[Int32, Int32]`、Type エイリアスの適用)である。
    このほか `elab_eff` は、文法では `ty` を取る位置を 3 つ読む。
    `{… extends <ty>}` の右(`parser.mly` の `lbrace EXTENDS ty RBRACE`)、
@@ -1484,6 +1491,18 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
           | [ a ] -> elab_type env level ~expanding a
           | _ -> type_error "エフェクトラベルの引数は1個までです"),
           TRowEmpty )
+  | T.EApply ((_, T.EIdent (LongId [ n ])), _)
+    when (not (SMap.mem n env.types))
+         &&
+         let oid = Decls.resolve_con (intern n) in
+         not (Hashtbl.mem Decls.aliases oid || Hashtbl.mem Decls.con_kinds oid) ->
+      (* 頭が型パラメータでもエイリアスでも宣言表の型でもない適用(@ W[E])。最後の分岐へ
+         回すと elab_type が未知の型として落とすので、ここで未知のエフェクトとして報告し、
+         引数の無い @ W や行の要素の {W[E]} と同じく、スコープ外の pub な EffectRow
+         エイリアスへの修飾を案内する。条件は elab_type の EApply の分岐が名前を引く順
+         (型パラメータ、エイリアス表、宣言表)を写したもので、elab_type の側で未知の名前に
+         検査を足すときは、この条件も合わせる *)
+      type_error (unknown_effect n)
   | T.EBraceRow (elems, ext) ->
       let tail =
         match ext with
@@ -1535,8 +1554,9 @@ and elab_eff ?(check_row = true) env level ~expanding ((_, te) as t : T.type_exp
         elems tail
   | _ ->
       (* 最後の分岐。ここへ通るのは、@ の後に書いた module 修飾の名前と、エフェクト名でも
-         EffectRow エイリアスでもない頭への適用と、文法が ty を取る 3 つの位置(extends の右、
-         EffectRow エイリアスの本体、行カインドのパラメータへの型引数)から来る型式である。
+         EffectRow エイリアスでもない、宣言のある頭への適用と、文法が ty を取る 3 つの位置
+         (extends の右、EffectRow エイリアスの本体、行カインドのパラメータへの型引数)から来る
+         型式である。
          型引数の経路は ~check_row:false を渡すので照合しない。修飾した EffectRow エイリアス
          (M.W / M.W[E])はここを通って正しく行になるので、落とすのではなく、読んだ結果の
          カインドを照合する。判定は kind_repr の構造の一致で行い、same_kind は使わない。
