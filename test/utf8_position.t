@@ -63,13 +63,21 @@ import 先のファイルの誤りは、そのファイルの名前と位置で�
   badlib.kel:1:10: 字句エラー: 不正な UTF-8 バイト列です
   exit: 2
 
---type-check と --dump-tokens も同じ診断を出す:
+--type-check、--dump-ast、--dump-tokens も同じ診断を出す。--dump-tokens は先頭の
+バイトが不正な形でもファイル名と位置を付ける:
 
   $ diktor --type-check instr.kel; echo "exit: $?"
   instr.kel:2:10: 字句エラー: 不正な UTF-8 バイト列です
   exit: 2
+  $ diktor --dump-ast instr.kel; echo "exit: $?"
+  instr.kel:2:10: 字句エラー: 不正な UTF-8 バイト列です
+  exit: 2
   $ diktor --dump-tokens instr.kel; echo "exit: $?"
   instr.kel:2:10: 字句エラー: 不正な UTF-8 バイト列です
+  exit: 2
+  $ printf '\377let a = 1\n' > lead.kel
+  $ diktor --dump-tokens lead.kel; echo "exit: $?"
+  lead.kel:1:1: 字句エラー: 不正な UTF-8 バイト列です
   exit: 2
 
 対話的な実行では、入力の行と桁で示し、セッションは続く。
