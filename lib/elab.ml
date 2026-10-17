@@ -4175,6 +4175,14 @@ let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> S
    検査は、一般化したスキーマの制約の鍵の列(`dkeys_of`)にクラスパラメータの鍵があるかで行う。
    クラスパラメータは `vcls = [cls]` の `Generic` 変数なので、型のどこかに現れれば鍵の列に入る。
 
+   メソッド自身の型パラメータに制約を付けるときは、
+   その型パラメータもメソッドの型に現れなければならない。
+   `val pp[B: Show]: (A) => String` は拒否する。
+   型に現れない型パラメータの制約は鍵の列に入らないので、使う位置で辞書が作られず、
+   制約を書いても何も要求しないからである。
+   束縛の型パラメータの制約(§11.28)と同じ規則で、診断の形もそろえる。
+   制約の無い型パラメータ(`val pp[B]: (A) => String`)は、型に現れなくても受理する。
+
    値のメソッド(`val empty: F[A]` のような矢印でない型)は、辞書渡しの仕組みでは表せるが、
    許していない。
    初期化式をいつ評価するかを仕様が定めていないからである。
@@ -4256,9 +4264,32 @@ let register_class env (c : T.class_decl') =
               type_error
                 ("メソッド " ^ v.T.cv_name ^ " の型にクラスパラメータが現れません(どのインスタンスのメソッドかを型から決められません)")
         | _ -> type_error ("メソッド " ^ v.T.cv_name ^ " の型は矢印型でなければなりません"));
-        (v.T.cv_name, ty))
+        (* メソッドの型パラメータに付けた制約は、その型パラメータがメソッドの型に現れることを
+           要求する(束縛の check_tparam_constraints と同じ規則)。
+           型に現れない変数の制約は鍵の列に入らないので、使う位置で辞書が作られない。
+           検査は返して、1b の後始末で未知のクラスと予約述語を確かめた後に走らせる *)
+        let check_tparams () =
+          let dks = Unify.dkeys_of ty in
+          List.iter
+            (fun (name, t) ->
+              match repr t with
+              | TVar r ->
+                  let i = Unify.var_info_of r in
+                  List.iter
+                    (fun c ->
+                      if (not (Unify.is_predicate c)) && not (List.mem (i.vid, c) dks) then
+                        type_error
+                          ("曖昧な制約: メソッド " ^ v.T.cv_name ^ " の型パラメータ " ^ name ^ " の制約 " ^ display_of c
+                         ^ " をメソッドの型から決められません(メソッドの型に現れない型パラメータに制約が付いています)"))
+                    i.vcls
+              | _ -> ())
+            mt_params
+        in
+        (v.T.cv_name, ty, check_tparams))
       c.T.cls_vals
   in
+  let checks = List.map (fun (_, _, k) -> k) methods in
+  let methods = List.map (fun (m, ty, _) -> (m, ty)) methods in
   (* 同じクラスの中でのメソッドの重複を拒否する(register_effect の操作の重複と同じ)。
      素通しにすると、elab の修飾名の型は最後の宣言で決まり、インスタンス本体の照合は
      最初の宣言を見るので、型検査を通ったプログラムが実行時に型やアリティの食い違いで壊れる *)
@@ -4296,7 +4327,7 @@ let register_class env (c : T.class_decl') =
       ci_builtin = false;
       ci_methods = methods;
     };
-  methods
+  (methods, fun () -> List.iter (fun k -> k ()) checks)
 
 (* ## 11.34 インスタンスの頭
 
@@ -5140,7 +5171,9 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       with_decl_module node @@ fun () ->
       match d with T.DNewtype n -> speculate_newtype env n | _ -> ())
     decls;
-  (* パス 1b: newtype のコンストラクタ、effect、type class の登録(相互再帰と前方参照を許す) *)
+  (* パス 1b: newtype のコンストラクタ、effect、type class の登録(相互再帰と前方参照を許す)。
+     クラスのメソッドの型パラメータの検査は、後始末まで class_checks に預ける *)
+  let class_checks = ref [] in
   let env =
     List.fold_left
       (fun env ((_, d) as node : T.decl) ->
@@ -5154,7 +5187,8 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
             register_effect env e;
             env
         | T.DClass c ->
-            let methods = register_class env c in
+            let methods, check = register_class env c in
+            class_checks := (c, check) :: !class_checks;
             (* 非修飾名は先勝ち(既存の束縛は上書きしない)。修飾名 Cls.m はクラスの所有なので、
                常に登録する。どちらも実体は GMethod Cls.m で、評価器は型検査が書いた実体で
                引くので、型検査と実行が別の実体を選ぶことは無い *)
@@ -5170,14 +5204,18 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
   (* 1b の後始末: クラスメソッドと newtype の型パラメータの制約に、未知のクラスや予約述語が
      無いかを確かめる。register_class / register_newtype は 1b で宣言順に走るので、そこで
      確かめると、後ろのクラスを制約に書いた形が落ちる。クラス表が出揃ったここで確かめれば、
-     宣言順に依存しない *)
+     宣言順に依存しない。
+     メソッドの型に現れない型パラメータの制約の検査(register_class が預けたもの)は、
+     そのクラスのクラス名の検査の後に走らせる。束縛と同じく、未知のクラスと予約述語の
+     診断が先に出る *)
   List.iter
     (fun ((_, d) as node : T.decl) ->
       at_node node @@ fun () ->
       with_decl_module node @@ fun () ->
       match d with
       | T.DClass c ->
-          List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals
+          List.iter (fun (v : T.class_val) -> List.iter (fun tp -> ignore (class_names_of tp)) v.T.cv_tparams) c.T.cls_vals;
+          Option.iter (fun k -> k ()) (List.assq_opt c !class_checks)
       | T.DType t -> (
           (* エイリアス本体のカインドの推論。ここで一度、本体を投機的に精緻化し、
              パラメータのカインドだけを決めて結果は捨てる。パス 2 の実在検査より前に
