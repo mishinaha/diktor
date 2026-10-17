@@ -1935,6 +1935,9 @@ and elab_exp' env level eff node e =
    `Exhaust.drain` でキューを処理する場所は 1 か所ではないが、どれも一般化より前にある。
    束縛群(`elab_binding` / `elab_rec_bindings`)では `generalize` の直前、
    トップレベルの式(`DExp`)では推論の直後である(§11.28、§11.40)。
+   節のない `match` の照合対象が未束縛の型変数のまま残ると、
+   `drain` はそれを `Never` に決めることがある。
+   決めるかどうかは、`drain` に渡す束縛のレベルと型で判定する(第10章 §10.13)。
 
    コンストラクタの適用は `elab_construct` に任せる(§11.18)。 *)
 
@@ -3272,9 +3275,13 @@ and release_rigids rigids =
    ### 網羅性の drain
 
    網羅性の遅延キューを drain するのは、`generalize` の直前である(§11.14)。
+   `drain` には、束縛のレベル、束縛の型、束縛を一般化するかどうかを渡す。
+   節のない `match` の照合対象の型変数を `Never` に決めるか、外側の束縛へ送るかを、
+   第10章 §10.13 がこれらで判定する。
    パターン束縛(`let (a, b) = ...`)は、節が 1 つだけの match と同じく扱う。
    単相に束縛し、網羅性検査のキューに積む。
-   この経路には一般化が無いので、キューに積んだ直後にそのまま drain する。 *)
+   この経路には一般化が無いので、キューに積んだ直後にそのまま drain し、
+   一般化しない束縛として渡す。 *)
 
 and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   at_node node @@ fun () ->
@@ -3341,7 +3348,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
   (* 網羅性の遅延キューは generalize の直前に drain する *)
   match snd b.T.lb_name with
   | T.PVar x ->
-      List.iter warn (Exhaust.drain ());
+      List.iter warn (Exhaust.drain ~level:level ~tys:[ fn_ty ] ~gen ());
       if gen then (
         (* 一般化の直前に曖昧性を調べる。generalize より前でなければならない。
            後では Unbound が Generic に変わっていて判定できない *)
@@ -3354,7 +3361,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       finish_binding_dicts node ~gen ~rigids hmark fn_ty;
       add_local env x fn_ty
   | T.PWildcard ->
-      List.iter warn (Exhaust.drain ());
+      List.iter warn (Exhaust.drain ~level:level ~tys:[ fn_ty ] ~gen ());
       if gen then (
         Unify.check_ambiguity ~all:false ~level [ fn_ty ];
         Unify.generalize level fn_ty)
@@ -3375,7 +3382,7 @@ and elab_binding env level eff ((_, b) as node : T.let_binding) : env =
       let seen = ref [] in
       let env' = elab_pat env level seen fn_ty b.T.lb_name in
       Exhaust.queue [ (b.T.lb_name, false) ] fn_ty;
-      List.iter warn (Exhaust.drain ());
+      List.iter warn (Exhaust.drain ~level:level ~tys:[ fn_ty ] ~gen:false ());
       release_rigids rigids;
       finish_binding_dicts node ~gen:false ~rigids hmark fn_ty;
       env'
@@ -3628,7 +3635,7 @@ and elab_rec_bindings ?(top = false) env level eff bs : env =
     (fun (params, param_tys) ->
       List.iter2 (fun p t -> if not (irrefutable_pat p) then Exhaust.queue [ (p, false) ] t) params param_tys)
     (List.rev !rec_arg_queue);
-  List.iter warn (Exhaust.drain ());
+  List.iter warn (Exhaust.drain ~level:level ~tys:(List.map snd names) ());
   (* 群として一括で曖昧性を調べる。相互再帰の制約は、群のどれかの型から
      到達できればよい *)
   Unify.check_ambiguity ~all:false ~level (List.map snd names);
@@ -5221,7 +5228,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           let mark = Unify.class_mark () in
           let value = is_value e in
           let t = elab_exp env (if value then 1 else 0) eff0 e in
-          List.iter warn (Exhaust.drain ());
+          List.iter warn (Exhaust.drain ~level:0 ~tys:[ t ] ());
           if value && has_constrained_unbound t then (
             Unify.check_ambiguity ~all:false ~level:0 [ t ];
             Unify.generalize 0 t;
@@ -5820,7 +5827,7 @@ let type_of_expr ?(toplevel_extra = []) env (e : T.exp) =
       let eff0 = toplevel_eff ~extra:toplevel_extra () in
       let mark = Unify.class_mark () in
       let t = elab_exp env 1 eff0 e in
-      List.iter warn (Exhaust.drain ());
+      List.iter warn (Exhaust.drain ~level:0 ~tys:[ t ] ());
       if is_value e then (
         Unify.check_ambiguity ~all:false ~level:0 [ t ];
         Unify.generalize 0 t)

@@ -18,13 +18,16 @@
      「この型のコンストラクタはこれですべて」という完全シグネチャは、
      `Decls.datas` と `Decls.ctor_owner` から作る。
    - 第8章(unify.ml)。
-     本章は行を閉じる 1 か所だけで `unify` を呼ぶ。
-     本章が型を書き換えるのはそこだけで、それ以外は型を読むだけである。
+     本章が `unify` を呼ぶのは、行を閉じるところ(§10.9)と、
+     節のない `match` の照合対象の型変数を `Never` に決めるところ(§10.13)の 2 か所である。
+     本章が型を書き換えるのはその 2 か所だけで、それ以外は型を読むだけである。
 
    ## 次の章へ渡すもの
 
    - 第11章(elab.ml)は `match` を見つけるたびに `queue` へ積み、
      束縛の一般化の直前に `drain` を呼んで警告の文字列のリストを受け取る。
+     `drain` には、束縛のレベル、束縛の型(式文では式の型)、束縛を一般化するかどうかを渡す。
+     節のない `match` の照合対象の型変数を `Never` に決めるかどうかを、これらで判定する(§10.13)。
    - 第16章(driver.ml)はそれを警告として出す。
      非網羅も到達不能も既定では警告にとどまり、`--strict-exhaustive` を指定するとエラーになる。
 
@@ -39,7 +42,7 @@
    | §10.9 | 構造的ヴァリアントの行を閉じる |
    | §10.10-10.11 | アルゴリズム I(非網羅)と U(冗長) |
    | §10.12 | 反例の表示 |
-   | §10.13 | 検査キューと、`match` の時点で検査しない理由 | *)
+   | §10.13 | 検査キュー、`match` の時点で検査しない理由、節のない `match` の照合対象を `Never` に決める規則 | *)
 
 (* ## 10.1 usefulness と 2 つの検査
 
@@ -428,6 +431,9 @@ let default_matrix rows =
 
    文法が空の `match` 本体を許すのも、同じ理由による。
    この `Some []` は §10.10 で使う。
+
+   照合対象の型が未束縛の型変数のときは、`complete_sig` は `None` を返すので、この規則は働かない。
+   そのような変数のうち、束縛の外から観測できないものは、検査の前に `Never` に決める(§10.13)。
 
    ### 不透明な型は `None` を返す
 
@@ -858,6 +864,52 @@ let rec show_ipat = function
 
    2 つ目の留保は、警告がソース順に並ぶのは宣言どうしのあいだに限られることである。
    1 つの宣言の中では、引数パターンの警告は(本体の後に積むので)本体の `match` の警告より後に出る。
+   下で述べる送ったエントリの警告は、外側の束縛の警告と同じ時点で出る。
+   そのため、内側の `drain` で検査したエントリの警告より後に出ることがある。
+
+   ### 節のない `match` の照合対象を `Never` に決める
+
+   節のない `match {}` の照合対象の型が、`drain` の時点で未束縛の型変数のままのことがある。
+   返り値が `Never` の操作の `perform` の式は、周囲が要求する型の新しい型変数になる(第11章)。
+   その結果を照合する `perform throw(m) match {}` がその例である。
+   型変数の完全シグネチャは `None` なので(§10.7)、そのまま検査すると §10.10 は反例 `_` を返す。
+
+   `drain` は、エントリを検査する前に、
+   次の 4 つの条件を満たすエントリの照合対象の型変数を `Never` に単一化する。
+
+   - 節が 1 つもない。
+   - 照合対象が `Unbound` の型変数で、クラスの制約(`vcls`)が空である。
+   - 変数のレベルが、`drain` を呼んだ束縛のレベルより深い。
+   - 変数が、`drain` に渡された型に現れない。
+     渡す型は、束縛の型、`let rec` の群では群のすべての型、式文では式の型である。
+
+   環境にある型の変数のレベルは、レベルの規則により束縛のレベル以下である。
+   3 つ目と 4 つ目の条件を合わせると、変数は束縛の外のどの型からも届かない。
+   そのため、`Never` に決めても束縛の型は変わらない。
+   制約の付いた変数は決めない。
+   決めると、制約を満たすインスタンスの選び方が変わるからである。
+   剛な型パラメータは `Unbound` でないので決めない。
+   単一化が失敗したとき(カインドが合わないなど)は決めずに、エントリをそのまま検査する。
+
+   局所の束縛(レベルが 1 以上の `drain`)では、節のない `match` のエントリのうち、
+   照合対象が制約の無い `Unbound` の型変数で、次のどちらかに当たるものを検査しない。
+   キューに戻して、外側の束縛の `drain` に送る。
+
+   - 変数のレベルが、`drain` を呼んだ束縛のレベル以下である。
+     外側の束縛の推論の中で、その変数はまだ決まりうる。
+   - 変数が渡された型に現れ、束縛を一般化しない。
+     一般化しない束縛は、型変数を外側のレベルに下げて、後の使用で決まるように残す。
+
+   送るのは、1 つ目の留保のとおり、`match` の後の無関係な局所の `let` の `drain` が、
+   外側の束縛のエントリを先に受け取るからである。
+   そこで検査すると、外側の束縛で決められる変数を決めずに警告することになる。
+   最上位の束縛と式文の `drain`(レベル 0)は送らない。
+   そこで決められない変数は、エントリをそのまま検査する。
+
+   式文の `drain` は、値の式を 1 段深いレベルで推論するときも、レベル 0 で呼ぶ。
+   前の最上位の束縛の弱い型変数はレベル 0 なので、3 つ目の条件で決めずに済む。
+   その代わり、最上位の値でない式文に局所の束縛で包まずに直接書いた `match {}` は、
+   照合対象の変数のレベルが 0 なので決まらず、警告が残る。
 
    ### ガード付き節は網羅性に数えない
 
@@ -890,6 +942,19 @@ let pending : entry list ref = ref []
    積んだ数の二乗の時間がかかる(§10.13) *)
 let queue rows ty = pending := { qe_rows = rows; qe_ty = ty } :: !pending
 
+(* 節のない match の照合対象の型が、制約の付かない未定の型変数であるかどうか。
+   そうなら、その変数のレベルを返す *)
+let empty_open_scrutinee { qe_rows; qe_ty } =
+  if qe_rows <> [] then None
+  else match repr qe_ty with TVar { contents = Unbound i } when i.vcls = [] -> Some i.vlevel | _ -> None
+
+(* 残った変数は Never に決める(§10.13)。カインドが合わなければ決めずに、
+   網羅性の検査に任せる *)
+let settle_empty e =
+  match empty_open_scrutinee e, repr e.qe_ty with
+  | Some _, (TVar _ as v) -> ( try Unify.unify v t_never with Type_error _ -> ())
+  | _ -> ()
+
 let check_entry { qe_rows; qe_ty } =
   let out = ref [] in
   let all = List.map (fun (p, guarded) -> ([ convert p ], guarded)) qe_rows in
@@ -920,9 +985,31 @@ let check_entry { qe_rows; qe_ty } =
     all;
   !out
 
-let drain () =
+(* 型 t に型変数 r が現れるか *)
+let rec mentions_var r t =
+  match repr t with
+  | TVar v -> v == r
+  | TCon (_, args) -> List.exists (mentions_var r) args
+  | TApp (f, a) -> mentions_var r f || mentions_var r a
+  | TArrow (a, ret, e) -> mentions_var r a || mentions_var r ret || mentions_var r e
+  | TRecord row | TVariant row -> mentions_var r row
+  | TRowEmpty -> false
+  | TRowExtend (_, f, rest) -> mentions_var r f || mentions_var r rest
+
+(* 局所の束縛で外側へ送るエントリをキューに戻し、残りのエントリのうち条件を満たすものの
+   照合対象を Never に決めてから検査する(§10.13) *)
+let drain ~level ?(tys = []) ?(gen = true) () =
   let entries = List.rev !pending in
   pending := [];
-  List.concat_map check_entry entries
+  let visible e = match repr e.qe_ty with TVar r -> List.exists (mentions_var r) tys | _ -> false in
+  let defer e =
+    match empty_open_scrutinee e with
+    | None -> false
+    | Some l -> level > 0 && (l <= level || (visible e && not gen))
+  in
+  let later, now = List.partition defer entries in
+  pending := List.rev later;
+  List.iter (fun e -> match empty_open_scrutinee e with Some l when l > level && not (visible e) -> settle_empty e | _ -> ()) now;
+  List.concat_map check_entry now
 
 let reset () = pending := []
