@@ -993,6 +993,122 @@ drop_arrows がカインドを張るので、same_kind で照合すると「Type
   ! effkind5.kel:1:32: 型エラー: エフェクト位置の型のカインドが Row ではありません: ς1[ς2]
   [1]
 
+行カインドのパラメータへの型引数も同じ規則で照合する。arity 0 の束縛子への
+適用 F[E] を Callback に渡すと、宣言のその場で落ちる。宣言を通すと、f に
+閉じた行の Callback を渡した使用点で内部名の単一化の誤りになるからである:
+
+  $ cat > hktrow.kel <<'EOF'
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > let f[F, E](c: Callback[F[E]]): Int32 = 0
+  > let g(c: Callback[{}]): Int32 = f(c)
+  > EOF
+  $ diktor --type-check hktrow.kel
+  ! hktrow.kel:2:16: 型エラー: 型構成子 Callback の第1引数のカインドが一致しません: Row を期待しましたが ς1[ς2] は行になりません
+  [1]
+
+newtype の本体と EffectRow エイリアスへの型引数も同じ:
+
+  $ cat > hktrow2.kel <<'EOF'
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > newtype Holder[F, E] = Holder(Callback[F[E]])
+  > EOF
+  $ diktor --type-check hktrow2.kel
+  ! hktrow2.kel:2:31: 型エラー: 型構成子 Callback の第1引数のカインドが一致しません: Row を期待しましたが F[A] は行になりません
+  [1]
+  $ cat > hktrow3.kel <<'EOF'
+  > type W[E]: EffectRow = {Print extends E}
+  > let f[F, E](x: Int32): Int32 @ W[F[E]] = x
+  > EOF
+  $ diktor --type-check hktrow3.kel
+  ! hktrow3.kel:2:32: 型エラー: 型エイリアス W の型引数のカインドが一致しません: Row を期待しましたが ς1[ς2] は行になりません
+  [1]
+
+レコード行の extends の右と、ヴァリアント和の末尾も同じ規則で照合する。
+ここで G のカインドが先に決まると、後ろの Callback[G[Int32]] の照合も
+通ってしまうので、この 2 か所でも宣言のその場で落とす:
+
+  $ cat > hktrow6.kel <<'EOF'
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > let f[G](r: {x: Int32 extends G[Int32]}, c: Callback[G[Int32]]): Int32 = r.x
+  > EOF
+  $ diktor --type-check hktrow6.kel
+  ! hktrow6.kel:2:13: 型エラー: extends の右の型のカインドが Row ではありません: ς1[Int32]
+  [1]
+  $ cat > hktrow7.kel <<'EOF'
+  > let f[G](v: #A(Int32) | G[Int32]): Int32 = 0
+  > EOF
+  $ diktor --type-check hktrow7.kel
+  ! hktrow7.kel:1:13: 型エラー: ヴァリアント和の末尾の型のカインドが Row ではありません: ς1[Int32]
+  [1]
+
+Type エイリアスの本体に書いた形は、エイリアスの宣言で落ちる。パラメータの
+カインドの推論が本体を読めずに F を Type を取って Type を返す形に既定化する
+ので、文面は Type との不一致になる:
+
+  $ cat > hktrow5.kel <<'EOF'
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > type Cb[F, E] = Callback[F[E]]
+  > EOF
+  $ diktor --type-check hktrow5.kel
+  ! hktrow5.kel:2:17: 型エラー: 型構成子 Callback の第1引数のカインドが一致しません: Row を期待しましたが ς1[ς2] は Type です
+  [1]
+
+Callback を後ろで宣言すると、Holder の本体を読む時点では Callback の
+パラメータのカインドが未確定なので、その場では落とせない。カインドが
+出揃った後で、F のカインドの行き先が Row になったことを newtype の先頭で
+報告する:
+
+  $ cat > hktrow4.kel <<'EOF'
+  > newtype Holder[F, E] = Holder(Callback[F[E]])
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > EOF
+  $ diktor --type-check hktrow4.kel
+  ! hktrow4.kel:1:1: 型エラー: newtype Holder の型パラメータ F への適用が行として使われています(行を返す型構成子はありません)
+  [1]
+
+相手のパラメータが本体でレコード行の extends の右に置かれる形も、同じく
+newtype の先頭で報告する:
+
+  $ cat > hktrow8.kel <<'EOF'
+  > newtype H[G] = MkH(Box[G[Int32]])
+  > newtype Box[R] = MkBox({x: Int32 extends R})
+  > EOF
+  $ diktor --type-check hktrow8.kel
+  ! hktrow8.kel:1:1: 型エラー: newtype H の型パラメータ G への適用が行として使われています(行を返す型構成子はありません)
+  [1]
+
+型エイリアスの本体から後ろの newtype へ渡す形も、エイリアスの先頭で報告する
+(エイリアスの本体も 1b より前に投機するので、newtype と同じく相手のパラメータが
+F の結果のカインドを Row に決める):
+
+  $ cat > hktrow9.kel <<'EOF'
+  > type Cb[F, E] = Callback[F[E]]
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > EOF
+  $ diktor --type-check hktrow9.kel
+  ! hktrow9.kel:1:1: 型エラー: 型エイリアス Cb の型パラメータ F への適用が行として使われています(行を返す型構成子はありません)
+  [1]
+
+次の形は落とさない。エイリアスの展開結果が型パラメータそのものになる形(Id と、
+恒等のエイリアスを重ねた Id2)は、行変数のカインドの推論として Row に決まって通る。
+型変数の部分適用を Type -> Type のパラメータに渡す形(T[F[String]])も通る:
+
+  $ cat > hktrowok.kel <<'EOF'
+  > type Id[A] = A
+  > type Id2[A] = Id[A]
+  > newtype Callback[E] = Callback(() => Unit @ E)
+  > newtype N[X] = MkN(Callback[Id[X]])
+  > let f(n: N[{Print}]): Int32 = 0
+  > newtype N2[X] = MkN2(Callback[Id2[X]])
+  > let f2(n: N2[{Print}]): Int32 = 0
+  > newtype T[G] = MkT(G[Int32])
+  > let g[F](x: T[F[String]], y: F[String, Int32]): Int32 = 0
+  > EOF
+  $ diktor --type-check hktrowok.kel
+  f : (N[{Print}]) => Int32
+  f2 : (N2[{Print}]) => Int32
+  g : (T[F[String]], F[String, Int32]) => Int32
+
 EffectRow エイリアスの適用はこの枝を通って正しく行になる(枝ごと落とさずに
 照合だけを足した理由。module 修飾でもパラメータつきでも同じ):
 
