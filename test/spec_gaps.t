@@ -58,7 +58,7 @@ Array.new も無い(freeze の側は test/region.t の freeze / nonew):
   [1]
   $ printf 'let xs: Array[Int32] = [1, 2, 3]\n' > arrlit.kel
   $ diktor --type-check arrlit.kel
-  arrlit.kel:1:24: パースエラー(付近のトークンを確認してください)
+  arrlit.kel:1:24: 構文エラー: 付近のトークンを確認してください
   [2]
 
 使用時の開きの順序依存(LangSpec §13.2 の制限の 2 つ目)。使用の時点で関数の行や
@@ -143,13 +143,13 @@ test/verify_fixes.t の vrgen が通す):
 
 操作とエフェクトの型パラメータ(LangSpec 付録 A.8)。所有者が後で許すかどうかを
 決める形として見張る(doc/log/261009-3-proposal.md の判断 9-9)。eff_op は typarams を
-持たないので、操作の型パラメータはパースエラーになる:
+持たないので、操作の型パラメータは構文エラーになる:
 
   $ cat > effopparam.kel <<'KEL'
   > effect E = { op[A]: (A) => A }
   > KEL
   $ diktor --type-check effopparam.kel
-  effopparam.kel:1:16: パースエラー(付近のトークンを確認してください)
+  effopparam.kel:1:16: 構文エラー: 付近のトークンを確認してください
   [2]
 
 エフェクトの宣言の typarams は文法が受け、型検査が拒む(§13.1):

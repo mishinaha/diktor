@@ -82,7 +82,7 @@ g(1)(2) { k } では、末尾ブロックは 2 つ目の呼び出しに加わる
      (extend _item 2 (extend _item (fn () k) {})))))
   $ echo 'let a = %arg' > pct.kel
   $ diktor --type-check pct.kel
-  pct.kel:1:9: パースエラー(付近のトークンを確認してください)
+  pct.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
 { case (a, b) => e } はタプル 1 個を受け取る関数で、2 引数の関数ではない
@@ -145,7 +145,7 @@ g(#C) は型エラーになる:
 
 コンストラクタ、構造的ヴァリアント、perform、resume には付けられない。
 引数リストのある形は専用の診断になり、引数リストの無い Foo { k } と
-#Tag { k } は一般のパースエラーになる:
+#Tag { k } は一般の構文エラーになる:
 
   $ echo 'let a = Some(1) { k }' > ctor.kel
   $ diktor --type-check ctor.kel
@@ -165,11 +165,11 @@ g(#C) は型エラーになる:
   [2]
   $ echo 'let a = Foo { k }' > ctor0.kel
   $ diktor --type-check ctor0.kel
-  ctor0.kel:1:13: パースエラー(付近のトークンを確認してください)
+  ctor0.kel:1:13: 構文エラー: 付近のトークンを確認してください
   [2]
   $ echo 'let a = #Tag { k }' > tag0.kel
   $ diktor --type-check tag0.kel
-  tag0.kel:1:14: パースエラー(付近のトークンを確認してください)
+  tag0.kel:1:14: 構文エラー: 付近のトークンを確認してください
   [2]
 
 末尾ブロックは 1 つの呼び出しに 1 個まで:
@@ -184,11 +184,11 @@ g(#C) は型エラーになる:
   [2]
 
 括弧で囲んだ式の後ろには書けない。(g(1)) { k } は g(1) の結果への適用にも、
-g(1, fn() => k) にもならず、パースエラーになる:
+g(1, fn() => k) にもならず、構文エラーになる:
 
   $ echo 'let a = (g(1)) { k }' > paren.kel
   $ diktor --type-check paren.kel
-  paren.kel:1:16: パースエラー(付近のトークンを確認してください)
+  paren.kel:1:16: 構文エラー: 付近のトークンを確認してください
   [2]
 
 { x => ... } と { case ... } は、末尾ブロックの位置の外ではエラーになる。

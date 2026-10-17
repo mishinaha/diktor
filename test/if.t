@@ -68,11 +68,11 @@ else の枝は右へできるだけ長く取る(仕様 §5.2 の表では fn と
 
   $ printf 'let g = 1 + if true then 1 else 2\n' > operand.kel
   $ diktor operand.kel
-  operand.kel:1:13: パースエラー(付近のトークンを確認してください)
+  operand.kel:1:13: 構文エラー: 付近のトークンを確認してください
   [2]
 
 else は省略できない。改行が文を区切った位置で else を待っていたことが、
-パースエラーの位置で分かる:
+構文エラーの位置で分かる:
 
   $ cat > noelse.kel <<'KEL'
   > let f(b: Boolean): Unit = {
@@ -81,7 +81,7 @@ else は省略できない。改行が文を区切った位置で else を待っ
   > }
   > KEL
   $ diktor noelse.kel
-  noelse.kel:2:24: パースエラー(付近のトークンを確認してください)
+  noelse.kel:2:24: 構文エラー: 付近のトークンを確認してください
   [2]
 
 改行：then と else で始まる行と、then と else で終わる行は、前後の行に続く。
@@ -190,15 +190,15 @@ then と else は予約語で、変数、引数、レコードのラベルに使
 
   $ printf 'let then = 1\n' > kwthen.kel
   $ diktor kwthen.kel
-  kwthen.kel:1:5: パースエラー(付近のトークンを確認してください)
+  kwthen.kel:1:5: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'let f(else: Int32): Int32 = else\n' > kwelse.kel
   $ diktor kwelse.kel
-  kwelse.kel:1:7: パースエラー(付近のトークンを確認してください)
+  kwelse.kel:1:7: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'let r = {then = 1}\n' > kwlabel.kel
   $ diktor kwlabel.kel
-  kwlabel.kel:1:10: パースエラー(付近のトークンを確認してください)
+  kwlabel.kel:1:10: 構文エラー: 付近のトークンを確認してください
   [2]
 
 ガードの if と共存する。ガードの中の条件式は、括弧が無くても読める。

@@ -45,7 +45,7 @@ import の誤りも 1:
   $ diktor exitparse.kel 2> /dev/null; echo "exit: $?"
   exit: 2
   $ diktor exitparse.kel > /dev/null; echo "exit: $?"
-  exitparse.kel:3:1: パースエラー(付近のトークンを確認してください)
+  exitparse.kel:3:1: 構文エラー: 付近のトークンを確認してください
   exit: 2
   $ printf 'echoln("before")\nlet x = "\\q"\n' > exitlex.kel
   $ diktor exitlex.kel 2> /dev/null; echo "exit: $?"

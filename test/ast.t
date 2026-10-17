@@ -144,13 +144,13 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
    Int32)
   (newtype-pub Parser (A))
 
-パースエラー(exit 2):
+構文エラー(exit 2):
 
   $ cat > bad.kel <<'EOF'
   > let x = = 1
   > EOF
   $ diktor --dump-ast bad.kel
-  bad.kel:1:9: パースエラー(付近のトークンを確認してください)
+  bad.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
 sample.kel 全文がパースできること(M3 完了条件。写しの版は test/sample/README.md):

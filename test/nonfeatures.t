@@ -12,7 +12,7 @@ or パターンは入れない(§7。パターンの文法に | を出さなけ�
   > }
   > KEL
   $ diktor --type-check orpat.kel
-  orpat.kel:2:14: パースエラー(付近のトークンを確認してください)
+  orpat.kel:2:14: 構文エラー: 付近のトークンを確認してください
   [2]
 
 節パターンの型注釈も現状は無い(§7。将来入れるなら、矢印を含む型注釈は
@@ -24,7 +24,7 @@ or パターンは入れない(§7。パターンの文法に | を出さなけ�
   > }
   > KEL
   $ diktor --type-check patannot.kel
-  patannot.kel:2:9: パースエラー(付近のトークンを確認してください)
+  patannot.kel:2:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
 レコード更新の基底は小文字始まりの識別子 1 個(§3 が基底を識別子 1 個に
@@ -35,12 +35,12 @@ with だけを見るので基底に式は書けず、大文字始まりは字句
 
   $ printf 'let p = {origin = {x = 1.0}}\nlet q = {p.origin with x = 3.0}\n' > updbase.kel
   $ diktor --type-check updbase.kel
-  updbase.kel:2:19: パースエラー(付近のトークンを確認してください)
+  updbase.kel:2:19: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ printf 'let f(n: Int32) = {x = n}\nlet q = {f(1) with x = 3}\n' > updbase2.kel
   $ diktor --type-check updbase2.kel
-  updbase2.kel:2:15: パースエラー(付近のトークンを確認してください)
+  updbase2.kel:2:15: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ printf 'let p = {x = 1}\nlet q = {P with x = 3}\n' > updbase3.kel
@@ -56,27 +56,27 @@ test/tokens.t の `{p with …}` のブロックが固定している。)
 
   $ printf 'type foo = Int32\n' > case1.kel
   $ diktor --type-check case1.kel
-  case1.kel:1:6: パースエラー(付近のトークンを確認してください)
+  case1.kel:1:6: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'newtype foo = Bar\n' > case2.kel
   $ diktor --type-check case2.kel
-  case2.kel:1:9: パースエラー(付近のトークンを確認してください)
+  case2.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'effect foo = { op: () => {} }\n' > case3.kel
   $ diktor --type-check case3.kel
-  case3.kel:1:8: パースエラー(付近のトークンを確認してください)
+  case3.kel:1:8: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'module foo { }\n' > case4.kel
   $ diktor --type-check case4.kel
-  case4.kel:1:8: パースエラー(付近のトークンを確認してください)
+  case4.kel:1:8: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'effect E = { Op: () => {} }\n' > case5.kel
   $ diktor --type-check case5.kel
-  case5.kel:1:14: パースエラー(付近のトークンを確認してください)
+  case5.kel:1:14: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'newtype T = ctor(Int32)\n' > case6.kel
   $ diktor --type-check case6.kel
-  case6.kel:1:13: パースエラー(付近のトークンを確認してください)
+  case6.kel:1:13: 構文エラー: 付近のトークンを確認してください
   [2]
 
 型パラメータの束縛子はこの規則の例外で、大小を問わない(裁定 D110。仕様 §0、
@@ -97,11 +97,11 @@ test/parallel.t が固定している):
   use : (Ref[A, B]) => B @ {Heap[A]}
   $ printf 'let g(): Int32 = run H { 1 }\n' > case8.kel
   $ diktor --type-check case8.kel
-  case8.kel:1:22: パースエラー(付近のトークンを確認してください)
+  case8.kel:1:22: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'let g(): Int32 = run _ { 1 }\n' > case9.kel
   $ diktor --type-check case9.kel
-  case9.kel:1:22: パースエラー(付近のトークンを確認してください)
+  case9.kel:1:22: 構文エラー: 付近のトークンを確認してください
   [2]
 
 予約語はラベルの位置でも識別子にならない(D115)。{run: …} が書けない理由は
@@ -113,7 +113,7 @@ test/parallel.t が固定している):
 
   $ printf 'let f(r: {run: Int32}): Int32 = 1\n' > kwlabel.kel
   $ diktor --type-check kwlabel.kel
-  kwlabel.kel:1:11: パースエラー(付近のトークンを確認してください)
+  kwlabel.kel:1:11: 構文エラー: 付近のトークンを確認してください
   [2]
 
 (スーパークラスの拒否は test/classes.t、Zero / One が無いことは型クラス表に
@@ -151,7 +151,7 @@ derive structural は無い(LangSpec §12.5。構造的な比較は Eq に組み
   > }
   > KEL
   $ diktor --type-check derive.kel
-  derive.kel:3:3: パースエラー(付近のトークンを確認してください)
+  derive.kel:3:3: 構文エラー: 付近のトークンを確認してください
   [2]
 
 derive は予約語ではない:
@@ -196,7 +196,7 @@ newtype の右辺に ??? は書けない(LangSpec §10.1):
 
   $ printf 'newtype Hidden = ???\n' > nthole.kel
   $ diktor --type-check nthole.kel
-  nthole.kel:1:18: パースエラー(付近のトークンを確認してください)
+  nthole.kel:1:18: 構文エラー: 付近のトークンを確認してください
   [2]
 
 値束縛には型パラメータを書けない(LangSpec 付録 A.8。binding の値束縛の形は
@@ -206,7 +206,7 @@ typarams を持たない):
   > let x[A]: List[A] = Nil
   > KEL
   $ diktor --type-check valtyparam.kel
-  valtyparam.kel:1:9: パースエラー(付近のトークンを確認してください)
+  valtyparam.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
 無名関数には返り値の型を注釈できない(付録 A.8。exp の fn の形は返り値の型と
@@ -216,7 +216,7 @@ typarams を持たない):
   > let f = fn(x: Int32): Int32 => x
   > KEL
   $ diktor --type-check fnret.kel
-  fnret.kel:1:21: パースエラー(付近のトークンを確認してください)
+  fnret.kel:1:21: 構文エラー: 付近のトークンを確認してください
   [2]
 
 type class の型パラメータは省略できない(付録 A.8):
@@ -225,7 +225,7 @@ type class の型パラメータは省略できない(付録 A.8):
   > type class C { val c: (Int32) => Int32 }
   > KEL
   $ diktor --type-check classnoparam.kel
-  classnoparam.kel:1:14: パースエラー(付近のトークンを確認してください)
+  classnoparam.kel:1:14: 構文エラー: 付近のトークンを確認してください
   [2]
 
 extern は関数束縛の形だけを持ち、値束縛の形を持たない(付録 A.8):
@@ -234,5 +234,5 @@ extern は関数束縛の形だけを持ち、値束縛の形を持たない(付
   > extern "C" let sqrt: (Float64) => Float64
   > KEL
   $ diktor --type-check externval.kel
-  externval.kel:1:20: パースエラー(付近のトークンを確認してください)
+  externval.kel:1:20: 構文エラー: 付近のトークンを確認してください
   [2]

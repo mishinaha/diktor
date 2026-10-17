@@ -531,7 +531,7 @@ CR(仕様 §0。文字列の外の CR は空白、CRLF が改行として働き�
 
   $ printf 'let x = 1\rlet y = 2\n' > cronly.kel
   $ diktor --type-check cronly.kel
-  cronly.kel:1:11: パースエラー(付近のトークンを確認してください)
+  cronly.kel:1:11: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ printf 'echoln("a\rb")\n' > crstr.kel
@@ -585,7 +585,7 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
 
   $ printf 'let x = .5\n' > dot5.kel
   $ diktor --type-check dot5.kel
-  dot5.kel:1:9: パースエラー(付近のトークンを確認してください)
+  dot5.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ cat > projnum.kel <<'KEL'

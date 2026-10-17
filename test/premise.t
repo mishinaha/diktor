@@ -250,7 +250,7 @@ AST ダンプ(束縛子があるときだけ tparams が出る):
   $ diktor --type-check --no-prelude pr13.kel
   $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\ntype instance[] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr14.kel
   $ diktor --type-check --no-prelude pr14.kel
-  pr14.kel:2:15: パースエラー(付近のトークンを確認してください)
+  pr14.kel:2:15: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'newtype List[A] = Cons(A, tail: List[A]) | Nil\npub type instance[A: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }\n' > pr15.kel
   $ diktor --type-check --no-prelude pr15.kel

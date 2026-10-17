@@ -34,7 +34,7 @@ ty_args は instance の型引数とエフェクト行のラベル引数でも�
 
   $ printf 'let f(t) = t match { case {x, ...r,} => x }\n' > term1.kel
   $ diktor --type-check term1.kel
-  term1.kel:1:35: パースエラー(付近のトークンを確認してください)
+  term1.kel:1:35: 構文エラー: 付近のトークンを確認してください
   [2]
 
 残る 8 種のリスト(引数・パラメータ・レコード・タプル・パターン・エフェクト行・
@@ -68,17 +68,17 @@ effect の操作・コンストラクタのフィールド)。§0 の「どの�
 
   $ printf 'let f[R](p: {x: Int32 extends R,}): Int32 = p.x\n' > term2.kel
   $ diktor --type-check term2.kel
-  term2.kel:1:32: パースエラー(付近のトークンを確認してください)
+  term2.kel:1:32: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ printf 'let r = {a = 1}\nlet s = {b = 2, extends r,}\n' > term3.kel
   $ diktor --type-check term3.kel
-  term3.kel:2:26: パースエラー(付近のトークンを確認してください)
+  term3.kel:2:26: 構文エラー: 付近のトークンを確認してください
   [2]
 
   $ printf 'let f(t) = t match { case (x, ...r,) => x }\n' > term4.kel
   $ diktor --type-check term4.kel
-  term4.kel:1:35: パースエラー(付近のトークンを確認してください)
+  term4.kel:1:35: 構文エラー: 付近のトークンを確認してください
   [2]
 
 終端子の**前**のカンマは要素の末尾カンマなので置ける:
