@@ -242,19 +242,32 @@ let dump_tokens_file file =
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
-   上流から来る失敗のうち、この関数が受けるのは次の 3 種類である。
+   上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
 
    - `Parser'.Error`：menhir が次に進む節を選べなかった(文法に合わない)
    - `Syntax.Syntax_error`：文法は通ったが、脱糖(第3章)が形を拒否した
    - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した
+   - `Stack_overflow` と `Out_of_memory`：構文解析が処理系の限度を超えた
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
-   どれにも位置を付ける。
+   前の 3 つには位置を付ける。
    `Syntax_error_at` には指定された位置を、ほかの 2 つには最後に読んだトークンの位置を使う。
+
+   構文解析が限度を超えるのは、文法の動作の中の末尾でない再帰による。
+   たとえば、ブロックの文の列を畳む `block_of_items` と、引数の列から行を組む `record_of_args` は、
+   列の長さに比例してスタックを使う。
+   限度を超えた時点の最後のトークンは、長い列の終わりの近くにあるだけで、誤りの位置ではない。
+   そこで、限度にはファイル名だけを付ける。
+   限度を受けるのは、それを型検査の段や評価の段の限度と区別し、
+   読み込みの段の失敗として終了コード 2 で報告するためである。
    字句解析器の `Lexer.Lex_error` はここでは受けず、§16.8 の受け皿がそのまま受ける。
    不正な UTF-8 バイト列も、第2章が位置つきの `Lex_error` に変えてから投げるので、同じ受け皿に届く。
    種類ごとに区別して報告したくなったときは、この関数で分ければよい。
    分岐点を 1 か所に集めてあるのはそのためである。 *)
+let read_limit_message file = function
+  | Out_of_memory -> file ^ ": 処理系の限度: 構文解析でメモリが不足しました"
+  | _ -> file ^ ": 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)"
+
 let parse_unit_with lexer =
   try Lexer'.parse Parser'.program lexer with
   | Parser'.Error ->
@@ -262,6 +275,7 @@ let parse_unit_with lexer =
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
   | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
+  | (Stack_overflow | Out_of_memory) as ex -> raise (Parse_error (read_limit_message lexer.Lexer'.last_sp.Lexing.pos_fname ex))
 
 (* import はコマンド行で渡したファイルにだけ書ける。プレリュードと文字列の API は、
    相対パスの基準になるファイルを持たないので、import があれば構文エラーにする *)
@@ -762,6 +776,7 @@ let try_parse ~line ?(col = 0) source =
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
   | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
   | exception Syntax.Syntax_error_at (pos, msg) -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg)
+  | exception ((Stack_overflow | Out_of_memory) as ex) -> Failed (read_limit_message "<stdin>" ex)
 
 (* 実行時エラーの文言。§16.8 の受け皿と同じ文言にそろえる *)
 let runtime_message = function
@@ -1043,6 +1058,10 @@ let run_with options =
    | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない |
    | 74 | 出力に書き出せない | 標準出力への flush の失敗 |
 
+   再帰過多とメモリ不足は、処理系の限度を超えたことを表し、起きた段の誤りに数える。
+   読み込みの段では 2、型検査の段では 1、評価の段では 3 である。
+   表の 3 の行の再帰過多とメモリ不足は、評価の段のものである。
+
    64 は BSD の sysexits の EX_USAGE、74 は EX_IOERR である。
    独自の番号を選ぶより、既にある慣習に従うほうがシェルスクリプトから扱いやすい。
    74 をプログラムの誤り(3)と分けているのは、
@@ -1065,8 +1084,10 @@ let run_with options =
    | 存在しないファイル | ファイルを開けません | 64 |
    | 不正な UTF-8 バイト列 | 字句エラー | 2 |
    | module の入れ子、module 内の effect | 未実装 | 4 |
-   | 深すぎる再帰 | 実行時エラー | 3 |
-   | 巨大な割り当て | 実行時エラー | 3 |
+   | 評価の段の深すぎる再帰 | 実行時エラー | 3 |
+   | 評価の段の巨大な割り当て | 実行時エラー | 3 |
+   | 構文解析の段の長すぎる列 | 処理系の限度 | 2 |
+   | 型検査の段の深すぎる入れ子 | 処理系の限度 | 1 |
    | 標準出力に書けない(/dev/full) | 出力エラー | 74 |
 
    表の 3 行目の未実装は、第11章の `flatten_modules` が投げる。
@@ -1079,8 +1100,18 @@ let run_with options =
    ### 守るべき不変条件
 
    - 受け皿は、`run_with` を丸ごと囲む 1 枚だけである。
-     そのため、型検査中の再帰過多も評価中の再帰過多も、同じ終了コード 3 になる。
-     フェーズごとに終了コードを分けるには、受け皿を分割する必要がある。
+     受け皿の `Stack_overflow` と `Out_of_memory` の節は、段ごとの受け手が受けなかったものを受け、
+     終了コード 3 にする。
+     評価の段の再帰過多とメモリ不足がそれにあたる。
+     読み込みの段と型検査の段のものは、それぞれの段の受け手が診断に変える。
+     読み込みの段では §16.3 の `parse_unit_with` と §16.6b の `try_parse` が受け、
+     字句と構文の誤りと同じ終了コード 2 にする。
+     型検査の段では第11章の `type_check`、`type_check_units`、`catch_input_errors` が
+     `limit_error` で診断に変え、型検査での拒否と同じ終了コード 1 にする。
+     対話的な実行でも、入力の構文解析と型検査の限度は入力の拒否として報告され、セッションは続く。
+     段ごとの受け手の外で溢れたものも受け皿に届き、終了コード 3 になる。
+     対話的な実行の開始時のプレリュードの型検査(`Elab.start_session`)と、
+     `--dump-ast` の印字がそれにあたる。
    - 規約を最終的に保証するのは、最後の catch-all である。
      OCaml は例外パターンの網羅性を検査しないので、
      新しい例外に節を足し忘れてもコンパイルエラーにならない。
