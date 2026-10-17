@@ -3289,6 +3289,7 @@ and make_rigids ?kinds level tparams =
     (fun tp kind ->
       let classes = class_names_of tp in
       let r = new_rigid_ref ~kind ~classes level in
+      (match !r with Rigid i -> Hashtbl.replace Unify.rigid_tparams i.vid tp.tp_name | _ -> ());
       (tp.tp_name, TVar r, r))
     tparams kinds
 

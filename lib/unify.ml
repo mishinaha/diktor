@@ -167,7 +167,28 @@ let show_pair a b = !show_pair_ref a b
    `Generic` に当たったときは、`type_error` ではなく `bug` にする。
    `Generic` は一般化済みのスキーマの中にしか現れない。
    単一化まで流れてきたなら第11章(elab.ml)が `instantiate` を呼び忘れており、
-   利用者のプログラムの誤りではなく実装の誤りである。 *)
+   利用者のプログラムの誤りではなく実装の誤りである。
+
+   脱出の報告には、剛定数が型パラメータなら、その名前と漏れの原因を添える。
+   型パラメータの剛定数が浅いレベルの変数に入り込むのは、
+   その変数がまだ型が決まっておらず、型パラメータのスコープの外の型と共有されているときである。
+   外側の注釈の無い引数の型や、一般化しない束縛の型がそれに当たる。
+   スコープの中で作られた変数も、外側の変数と単一化されると共有され、レベルが下がる。
+   剛定数の表示 `ς1` だけでは、どの型パラメータがどこへ漏れたのかが読めない。
+   名前は `rigid_tparams` に、第11章の `make_rigids` が剛定数を作るときに登録する。
+   `run` のヒープとインスタンス検査の skolem は登録しないので、報告に名前を添えない。 *)
+
+let rigid_tparams : (oid, string) Hashtbl.t = Hashtbl.create 16
+
+let escape_message v (i : var_info) =
+  let name = show (TVar v) in
+  let base = "スコープ付きの型 " ^ name ^ " がスコープの外に漏れています" in
+  match Hashtbl.find_opt rigid_tparams i.vid with
+  | None -> base
+  | Some n ->
+      base ^ "(" ^ name ^ " は型パラメータ " ^ n ^ " です。" ^ n
+      ^ " のスコープの外の型と共有された、型の決まっていない変数(注釈の無い引数の型や、一般化されない束縛の型など)に "
+      ^ n ^ " を入れようとしています)"
 
 let rec occurs_adjust tv lvl t =
   match repr t with
@@ -177,7 +198,7 @@ let rec occurs_adjust tv lvl t =
       | Unbound i -> if i.vlevel > lvl then set_tv v (Unbound { i with vlevel = lvl })
       | Rigid i ->
           (* 剛定数はレベルを下げられない。下げる代わりにエラーにする *)
-          if i.vlevel > lvl then type_error ("スコープ付きの型 " ^ show (TVar v) ^ " がスコープの外に漏れています")
+          if i.vlevel > lvl then type_error (escape_message v i)
       | Generic _ -> bug "単一化中に Generic 変数が現れました"
       | Link _ -> ())
   | TCon (_, args) -> List.iter (occurs_adjust tv lvl) args
