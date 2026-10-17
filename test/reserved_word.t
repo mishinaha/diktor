@@ -75,7 +75,8 @@
 
 予約語を識別子に置き換えても次のトークンで詰まる入力は、汎用の文面のままである。
 括弧で囲まない if のオペランド、宣言の後ろの import、右辺の書き忘れ、
-予約語で終わる入力がそれにあたる:
+予約語で終わる入力がそれにあたる。右辺の書き忘れは、= が続きを求めたまま
+行をまたいで詰まるので、= の終わりを指し、詰まったトークンの位置を添える:
 
   $ printf 'let g = 1 + if true then 1 else 2\n' > operand.kel
   $ diktor operand.kel
@@ -87,7 +88,7 @@
   [2]
   $ printf 'let x =\nlet y = 2\n' > norhs.kel
   $ diktor norhs.kel
-  norhs.kel:2:1: 構文エラー: 付近のトークンを確認してください
+  norhs.kel:1:8: 構文エラー: この位置の後ろ、2:1 のトークンが文法に合いません
   [2]
   $ printf 'let then\n' > eof.kel
   $ diktor eof.kel

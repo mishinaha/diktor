@@ -59,7 +59,7 @@ import の直後の { は改行を区切りにしない括弧で、--dump-tokens
   [2]
   $ printf 'from "./a" import {\n  A\n  b\n}\n' > nl.kel
   $ diktor nl.kel
-  nl.kel:3:3: 構文エラー: 付近のトークンを確認してください
+  nl.kel:2:4: 構文エラー: この位置の後ろ、3:3 のトークンが文法に合いません
   [2]
 
 from と import は予約語である:
