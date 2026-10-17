@@ -1060,6 +1060,69 @@ rectpflowrev):
   f : (A) => {} @ {Print}
   _ : {}
 
+行変数も型パラメータなので、同じ制限に入る。行変数を取る後ろの束縛を、行を注釈した
+前の束縛から呼ぶと落ちる。呼ぶ側の行が自分の行変数 E を含む形(recrowfwd)でも、
+閉じた行の形(recrowclosed)でも同じである。逆の順に書けば通る(recrowrev)。2 本とも
+行変数を取って互いを呼ぶ形は、どちらの順でも落ちる(recrowmutual):
+
+  $ cat > recrowfwd.kel <<'KEL'
+  > let rec a[E](n: Int32): Int32 @ {Console extends E} = b(n)
+  > and b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
+  > KEL
+  $ diktor --type-check recrowfwd.kel
+  ! recrowfwd.kel:1:55: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+  $ cat > recrowclosed.kel <<'KEL'
+  > let rec a(n: Int32): Int32 @ Console = b(n)
+  > and b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
+  > KEL
+  $ diktor --type-check recrowclosed.kel
+  ! recrowclosed.kel:1:40: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  [1]
+  $ cat > recrowrev.kel <<'KEL'
+  > let rec b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
+  > and a[E](n: Int32): Int32 @ {Console extends E} = b(n)
+  > KEL
+  $ diktor --type-check recrowrev.kel
+  b : (Int32) => Int32 @ {Console extends R1}
+  a : (Int32) => Int32 @ {Console extends R1}
+  $ cat > recrowmutual.kel <<'KEL'
+  > let rec b[F](n: Int32): Int32 @ {Console extends F} = n match { case 0 => 0 case m => a(m - 1) }
+  > and a[E](n: Int32): Int32 @ {Console extends E} = b(n)
+  > KEL
+  $ diktor --type-check recrowmutual.kel
+  ! recrowmutual.kel:1:87: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  [1]
+
+閉じた行の束縛と行変数を取る束縛が互いを呼ぶ形は、行変数を取る側を前に書けば通り
+(recrowclosedmut)、後ろに書けば落ちる(recrowclosedmutrev)。行変数を取る束縛が
+2 本の群で、もう片方の行を注釈しなければ、どちらの順でも通り、2 本は同じ行変数を
+持つ型になる(recrowone):
+
+  $ cat > recrowclosedmut.kel <<'KEL'
+  > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
+  > and b(n: Int32): Int32 @ Console = { echo("b"); a(n) }
+  > KEL
+  $ diktor --type-check recrowclosedmut.kel
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console}
+  $ cat > recrowclosedmutrev.kel <<'KEL'
+  > let rec b(n: Int32): Int32 @ Console = n match { case 0 => 0 case m => a(m - 1) }
+  > and a[E](n: Int32): Int32 @ {Console extends E} = { echo("a"); b(n) }
+  > KEL
+  $ diktor --type-check recrowclosedmutrev.kel
+  ! recrowclosedmutrev.kel:1:72: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  [1]
+  $ cat > recrowone.kel <<'KEL'
+  > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
+  > and b(n: Int32) = { echo("b"); a(n) }
+  > let use(): Int32 @ {Console, Print} = { println("p"); a(1) + b(2) }
+  > KEL
+  $ diktor --type-check recrowone.kel
+  a : (Int32) => Int32 @ {Console extends R1}
+  b : (Int32) => Int32 @ {Console extends R1}
+  use : () => Int32 @ {Console, Print}
+
 pub let rec の値束縛で頭の @ を省略すると @ {} と読む(上の pubrecval)。本体が
 エフェクトを起こすと、let の値束縛と同じく pub の規則を名指しして落ちる:
 
