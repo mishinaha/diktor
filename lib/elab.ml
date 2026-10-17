@@ -705,9 +705,11 @@ let unresolved_kind ty = match kind_repr (Unify.kind_of ty) with KVar _ -> true 
 let check_value_kind what ty = if not (same_kind (Unify.kind_of ty) KStar) then kind_error what ~expected:"Type" ty
 
 (* 注記の無いエイリアスと : Type のエイリアスの本体は、行であってはならない。
-   本体が行のエイリアスは、値の型の位置ではカインドで落ち、エフェクト位置では
-   Type エイリアスとして落ちるので、どこにも書けない。
-   使用点を待たずに宣言の位置で落とし、: EffectRow の注記を案内する。
+   本体が行でパラメータの無いエイリアス(type Q = P)は、使うと、値の型の位置ではカインドで、
+   エフェクト位置では Type エイリアスとして落ちる。
+   パラメータを持つ形(type Q[E] = P[E])は、この照合が無ければ、@ Q[E] の位置で
+   展開後のカインドで照合されて通るが、Type エイリアスを行の位置に書いたことになる。
+   どちらも使用点を待たずに宣言の位置で落とし、: EffectRow の注記を案内する。
    高階カインドの本体(type Q[F[_]] = F)は App[Q[F]] の形で使えるので落とさない。
    カインドを照合ではなく照会で見るので、未確定のカインド変数を張らない *)
 let check_alias_body_kind name ty =
@@ -1050,7 +1052,8 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    エイリアスの側にカインドの注記が要る(§11.6)。
    注記の無いエイリアスの本体は値の型として読み、そのカインドが行なら、
    パス 2 が宣言の位置で落とす(§11.40)。
-   本体が行の Type エイリアスは、値の型の位置にもエフェクト位置にも書けないからである。 *)
+   この照合が無いと、本体が行の Type エイリアスのうち、パラメータの無い形は使用点で落ち、
+   パラメータを持つ形(type Q[E] = P[E])は @ Q[E] の位置で通ってしまう。 *)
 
 (* 値の型の位置で読んだ型のカインドが Type であることを確かめる。
    矢印の引数と返り値、レコードのフィールド(タプルの要素を含む)、ヴァリアントの積載、
@@ -5915,7 +5918,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
           | _ ->
               let ty = elab_type env_ty lvl info.Decls.al_body in
               (* 展開した本体が型パラメータそのもの(type Id[A] = A、type Id2[A] = Id[A])なら、
-                 本体のカインドはパラメータのカインドで、使う位置が決めたものである。照合しない *)
+                 本体のカインドはパラメータのカインドで、型の宣言群の中の使い方で決まる。照合しない *)
               let bare_param =
                 match Type.repr ty with
                 | TVar r' -> List.exists (fun (_, _, r) -> r == r') rigids
