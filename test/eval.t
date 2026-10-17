@@ -349,8 +349,8 @@ Run モードでも網羅性警告は stderr に出る:
   [3]
 
 再開する操作の節が resume を呼ぶ前に実行時エラーで脱出すると、継続はまだ生きているので、
-捨てた継続の中の cancel 節を内側から順に走らせた後、その節のハンドラ自身の cancel 節も
-走る(§13.6):
+その節のハンドラ自身の cancel 節も走る(§13.6)。clauseerr では、捨てた継続の中にある
+Res のハンドラの cancel 節が先に、Ask のハンドラ自身の cancel 節が後に走る:
 
   $ cat > clauseerr.kel <<'EOF2'
   > effect Res = { use: () => Unit }
@@ -390,6 +390,63 @@ resume が戻った後の脱出では、継続は消費済みなので、ハン�
   $ diktor clauseresumed.kel
   close res
   resumed 2
+  実行時エラー: ゼロ除算です
+  [3]
+
+resumeinner は、ask(1) の節の resume で再開した計算の中で、同じハンドラの ask(0) の節が
+自分の resume から戻った後に v / n で失敗する形である。ask(1) の節から見れば再開した
+計算の中の誤りだが、評価中の ask(0) の節から見れば resume が戻った後なので、ハンドラ
+自身の cancel 節は走らない:
+
+  $ cat > resumeinner.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(0)) handle {
+  >   case ask(n) => { echoln("clause " + show(n)); let v = resume(1); echoln("after " + show(n)); v / n }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumeinner.kel
+  clause 1
+  clause 0
+  after 0
+  実行時エラー: ゼロ除算です
+  [3]
+
+resumeinnerpre は resumeinner と同じ並びで、ask(0) の節が resume の引数 10 / n の評価中、
+つまり自分の resume を呼ぶ前に失敗する形である。評価中の ask(0) の節から見て継続は
+まだ生きているので、ハンドラ自身の cancel 節が 1 回走る:
+
+  $ cat > resumeinnerpre.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1) + perform ask(0)) handle {
+  >   case ask(n) => { echoln("clause " + show(n)); let v = resume(10 / n); v }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumeinnerpre.kel
+  clause 1
+  clause 0
+  cancel ask
+  実行時エラー: ゼロ除算です
+  [3]
+
+resumeret は、ask(1) の節の resume で再開した計算の中で、同じハンドラの return 節が
+x / 0 で失敗する形である。この場合もハンドラ自身の cancel 節は走らない:
+
+  $ cat > resumeret.kel <<'EOF2'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = (perform ask(1)) handle {
+  >   case ask(n) => { echoln("clause " + show(n)); let v = resume(1); echoln("after " + show(n)); v }
+  >   case return(x) => { echoln("return"); x / 0 }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor resumeret.kel
+  clause 1
+  return
   実行時エラー: ゼロ除算です
   [3]
 
