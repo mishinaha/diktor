@@ -348,6 +348,27 @@ let row_failure msg =
   let has = has_sub in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
 
+(* 型の中に、閉じた行を書いた位置があるかどうか。
+   数えるのは、最外の行が閉じた矢印と、型の型引数に書いた閉じた行(`Cb[{}]` の `{}`)である。
+   newtype のフィールドの言い換え(§11.18)が、言い換えの条件に使う。
+   フィールドの型は宣言から作ったスキーマで、型パラメータは Generic の変数である。
+   型パラメータの位置は、閉じた行を書いた位置として数えない。 *)
+let closed_row_arg t =
+  match repr t with
+  | TRowEmpty -> true
+  | TRowExtend _ -> (match snd (row_fields t) with TRowEmpty -> true | _ -> false)
+  | _ -> false
+
+let rec has_closed_arrow ty =
+  match repr ty with
+  | TArrow (args, ret, eff) ->
+      (match snd (row_fields eff) with TRowEmpty -> true | _ -> false) || has_closed_arrow args || has_closed_arrow ret
+  | TCon (_, tys) -> List.exists (fun t -> closed_row_arg t || has_closed_arrow t) tys
+  | TApp (f, a) -> has_closed_arrow f || has_closed_arrow a
+  | TRecord r | TVariant r -> has_closed_arrow r
+  | TRowExtend (_, f, rest) -> has_closed_arrow f || has_closed_arrow rest
+  | TRowEmpty | TVar _ -> false
+
 (* 呼び出しの実引数の並び(_item の RecordExtend の連なり)の個数。
    ラベル付きの引数を含むときは None *)
 let rec args_arity ((_, e) : T.exp) =
@@ -2201,6 +2222,12 @@ and elab_exp' env level eff node e =
 
    newtype のフィールドの矢印は書いたとおりに読み、`@` の省略は `@ {}` と読む(仕様 §9)。
    コンストラクタの引数の単一化が行の不一致で落ちたときは、エラーにこの規則を添える。
+   添えるのは、宣言したフィールドの型に行の閉じた矢印か、
+   型引数に書いた閉じた行があるときだけである。
+   フィールドの型が型パラメータ(`Cons` の `A`)のときは、
+   行の閉じた矢印はフィールドの宣言ではなく実引数の側から型パラメータに入ったもので、
+   この規則は原因でない。
+   このときは、型変数の仮引数を持つ関数の呼び出し(§11.12)と同じく、単一化の報告をそのまま出す。
    たとえば、エフェクトつきの閉包を newtype に入れて純粋な関数として取り出そうとする形は、
    この単一化で落ち、この規則を添えたエラーになる。
    行に由来する失敗かどうかは、§11.12 と同じ `row_failure` で判定する。
@@ -2269,9 +2296,10 @@ and elab_construct env level node cname ?eff args =
             in
             let fty = Unify.subst_params level subst f.Decls.fi_ty in
             (* エフェクトつきの閉包を newtype に入れる形はここで落ちるので、
-               行に由来する失敗だけを §9 の規則で言い換える *)
+               行に由来する失敗だけを §9 の規則で言い換える。
+               フィールドの型に閉じた行を書いた位置が無ければ、この規則は原因でないので言い換えない *)
             try Unify.unify ety fty
-            with Type_error msg when row_failure msg ->
+            with Type_error msg when row_failure msg && has_closed_arrow f.Decls.fi_ty ->
               type_error
                 (msg ^ "(コンストラクタ " ^ cname
                ^ " のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)"))
