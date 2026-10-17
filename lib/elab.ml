@@ -2588,8 +2588,10 @@ and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> fal
    未知のエフェクトを名指す修飾のように、1 つの節の修飾だけから決まる誤りもここに入る。
    修飾を持つ最初の節に寄せることもできるが、そうすると §11.23 の中で位置の規則が 2 つに割れる。
    操作節が 1 つも無い誤りも、節の不在から決まるので、handle 式の位置で報告する。
-   節のガードや本体の型の不一致と、到達しない節の警告にも、節の位置を付けない。
-   `test/handle_clause_loc.t` が、それぞれの位置を確かめる。 *)
+   操作節のガードの式の型が Boolean でない誤りと、節の値の型が節の間で合わない誤りにも、
+   節の位置を付けない。
+   `test/handle_clause_loc.t` が、それぞれの位置を確かめる。
+   到達しない節の警告にも位置を付けない(`test/eval.t`)。 *)
 
 and elab_handle env level eff clauses body =
   let classify ((_, c) as cnode : T.clause) =
