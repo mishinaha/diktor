@@ -1595,6 +1595,10 @@ let rec is_value ((_, e) : T.exp) =
    リテラルの型はその場で決まる。
    `Hole`(`???`)は新しい型変数を型とし、実行時に評価されると落ちる。 *)
 
+(* 再帰群の束縛の本体を検査する前の pre の形。Open は未定変数の位置で、Fixed は決まっていた
+   位置の型の構成子の種類と子の形である(§11.29) *)
+type pre_shape = Open | Fixed of int * pre_shape list
+
 (* 再帰群の記録。群の束縛の pre と束縛ノード、いま検査している束縛、pre を通した参照の列。
    参照は群の終わりに、参照先の辞書パラメータの正準順で証拠を組み直す(§11.29) *)
 type group_rec = {
@@ -3549,12 +3553,16 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    もう一方が群のほかの束縛の型パラメータで、
    その剛定数が検査している束縛の `pre` に入り込んでいれば、
    その束縛と型パラメータの名前を挙げる(`test/rec_tparam_note.t` の twotp)。
-   もう一方がそれ以外の型で、落ちたのが `pre` と本体の型の単一化で、
-   本体を検査する前に `pre` の未定変数のどれかがすでに決まっていたなら、
+   もう一方がそれ以外の型で、落ちたのが `pre` と本体の型の単一化のときは、
+   本体を検査する前に写し取った `pre` の形と、本体の型とを並べてたどる。
+   写しで決まっていた位置に、本体の型の側で、衝突した束縛自身の型パラメータの剛定数があれば、
    前にある束縛のうち検査している束縛を参照したものの名前を挙げる(concrete)。
    このときの末尾には、具体的な型を渡す形を書いた §18.2 も挙げる。
-   本体を検査する前に `pre` が決まっていなければ、`pre` を決めたのは束縛自身の本体なので、
-   前の束縛の参照を原因として挙げない(selfrec)。
+   挙げる名前は群の中の参照の記録から取り、その位置を決めた参照に絞らない。
+   型パラメータの位置が本体の前に決まっていなければ、それを決めたのは束縛自身の本体の検査なので、
+   前の束縛の参照を原因として挙げない。
+   selfrec は前の束縛が g の型の何も決めない形で、
+   selfret は前の束縛が g の返り値の位置だけを決める形である。
    本体の中で起きた衝突のうち、ほかの束縛の型パラメータと関わらないもの(別の `run` のヒープなど)には添えない。
    群の参照と関わらない誤りに、群の順序の話を添えないためである(notp、region)。
 
@@ -3666,7 +3674,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
      at_pre は、pre と本体の型の単一化で落ちたときに真である *)
   let members = List.combine bs (List.combine names tps) in
   (* pre の中の未定変数を群の入り口で集め、各束縛の本体の前に、そのどれかがすでに
-     決まっていたか(前にある束縛の参照が決めたか)を記録する *)
+     決まっていたか(前にある束縛の参照が決めたか)を調べる *)
   let rec unbound_vars acc t =
     match repr t with
     | TVar ({ contents = Unbound _ } as r) -> if List.memq r acc then acc else r :: acc
@@ -3683,6 +3691,35 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
     List.exists
       (fun r -> match repr (TVar r) with TVar { contents = Unbound _ } -> false | _ -> true)
       (List.assq pre pre_vars)
+  in
+  (* 本体の前の pre の形を写し取り、本体の後で本体の型 fn_ty と並べてたどる。写しで決まって
+     いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。写しを
+     取るのは、本体の検査が pre の未定変数を決めると、どれが前から決まっていたかを型の側から
+     区別できなくなるからである *)
+  let kids t =
+    match t with
+    | TArrow (a, r, _) -> (1, [ a; r ])
+    | TRecord r -> (2, [ r ])
+    | TVariant r -> (3, [ r ])
+    | TRowExtend (_, f, rest) -> (4, [ f; rest ])
+    | TCon (_, args) -> (5, args)
+    | TApp (f, a) -> (6, [ f; a ])
+    | TVar _ | TRowEmpty -> (0, [])
+  in
+  let rec shape t =
+    match repr t with
+    | TVar { contents = Unbound _ } -> Open
+    | t' ->
+        let k, ts = kids t' in
+        Fixed (k, List.map shape ts)
+  in
+  let rec fixed_rigids own sh f =
+    match (sh, repr f) with
+    | Open, _ -> []
+    | Fixed _, TVar r when List.memq r own -> [ r ]
+    | Fixed (k, shs), f' ->
+        let k', ts = kids f' in
+        if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own) shs ts) else []
   in
   Unify.last_rigid_clash := None;
   let group_note ~at_pre cur =
@@ -3713,7 +3750,10 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
     let facts =
       if not (List.exists (fun (_, _, r) -> List.memq r clashed) own) then []
       else if flowed <> [] then flowed
-      else if at_pre && List.memq cur !settled_before then List.map (fun y -> Printf.sprintf "%s の本体が、型パラメータを持つ %s を参照しています" y x) callers
+      else if
+        at_pre
+        && List.exists (fun r -> List.memq r clashed) (match List.assq_opt cur !settled_before with Some rs -> rs | None -> [])
+      then List.map (fun y -> Printf.sprintf "%s の本体が、型パラメータを持つ %s を参照しています" y x) callers
       else []
     in
     let sections = if flowed <> [] then "§6.3" else "§6.3、§18.2" in
@@ -3731,7 +3771,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
       (try
          at_node bnode @@ fun () ->
          g.g_cur := Some bnode;
-         if settled pre then settled_before := bnode :: !settled_before;
+         let snap = if settled pre then Some (shape pre) else None in
          member_marks := (bnode, Unify.hole_mark ()) :: !member_marks;
          (* pub の完全注釈検査と、@ の省略を @ {} と読む規則は、let(§11.28)と同じ。
             値束縛の頭の矢印も最外として扱う(§11.29) *)
@@ -3763,6 +3803,9 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
                   type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"));
                vty
          in
+         (match snap with
+         | Some sh -> settled_before := (bnode, fixed_rigids (List.map (fun (_, _, r) -> r) rigids) sh fn_ty) :: !settled_before
+         | None -> ());
          (try Unify.unify pre fn_ty
           with Type_error msg when clash msg -> (
             match group_note ~at_pre:true bnode with Some note -> type_error (msg ^ note) | None -> type_error msg));
