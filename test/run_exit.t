@@ -51,7 +51,7 @@ import の誤りも 1:
   $ diktor exitlex.kel 2> /dev/null; echo "exit: $?"
   exit: 2
   $ diktor exitlex.kel > /dev/null; echo "exit: $?"
-  exitlex.kel:2:11: 字句エラー: invalid escape sequence
+  exitlex.kel:2:11: 字句エラー: 不正なエスケープです
   exit: 2
   $ printf 'echoln("before")\nlet x = "\377"\n' > exitutf8.kel
   $ od -An -tx1 exitutf8.kel

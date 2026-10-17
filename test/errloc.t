@@ -55,10 +55,10 @@
 
   $ printf 'let bad = { "\xe3\x81\x82\xe3\x81\x84\xe3\x81\x86"; \xc2\xa4 }\n' > mb3.kel
   $ diktor --type-check mb3.kel
-  mb3.kel:1:20: 字句エラー: unexpected character: ¤
+  mb3.kel:1:20: 字句エラー: 予期しない文字です: ¤
   [2]
 
   $ printf 'let bad = { "abc"; \xc2\xa4 }\n' > mb4.kel
   $ diktor --type-check mb4.kel
-  mb4.kel:1:20: 字句エラー: unexpected character: ¤
+  mb4.kel:1:20: 字句エラー: 予期しない文字です: ¤
   [2]
