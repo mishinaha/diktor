@@ -3095,11 +3095,15 @@ and elab_handle env level eff clauses body =
      絞り込みの節を複数合わせると網羅できる場合も、総和的な節が無ければ拒否する(sample.kel:516) *)
   List.iter
     (fun (op, _) ->
-      if not (List.exists (fun ((o, _, _, _), _, _, total) -> o = op && total) op_clauses) then
+      let mine = List.filter (fun ((o, _, _, _), _, _, _) -> o = op) op_clauses in
+      if not (List.exists (fun (_, _, _, total) -> total) mine) then begin
+        (* 網羅の検査で節は 1 つ以上あり、引数の個数の検査でどの節の引数の数も宣言と一致する *)
+        let arity = match mine with ((_, _, args, _), _, _, _) :: _ -> List.length args | [] -> 0 in
         type_error
           ("操作 " ^ display_of op
-         ^ " の節が取りこぼします(ガードや絞り込みパターンだけの節は v0 では後送りできません)。変数パターンでガードの無い case "
-         ^ display_of op ^ "(...) を最後に置いてください"))
+         ^ " には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case "
+         ^ display_of op ^ "(" ^ String.concat ", " (List.init arity (fun _ -> "_")) ^ ") を最後に置いてください")
+      end)
     target_info.Decls.ef_ops;
   (* 到達不能な操作節の警告。総和的な節より後ろにある同じ操作の節は走らない。
      この検出は match の useful 判定(第10章)より弱い。
