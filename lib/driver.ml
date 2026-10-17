@@ -238,35 +238,25 @@ let dump_tokens_file file =
   (* from_filename はファイルを一括で読む。open と読み出しの両方の段で起きる
      Sys_error を入力エラーにするため、この段を with_input で包む。印字は包まない。
      印字の失敗を入力エラーと取り違えないためである *)
-  let tokens =
-    try with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file))
-    with Sedlexing.MalFormed ->
-      (* parse_with(§16.3)と同じく、ファイル名を付けて報告する *)
-      raise (Parse_error (file ^ ": 字句エラー: 不正な UTF-8 バイト列です"))
-  in
+  let tokens = with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file)) in
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
-   上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
+   上流から来る失敗のうち、この関数が受けるのは次の 3 種類である。
 
    - `Parser'.Error`：menhir が次に進む節を選べなかった(文法に合わない)
    - `Syntax.Syntax_error`：文法は通ったが、脱糖(第3章)が形を拒否した
    - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した
-   - `Sedlexing.MalFormed`：入力が不正な UTF-8 バイト列である
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
-   前の 3 つには位置を付ける。
+   どれにも位置を付ける。
    `Syntax_error_at` には指定された位置を、ほかの 2 つには最後に読んだトークンの位置を使う。
-   `MalFormed` では位置が失われているので、ファイル名だけを付ける。
    字句解析器の `Lexer.Lex_error` はここでは受けず、§16.8 の受け皿がそのまま受ける。
+   不正な UTF-8 バイト列も、第2章が位置つきの `Lex_error` に変えてから投げるので、同じ受け皿に届く。
    種類ごとに区別して報告したくなったときは、この関数で分ければよい。
    分岐点を 1 か所に集めてあるのはそのためである。 *)
 let parse_unit_with lexer =
   try Lexer'.parse Parser'.program lexer with
-  | Sedlexing.MalFormed ->
-      (* 位置は失われているが、ファイル名は分かる。複数のファイルを渡したときに
-         どれが壊れているかが分かるよう、ファイル名を付ける *)
-      raise (Parse_error (Printf.sprintf "%s: 字句エラー: 不正な UTF-8 バイト列です" lexer.Lexer'.last_sp.Lexing.pos_fname))
   | Parser'.Error ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
@@ -771,7 +761,6 @@ let try_parse ~line ?(col = 0) source =
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
   | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
   | exception Syntax.Syntax_error_at (pos, msg) -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg)
-  | exception Sedlexing.MalFormed -> Failed "<stdin>: 字句エラー: 不正な UTF-8 バイト列です"
 
 (* 実行時エラーの文言。§16.8 の受け皿と同じ文言にそろえる *)
 let runtime_message = function
@@ -1047,7 +1036,7 @@ let run_with options =
    |---|---|---|
    | 0 | 正常終了 | `run_with` が最後まで走った |
    | 1 | 型エラー、import エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive`、§16.3b の `Import_error` |
-   | 2 | 構文エラー、字句エラー | `Parse_error`、`Lex_error`、不正な UTF-8 |
+   | 2 | 構文エラー、字句エラー | `Parse_error`、`Lex_error`(不正な UTF-8 を含む) |
    | 3 | 実行時エラー | `Runtime_error`、未処理のエフェクト、再帰過多、メモリ不足、内部異常 |
    | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(1u8、Int8、module の入れ子など) |
    | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない |
@@ -1160,9 +1149,6 @@ let main () =
       | Sys_error msg ->
           (* 入力側の誤りは Input_error に閉じ込めてあるので、ここへ来るのは出力側の誤りである *)
           die_output msg
-      | Sedlexing.MalFormed ->
-          Printf.eprintf "字句エラー: 不正な UTF-8 バイト列です\n";
-          safe_exit 2
       | Aux.Type_error_at (loc, msg) ->
           (* type_check の外で投げられた型エラー(位置つき)。
              CLI では、平坦化の型エラーを type_check_files が先に受ける *)

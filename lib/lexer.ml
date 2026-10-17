@@ -51,12 +51,11 @@
    ASI と `{` の分類を固定する手段は、このゴールデンだけである。
    このゴールデンは、sample.kel 全文をトークン化したときのトークンの数と末尾も固定している。
 
-   字句解析の途中で本章のコードが投げる例外は `Lex_error` だけで、メッセージと位置を持つ。
+   字句解析の途中で本章が外へ出す例外は `Lex_error` だけで、メッセージと位置を持つ。
    第16章(driver.ml)がこれを終了コード 2 のエラーとして報告する。
-   ほかに、driver の別の分岐が受ける例外が 2 つある。
-   1 つは、不正な UTF-8 バイト列に対して sedlex のデコーダが投げる `Sedlexing.MalFormed` で、
-   これも終了コード 2 になる(§2.6)。
-   もう 1 つは `Sys_error` である。
+   不正な UTF-8 バイト列に対して sedlex のデコーダが投げる `Sedlexing.MalFormed` も、
+   §2.7 の終わりで位置を付けて `Lex_error` に変えるので、外へは出ない。
+   ほかに driver が受ける例外は `Sys_error` である。
    `from_filename` は、`In_channel.with_open_bin` が投げる `Sys_error` を捕まえ、
    ファイル名を付けて投げ直す。
    ファイルを開けない、または読めないときは、この例外によって終了コード 64 になる。 *)
@@ -354,7 +353,8 @@ module Make (Data : Syntax.Data) = struct
    検査を省くと、`\uD800` と書いただけで `Invalid_argument` が字句層から漏れる。
    `is_valid` は範囲外とサロゲートの域の両方を拒否するので、`\uD800` は普通の字句エラーになる。
 
-   字句エラーも、不正な UTF-8 バイト列(`Sedlexing.MalFormed`)も、終了コードは 2 である。
+   字句エラーも、不正な UTF-8 バイト列(§2.7 の終わりで `Lex_error` に変える)も、
+   終了コードは 2 である。
    どちらもソースを読めなかったという同じ種類の失敗なので、同じ番号にしている
    (型エラーは 1、ファイルを開けないときは 64)。
 
@@ -551,6 +551,19 @@ module Make (Data : Syntax.Data) = struct
         let shown = if invisible then Printf.sprintf "U+%04X" cp else lexeme lexbuf in
         raise (Lex_error ("unexpected character: " ^ shown, cur_pos lexbuf))
     | _ -> raise (Lex_error ("unexpected input", cur_pos lexbuf))
+
+(* 不正な UTF-8 バイト列は、sedlex のデコーダが `Sedlexing.MalFormed` として投げる。
+   この例外は位置を持たないので、ここで受けて位置つきの `Lex_error` に変える。
+   デコーダは正しい前置部分を先にバッファへ入れ、
+   不正なバイトに読み進もうとした時点で例外を投げる。
+   そのため、この時点の現在位置(`lexing_position_curr`)は、不正なバイトそのものの位置である。
+   トークンの開始位置(`cur_pos`)を使わないのは、
+   `ab` の後ろに不正なバイトが続く識別子では、開始位置が `a` を指すからである。
+   ファイル名も lexbuf から取るので、最初のトークンで失敗してもファイル名は失われない。
+   層 2 と層 3 は、この関数を通してだけ生トークンを読む。 *)
+  let read_raw_token lexbuf =
+    try read_raw_token lexbuf
+    with Sedlexing.MalFormed -> raise (Lex_error ("不正な UTF-8 バイト列です", Sedlexing.lexing_position_curr lexbuf))
 
 (* ## 2.8 字句解析器の状態と先読みキュー
 
