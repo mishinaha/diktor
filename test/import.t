@@ -96,7 +96,7 @@ from と import は予約語である:
 ## インスタンスの本体の pub
 
 type instance の本体の let と let rec に付けた pub は構文エラーにする。位置は type instance の
-type の位置で、最初の pub のメソッドの名前を文面に出す。pi1 は注釈が完全で本体が純粋な
+type の位置で、pub のメソッドの名前を文面に出す。pi1 は注釈が完全で本体が純粋な
 pub let の形で、これも拒否する:
 
   $ cat > pi1.kel <<'KEL'
@@ -113,9 +113,11 @@ pub let の形で、これも拒否する:
   [2]
 
 pi2 は module の中のインスタンスの pub let rec で、位置は module の中の type(3:3)である。
-pi3 は 2 つのメソッドの 2 つ目にだけ pub を付けた形で、名前 second を挙げる。pi4 は
-pub type instance の本体に pub を付けた形で、インスタンスの pub の診断より先に本体の pub を
-報告する(位置は type の 2:5):
+pi3 は 2 つのメソッドの 2 つ目にだけ pub を付けた形で、名前 second を挙げる。pi5 は
+2 つのメソッドの両方に pub を付けた形で、最初の pub のメソッドの名前 first を挙げる。
+pi6 は本体に pub の無い pub type instance で、インスタンスの pub の診断を出す。pi4 は
+pub type instance の本体に pub を付けた形で、pi6 の診断ではなく本体の pub の診断を出す
+(位置は type の 2:5):
 
   $ cat > pi2.kel <<'KEL'
   > pub newtype Box(Int32)
@@ -147,6 +149,26 @@ pub type instance の本体に pub を付けた形で、インスタンスの pu
   > KEL
   $ diktor pi4.kel
   pi4.kel:2:5: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): d
+  [2]
+  $ cat > pi5.kel <<'KEL'
+  > type class Pair[A] {
+  >   val first: (A) => Int32
+  >   val second: (A) => Int32
+  > }
+  > type instance Pair[Int32] {
+  >   pub let first(n: Int32): Int32 = n
+  >   pub let second(n: Int32): Int32 = n
+  > }
+  > KEL
+  $ diktor pi5.kel
+  pi5.kel:5:1: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): first
+  [2]
+  $ cat > pi6.kel <<'KEL'
+  > type class D[A] { val d: (A) => Int32 }
+  > pub type instance D[Boolean] { let d(b: Boolean): Int32 = 0i32 }
+  > KEL
+  $ diktor pi6.kel
+  pi6.kel:2:1: 構文エラー: type instance に pub は付けられません
   [2]
 
 pi/lib.kel のインスタンスは pub を持たない。pi/main.kel はクラス Describe を import し、
