@@ -575,14 +575,18 @@ module Make (Data : Syntax.Data) = struct
 
 (* ## 2.8 字句解析器の状態と先読みキュー
 
-   `lexbuf` のほかに、層 2 と層 3 が共有する状態が 5 つある。
+   `lexbuf` のほかに、層 2 と層 3 が共有する状態が 7 つある。
 
    - `pending`：生トークンの先読みキュー。先頭が次に消費者へ渡すトークンである
    - `regions`：ASI の region スタック。底は常に `RTop` である
    - `prev`：直前に消費者へ渡したトークン(区切りに昇格した `NL` を含む)。`NL` の判定に使う
    - `last_sp` / `last_ep`：直前に渡したトークンの開始位置と終了位置。
      第16章(driver.ml)が `last_sp` を構文エラーの報告に使う。
-     `last_ep` はどこからも読まれていない
+     `last_ep` は、次のトークンを渡すときに `before_ep` へ写す
+   - `before_ep` / `before_cont`：直前に渡したトークンの 1 つ前のトークンの終了位置と、
+     そのトークンの後ろの改行を続きとして捨てる状態だったか。
+     §2.11 の `error_positions` が、
+     行をまたいで文法に合わなくなったトークンの報告位置を決めるのに使う
 
    `peek t i` は、キューが足りなければ生トークンを継ぎ足して i 番目を返す。
    `peek_sig t k` は、`NL` を飛ばして k 個目の有意トークンを覗く。
@@ -620,6 +624,8 @@ module Make (Data : Syntax.Data) = struct
     mutable prev : token option; (* 直前に消費者へ渡したトークン(昇格した NL を含む) *)
     mutable last_sp : Lexing.position; (* 直前に消費者へ渡したトークンの位置(エラー報告用) *)
     mutable last_ep : Lexing.position;
+    mutable before_ep : Lexing.position; (* last_sp のトークンの 1 つ前のトークンの終了位置 *)
+    mutable before_cont : bool; (* 1 つ前のトークンの後ろの改行を、続きとして捨てる状態だったか *)
   }
 
   let from_sedlex lexbuf =
@@ -630,6 +636,8 @@ module Make (Data : Syntax.Data) = struct
       prev = None;
       last_sp = Lexing.dummy_pos;
       last_ep = Lexing.dummy_pos;
+      before_ep = Lexing.dummy_pos;
+      before_cont = false;
     }
 
   let from_string source = Sedlexing.Utf8.from_string source |> from_sedlex
@@ -947,8 +955,21 @@ module Make (Data : Syntax.Data) = struct
 
    パーサの駆動は第16章(driver.ml)の `parse_program` が menhir の増分 API で行う。
    増分 API はトークンと開始位置と終了位置の三つ組を 1 個ずつ受け取り、`read` がその三つ組を返す。
-   `read` は、あわせて直前に渡したトークンとその開始位置と終了位置を状態に控える
-   (そのうち開始位置を構文エラーの報告に使うのは第16章である)。
+   `read` は、あわせて直前に渡したトークンとその開始位置と終了位置と、
+   その 1 つ前のトークンの終了位置と続きの状態を控える
+   (位置を構文エラーの報告に使うのは第16章である)。
+
+   `error_positions` は、文法に合わなかったトークンの報告位置を返す。
+   1 つ前のトークンの後ろの改行が続きとして捨てられ、
+   合わなかったトークンがそれより後の行で始まるときは、
+   1 つ前のトークンの終わりを主な位置にし、合わなかったトークンの開始位置を添える。
+   続きとして捨てるのは、抑制の region(丸括弧、角括弧、レコードとレコード型の波括弧、
+   `case` のパターンとガード)の中にいるときと、
+   1 つ前のトークンが文を終えられない(行末の二項演算子、カンマ、開き括弧)ときである。
+   この形では、誤りは前の行の続きを求めた側にある。
+   区切りに昇格した改行の後ろと、次のトークンが文を始められないことだけで改行を捨てた形
+   (行頭の余った `)` や `}`)では、合わなかったトークンそのものを指す。
+   この形では、合わなかったトークン自体が誤りだからである。
 
    `all_tokens` は `--dump-tokens` のための出口で、ASI を適用した後のトークン列を EOF まで集める。
    3 つの層すべてを通した結果をそのまま見られるので、ゴールデンテストはこの出口を使う。 *)
@@ -956,10 +977,21 @@ module Make (Data : Syntax.Data) = struct
   (* ---- 消費者 API ---- *)
 
   let read t =
+    t.before_ep <- t.last_ep;
+    t.before_cont <-
+      (match t.regions with (RSuppress | RClause _) :: _ -> true | _ -> false)
+      || (match t.prev with Some NL | None -> false | Some p -> not (can_end_statement p));
     let e = read_token t in
     t.last_sp <- e.sp;
     t.last_ep <- e.ep;
     (e.tok, e.sp, e.ep)
+
+  (* 文法に合わなかったトークンの報告位置。1 つ前のトークンが続きを求めていて、
+     合わなかったトークンがそれより後の行で始まるなら、1 つ前のトークンの終わりを主な位置にし、
+     合わなかったトークンの位置を添える *)
+  let error_positions t =
+    if t.before_cont && t.last_sp.Lexing.pos_lnum > t.before_ep.Lexing.pos_lnum then (t.before_ep, Some t.last_sp)
+    else (t.last_sp, None)
 
   (* --dump-tokens 用。ASI を適用した後のトークン列を EOF まで集める *)
   let all_tokens t =

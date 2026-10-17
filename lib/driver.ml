@@ -168,7 +168,9 @@ module Parser' = Parser.Make (Tree.ElabData)
 
 (* `Parse_error` は、位置まで整形し終えた 1 行を運ぶための、本章専用の例外である。
    §16.3a の駆動が投げる `Parser'.Error` は情報を持たず、どこで詰まったかは、
-   字句解析器が覚えている最後のトークンの位置からしか取れない。
+   字句解析器が覚えているトークンの位置からしか取れない。
+   §16.3 の `parse_error_message` が、最後のトークンの開始位置と、
+   その 1 つ前のトークンの終了位置から、報告の位置を決める。
    詰まる直前の状態を調べるのは、§16.3a の駆動の中だけである。
    パーサと字句解析器の両方を扱うのは本章だけなので、
    両者の情報を結びつけて整形できるのも本章だけである。
@@ -299,10 +301,13 @@ let misused_reserved_word lexer ~after_brace before (tok, sp, ep) =
   | None -> None
   | Some w ->
       let prev = lexer.Lexer'.prev and last_sp = lexer.Lexer'.last_sp and last_ep = lexer.Lexer'.last_ep in
+      let before_ep = lexer.Lexer'.before_ep and before_cont = lexer.Lexer'.before_cont in
       let next = match Lexer'.read lexer with next, nsp, _ -> Some (next, nsp) | exception Lexer.Lex_error _ -> None in
       lexer.Lexer'.prev <- prev;
       lexer.Lexer'.last_sp <- last_sp;
       lexer.Lexer'.last_ep <- last_ep;
+      lexer.Lexer'.before_ep <- before_ep;
+      lexer.Lexer'.before_cont <- before_cont;
       let continues (next, nsp) =
         match advance (I.offer before (Lexer'.Parser.LOWER_IDENTIFIER w, sp, ep)) with
         | I.InputNeeded _ as cp -> I.acceptable cp next nsp
@@ -351,7 +356,11 @@ let parse_program lexer =
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
    前の 2 つには位置を付ける。
-   `Syntax_error_at` には指定された位置を、`Parser'.Error` には最後に読んだトークンの位置を使う。
+   `Syntax_error_at` には指定された位置を使う。
+   `Parser'.Error` の位置は、`parse_error_message` が第2章の `error_positions` で決める。
+   行をまたいで続きを求める形で合わなくなったときは、直前のトークンの終わりを主な位置にし、
+   合わなかったトークンの位置を本文に添える。
+   それ以外は、合わなかったトークンの位置である。
 
    構文解析が限度を超えるのは、文法の動作の中の末尾でない再帰による。
    たとえば、ブロックの文の列を畳む `block_of_items` と、引数の列から行を組む `record_of_args` は、
@@ -368,10 +377,17 @@ let read_limit_message file = function
   | Out_of_memory -> file ^ ": 処理系の限度: 構文解析でメモリが不足しました"
   | _ -> file ^ ": 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)"
 
+let parse_error_message lx =
+  match Lexer'.error_positions lx with
+  | pos, None -> Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos pos)
+  | pos, Some next ->
+      Printf.sprintf "%s: 構文エラー: この位置の後ろ、%d:%d のトークンが文法に合いません" (show_pos pos)
+        next.Lexing.pos_lnum
+        (next.Lexing.pos_cnum - next.Lexing.pos_bol + 1)
+
 let parse_unit_with lexer =
   try parse_program lexer with
-  | Parser'.Error ->
-      raise (Parse_error (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lexer.Lexer'.last_sp)))
+  | Parser'.Error -> raise (Parse_error (parse_error_message lexer))
   | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
   | (Stack_overflow | Out_of_memory) as ex -> raise (Parse_error (read_limit_message lexer.Lexer'.last_sp.Lexing.pos_fname ex))
 
@@ -813,6 +829,8 @@ let type_check_files ?(quiet = false) options =
    `prev = Some EOF` で判定できる。
    閉じていない文字列リテラルとブロックコメントの字句エラーも、続きの行を待つ。
    それ以外の構文エラーは、その入力を捨てて報告する。
+   報告の位置はファイルと同じく §16.3 の `parse_error_message` が決めるので、
+   続きを待った入力が次の行で合わなくなったときは、前の行の終わりを指す。
    この規則では、次の行で始まる継続(`let rec … and`、行頭の二項演算子、行頭の `.` や `match`)は、
    前の行で入力が確定するので続きにならない。
 
@@ -868,7 +886,7 @@ let try_parse ~line ?(col = 0) source =
       Failed (Printf.sprintf "%s: 構文エラー: import は対話的な実行では書けません" (show_pos im.Syntax.im_loc.Location.start))
   | exception Parser'.Error ->
       if lx.Lexer'.prev = Some Lexer'.Parser.EOF then Incomplete
-      else Failed (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lx.Lexer'.last_sp))
+      else Failed (parse_error_message lx)
   | exception Lexer.Lex_error (msg, _) when msg = Lexer.unterminated_text_msg || msg = Lexer.unterminated_comment_msg ->
       Incomplete
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
