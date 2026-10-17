@@ -1,7 +1,7 @@
 再帰群の中で前にある束縛から後ろにある束縛への参照は単相である(LangSpec §6.3)。
 前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決めると、2 つの剛定数か、
 剛定数と具体的な型が一致せずに型エラーになる。下の twotp、twotprev、concrete は、
-その報告に原因に近い事実を括弧で添える形で、selfrec、notp、region は添えない形である。
+その報告に原因に近い事実を括弧で添える形で、selfrec、selfret、notp、region は添えない形である。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -79,6 +79,19 @@ selfrecrev は 2 つを逆の順に書いた形で、どちらも selfrec と同
   > KEL
   $ diktor selfrecrev.kel
   ! selfrecrev.kel:1:9: 型エラー: スコープ付きの型が一致しません: Int32 と ς1
+  [1]
+
+selfret は、前にある f が useret(g) で g の返り値の位置を Int32 に決めるが、g の型パラメータ B
+を Int32 に決めるのは g 自身の本体の g(1i32) である形で、前の束縛を挙げない:
+
+  $ cat > selfret.kel <<'KEL'
+  > let useret[X](h: (X) => Int32): Int32 = 0
+  > let rec f(n: Int32): Int32 = useret(g)
+  > and g[B](y: B) = g(1i32)
+  > KEL
+  $ diktor --type-check selfret.kel
+  useret : ((A) => Int32 @ {}) => Int32
+  ! selfret.kel:3:5: 型エラー: スコープ付きの型が一致しません: Int32 と ς1
   [1]
 
 notp は、型パラメータを持たない g の Int32 の位置に、f が自分の型パラメータ A の値を渡す
