@@ -231,10 +231,8 @@ type dict_info =
    位置のない `Type_error` に最も内側のノードの位置を付けて、`Type_error_at` として投げ直す。
 
    `oid_of` は、宣言がどの module に属するかを引くために使う。
-   `Decls.decl_module` はノードの oid を鍵にしているので、第11章と第14章が `oid_of` を呼ぶ(§6.4)。
-
-   `data` を呼ぶ箇所はない。
-   ファンクタ越しに `ElabData.t` をまるごと取り出す唯一の関数として残してある。 *)
+   `Decls.decl_module` はノードの oid を鍵にしているので、
+   第11章と第14章が `oid_of` を呼ぶ(§6.4)。 *)
 module ElabData = struct
   type t = {
     oid : oid;
@@ -292,8 +290,6 @@ module Tree = Syntax.Make (ElabData)
    どの式についても 1 か所で `set_ty` を通るように書かれているからである。
    式の種類ごとに `set_ty` を書く形では、書き忘れた分岐だけが実行時に落ちる。
    しかも落ちる場所は、型検査から遠く離れた評価器の中になる。 *)
-let data (d, _) = d
-
 let loc_of (d, _) = d.ElabData.loc
 
 let oid_of (d, _) = d.ElabData.oid
