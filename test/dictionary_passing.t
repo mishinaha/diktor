@@ -419,3 +419,15 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   $ diktor negremf.kel
   ! negremf.kel:2:13: 型エラー: Float64 は Rem のインスタンスではありません
   [1]
+
+mkshow が返すラムダは、mkshow の外で呼んでも、作った位置の型の show を使う。
+f は Int32 の show、g は Bool の show を使い、f を後でもう一度呼んでも変わらない:
+
+  $ cat > capdict.kel <<'KEL'
+  > let mkshow[A: Show](x: A): () => String = fn() => show(x) + "!"
+  > let f = mkshow(1)
+  > let g = mkshow(true)
+  > echoln(f() + g() + f())
+  > KEL
+  $ diktor capdict.kel
+  1!true!1!
