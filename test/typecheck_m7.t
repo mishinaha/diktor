@@ -397,8 +397,10 @@ M19 / G3c / G3d / G7c):
 
 関数の引数とラムダの引数に書いたコンストラクタパターンは、
 コンストラクタが 1 つしかない型のものでも網羅性検査に掛ける。
-フィールドの型に値が無いので Absurd にも値が無く、引数に値が来ないので、警告は出ない
-(値の無い型を受けるパターンの扱いは uninhabited_pattern.t):
+v10h の Absurd は、フィールドの型 Empt に値が無いので値が無く、引数に値が来ないので、
+f と g に警告は出ない(値の無い型を受けるパターンの扱いは uninhabited_pattern.t)。
+v10hp の P = MkP(Opt2[Int32]) には値があり、MkP(Sm(n)) で受ける f と g のそれぞれに
+MkP(Nn) の漏れを警告する。これが、検査に掛けていることを示す:
 
   $ cat > v10h.kel <<'KEL'
   > newtype Empt
@@ -409,3 +411,14 @@ M19 / G3c / G3d / G7c):
   $ diktor --type-check --no-prelude v10h.kel
   f : (Absurd) => Int32
   g : (Absurd) => Int32
+  $ cat > v10hp.kel <<'KEL'
+  > newtype Opt2[A] = Sm(A) | Nn
+  > newtype P = MkP(Opt2[Int32])
+  > let f(MkP(Sm(n))) = 1
+  > let g = fn(MkP(Sm(n))) => 2
+  > KEL
+  $ diktor --type-check --no-prelude v10hp.kel
+  f : (P) => Int32
+  ⚠ match が非網羅的です。例えば MkP(Nn) が漏れています
+  g : (P) => Int32
+  ⚠ match が非網羅的です。例えば MkP(Nn) が漏れています
