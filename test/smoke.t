@@ -20,9 +20,9 @@
   $ diktor t.kel; echo "exit: $?"
   exit: 0
 
-未実装は exit 4(仕様にあって v0 が実装していないもの。§16.8):
+未実装は exit 4(書けるが処理系が実装していない機能。§16.8):
 
-  $ echo 'let x = 1u8' > u8.kel
-  $ diktor u8.kel; echo "exit: $?"
-  ! u8.kel:1:9: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  $ printf 'effect E = { op: () => Int32 }\nlet r = (1) handle { case op() => resume(1) case cancel(e) => () }\n' > cr.kel
+  $ diktor cr.kel; echo "exit: $?"
+  ! cr.kel:2:9: 未実装: cancel(reason)(v0 は case cancel のみ)
   exit: 4

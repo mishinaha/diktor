@@ -208,12 +208,13 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
 未実装は診断の流れに乗る(G6。それまでの型の行が消えない):
 
   $ cat > mix.kel <<'EOF2'
+  > effect E = { op: () => Int32 }
   > let ok = 1 + 2
-  > let bad = 1u8
+  > let bad = (1) handle { case op() => resume(1) case cancel(e) => () }
   > EOF2
   $ diktor --type-check --no-prelude mix.kel
   ok : Int32
-  ! mix.kel:2:11: 未実装: 数値接尾辞 1u8(v0 は i32/i64/f64 のみ)
+  ! mix.kel:3:11: 未実装: cancel(reason)(v0 は case cancel のみ)
   [4]
 
 標準環境の名前は再宣言できない(LangSpec §16.1。newtype、型エイリアス、effect、
