@@ -4110,9 +4110,11 @@ let register_newtype env (n : T.newtype') =
                        省略の意味は @ {} に決まっているが、公開 API では、純粋を
                        意図したのか書き忘れたのかを読み手が区別できなければならない
                        (sample.kel:825-831。フィールドへの適用は :828-829 に
-                       明記されている) *)
+                       明記されている)。診断はそのフィールドの型を指す。
+                       宣言の先頭を指すと、どのフィールドが悪いかを位置から読めない *)
                     (if n.T.nt_pub && not (fully_effected f.T.fd_ty) then
-                       type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)");
+                       at_node f.T.fd_ty (fun () ->
+                           type_error "pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)"));
                     let ty = elab_type env' 1 f.T.fd_ty in
                     (* フィールドの型のカインドは Type。値の型の位置に対する一般の検査
                        (§11.3)をフィールドに当てはめたものなので、照合そのものは
@@ -4150,7 +4152,12 @@ let register_newtype env (n : T.newtype') =
    同じエフェクトの中での操作名の重複は拒否する。
    別のエフェクトとの重複は許す。
    §11.20 の非修飾の操作名の解決は、
-   別のエフェクトどうしで操作名が重複しうることを前提にしている。 *)
+   別のエフェクトどうしで操作名が重複しうることを前提にしている。
+
+   操作ごとの診断(予約された名前、名前の頭の文字、矢印でない型、名前の重複)は、
+   その操作の型の位置を指す。
+   構文木の操作名は位置を持たないので、名前の右に書いた型の位置で操作を指す。
+   名前の重複は、2 度目の宣言の型を指す。 *)
 
 let register_effect env (e : T.effect') =
   if e.T.ef_params <> [] then type_error "effect 宣言に型パラメータは書けません(sample.kel §9)";
@@ -4158,7 +4165,8 @@ let register_effect env (e : T.effect') =
      操作名としては宣言できない。受理すると、その操作を含む effect は、
      修飾しても節を書きようがなく、ハンドルできない *)
   List.iter
-    (fun (op, _) ->
+    (fun (op, te) ->
+      at_node te @@ fun () ->
       if op = "return" || op = "cancel" then
         type_error ("操作名 " ^ op ^ " は予約されています(handle の " ^ op ^ " 節と衝突するため宣言できません)");
       (* 節の分類器(§11.22)が操作節として読むのは、英小文字で始まる名前だけ。
@@ -4166,6 +4174,15 @@ let register_effect env (e : T.effect') =
       if String.length op = 0 || not (op.[0] >= 'a' && op.[0] <= 'z') then
         type_error ("操作名 " ^ op ^ " は英小文字で始めてください(handle の節が操作名として読めません)"))
     e.T.ef_ops;
+  (* 同じ effect の中での操作名の重複を拒否する。2 度目の宣言の型を指す *)
+  let rec dup = function
+    | [] -> ()
+    | (op, _) :: rest ->
+        (match List.assoc_opt op rest with
+        | Some te2 -> at_node te2 (fun () -> type_error ("操作 " ^ op ^ " が二重に宣言されています"))
+        | None -> ());
+        dup rest
+  in
   let ops =
     List.map
       (fun (op, te) ->
@@ -4174,15 +4191,10 @@ let register_effect env (e : T.effect') =
             let ty = elab_type env 1 te in
             Unify.generalize 0 ty;
             (intern op, ty)
-        | _ -> type_error ("操作 " ^ op ^ " の型は矢印型でなければなりません"))
+        | _ -> at_node te (fun () -> type_error ("操作 " ^ op ^ " の型は矢印型でなければなりません")))
       e.T.ef_ops
   in
-  (* 同じ effect の中での操作名の重複を拒否する *)
-  let rec dup = function
-    | [] -> ()
-    | (op, _) :: rest -> if List.mem_assoc op rest then type_error ("操作 " ^ display_of op ^ " が二重に宣言されています") else dup rest
-  in
-  dup ops;
+  dup e.T.ef_ops;
   Decls.add_effect { Decls.ef_name = intern e.T.ef_name; ef_ops = ops }
 
 let binding_name (b : T.let_binding') = match snd b.T.lb_name with T.PVar x -> Some x | _ -> None
@@ -4375,12 +4387,13 @@ let register_class env (c : T.class_decl') =
         (* クラスパラメータがメソッドの型のどこかに現れることを要求する(§11.33)。
            メソッドの参照で作る穴の型が、クラスパラメータの現れる位置の型から決まるためである。
            一般化したスキーマの制約の鍵の列にクラスパラメータの鍵があるかで判定する *)
-        (match repr ty with
-        | TArrow _ ->
-            if not (List.exists (fun (vid, _) -> vid = pinfo.vid) (Unify.dkeys_of ty)) then
-              type_error
-                ("メソッド " ^ v.T.cv_name ^ " の型にクラスパラメータが現れません(どのインスタンスのメソッドかを型から決められません)")
-        | _ -> type_error ("メソッド " ^ v.T.cv_name ^ " の型は矢印型でなければなりません"));
+        (at_node v.T.cv_ty @@ fun () ->
+         match repr ty with
+         | TArrow _ ->
+             if not (List.exists (fun (vid, _) -> vid = pinfo.vid) (Unify.dkeys_of ty)) then
+               type_error
+                 ("メソッド " ^ v.T.cv_name ^ " の型にクラスパラメータが現れません(どのインスタンスのメソッドかを型から決められません)")
+         | _ -> type_error ("メソッド " ^ v.T.cv_name ^ " の型は矢印型でなければなりません"));
         (* メソッドの型パラメータに付けた制約は、その型パラメータがメソッドの型に現れることを
            要求する(束縛の check_tparam_constraints と同じ規則)。
            型に現れない変数の制約は鍵の列に入らないので、使う位置で辞書が作られない。
@@ -4409,12 +4422,18 @@ let register_class env (c : T.class_decl') =
   let methods = List.map (fun (m, ty, _) -> (m, ty)) methods in
   (* 同じクラスの中でのメソッドの重複を拒否する(register_effect の操作の重複と同じ)。
      素通しにすると、elab の修飾名の型は最後の宣言で決まり、インスタンス本体の照合は
-     最初の宣言を見るので、型検査を通ったプログラムが実行時に型やアリティの食い違いで壊れる *)
+     最初の宣言を見るので、型検査を通ったプログラムが実行時に型やアリティの食い違いで壊れる。
+     メソッドごとの診断は、操作と同じく、そのメソッドの型の位置を指す。
+     重複は 2 度目の宣言の型を指す *)
   let rec dup = function
     | [] -> ()
-    | (m, _) :: rest -> if List.mem_assoc m rest then type_error ("メソッド " ^ m ^ " が二重に宣言されています") else dup rest
+    | (v : T.class_val) :: rest ->
+        (match List.find_opt (fun (w : T.class_val) -> w.T.cv_name = v.T.cv_name) rest with
+        | Some w -> at_node w.T.cv_ty (fun () -> type_error ("メソッド " ^ v.T.cv_name ^ " が二重に宣言されています"))
+        | None -> ());
+        dup rest
   in
-  dup methods;
+  dup c.T.cls_vals;
   (* 非修飾名の所有者は高々 1 クラス、という不変条件をここで守る。破れると、elab(宣言順の先勝ち)と
      interp(クラス名の順の後勝ち)が別の規則で勝者を選ぶ。両者が別のクラスを選ぶと、
      誤った実体を呼ぶか、偽の「インスタンスが見つかりません」を出す。組み込みと同名の
