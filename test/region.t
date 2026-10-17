@@ -196,6 +196,38 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
   ! regionshow2.kel:1:21: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
+構造的ヴァリアントのコンストラクタ #Heap のラベルは、エフェクトの Heap と同じ
+名前になる。印字は、ヴァリアントの行に現れる Heap の引数をリージョンの位置に
+数えない。vheap の v と u の型変数は A と出る:
+
+  $ cat > vheap.kel <<'KEL'
+  > let v[A](x: A) = #Heap(x)
+  > let u[A](t: #Heap(A) | #Other(A)): Int32 = 0
+  > KEL
+  $ diktor --type-check vheap.kel
+  v : (A) => #Heap(A) | R1
+  u : (#Heap(A) | #Other(A)) => Int32
+
+単一化も同じ行を見分ける。vheapmis は #Heap の引数で String と Int32 が一致しない
+形で、ラベルだけを #Other に替えた votheremis と同じ文言で報告する:
+
+  $ cat > vheapmis.kel <<'KEL'
+  > let f(x: #Heap(Int32)): Int32 = 0
+  > let g: Int32 = f(#Heap("s"))
+  > KEL
+  $ diktor --type-check vheapmis.kel
+  f : (#Heap(Int32)) => Int32
+  ! vheapmis.kel:2:18: 型エラー: 型が一致しません: String と Int32
+  [1]
+  $ cat > votheremis.kel <<'KEL'
+  > let f(x: #Other(Int32)): Int32 = 0
+  > let g: Int32 = f(#Other("s"))
+  > KEL
+  $ diktor --type-check votheremis.kel
+  f : (#Other(Int32)) => Int32
+  ! votheremis.kel:2:18: 型エラー: 型が一致しません: String と Int32
+  [1]
+
 添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
 
   $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 1)) }\necholn(show(Array.get(mk(), 5)))\n' > oob1.kel
