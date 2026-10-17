@@ -134,3 +134,84 @@ pub な newtype のフィールドの矢印にも @ が要る(§13 / M26。省�
   [1]
   $ printf 'module P { pub newtype Parser[A] = Parser((String) => Option[A] @ {}) }\n' > pubnt2.kel
   $ diktor --type-check pubnt2.kel
+
+注釈に書いたエイリアスの本体の矢印にも @ が要る。エイリアスは展開して読むので、矢印を
+エイリアスに包んでも要求は変わらない。診断は、@ の無い矢印を本体に書いたエイリアスを名指す:
+
+  $ cat > pubalias.kel <<'KEL'
+  > type F = (Int32) => Int32
+  > type G = F
+  > pub let h(g: G): Int32 = g(1)
+  > KEL
+  $ diktor --type-check pubalias.kel
+  ! pubalias.kel:3:9: 型エラー: pub な宣言には完全な型注釈が必要です(型エイリアス F の本体の矢印に @ がありません)
+  [1]
+  $ printf 'type F = (Int32) => Int32\npub newtype Box = Box(F)\n' > pubaliasnt.kel
+  $ diktor --type-check pubaliasnt.kel
+  ! pubaliasnt.kel:2:23: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(型エイリアス F の本体の矢印に @ がありません)
+  [1]
+
+エイリアスの型引数に書いた矢印は、注釈に直接書いた矢印として扱う。本体の矢印が @ を
+持っていれば通る。本体で使わないパラメータに渡した型引数の矢印も調べる:
+
+  $ printf 'type G[A] = (A) => Int32 @ {}\npub let h(f: G[(Int32) => Int32]): Int32 = 0\n' > pubaliasarg.kel
+  $ diktor --type-check pubaliasarg.kel
+  ! pubaliasarg.kel:2:9: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+  $ printf 'type G[A] = (A) => Int32 @ {}\npub let h(f: G[Int32]): Int32 = f(1)\n' > pubaliasarg2.kel
+  $ diktor --type-check pubaliasarg2.kel
+  h : ((Int32) => Int32 @ {}) => Int32 @ {}
+  $ printf 'type K[A] = Int32\npub let h(x: K[(Int32) => Int32]): Int32 = x + 1\n' > pubaliasarg3.kel
+  $ diktor --type-check pubaliasarg3.kel
+  ! pubaliasarg3.kel:2:9: 型エラー: pub な宣言には完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+  $ printf 'type K[A] = Int32\npub newtype Box = Box(K[(Int32) => Int32])\n' > pubaliasarg4.kel
+  $ diktor --type-check pubaliasarg4.kel
+  ! pubaliasarg4.kel:2:23: 型エラー: pub な newtype のフィールドには完全な型注釈が必要です(注釈の中の矢印に @ がありません)
+  [1]
+
+エイリアスの本体の名前は、エイリアスを宣言した位置で読む(§15.1)。module の中の
+pub let は、同じ module のエイリアスの本体を見る:
+
+  $ cat > pubaliasmod.kel <<'KEL'
+  > type F = (Int32) => Int32
+  > module M {
+  >   type F = (Int32) => Int32 @ {}
+  >   pub let h(f: F): Int32 = f(1)
+  > }
+  > echoln(show(M.h(fn(x) => x + 1)))
+  > KEL
+  $ diktor pubaliasmod.kel
+  2
+
+import したエイリアスにも、同じ要求が働く:
+
+  $ mkdir -p pubaliasimp
+  $ printf 'pub type F = (Int32) => Int32\n' > pubaliasimp/lib.kel
+  $ printf 'from "./lib" import F\npub let h(f: F): Int32 = f(1)\n' > pubaliasimp/main.kel
+  $ diktor --type-check pubaliasimp/main.kel
+  ! pubaliasimp/main.kel:2:9: 型エラー: pub な宣言には完全な型注釈が必要です(型エイリアス F の本体の矢印に @ がありません)
+  [1]
+
+使う位置から見えないエイリアスの本体は見ない。可視性の診断を先に出す:
+
+  $ printf 'module M {\n  type F = (Int32) => Int32\n}\npub let h(f: M.F): Int32 = f(1)\n' > pubaliasvis.kel
+  $ diktor --type-check pubaliasvis.kel
+  ! pubaliasvis.kel:4:14: 型エラー: 型 M.F は module M の外からは参照できません(pub を付けてください)
+  [1]
+
+型パラメータは、同じ名前のエイリアスを隠す:
+
+  $ cat > pubaliastp.kel <<'KEL'
+  > type A = (Int32) => Int32
+  > pub let idf[A](x: A): A = x
+  > type class Desc[T] { val desc: (T) => String }
+  > type instance[A: Show] Desc[List[_]] {
+  >   let desc(x: List[A]): String = show(x)
+  > }
+  > echoln(desc(Cons(1i32, Cons(2i32, Nil))))
+  > echoln(show(idf(3)))
+  > KEL
+  $ diktor pubaliastp.kel
+  [1, 2]
+  3

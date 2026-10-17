@@ -379,8 +379,8 @@ r(1) を先に書くと、宣言の終わりの既定化で r が (Int32) => Int
   $ inv aliasouter_a.kel aliasouter_b.kel
   differ: exit 0 / 1
 
-§18.4 の pub の宣言の注釈の除外。注釈に直接書いた入れ子の矢印には @ が要る(§15.2)が、
-エイリアスの本体はこの要求を受けない:
+§18.4 の pub の宣言の注釈。入れ子の矢印の @ の要求(§15.2)は、注釈に書いたエイリアスの
+本体の矢印にも働くので、矢印をエイリアスに包んでも、どちらも拒否する:
 
   $ cat > aliaspub_a.kel <<'KEL'
   > pub let h(f: (Int32) => Int32): Int32 = f(1)
@@ -390,7 +390,30 @@ r(1) を先に書くと、宣言の終わりの既定化で r が (Int32) => Int
   > pub let h(f: F): Int32 = f(1)
   > KEL
   $ inv aliaspub_a.kel aliaspub_b.kel
-  differ: exit 1 / 0
+  same: exit 1
+
+§18.4 の 2 つ目の除外。pub の値束縛の注釈の先頭に直接書いた矢印は、@ を省略できる。
+注釈の先頭がエイリアスのときは最外の矢印がなく、展開した矢印も型引数に書いた矢印も入れ子の
+矢印なので、@ が要る(§13.2、§15.2)。どちらの省略も @ {} と読むが、受理は変わる:
+
+  $ cat > aliaspubhead_a.kel <<'KEL'
+  > pub let k: (Int32) => Int32 = fn(x) => x + 1
+  > echoln(show(k(1)))
+  > KEL
+  $ cat > aliaspubhead_b.kel <<'KEL'
+  > type F = (Int32) => Int32
+  > pub let k: F = fn(x) => x + 1
+  > echoln(show(k(1)))
+  > KEL
+  $ cat > aliaspubhead_c.kel <<'KEL'
+  > type Id[A] = A
+  > pub let k: Id[(Int32) => Int32] = fn(x) => x + 1
+  > echoln(show(k(1)))
+  > KEL
+  $ inv aliaspubhead_a.kel aliaspubhead_b.kel
+  differ: exit 0 / 1
+  $ inv aliaspubhead_a.kel aliaspubhead_c.kel
+  differ: exit 0 / 1
 
 §18.4 のインスタンスの対象の除外。対象は型構成子に限る(§12.2)ので、エイリアスに
 置き換えられない:
