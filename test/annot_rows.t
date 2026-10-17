@@ -1173,8 +1173,7 @@ recrowargpure、recrowargeff、recrowargext、recrowargown の後ろの束縛 b 
 決めず、通る。recrowargeff は Console を起こす関数式を渡して F に Console を求めるので
 落ちる。recrowargext は引数の行を {Console extends F} にした形で、Console を起こす
 関数式を渡しても F を決めないので通る。recrowargown は a が自分の行変数 E を持つ
-関数を渡して F を E に決めるので落ちる。b は最外の行にも F を書くので、落ちる位置は
-a の本体の b(f) である。最外の行に F を書いた b を、型を注釈しない
+関数を渡して F を E に決めるので落ちる。最外の行に F を書いた b を、型を注釈しない
 関数式の中で呼び、その関数式を呼ばない recrowlam は、F を決めないので通る。その関数式を
 呼ぶ recrowlamcall と、行を Console と注釈した引数に渡す recrowlamkeep は、F を a の
 行や引数の行に決めるので落ちる。行を {Console extends R} と注釈した引数に渡す
@@ -1203,10 +1202,10 @@ recrowlamkeepopen は通る:
   b : (() => Int32 @ {Console extends R1}) => Int32 @ {Console}
   $ cat > recrowargown.kel <<'KEL'
   > let rec a[E](f: () => Int32 @ E): Int32 @ E = b(f)
-  > and b[F](g: () => Int32 @ F): Int32 @ F = g()
+  > and b[F](g: () => Int32 @ F): Int32 = 0
   > KEL
   $ diktor --type-check recrowargown.kel
-  ! recrowargown.kel:1:47: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! recrowargown.kel:2:5: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
   $ cat > recrowlam.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = { let g = fn() => b(n); n }
