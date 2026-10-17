@@ -113,7 +113,7 @@ test/parallel.t が固定している):
 
   $ printf 'let f(r: {run: Int32}): Int32 = 1\n' > kwlabel.kel
   $ diktor --type-check kwlabel.kel
-  kwlabel.kel:1:11: 構文エラー: 付近のトークンを確認してください
+  kwlabel.kel:1:11: 構文エラー: 予約語 run はここには書けません(予約語は識別子に使えません)
   [2]
 
 (スーパークラスの拒否は test/classes.t、Zero / One が無いことは型クラス表に

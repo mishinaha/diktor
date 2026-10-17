@@ -190,15 +190,15 @@ then と else は予約語で、変数、引数、レコードのラベルに使
 
   $ printf 'let then = 1\n' > kwthen.kel
   $ diktor kwthen.kel
-  kwthen.kel:1:5: 構文エラー: 付近のトークンを確認してください
+  kwthen.kel:1:5: 構文エラー: 予約語 then はここには書けません(予約語は識別子に使えません)
   [2]
   $ printf 'let f(else: Int32): Int32 = else\n' > kwelse.kel
   $ diktor kwelse.kel
-  kwelse.kel:1:7: 構文エラー: 付近のトークンを確認してください
+  kwelse.kel:1:7: 構文エラー: 予約語 else はここには書けません(予約語は識別子に使えません)
   [2]
   $ printf 'let r = {then = 1}\n' > kwlabel.kel
   $ diktor kwlabel.kel
-  kwlabel.kel:1:10: 構文エラー: 付近のトークンを確認してください
+  kwlabel.kel:1:10: 構文エラー: 予約語 then はここには書けません(予約語は識別子に使えません)
   [2]
 
 ガードの if と共存する。ガードの中の条件式は、括弧が無くても読める。

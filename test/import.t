@@ -66,7 +66,7 @@ from と import は予約語である:
 
   $ printf 'let from = 1\n' > letfrom.kel
   $ diktor letfrom.kel
-  letfrom.kel:1:5: 構文エラー: 付近のトークンを確認してください
+  letfrom.kel:1:5: 構文エラー: 予約語 from はここには書けません(予約語は識別子に使えません)
   [2]
 
 差し替えたプレリュードと対話的な実行には import を書けない:
