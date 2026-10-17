@@ -1,7 +1,8 @@
 再帰群の中で前にある束縛から後ろにある束縛への参照は単相である(LangSpec §6.3)。
 前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決めると、2 つの剛定数か、
 剛定数と具体的な型が一致せずに型エラーになる。下の twotp、twotprev、concrete は、
-その報告に原因に近い事実を括弧で添える形で、selfrec、selfret、notp、region は添えない形である。
+その報告に原因に近い事実を括弧で添える形で、recfield と rechkt も添える形である。
+selfrec、selfret、recfieldself、notp、region は添えない形である。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -92,6 +93,46 @@ selfret は、前にある f が useret(g) で g の返り値の位置を Int32 
   $ diktor --type-check selfret.kel
   useret : ((A) => Int32 @ {}) => Int32
   ! selfret.kel:3:5: 型エラー: スコープ付きの型が一致しません: Int32 と ς1
+  [1]
+
+recfield は、前にある f が g の注釈 {a: Int32, b: B} と違うラベルの順のレコード式
+{b = 1i32, a = ???} を渡し、g の型パラメータ B の欄 b を Int32 に決める形で、f を挙げる:
+
+  $ cat > recfield.kel <<'KEL'
+  > let rec f(n: Int32): Int32 = g({b = 1i32, a = ???})
+  > and g[B](r: {a: Int32, b: B}): Int32 = 0
+  > KEL
+  $ diktor --type-check recfield.kel
+  ! recfield.kel:2:5: 型エラー: スコープ付きの型が一致しません: Int32 と ς1(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。f の本体が、型パラメータを持つ g を参照しています。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3、§18.2)
+  [1]
+
+recfieldself は、前にある f が g に渡すレコード式で、B の欄 a を ??? のまま未定に残す形で、
+f を挙げない。B の欄を Int32 に決めるのは g 自身の本体の呼び出しである。g だけの群の
+recfieldselfone も、同じ文言で落ちる:
+
+  $ cat > recfieldself.kel <<'KEL'
+  > let rec f(n: Int32): Int32 = g({b = 1i32, a = ???})
+  > and g[B](r: {a: B, b: Int32}): Int32 = g({a = 1i32, b = 2i32})
+  > KEL
+  $ diktor --type-check recfieldself.kel
+  ! recfieldself.kel:2:5: 型エラー: スコープ付きの型が一致しません: Int32 と ς1
+  [1]
+  $ cat > recfieldselfone.kel <<'KEL'
+  > let rec g[B](r: {a: B, b: Int32}): Int32 = g({a = 1i32, b = 2i32})
+  > KEL
+  $ diktor --type-check recfieldselfone.kel
+  ! recfieldselfone.kel:1:9: 型エラー: スコープ付きの型が一致しません: Int32 と ς1
+  [1]
+
+rechkt は、前にある f が、高カインドの型パラメータ F を持つ g の引数 F[Int32] の位置に
+Option[Int32] の値を渡し、F を Option に決める形で、f を挙げる:
+
+  $ cat > rechkt.kel <<'KEL'
+  > let rec f(n: Option[Int32]): Int32 = g(n)
+  > and g[F[_]](y: F[Int32]): Int32 = 0
+  > KEL
+  $ diktor --type-check rechkt.kel
+  ! rechkt.kel:2:5: 型エラー: スコープ付きの型が一致しません: Option と ς1(再帰群の中で、前にある束縛から後ろにある束縛への参照は単相です。f の本体が、型パラメータを持つ g を参照しています。前にある束縛の本体が後ろの束縛の型パラメータを何かの型に決める形は、型検査に通りません。§6.3、§18.2)
   [1]
 
 notp は、型パラメータを持たない g の Int32 の位置に、f が自分の型パラメータ A の値を渡す
