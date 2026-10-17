@@ -1061,11 +1061,12 @@ rectpflowrev):
   _ : {}
 
 行変数も型パラメータなので、同じ制限に入る。前の束縛から後ろの束縛を呼ぶとき、後ろの
-束縛の行変数は具体化されない。最外の行に行変数を書いた後ろの束縛を、行を注釈した前の
-束縛から呼ぶと、呼び出しがその行変数を呼ぶ側の行に決めるので落ちる。呼ぶ側の行が自分の
-行変数 E を含む形(recrowfwd)でも、閉じた行の形(recrowclosed)でも同じである。
-recrowfwd を逆の順に書けば通る(recrowrev)。最外の行に行変数を書いた 2 本が互いを呼ぶ
-形は、どちらの順でも落ちる(recrowmutual、recrowmutualrev):
+束縛の行変数は具体化されず、前の束縛の検査がその行変数を何かの行に決めると落ちる。
+最外の行に行変数を書いた後ろの束縛を、行を注釈した前の束縛の本体で直接呼ぶと、
+呼び出しがその行変数を呼ぶ側の行に決めるので落ちる。呼ぶ側の行が自分の行変数 E を
+含む形(recrowfwd)でも、閉じた行の形(recrowclosed)でも同じである。recrowfwd を逆の
+順に書けば通る(recrowrev)。最外の行に行変数を書いた 2 本が本体で互いを直接呼ぶ形は、
+どちらの順でも落ちる(recrowmutual、recrowmutualrev):
 
   $ cat > recrowfwd.kel <<'KEL'
   > let rec a[E](n: Int32): Int32 @ {Console extends E} = b(n)
@@ -1096,18 +1097,19 @@ recrowfwd を逆の順に書けば通る(recrowrev)。最外の行に行変数�
   ! recrowmutual.kel:1:87: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
   $ cat > recrowmutualrev.kel <<'KEL'
-  > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
-  > and b[F](n: Int32): Int32 @ {Console extends F} = a(n)
+  > let rec a[E](n: Int32): Int32 @ {Console extends E} = b(n)
+  > and b[F](n: Int32): Int32 @ {Console extends F} = n match { case 0 => 0 case m => a(m - 1) }
   > KEL
   $ diktor --type-check recrowmutualrev.kel
-  ! recrowmutualrev.kel:1:87: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! recrowmutualrev.kel:1:55: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
   [1]
 
-閉じた行の束縛と行変数を取る束縛が互いを呼ぶ形は、行変数を取る側を前に書けば通り
-(recrowclosedmut)、同じ 2 本を後ろに書けば落ちる(recrowclosedmutrev)。行変数を取る
-束縛が 1 本だけの 2 本の群で、もう片方の行を注釈しなければ、どちらの順でも通る
-(recrowone、recrowonerev)。注釈しない束縛の本体が相手の行に無いラベルを起こすときは
-落ちる(recrowoneprint):
+後ろの束縛から前の束縛への呼び出しは、この制限を受けない。閉じた行の束縛と行変数を
+取る束縛が本体で互いを直接呼ぶ形は、行変数を取る側を前に書けば通り(recrowclosedmut)、
+同じ 2 本を逆の順に書けば落ちる(recrowclosedmutrev)。行変数を取る束縛が 1 本だけの
+2 本の群で、もう片方の行を注釈しなければ、どちらの順でも通る(recrowone、
+recrowonerev)。注釈しない束縛の本体が相手の行に無いラベルを起こすときは落ちる
+(recrowoneprint):
 
   $ cat > recrowclosedmut.kel <<'KEL'
   > let rec a[E](n: Int32): Int32 @ {Console extends E} = n match { case 0 => 0 case m => b(m - 1) }
@@ -1149,11 +1151,12 @@ recrowfwd を逆の順に書けば通る(recrowrev)。最外の行に行変数�
   ! recrowoneprint.kel:2:35: 型エラー: 行 ς1 は注釈で固定された行変数なので、ラベル Print を足せません(注釈側に Print を(必要なら引数つきで)書き足してください)
   [1]
 
-後ろの束縛が行変数を引数の型にだけ書く形では、呼び出しが行変数を決めるかどうかで分かれる。
+呼び出しが行変数を決めなければ通る。後ろの束縛が行変数を引数の型にだけ書く形では、
 エフェクトを起こさない関数式を渡す形は通り(recrowargpure)、Console を起こす関数式を
 渡す形は落ちる(recrowargeff)。呼ぶ側が自分の行変数を持つ関数を渡す形も落ちる
-(recrowargown)。最外の行に行変数を書いた後ろの束縛でも、呼び出しを関数式の中に書いて
-その関数式を呼ばなければ通り(recrowlam)、呼べば落ちる(recrowlamcall):
+(recrowargown)。最外の行に行変数を書いた後ろの束縛でも、型を注釈で決めない関数式の
+中で呼び、その関数式を呼ばなければ通る(recrowlam)。その関数式を呼ぶ形(recrowlamcall)
+と、行を注釈した引数に渡す形(recrowlamkeep)は落ちる:
 
   $ cat > recrowargpure.kel <<'KEL'
   > let rec a(n: Int32): Int32 @ Console = b(fn() => n)
@@ -1189,6 +1192,15 @@ recrowfwd を逆の順に書けば通る(recrowrev)。最外の行に行変数�
   > KEL
   $ diktor --type-check recrowlamcall.kel
   ! recrowlamcall.kel:1:64: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
+  [1]
+  $ cat > recrowlamkeep.kel <<'KEL'
+  > let keep(f: () => Int32 @ Console): Int32 = 0
+  > let rec a(n: Int32): Int32 @ Console = keep(fn() => b(n))
+  > and b[F](n: Int32): Int32 @ {Console extends F} = { echo("b"); n }
+  > KEL
+  $ diktor --type-check recrowlamkeep.kel
+  keep : (() => Int32 @ {Console}) => Int32
+  ! recrowlamkeep.kel:2:53: 型エラー: 行 ς1 は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)
   [1]
 
 pub let rec の値束縛で頭の @ を省略すると @ {} と読む(上の pubrecval)。本体が
