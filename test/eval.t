@@ -348,6 +348,72 @@ Run モードでも網羅性警告は stderr に出る:
   実行時エラー: ??? に到達しました
   [3]
 
+再開する操作の節が resume を呼ぶ前に実行時エラーで脱出すると、継続はまだ生きているので、
+捨てた継続の中の cancel 節を内側から順に走らせた後、その節のハンドラ自身の cancel 節も
+走る(§13.6):
+
+  $ cat > clauseerr.kel <<'EOF2'
+  > effect Res = { use: () => Unit }
+  > effect Ask = { ask: () => Int32 }
+  > let r = ({ perform use(); perform ask() + 1 }) handle {
+  >   case use() => resume()
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case ask() => { echoln("ask clause"); 1 / 0 }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor clauseerr.kel
+  ask clause
+  cancel res
+  cancel ask
+  実行時エラー: ゼロ除算です
+  [3]
+
+resume が戻った後の脱出では、継続は消費済みなので、ハンドラ自身の cancel 節は走らない。
+再開した計算の中のハンドラは return 節で正常に終わっている:
+
+  $ cat > clauseresumed.kel <<'EOF2'
+  > effect Res = { use: () => Unit }
+  > effect Ask = { ask: () => Int32 }
+  > let r = ({ perform use(); perform ask() + 1 }) handle {
+  >   case use() => resume()
+  >   case return(x) => { echoln("close res"); x }
+  >   case cancel => echoln("cancel res")
+  > } handle {
+  >   case ask() => { let v = resume(1); echoln("resumed " + show(v)); v / 0 }
+  >   case cancel => echoln("cancel ask")
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor clauseresumed.kel
+  close res
+  resumed 2
+  実行時エラー: ゼロ除算です
+  [3]
+
+resume を呼ぶ前に節の本体から操作を起こし、外側のハンドラが resume せずに継続を捨てた
+場合も、ハンドラ自身の cancel 節が走る。外側の節は再開する操作の節なので、破棄はその節の
+値が決まった後に起き、cancel 節はその後に走る:
+
+  $ cat > clausestop.kel <<'EOF2'
+  > effect Ask = { ask: () => Int32 }
+  > effect Stop = { stop: () => Int32 }
+  > let r = (perform ask() + 1) handle {
+  >   case ask() => { echoln("ask clause"); perform stop() }
+  >   case cancel => echoln("cancel ask")
+  > } handle {
+  >   case stop() => { echoln("stop: no resume"); 7 }
+  > }
+  > echoln(show(r))
+  > EOF2
+  $ diktor clausestop.kel
+  ask clause
+  stop: no resume
+  cancel ask
+  7
+
 ガード付き操作節は同じハンドラの次の節へ落ちる(B2 / D28。match と同じ規則):
 
   $ cat > guardop.kel <<'EOF2'
