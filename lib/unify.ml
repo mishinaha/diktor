@@ -514,7 +514,11 @@ let rec rewrite_row row label =
    関数を呼ぶ側の行と呼ばれる側の行がここで結ばれることで、エフェクトが型に乗る。
    Keleut の引数は閉じた `_item` 行のレコードなので、
    関数適用の引数の個数の不一致は行の単一化から検出される。
-   関数適用(第11章 §11.12)には、引数の個数を数える専用のコードがない。
+   ただし、行の単一化が報告するのは、片方の行で尽きたラベル `_item` だけである。
+   そこで、2 つの矢印の引数の行がどちらも閉じた `_item` 行で個数が違うときは、
+   行に入る前に `check_arity` が両方の矢印と個数を示して報告する。
+   どちらかの行が開いているか、`_item` 以外のラベルを含むときは、そのまま行を単一化する。
+   呼び出しの実引数の並びと仮引数の行の個数は、第11章 §11.12 の `check_call_arity` が比べる。
 
    ### 型適用(高階カインド)
 
@@ -551,6 +555,13 @@ let rec rewrite_row row label =
    行が注釈で固定されていることを述べるメッセージを出す。
    「{} と ς1」が一致しないとだけ伝えても、利用者は原因を読み取りにくいからである。 *)
 
+let item_arity t =
+  match repr t with
+  | TRecord row ->
+      let fields, tail = row_fields row in
+      if repr tail = TRowEmpty && List.for_all (fun (l, _) -> l = l_item) fields then Some (List.length fields) else None
+  | _ -> None
+
 let rec unify a b =
   let t1 = repr a in
   let t2 = repr b in
@@ -576,6 +587,7 @@ let rec unify a b =
             unify (TCon (n, init)) f;
             unify last x
         | TArrow (p1, r1, e1), TArrow (p2, r2, e2) ->
+            check_arity t1 t2 p1 p2;
             unify p1 p2;
             unify r1 r2;
             unify e1 e2
@@ -593,6 +605,16 @@ let rec unify a b =
               ("行 " ^ show rv ^ " は注釈で固定された行変数なので、この行と一致させられません(注釈を extends 付きの形にしてください)")
         | (TVar _, _ | _, TVar _) -> type_error ("スコープ付きの型が一致しません: " ^ show2 t1 t2)
         | _ -> type_error ("型が一致しません: " ^ show2 t1 t2))
+
+(* 引数の行がどちらも閉じた _item 行で、個数が違えば、行の単一化に入る前に
+   個数の不一致として報告する *)
+and check_arity t1 t2 p1 p2 =
+  match (item_arity p1, item_arity p2) with
+  | Some n1, Some n2 when n1 <> n2 ->
+      let strs = show2 t1 t2 in
+      type_error
+        ("引数の個数が一致しません: " ^ strs ^ "(引数は " ^ string_of_int n1 ^ " 個と " ^ string_of_int n2 ^ " 個です)")
+  | _ -> ()
 
 and split_last = function
   | [] -> bug "split_last: empty"

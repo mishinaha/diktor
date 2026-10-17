@@ -339,6 +339,25 @@ let row_failure msg =
   in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
 
+(* 呼び出しの実引数の並び(_item の RecordExtend の連なり)の個数。
+   ラベル付きの引数を含むときは None *)
+let rec args_arity ((_, e) : T.exp) =
+  match e with
+  | T.RecordEmpty -> Some 0
+  | T.RecordExtend (rest, l, _) when l = "_item" -> Option.map succ (args_arity rest)
+  | _ -> None
+
+(* 実引数の並びと仮引数の行がどちらも _item だけで、個数が違えば、
+   実引数を精緻化する前に個数の不一致として報告する。
+   実引数の中に別の誤りがあっても、個数の不一致が先に報告される *)
+let check_call_arity what arg params =
+  match (args_arity arg, Unify.item_arity params) with
+  | Some n, Some m when n <> m ->
+      type_error
+        ("引数の個数が一致しません: " ^ what ^ " " ^ string_of_int m ^ " 個の引数を取りますが、" ^ string_of_int n
+       ^ " 個を渡しています")
+  | _ -> ()
+
 (* 最外の行が閉じた矢印の尾部を、新しい行変数で開く(使用時の開き。§11.26)。
    名前で参照した関数の型(§11.11)と、呼び出し先の関数の型(§11.12)に掛ける。
    開いてから単一化すると、閉じた行のラベルを含むどの行の下からでも使える。
@@ -1773,7 +1792,17 @@ and elab_exp' env level eff node e =
    この位置の行が空(注釈の `@ {}` か、高階の引数の行が `@ {}`)である形では、
    仕様 §9 の、入れ子の矢印で省略した `@` を `@ {}`(純粋)と読む規則を案内する。
    言い換えるのは行に由来する失敗だけで、その判定を `row_failure` が行う。
-   引数の型の不一致は言い換えない。 *)
+   引数の型の不一致は言い換えない。
+
+   引数を検査する前に、`check_call_arity` が実引数の個数と仮引数の個数を比べる。
+   実引数の並びが `_item` だけでできていて、仮引数の行が閉じた `_item` 行のときに限り、
+   個数が違えば、引数の個数の不一致として報告する。
+   この検査が無くても、閉じた行どうしの単一化は失敗する。
+   しかし、その報告は行の途中で尽きたラベル `_item` を名指すだけで、個数の違いに読み替えにくい。
+   ラベル付きの引数を含む呼び出しと、仮引数の型がまだ決まっていない呼び出しは比べず、
+   単一化に任せる。
+   実引数を精緻化する前に比べるので、実引数の中に別の誤りがあっても、個数の不一致を先に報告する。
+   perform の引数(§11.15)も同じ検査を通す。 *)
 
   | T.Apply (f, arg) ->
       let tf = elab_exp env level eff f in
@@ -1795,6 +1824,7 @@ and elab_exp' env level eff node e =
              (msg
             ^ "(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
          else type_error msg);
+      check_call_arity "呼び出す関数は" arg pvar;
       elab_check env level eff arg pvar;
       tr
 (* ## 11.13 演算子とレコードの 4 操作
@@ -1973,6 +2003,7 @@ and elab_exp' env level eff node e =
         | TArrow (a, r, _) -> (a, r)
         | _ -> bug "操作スキーマが矢印型ではありません"
       in
+      check_call_arity ("操作 " ^ display_of op ^ " は") arg args_row;
       Unify.unify (elab_exp env level eff arg) args_row;
       (try Unify.unify eff (TRowExtend (eff_name, t_unit, new_row_var level))
        with Type_error msg ->
@@ -4634,6 +4665,8 @@ let check_instance_bodies env inode (i : T.instance_decl') =
        実装できないメソッドが生じる *)
     match (repr inf, repr skol) with
     | TArrow (ia, ir, ie), TArrow (sa, sr, se) ->
+        (* 引数の行どうしを単一化する前に、矢印どうしの単一化と同じく個数を比べる *)
+        wrap (fun () -> Unify.check_arity inf skol ia sa);
         wrap (fun () -> Unify.unify ia sa);
         wrap (fun () -> Unify.unify ir sr);
         (* 実装の最外の行が閉じていれば、使用時の開きと同じく尾部を開いてから宣言の行と一致させる。
