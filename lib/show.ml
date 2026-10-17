@@ -15,7 +15,8 @@
    印字の方針は次のとおりである。
 
    1. `Generic` は `A, B, C…`、`Unbound` は `_A, _B…`、`Rigid` は `ς1, ς2…` と書く
-   2. カインドごとに名前のプールを変える(`Type` は `A..E`、`F[_]` は `F..H`)
+   2. カインドごとに名前のプールを変える(`Type` は `A..E`、`F[_]` は `F..H`)。
+      リージョンの位置に現れる変数は `h, h1…` と書く
    3. エフェクト行が空または裸の行変数のときは表示しない
    4. エフェクトラベルの引数がユニットなら、裸のラベル名を書く
    5. 制約つき変数があれば、その制約を前置する
@@ -66,6 +67,32 @@ open Type
 
    `pick` はプールを使い切ると添字を足す(`A, B, …, E, A1, B1, …`)。
 
+   ### リージョンの名前
+
+   リージョン変数のカインドは値の型と同じ `Type` である(第6章 §6.11)。
+   カインドだけで名前を選ぶと、
+   `let use[h, A](r: Ref[h, A]): A @ Heap[h] = Ref.get(r)` の型は `(Ref[A, B]) => B @ {Heap[A]}` と表示され、
+   どれがリージョンでどれが値の型かを、利用者は `Ref` の引数の順から思い出さなければならない。
+   そこで、`Ref` と `MutableArray` の第 1 引数か、`Heap` ラベルの引数に現れる変数は、
+   `Type` のプールではなく `h` のプールから名前を採る。
+   1 個目は `h`、2 個目以降は `h1, h2…` で、`(Ref[h, A]) => A @ {Heap[h]}` のように、
+   仕様の署名一覧と同じ綴りになる。
+   弱い変数には、ほかの変数と同じく下線を前置する(`_h`)。
+   剛定数は §9.2 のとおり `ς` で書き、このプールを使わない。
+
+   リージョンかどうかは、印字の前に型を走査して、その位置に現れたかどうかで決める。
+   型の表現にはリージョンを区別する印が無いからである。
+   同じ変数が値の型の位置にも現れるとき(`(h, Ref[h, Int32]) => Int32`)も、リージョンの名前を使う。
+   1 か所でもリージョンの位置に現れた変数は、型検査の上ではリージョンとして使われている。
+   名前を決めるのは、§9.1 の採番表と同じく、`show_all` に渡したすべての型を通した出現である。
+   `Ref` などの名前は綴りから `intern` で引くので、
+   module の中で同名の型を宣言しても、その型の引数はリージョンとして扱わない。
+   利用者の newtype の型引数も、リージョンを包んでいるかどうかを問わず、
+   リージョンの位置として扱わない。
+   `newtype Box[k] = Box(Ref[k, Int32])` の `k` は、
+   同じ印字の中で `Ref[k, Int32]` のようにリージョンの位置にも現れれば `h` と書き、
+   `Box[k]` の引数としてだけ現れれば `Type` のプールの名前(`A` など)で書く。
+
    ### 弱い変数の下線
 
    `Unbound` の変数には `_` を前置する。
@@ -104,10 +131,15 @@ let show_all ts =
     let prev = Option.value ~default:[] (Hashtbl.find_opt seen d) in
     if not (List.mem n prev) then Hashtbl.replace seen d (n :: prev)
   in
+  let regions : (oid, unit) Hashtbl.t = Hashtbl.create 8 in
+  let region t =
+    match repr t with TVar { contents = Unbound i | Generic i } -> Hashtbl.replace regions i.vid () | _ -> ()
+  in
   let rec collect t =
     match repr t with
     | TCon (n, args) ->
         note n;
+        (match args with r :: _ when n = ty_ref || n = ty_mutable_array -> region r | _ -> ());
         List.iter collect args
     | TApp (f, a) ->
         collect f;
@@ -119,6 +151,7 @@ let show_all ts =
     | TRecord row | TVariant row -> collect row
     | TRowExtend (l, f, rest) ->
         note l;
+        if l = eff_heap then region f;
         collect f;
         collect rest
     | TRowEmpty | TVar _ -> ()
@@ -134,6 +167,7 @@ let show_all ts =
   let star_pool = "ABCDE" in
   let arrow_pool = "FGH" in
   let star_count = ref 0 in
+  let region_count = ref 0 in
   let arrow_count = ref 0 in
   let row_count = ref 0 in
   let rigid_count = ref 0 in
@@ -162,6 +196,10 @@ let show_all ts =
                 let n = !arrow_count in
                 incr arrow_count;
                 pick arrow_pool n
+            | _ when Hashtbl.mem regions i.vid ->
+                let n = !region_count in
+                incr region_count;
+                pick "h" n
             | _ ->
                 let n = !star_count in
                 incr star_count;
@@ -201,7 +239,9 @@ let show_all ts =
    同じ情報を、書き写せない形式でもう一度見せることはしない。
 
    なお、`name_of_var` は、カインドが未確定(`KVar`)の変数を、
-   `kind_repr` による場合分けの最後の `_` の分岐で `Type` と同じに扱う。
+   `kind_repr` による場合分けの `KRow` でも `KArrow` でもない分岐で、`Type` と同じに扱う。
+   ただし、リージョンの位置に現れた変数は、
+   カインドが `Type` でも未確定でも `h` のプールから名前を採る。
    カインドが未確定のまま印字される変数は、
    後で `KStar` へ既定化される(第1章の `default_kind`。時期は §1.6)。
    そこで、先回りして `Type` のプールから名前を採る。 *)
