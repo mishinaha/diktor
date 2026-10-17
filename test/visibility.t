@@ -364,9 +364,12 @@ pub でなければ可視性の検査で落ちる:
   [1]
 
 同じファイルの module の外から、Type エイリアスのコンパニオンを module 名だけで
-エフェクト位置に書くと、pub の有無によらず、Type エイリアスとして拒否する。
-pub を付けてもエフェクト位置では使えないからである。EffectRow を付けて pub が
-足りなければ、visrow15 の可視性の誤りになる:
+書いた次の 4 つは、可視性の誤りではなく Type エイリアスとして拒否する。
+pub を付けてもエフェクト位置では使えないからである。
+visrow16 は非 pub の P を @ P と書き、visrow17 は @ {P} と書く。
+visrow18 は非 pub の P[A] を行の要素に {P[Int32], Console} と書き、
+visrow19 は pub の P を @ P と書く。
+EffectRow を付けて pub が足りなければ、visrow15 の可視性の誤りになる:
 
   $ printf 'module P { type P = Int32 }\nlet f(x: Int32): Int32 @ P = x\n' > visrow16.kel
   $ diktor --type-check visrow16.kel
@@ -397,10 +400,10 @@ pub を付けてもエフェクト位置では使えないからである。Effe
   ! visrow21.kel:2:26: 型エラー: 型 M.T は module M の外からは参照できません(pub を付けてください)
   [1]
 
-行の要素に引数なしで書いた型パラメータは、行変数の合成として拒否する。
-同名の Type エイリアスが同じ module にあっても(visrow22)トップレベルにあっても
-(visrow23)、同名の module の Type エイリアスのコンパニオンが pub でも(visrow24)
-pub でなくても(visrow25)、同じ診断になる:
+行の要素に引数なしで書いた名前が型パラメータに当たると、行変数の合成として拒否する。
+visrow22〜25 では、名前 E は型パラメータ E に当たり、同じ診断になる。
+同名の Type エイリアスが visrow22 では同じ module にあり、visrow23 ではトップレベルにある。
+同名の module の Type エイリアスのコンパニオンが visrow24 では pub、visrow25 では非 pub である:
 
   $ printf 'module M {\n  type E = Int32\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow22.kel
   $ diktor --type-check visrow22.kel
