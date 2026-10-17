@@ -8,11 +8,11 @@
 // すべての利用者のプログラムの前に読み込まれる宣言の列である。
 // 宣言の列の中身は次のとおりである。
 //
-// - `Unit` / `Option` / `List`
-// - 4 つの `effect`
-// - 52 本の `extern` 署名
-// - `echo` / `echoln` / `println` / `with_stdout`
-// - `List` と `Option` の `Show` インスタンス 2 つ
+// - `Unit` / `Option` / `List`(§15.3)
+// - エフェクト `Console` / `Print`(§15.4)
+// - プリミティブの `extern` 署名(§15.5)
+// - `echo` / `echoln` / `println` / `with_stdout`(§15.6、§15.7)
+// - `List` と `Option` の `Show` と `Eq` のインスタンス(§15.8、§15.9)
 //
 // このファイルは文芸的プログラミングの形で書いてある。
 // 行頭が `//` の行が記事の本文で、それ以外の行がコードである。
@@ -29,11 +29,11 @@
 //
 // | 置き場所 | 置くもの | 理由 |
 // |---|---|---|
-// | 本章 | データ型、エフェクト、`extern` 署名、素の関数、`List` と `Option` の `Show` | 宣言機構がすでに動いている |
-// | 組み込み表 | 演算子クラスと Ref/Array/MutableArray/Heap/Blocking | elab と interp に密結合している |
+// | 本章 | データ型、エフェクト、`extern` 署名、素の関数、`List`/`Option` の `Show`/`Eq` | 宣言機構がすでに動いている |
+// | 組み込み表 | 演算子クラスと Ref/Array/MutableArray/Heap/Blocking など | elab と interp に密結合している |
 //
 // 本章に置くのは、宣言構文で書けば OCaml 側で型を組み立て直さずに済むものである。
-// 組み込み表には、次のものを置く。
+// 組み込み表には、主に次のものを置く。
 //
 // - Add/Sub/Mul/Div/Rem/Neg/Eq/Ord/Show のクラス宣言と、組み込み型に付くそのインスタンス
 // - リージョン系の Ref/Array/MutableArray/Heap/Blocking
