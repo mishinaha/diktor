@@ -113,11 +113,11 @@ unannparam は、型注釈のない引数 x を照合する。x の型変数は 
   > echoln("ok")
   > EOF
   $ diktor unannparam.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   ok
   $ diktor --type-check unannparam.kel
   f : (A) => B
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   _ : {}
 
 r11_void_helper は、unannparam と同じ形の elim を、右辺のない newtype Void の値に使う。
@@ -130,7 +130,7 @@ elim の引数の型変数を決めないので、use の elim(v) は型が合�
   > echoln("ok")
   > EOF
   $ diktor r11_void_helper.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   ok
 
 r1_nongen_top の h は、値制限で一般化しない最上位の束縛である。照合対象 y の型変数は h の
@@ -145,7 +145,7 @@ r1_nongen_top の h は、値制限で一般化しない最上位の束縛であ
   > echoln(show(k(false)))
   > EOF
   $ diktor r1_nongen_top.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   0
   $ cat > w1.kel <<'EOF'
   > let id(x) = x
@@ -154,7 +154,7 @@ r1_nongen_top の h は、値制限で一般化しない最上位の束縛であ
   > echoln(show(p(3)))
   > EOF
   $ diktor w1.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   3
 
 rigid は、利用者が明示した型パラメータ A の値 x を、局所の束縛 q の中で照合する。A は
@@ -187,8 +187,8 @@ toplevelstmt は、最上位の値でない式文に、局所の束縛で包ま�
   > { perform throw("x") match {} } handle { case throw(e) => echoln(e) }
   > EOF
   $ diktor toplevelstmt.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   x
   $ diktor --strict-exhaustive toplevelstmt.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   [1]

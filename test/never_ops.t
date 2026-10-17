@@ -118,6 +118,42 @@ perform の式が要求される型になる。match の腕にそのまま置け
   $ diktor absurdann.kel
   -1
 
+照合対象の型が網羅性を調べた時点で数値の述語を持たない未定の型変数のとき、節のない
+match {} の警告は、その型がコンストラクタを持たない型と分かっていないことを言う文面になる。
+absurdshow の h と k は、注釈のない引数を show に渡してから照合する。引数の型変数は Show の
+制約が付き、束縛の型にも現れるので Never に決まらず、2 つとも新しい文面の警告になる。
+--strict-exhaustive では終了コード 1 になる:
+
+  $ cat > absurdshow.kel <<'EOF'
+  > let h = fn(y) => { echoln(show(y)); y match {} }
+  > let k(x) = { echoln(show(x)); x match {} }
+  > echoln("ok")
+  > EOF
+  $ diktor absurdshow.kel
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
+  ok
+  $ diktor --strict-exhaustive absurdshow.kel
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
+  ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
+  [1]
+
+absurdother の 3 つの match は従来の文面のままである。f は型パラメータ A の値を照合し、
+照合対象の型は未定の型変数でない。g は数値のリテラルを照合し、照合対象の型変数は数値の
+述語を持つ。k の match はガード付きの節を 1 つ持つので、節のない match でない:
+
+  $ cat > absurdother.kel <<'EOF'
+  > let f[A](x: A): Int32 = x match {}
+  > let g(): Int32 = 1 match {}
+  > let k(x, b: Boolean): Int32 = x match { case y if b => 1 }
+  > echoln("ok")
+  > EOF
+  $ diktor absurdother.kel
+  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。例えば _ が漏れています
+  ok
+
 再開しない操作の節に resume は書けない。閉包の本体に書いても、節の中の入れ子の
 handle の本体に書いても(外側の節の継続を指す)、同じ診断になる:
 
