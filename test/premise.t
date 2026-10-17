@@ -342,8 +342,8 @@ List[Opaque] は書かない:
   [1]
 
 pr22 は、前提が未定変数に先に届き、その変数が後で具体型に決まる形で、これも
-出どころを添える(左の Nil が List[α] を Eq に結び付け、α が Opaque に決まるのは
-右辺を読んだ後):
+出どころを添える(左の Nil が List[α] を Eq に結び付け、α が List[Opaque] に決まる
+のは右辺を読んだ後):
 
   $ cat > pr22.kel <<'KEL'
   > newtype Opaque = MkOpaque(Int32)
