@@ -192,7 +192,28 @@ let at_node node f =
    宣言の終わりに `default_numerics` が Int32 / Float64 に落とす(第8章)。
    `number_ty` はリテラルの位置を第8章の `literal_origins` に控える。
    既定の型が他の制約を満たさないとき、既定化はその位置で報告する(第8章 §8.9)。
-   既定化が表示より先に走るので、通常の型表示にこれらの述語は現れない。 *)
+   既定化が表示より先に走るので、通常の型表示にこれらの述語は現れない。
+
+   ### パターンの数値リテラルは、宣言の終わりに型で読む
+
+   `number_ty` は字面の中身を読まないので、桁あふれした数値リテラルも型検査を通る。
+   式の位置では、第14章がリテラルを評価する時点で、範囲外の字面を実行時エラーにする。
+   パターンの位置のリテラルは評価されない。
+   第14章の照合は、値の型で字面を読めなければ、その節を不一致として次へ進む。
+   そのため、Int32 の照合対象に書いた `case 4294967295` は、どの値にも一致しない節として黙って残る。
+   第10章(exhaust.ml)の網羅性検査は列の型を知らないので、この節を報告できない。
+
+   そこで、パターンの数値リテラルを `pattern_numbers` に積み、
+   宣言の終わりの既定化の後に `check_pattern_numbers` で読む。
+   既定化の後なら、どのリテラルのノードの型も Int32、Int64、Float64 のどれかに決まっている。
+   その型で字面を読めなければ、リテラルの位置を指す型エラーにする。
+   読み方は第14章の照合と同じく、OCaml の `Int32.of_string` などに任せる。
+   浮動小数の読みは桁あふれしても無限大になって失敗しないので、調べるのは整数の 2 型だけである。
+
+   検査をパターンの推論のその場で行わないのは、そこではまだ型が決まっていないことがあるからである。
+   注釈の無い引数を照合する `fn(x) => x match { case 4294967295 => … }` では、
+   リテラルの型は `Integral` 述語つきの変数のままで、宣言の終わりに Int32 に落ちる。
+   網羅性検査の時点(束縛の一般化の直前)でも、同じ理由で型が決まっているとは限らない。 *)
 
 let number_ty ~loc level (n : number) : ty =
   match n.n_suffix with
@@ -212,6 +233,32 @@ let number_ty ~loc level (n : number) : ty =
       Unify.add_class v c;
       Unify.note_literal ~loc v c;
       v
+
+(* パターンの数値リテラルのノードと字面。elab_pat が先頭に積み、check_pattern_numbers が読む *)
+let pattern_numbers : (T.pat * number) list ref = ref []
+
+(* 既定化の後に、パターンの整数リテラルを型で読む。読めなければ、
+   推論した順で最初のものを型エラーにする *)
+let check_pattern_numbers () =
+  let pats = List.rev !pattern_numbers in
+  pattern_numbers := [];
+  List.iter
+    (fun (node, (n : number)) ->
+      let fits =
+        match repr (Tree.get_ty node) with
+        | TCon (c, []) when c = intern "Int32" -> Some ("Int32", Option.is_some (Int32.of_string_opt n.n_text))
+        | TCon (c, []) when c = intern "Int64" -> Some ("Int64", Option.is_some (Int64.of_string_opt n.n_text))
+        | _ -> None
+      in
+      match fits with
+      | Some (tyname, false) ->
+          raise
+            (Type_error_at
+               ( Tree.loc_of node,
+                 "数値リテラルのパターン " ^ Lexer.show_number n ^ " は " ^ tyname
+                 ^ " の範囲を超えるので、どの値にも一致しません" ))
+      | _ -> ())
+    pats
 
 (* 言語に無い数値型の名前。宣言の無い名前として引いたときに、未知の型の診断に数値型の案内を添える *)
 let absent_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt64"; "Float32" ]
@@ -1345,6 +1392,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
       env
   | T.PNumber n ->
       Unify.unify expected (number_ty ~loc:(Tree.loc_of node) level n);
+      pattern_numbers := (node, n) :: !pattern_numbers;
       env
   | T.PRecord (fields, rest) -> (
       let ftys = List.map (fun (l, _) -> (l, new_var level)) fields in
@@ -5110,6 +5158,7 @@ let process_decls ?(toplevel_extra = []) env ~emit decls =
       (* 既定化も宣言の包みの中で走らせる。DInstance の本体で作られた数値リテラルの述語は、
          ここで初めて落ちることがある。包みの外で走らせると、位置なしの型エラーになる *)
       Unify.default_numerics ();
+      check_pattern_numbers ();
       (* 宣言の終わりに、台帳に残っている穴をすべて解き直す。前の宣言で型の決まらなかった
          穴も、この宣言で型が決まれば解ける *)
       solve_holes_at ~since:0 ~params:[];
@@ -5163,6 +5212,7 @@ let start_program () =
   warnings_count := 0;
   Unify.reset ();
   Exhaust.reset ();
+  pattern_numbers := [];
   group_stack := [];
   opened_rows := [];
   pub_pure_cells := []
@@ -5604,6 +5654,7 @@ let start_input () =
   Hashtbl.reset top_types;
   Unify.reset ();
   Exhaust.reset ();
+  pattern_numbers := [];
   group_stack := [];
   opened_rows := []
 
@@ -5630,6 +5681,7 @@ let type_of_expr ?(toplevel_extra = []) env (e : T.exp) =
         Unify.lower_levels ~since:mark 0 t;
         Unify.check_ambiguity ~all:true ~level:0 [ t ];
         Unify.default_numerics ());
+      check_pattern_numbers ();
       t)
 
 (* 実体の型を引く(対話的な実行の結果の表示に使う。直前の check_input の束縛に限る) *)
