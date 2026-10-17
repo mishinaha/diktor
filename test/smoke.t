@@ -20,7 +20,9 @@
   $ diktor t.kel; echo "exit: $?"
   exit: 0
 
-未実装は exit 4(書けるが処理系が実装していない機能。§16.8):
+未実装は exit 4(§16.8)。
+cr.kel の case cancel(e) は、付録 A.5 の clause ::= "case" pat の形として構文の上では読める。
+LangSpec の cancel 節は case cancel の形だけで、Diktor はこの形を未実装として報告する:
 
   $ printf 'effect E = { op: () => Int32 }\nlet r = (1) handle { case op() => resume(1) case cancel(e) => () }\n' > cr.kel
   $ diktor cr.kel; echo "exit: $?"
