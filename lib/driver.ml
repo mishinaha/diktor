@@ -268,7 +268,7 @@ let parse_unit_with lexer =
          どれが壊れているかが分かるよう、ファイル名を付ける *)
       raise (Parse_error (Printf.sprintf "%s: 字句エラー: 不正な UTF-8 バイト列です" lexer.Lexer'.last_sp.Lexing.pos_fname))
   | Parser'.Error ->
-      raise (Parse_error (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lexer.Lexer'.last_sp)))
+      raise (Parse_error (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
   | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
@@ -766,7 +766,7 @@ let try_parse ~line ?(col = 0) source =
       Failed (Printf.sprintf "%s: 構文エラー: import は対話的な実行では書けません" (show_pos im.Syntax.im_loc.Location.start))
   | exception Parser'.Error ->
       if lx.Lexer'.prev = Some Lexer'.Parser.EOF then Incomplete
-      else Failed (Printf.sprintf "%s: パースエラー(付近のトークンを確認してください)" (show_pos lx.Lexer'.last_sp))
+      else Failed (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lx.Lexer'.last_sp))
   | exception Lexer.Lex_error (("unterminated string literal" | "unterminated block comment"), _) -> Incomplete
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
   | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
