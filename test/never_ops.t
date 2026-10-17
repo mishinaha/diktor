@@ -154,6 +154,49 @@ absurdother の 3 つの match は従来の文面のままである。f は型�
   ⚠ match が非網羅的です。例えば _ が漏れています
   ok
 
+neverclass は、Never にインスタンスを持つクラス Describe のメソッドの引数に、perform の式を
+直接置く。perform の式の型は新しい型変数で、Describe の制約だけを持ち、f の型に現れないので、
+曖昧な制約の型エラーになる。neverclasshelper は、返り値を注釈しない補助関数 fail を経由する。
+fail の返り値の型は一般化された型変数なので、呼び出しの型も同じく曖昧な制約になる:
+
+  $ cat > neverclass.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > type class Describe[A] { val describe: (A) => String }
+  > type instance Describe[Never] { let describe(n: Never) = n match {} }
+  > let f(): String @ Fail = describe(perform throw("x"))
+  > EOF
+  $ diktor neverclass.kel
+  ! neverclass.kel:4:5: 型エラー: 曖昧な制約: Describe を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
+  [1]
+  $ cat > neverclasshelper.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > type class Describe[A] { val describe: (A) => String }
+  > type instance Describe[Never] { let describe(n: Never) = n match {} }
+  > let fail(m: String) = perform throw(m)
+  > let f(): String @ Fail = describe(fail("x"))
+  > EOF
+  $ diktor neverclasshelper.kel
+  ! neverclasshelper.kel:5:5: 型エラー: 曖昧な制約: Describe を満たす型が決まりません(結果の型に現れない型変数です。注釈で型を決めてください)
+  [1]
+
+neverclassann の f は返り値を Never と注釈した補助関数 fail を経由し、g は perform の結果を
+Never と注釈した値束縛 v で受ける。どちらも describe の引数の型が Never に決まり、
+Describe[Never] のインスタンスを選んで型検査を通る。実行すると perform がハンドラに捕まる:
+
+  $ cat > neverclassann.kel <<'EOF'
+  > effect Fail = { throw: (String) => Never }
+  > type class Describe[A] { val describe: (A) => String }
+  > type instance Describe[Never] { let describe(n: Never) = n match {} }
+  > let fail(m: String): Never @ Fail = perform throw(m)
+  > let f(): String @ Fail = describe(fail("x"))
+  > let g(): String @ Fail = { let v: Never = perform throw("y"); describe(v) }
+  > echoln(f() handle { case throw(m) => "caught " + m })
+  > echoln(g() handle { case throw(m) => "caught " + m })
+  > EOF
+  $ diktor neverclassann.kel
+  caught x
+  caught y
+
 再開しない操作の節に resume は書けない。閉包の本体に書いても、節の中の入れ子の
 handle の本体に書いても(外側の節の継続を指す)、同じ診断になる:
 
