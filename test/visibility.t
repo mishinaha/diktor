@@ -363,6 +363,40 @@ pub でなければ可視性の検査で落ちる:
   ! visrow15.kel:2:26: 型エラー: 型 W.W は module W の外からは参照できません(pub を付けてください)
   [1]
 
+同じファイルの module の外から、Type エイリアスのコンパニオンを module 名だけで
+エフェクト位置に書くと、pub の有無によらず、Type エイリアスとして拒否する。
+pub を付けてもエフェクト位置では使えないからである。EffectRow を付けて pub が
+足りなければ、visrow15 の可視性の誤りになる:
+
+  $ printf 'module P { type P = Int32 }\nlet f(x: Int32): Int32 @ P = x\n' > visrow16.kel
+  $ diktor --type-check visrow16.kel
+  ! visrow16.kel:2:26: 型エラー: エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けてください)
+  [1]
+  $ printf 'module P { type P = Int32 }\nlet f(x: Int32): Int32 @ {P} = x\n' > visrow17.kel
+  $ diktor --type-check visrow17.kel
+  ! visrow17.kel:2:26: 型エラー: エフェクト行に Type エイリアス P は置けません(: EffectRow を付けてください)
+  [1]
+  $ printf 'module P { type P[A] = A }\nlet f(x: Int32): Int32 @ {P[Int32], Console} = x\n' > visrow18.kel
+  $ diktor --type-check visrow18.kel
+  ! visrow18.kel:2:26: 型エラー: エフェクト行に Type エイリアス P は置けません(: EffectRow を付けてください)
+  [1]
+  $ printf 'module P { pub type P = Int32 }\nlet f(x: Int32): Int32 @ P = x\n' > visrow19.kel
+  $ diktor --type-check visrow19.kel
+  ! visrow19.kel:2:26: 型エラー: エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けてください)
+  [1]
+
+行の波括弧の中では、module 修飾の名前も同じく Type エイリアスとして拒否する。
+波括弧の外の修飾名 @ M.T は型の一般の検査を通るので、pub でなければ可視性の誤りになる:
+
+  $ printf 'module M { type T = Int32 }\nlet f(x: Int32): Int32 @ {M.T} = x\n' > visrow20.kel
+  $ diktor --type-check visrow20.kel
+  ! visrow20.kel:2:26: 型エラー: エフェクト行に Type エイリアス M.T は置けません(: EffectRow を付けてください)
+  [1]
+  $ printf 'module M { type T = Int32 }\nlet f(x: Int32): Int32 @ M.T = x\n' > visrow21.kel
+  $ diktor --type-check visrow21.kel
+  ! visrow21.kel:2:26: 型エラー: 型 M.T は module M の外からは参照できません(pub を付けてください)
+  [1]
+
 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
 クラス M のメソッド f と値環境で区別できないため):
 
