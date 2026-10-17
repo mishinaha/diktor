@@ -181,9 +181,12 @@ let at_node node f =
    リテラルの述語のための仕組みを別に持たなくても、既定化とクラスの解決は正しく整合する。
 
    接尾辞が付いていれば具体型にする。
-   Diktor が実行できる数値型は 3 つだけなので、それ以外の幅の接尾辞と型名は、
-   構文としては受理したうえで未実装のエラーにする。
+   意味を持つ接尾辞は `i32`、`i64`、`f64` の 3 つだけである。
+   ほかの接尾辞は字句としては 1 個の数値に切れるが、言語に無い型を指すので、ここで型エラーにする。
    黙って別の幅に丸めることはしない。
+   字句や構文の段階で落とさないのは、型検査の診断の流れ(§11.43)に乗せ、
+   それまでに確定した型の行を残すためである。
+   浮動小数の本体に整数の接尾辞を付けた字面も、同じ流れで型エラーにする。
 
    残った `Integral` / `Fractional` は、
    宣言の終わりに `default_numerics` が Int32 / Float64 に落とす(第8章)。
@@ -200,7 +203,9 @@ let number_ty ~loc level (n : number) : ty =
   | Some (NsInt 32) -> t_int32
   | Some (NsInt 64) -> t_int64
   | Some (NsFloat 64) -> t_float64
-  | Some _ -> noimpl ("数値接尾辞 " ^ Lexer.show_number n ^ "(v0 は i32/i64/f64 のみ)")
+  | Some _ ->
+      type_error
+        ("数値リテラル " ^ Lexer.show_number n ^ " の接尾辞 " ^ n.n_suffix_text ^ " はありません(接尾辞は i32、i64、f64 だけです)")
   | None ->
       let v = new_var level in
       let c = if n.n_is_float then cls_fractional else cls_integral in
@@ -208,8 +213,8 @@ let number_ty ~loc level (n : number) : ty =
       Unify.note_literal ~loc v c;
       v
 
-(* 名前だけを受理し、Diktor では実行できない数値型 *)
-let unsupported_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt64"; "Float32" ]
+(* 言語に無い数値型の名前。宣言の無い名前として引いたときに、未知の型の診断に数値型の案内を添える *)
+let absent_numeric = [ "Int8"; "Int16"; "UInt8"; "UInt16"; "UInt32"; "UInt64"; "Float32" ]
 
 (* 未束縛の変数の診断。module スコープで解決済みなのに環境に届かないとき
    (前方の module 名)は素の文言にし、スコープ外に候補があるときだけ修飾名を案内する *)
@@ -461,9 +466,10 @@ let check_pub_annots ~params ~ret =
    診断の位置が 2 番目の使用点になるのは、`F[E]` の時点では `E` のカインドがまだ決まっておらず、
    照合が通るからである(`test/kinds.t` の hkt)。
 
-   `unsupported_numeric` にある名前は、ここで未実装の数値型として拒否する。
-   `Int8` のような名前は、未知の型として報告するより、
-   Diktor が実装していない数値型として報告するほうが、利用者が原因を理解しやすい。
+   `Int8` のような言語に無い数値型の名前(`absent_numeric`)は、宣言の無い名前として引く。
+   利用者が同じ名前の型を宣言していればその型になり、宣言が無ければ未知の型である。
+   後者の診断には、数値型の一覧を添える。
+   利用者が別の言語の幅のつもりで書いたとき、原因に届くようにするためである。
 
    値の型の位置で読んだ型は、カインドが `Type` であることも照合する。
 
@@ -521,29 +527,30 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
       match SMap.find_opt n env.types with
       | Some t -> t
       | None ->
-          if List.mem n unsupported_numeric then noimpl ("数値型 " ^ n ^ "(v0 は Int32/Int64/Float64 のみ)")
-          else
-            let oid = Decls.resolve_con (intern n) in
-            Decls.check_con_visible oid;
-            (match Hashtbl.find_opt Decls.aliases oid with
-            | Some info -> expand_alias env level ~expanding info []
-            | None ->
-                if Hashtbl.mem Decls.con_kinds oid then (
-                  match Decls.con_kind oid 0 with
-                  | KStar -> TCon (oid, [])
-                  | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
-                else
-                  (* スコープ外の module の内部型なら候補を添える。
-                     案内するのは pub の型だけで、非 pub の型は従っても直らない *)
-                  match
-                    List.filter
-                      (fun q -> match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
-                      (Decls.con_synonym_candidates oid)
-                  with
-                  | _ :: _ as cands ->
-                      type_error
-                        ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)")
-                  | _ -> type_error ("未知の型: " ^ n)))
+          let oid = Decls.resolve_con (intern n) in
+          Decls.check_con_visible oid;
+          (match Hashtbl.find_opt Decls.aliases oid with
+          | Some info -> expand_alias env level ~expanding info []
+          | None ->
+              if Hashtbl.mem Decls.con_kinds oid then (
+                match Decls.con_kind oid 0 with
+                | KStar -> TCon (oid, [])
+                | _ -> type_error ("型構成子 " ^ n ^ " には型引数が必要です"))
+              else
+                (* スコープ外の module の内部型なら候補を添える。
+                   案内するのは pub の型だけで、非 pub の型は従っても直らない *)
+                match
+                  List.filter
+                    (fun q -> match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
+                    (Decls.con_synonym_candidates oid)
+                with
+                | _ :: _ as cands ->
+                    type_error
+                      ("未知の型: " ^ n ^ "(" ^ String.concat " か " (List.map display_of cands) ^ " と修飾してください)")
+                | _ ->
+                    if List.mem n absent_numeric then
+                      type_error ("未知の型: " ^ n ^ "(数値型は Int32、Int64、Float64 だけです)")
+                    else type_error ("未知の型: " ^ n)))
   | T.EIdent li -> (
       (* 平坦化済みの module の修飾型参照(Parser.Parser など)。
          修飾名でもエイリアスを引く(M.A の形) *)

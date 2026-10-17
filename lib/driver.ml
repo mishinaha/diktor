@@ -1190,9 +1190,12 @@ let run_with options =
    | 1 | 型エラー、import エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive`、§16.3b の `Import_error` |
    | 2 | 構文エラー、字句エラー | `Parse_error`、`Lex_error`(不正な UTF-8 を含む) |
    | 3 | 実行時エラー | `Runtime_error`、未処理のエフェクト、再帰過多、メモリ不足、内部異常 |
-   | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(1u8、Int8、module の入れ子など) |
+   | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(module の入れ子、cancel(reason) など) |
    | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない |
    | 74 | 出力に書き出せない | 標準出力への flush の失敗 |
+
+   言語に無い数値の接尾辞(`1u8`)と、宣言の無い言語に無い数値型の名前(`Int8`)は、
+   未実装ではなく第11章の型エラーであり、1 に数える。
 
    再帰過多とメモリ不足は、処理系の限度を超えたことを表し、起きた段の誤りに数える。
    読み込みの段では 2、型検査の段では 1、評価の段では 3 である。
