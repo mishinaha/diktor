@@ -130,6 +130,11 @@ let show2_ref : (ty -> ty -> string) ref = ref (fun _ _ -> "<型>")
 
 let show2 a b = !show2_ref a b
 
+let show_pair_ref : (ty -> ty -> string * string) ref = ref (fun _ _ -> ("<型>", "<型>"))
+
+(* 2 つの型を 1 つの名前の表で印字し、別々の文字列として返す *)
+let show_pair a b = !show_pair_ref a b
+
 (* ## 8.3 occurs check、レベル調整、脱出検査
 
    型変数 `tv` に型 `t` を代入する前に、`occurs_adjust` が `t` を 1 度だけ走査して、
@@ -248,9 +253,34 @@ let rec occurs_adjust tv lvl t =
    `TCon` の分岐は、インスタンス表に登録された前提を使う(前提の表は第6章 §6.9)。
    `Eq[List[_]]` の前提 `A: Eq` は `(0, Eq)` として表に載っている。
    `List[Opaque]` に `Eq` を要求すると、`Opaque` に `Eq` が伝播し、
-   「Opaque は Eq のインスタンスではありません」で落ちる(`test/premise.t` の pr2 / pr3)。
+   「Opaque は Eq のインスタンスではありません」で落ち、
+   診断には下で述べる出どころが付く(`test/premise.t` の pr2 / pr3)。
    分岐の中の `if i < List.length args` は到達しない保険である。
    冒頭のカインドの照合が先に落とすので、前提が位置 `i` を持つなら `args` は `i + 1` 個以上ある。
+
+   前提をたどって届いた要求が満たされないとき、診断は満たされなかった型だけでなく、
+   前提をたどり始めた型とクラスも添える。
+   `List[List[Opaque]]` に `Eq` を要求したなら、
+   「Opaque は Eq のインスタンスではありません。List[List[Opaque]] が Eq であるための前提として要求されました」と出る。
+   添えるのはたどり始めた 1 組だけで、途中の `List[Opaque]` は書かない。
+   途中の段を並べると、入れ子の深さに応じて文が伸びるからである。
+   そのため `add_class` は、たどり始めた組を省略可能な引数 `via` で持ち回り、
+   前提の分岐で初めて値を入れ、構造的導出の分岐ではそのまま渡す。
+   文言の型と出どころの型は `show_pair` で 1 つの名前の表に載せて印字する。
+   別々に印字すると、名前は印字ごとに振り直されるので、
+   同じ `ς1` が文の前半と後半で別の型パラメータを指すことがある。
+
+   前提が未定変数に届いたときは、その時点では成否が決まらない。
+   `Nil == Cons(MkOpaque(1i32), Nil)` では、左の `Nil` が先に `List[α]` を `Eq` に結び付け、
+   前提が `α` に `Eq` を付ける。
+   `α` が `Opaque` に決まるのは右辺を読んだ後で、そこで `bind` が `add_class` を呼ぶ。
+   この時点の呼び出しにも出どころを添えるため、
+   前提が未定変数に新しく制約を付けたときは、
+   変数とクラスの組を鍵にして出どころを表 `premise_origins` に控える。
+   `bind` と §8.9 の `default_to` はその表を引き、
+   出どころの型の中の束縛する変数を代入先に置き換えた形で `via` に渡す。
+   置き換えは表示のためだけのもので、セルを書き換えない(`subst_unbound`)。
+   `repr` が経路を縮めるので、一時的に `Link` を張って表示してから戻す方法は使えない。
 
    `TApp` に制約を付けられないのは、修飾型を持たないからである。
    Haskell は `Show (f a)` のような制約を残して解決を後回しにできるが、
@@ -318,9 +348,55 @@ let new_class_var ~kind ~classes level =
   (match v with TVar r when classes <> [] -> note_class_var r | _ -> ());
   v
 
-let rec add_class t c =
+(* 前提をたどって未定変数に届いた制約の出どころ。
+   鍵は (変数の識別子, クラス) で、値はたどり始めた型とクラスの組である。
+   bind がその変数を具体型に束縛するとき、ここから出どころを引いて add_class に渡す。
+   セルの書き換えの記録が有効の間は、書き込みを戻す閉包も積む *)
+let premise_origins : (int * oid, ty * oid) Hashtbl.t = Hashtbl.create 16
+
+let note_premise_origin (i : var_info) c via =
+  let key = (i.vid, c) in
+  if not (Hashtbl.mem premise_origins key) then (
+    Hashtbl.replace premise_origins key via;
+    if !trailing then trail := (fun () -> Hashtbl.remove premise_origins key) :: !trail)
+
+(* 型 ty の中の未定変数 v を t に置き換えた型。診断の表示にだけ使い、セルは書き換えない *)
+let subst_unbound v t ty =
+  let rec go ty =
+    match repr ty with
+    | TVar r when r == v -> t
+    | TVar _ as ty -> ty
+    | TCon (n, args) -> TCon (n, List.map go args)
+    | TApp (g, a) -> tapp (go g) (go a)
+    | TArrow (p, r, e) -> TArrow (go p, go r, go e)
+    | TRecord row -> TRecord (go row)
+    | TVariant row -> TVariant (go row)
+    | TRowEmpty -> TRowEmpty
+    | TRowExtend (l, fld, rest) -> TRowExtend (l, go fld, go rest)
+  in
+  go ty
+
+(* via は、インスタンスの前提をたどって届いた要求のときだけ値を持ち、
+   たどり始めた型とクラスの組を持つ。
+   要求が満たされないときは、その組を診断に添える *)
+let rec add_class ?via t c =
   let ci =
     match Decls.find_class c with Some ci -> ci | None -> type_error ("未知のクラス: " ^ display_of c)
+  in
+  (* ty は文言に現れる型で、mk はその印字から文言を作る。
+     出どころを添えるときは、ty と出どころの型を 1 つの名前の表で印字する *)
+  let fail ?advice ?ty mk =
+    let origin vt vc = "。" ^ vt ^ " が " ^ display_of vc ^ " であるための前提として要求されました" in
+    let shown, suffix =
+      match (ty, via) with
+      | Some ty, None -> (show ty, "")
+      | None, None -> ("", "")
+      | Some ty, Some (vt, vc) ->
+          let s, o = show_pair ty vt in
+          (s, origin o vc)
+      | None, Some (vt, vc) -> ("", origin (show vt) vc)
+    in
+    type_error (mk shown ^ suffix ^ match advice with None -> "" | Some a -> "。" ^ a)
   in
   if not (same_kind ci.ci_param_kind (kind_of t)) then
     type_error
@@ -331,7 +407,8 @@ let rec add_class t c =
       | Unbound i ->
           if not (List.mem c i.vcls) then (
             set_tv v (Unbound { i with vcls = c :: i.vcls });
-            note_class_var v)
+            note_class_var v;
+            Option.iter (note_premise_origin i c) via)
       | Rigid i | Generic i ->
           (* Generic に届くのは、宣言のスキーマの中(newtype のフィールドや
              クラスメソッドの型)で制約つきエイリアスを展開したとき。規則は
@@ -341,23 +418,27 @@ let rec add_class t c =
             if is_predicate c then
               type_error "型パラメータに数値リテラルは使えません。0i32 のように接尾辞を付けるか具体型を使ってください"
             else
-              type_error
-                ("型パラメータ " ^ show (TVar v) ^ " は " ^ display_of c ^ " のインスタンスではありません。[A: " ^ display_of c
-               ^ "] のように制約を書いてください")
-      | _ -> type_error (show t ^ " に " ^ display_of c ^ " 制約を付けられません"))
+              fail
+                ~advice:("[A: " ^ display_of c ^ "] のように制約を書いてください")
+                ~ty:(TVar v)
+                (fun s -> "型パラメータ " ^ s ^ " は " ^ display_of c ^ " のインスタンスではありません")
+      | _ -> fail ~ty:t (fun s -> s ^ " に " ^ display_of c ^ " 制約を付けられません"))
   | TCon (n, args) -> (
       match Decls.find_instance ~cls:c ~con:n with
       | Some { ii_premises; _ } ->
-          List.iter (fun (i, c2) -> if i < List.length args then add_class (List.nth args i) c2) ii_premises
-      | None -> type_error (display_of n ^ " は " ^ display_of c ^ " のインスタンスではありません"))
+          let via = match via with Some _ -> via | None -> Some (t, c) in
+          List.iter (fun (i, c2) -> if i < List.length args then add_class ?via (List.nth args i) c2) ii_premises
+      | None -> fail (fun _ -> display_of n ^ " は " ^ display_of c ^ " のインスタンスではありません"))
   | (TRecord row | TVariant row) when ci.ci_derive_structural ->
       (* 閉じた行への構造的導出(sample.kel:392-396)。開いた行は不可 *)
       let fields, tail = row_fields row in
       (match repr tail with
-      | TRowEmpty -> List.iter (fun (_, f) -> add_class f c) fields
-      | _ -> type_error ("行変数を含む型 " ^ show t ^ " に " ^ display_of c ^ " の構造的導出は適用できません(行が閉じていません)"))
-  | TApp _ -> type_error ("制約 " ^ display_of c ^ " を " ^ show t ^ " に付けられません(頭が型変数の適用には制約を貼れません)")
-  | other -> type_error (show other ^ " は " ^ display_of c ^ " のインスタンスではありません")
+      | TRowEmpty -> List.iter (fun (_, f) -> add_class ?via f c) fields
+      | _ ->
+          fail ~ty:t (fun s ->
+              "行変数を含む型 " ^ s ^ " に " ^ display_of c ^ " の構造的導出は適用できません(行が閉じていません)"))
+  | TApp _ -> fail ~ty:t (fun s -> "制約 " ^ display_of c ^ " を " ^ s ^ " に付けられません(頭が型変数の適用には制約を貼れません)")
+  | other -> fail ~ty:other (fun s -> s ^ " は " ^ display_of c ^ " のインスタンスではありません")
 
 (* ## 8.5 代入の 4 つの手順
 
@@ -385,11 +466,17 @@ let rec add_class t c =
 
 let bind v t =
   match !v with
-  | Unbound { vlevel; vkind; vcls; _ } ->
+  | Unbound ({ vlevel; vkind; vcls; _ } as i) ->
       if not (same_kind vkind (kind_of t)) then
         type_error ("カインドが一致しません: " ^ show (TVar v) ^ " :: " ^ show_kind vkind ^ " と " ^ show t);
       occurs_adjust v vlevel t;
-      List.iter (fun c -> add_class t c) vcls;
+      List.iter
+        (fun c ->
+          let via =
+            Option.map (fun (vt, vc) -> (subst_unbound v t vt, vc)) (Hashtbl.find_opt premise_origins (i.vid, c))
+          in
+          add_class ?via t c)
+        vcls;
       set_tv v (Link t)
   | _ -> bug "束縛できない変数への bind"
 
@@ -843,7 +930,8 @@ let default_to ~pred v t =
   | Unbound i ->
       List.iter
         (fun c ->
-          try add_class t c
+          let via = Option.map (fun (vt, vc) -> (subst_unbound v t vt, vc)) (Hashtbl.find_opt premise_origins (i.vid, c)) in
+          try add_class ?via t c
           with Type_error msg -> ( match origin c with Some loc -> raise (Type_error_at (loc, msg)) | None -> raise (Type_error msg)))
         i.vcls
   | _ -> ());
@@ -1244,4 +1332,5 @@ let reset () =
   class_vars := [];
   literal_origins := [];
   decl_hole_floor := new_oid ();
+  Hashtbl.reset premise_origins;
   holes := []

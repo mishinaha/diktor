@@ -545,6 +545,12 @@ let show2 a b =
   let strs, _ = show_all [ a; b ] in
   match strs with [ x; y ] -> x ^ " と " ^ y | _ -> bug "show2"
 
+let show_pair a b =
+  (* ctx は捨てる。2 つの型を別々の文に埋め込むので、show2 と同じく前置しない *)
+  let strs, _ = show_all [ a; b ] in
+  match strs with [ x; y ] -> (x, y) | _ -> bug "show_pair"
+
 let () =
   Unify.show_ref := show;
-  Unify.show2_ref := show2
+  Unify.show2_ref := show2;
+  Unify.show_pair_ref := show_pair
