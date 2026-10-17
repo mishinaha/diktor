@@ -24,7 +24,7 @@
   > let bump[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 42) }
   > KEL
   $ diktor --type-check bump.kel
-  ! bump.kel:1:74: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! bump.kel:1:74: 型エラー: ほかのリージョンの MutableArray を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
 書くと宣言したなら通る。行に Heap[h] が出る:
@@ -192,7 +192,7 @@ run で包めば書けた — M20 の動機 (a)):
   > KEL
   $ diktor --type-check pardet.kel
   pmap : (Array[A], (A) => B @ {}) => Array[B]
-  ! pardet.kel:3:47: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! pardet.kel:3:47: 型エラー: ほかのリージョンの MutableArray を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
 不変配列は @ {} のコールバックから読める:
@@ -215,7 +215,7 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   > pub let wipe[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 7) }
   > KEL
   $ diktor --type-check pubpure.kel
-  ! pubpure.kel:1:78: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! pubpure.kel:1:78: 型エラー: ほかのリージョンの MutableArray を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
 最外の矢印に @ {} と書いた関数 g は、名前で参照するときに行の尾部を開くので、run の

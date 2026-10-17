@@ -362,7 +362,7 @@ MiniLang §16-7(run と脱出検査、全6例。§9.3 の期待どおり):
   > let bad = run h { let r = Ref.new(0); run h2 { Ref.get(r) } }
   > EOF
   $ diktor --type-check --no-prelude stbad3.kel
-  ! stbad3.kel:1:56: 型エラー: スコープ付きの型が一致しません: ς1 と ς2
+  ! stbad3.kel:1:56: 型エラー: ほかのリージョンの Ref を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
 MiniLang §16-8 の runST 2例(値制限):
