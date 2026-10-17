@@ -173,9 +173,11 @@ OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段�
 
 --type-check では、それまでの型の行に続けて同じ診断を標準出力に出す:
 
-  $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel; echo "exit: $?"
+  $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel 2> /dev/null; echo "exit: $?"
   _ : {}
   ! 処理系の限度: 型検査で再帰が深すぎます(スタックオーバーフロー)
+  exit: 1
+  $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel > /dev/null; echo "exit: $?"
   exit: 1
 
 上限を 8M 語に広げれば、同じプログラムは型検査に通り、実行する:
