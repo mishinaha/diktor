@@ -1050,4 +1050,20 @@ module Make (Data : Syntax.Data) = struct
     | VAL -> "val"
     | VERTICAL -> "|"
     | WITH -> "with"
+
+(* ## 2.13 予約語の綴り
+
+   `reserved_word` は、トークンが予約語なら、その綴りを返す。
+   予約語の表は §2.4 の `keyword_or_ident` の 1 か所だけに置き、ここでは表を写さない。
+   `show_token` で綴りに戻し、その綴りを `keyword_or_ident` に引き直して同じトークンが返れば予約語である。
+   識別子は引き直すと識別子になり、`_` は予約語の表に無いので、どちらも除く。
+   `true` と `false` は `BOOL` で読むが、§2.2 の表では予約語なので、予約語として扱う。
+   第16章(driver.ml)が、識別子の位置に予約語を書いた構文エラーを報告するときに使う。 *)
+
+  let reserved_word tok =
+    let s = show_token tok in
+    match keyword_or_ident s with
+    | LOWER_IDENTIFIER _ | LOWLINE -> None
+    | t when t = tok -> Some s
+    | _ -> None
 end

@@ -167,8 +167,9 @@ module Lexer' = Lexer.Make (Tree.ElabData)
 module Parser' = Parser.Make (Tree.ElabData)
 
 (* `Parse_error` は、位置まで整形し終えた 1 行を運ぶための、本章専用の例外である。
-   menhir が投げる `Parser'.Error` は情報を持たず、どこで詰まったかは、
+   §16.3a の駆動が投げる `Parser'.Error` は情報を持たず、どこで詰まったかは、
    字句解析器が覚えている最後のトークンの位置からしか取れない。
+   詰まる直前の状態を調べるのは、§16.3a の駆動の中だけである。
    パーサと字句解析器の両方を扱うのは本章だけなので、
    両者の情報を結びつけて整形できるのも本章だけである。
 
@@ -241,33 +242,112 @@ let dump_tokens_file file =
   let tokens = with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file)) in
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
-(* ## 16.3a 増分 API による駆動
+(* ## 16.3a 増分 API による駆動と、予約語の誤用
 
    パーサは menhir の表の形(`--table`)で生成し、増分 API で 1 トークンずつ駆動する。
    こうすると、文法に合わないトークンに出会ったとき、その直前の状態が手元に残る。
-   `parse_program` は、文法に合わないトークンに出会うと `Parser'.Error` を投げる。
-   トークンは第2章の `read` から 1 個ずつ受け取るので、
-   字句解析器が控える直前のトークンとその位置は、伝統的な API で駆動したときと同じに進む。 *)
+   `parse_program` はその状態を使い、誤りの種類を 1 つだけ見分ける。
+   予約語を識別子の位置に書いた誤りである。
+   見分けたときは、予約語の綴りと位置を付けた `Syntax_error_at` を投げる。
+   それ以外の誤りでは `Parser'.Error` を投げる。
+
+   見分ける条件は、詰まったトークンが予約語(第2章 §2.13)で、
+   それを同じ綴りの識別子に置き換えると、次のトークンまで読み進められることである。
+   `let then = 1` は、`then` を識別子にすると `=` まで進めるので、この誤りとして報告する。
+   文面は、予約語をその位置に書けないことを先に言い、識別子に使えないことを括弧の中に添える。
+   前置で書いた `handle { ... } with { ... }` や `match(x) { ... }`、
+   順序を逆にした `import { b } from ...` も、
+   識別子に置き換えると呼び出しや末尾ブロックとして読み進められるので、
+   この条件に通る。
+   これらは識別子のつもりで書いた形ではないので、識別子に使えないとだけ言うと原因から外れる。
+   次のトークンまで見るのは、予約語を予約語として書いたが位置が違う入力を除くためである。
+   `1 + if c then 1 else 2` の `if` や、宣言の後ろに書いた `from` がそれにあたる。
+   これらは識別子に置き換えても次のトークン(`c` や文字列)で詰まるので、汎用の文面になる。
+
+   次のトークンまで見ても除けない形がある。
+   `1 + if (c) then 1 else 2` の `if` は、識別子に置き換えると `(` まで進める。
+   そこで、詰まった位置に `(` を置けば、その直後に同じ予約語を置けるときも、汎用の文面にする。
+   これは、`if` や `fn` のように式を始める予約語を、
+   括弧で囲まずに演算子のオペランドに書いた形である。
+   `true` と `false` はこの判定から外す。
+   `let true = 1` の `true` は、`(` の後ろならパターンとして置けるが、
+   識別子の位置に書いた誤りだからである。
+
+   条件はもう 1 つある。
+   `{then = 1}` の `{` は、第2章 §2.9 の表で `then` を識別子と見ないので、ブロックに分類される。
+   ブロックの中では識別子の次に `=` を置けないので、上の条件に通らない。
+   そこで、詰まった予約語の直前が `{blk` で、次のトークンが `=` か `,` のときも、
+   この誤りとして報告する。
+   §2.9 の表でレコードに分類する形を、予約語についても同じに見たものである。
+
+   次のトークンを読むと、字句解析器が控える直前のトークンとその位置が進む。
+   汎用の文面はその位置を使い、対話的な実行は直前のトークンが `EOF` かどうかで続きの行を待つか決める(§16.6b)。
+   そこで、`read` が更新する状態(第2章 §2.8)を読む前にすべて控えておき、読んだ直後に戻す。
+   次のトークンの字句エラーと、置き換えた後の意味アクションが投げる構文エラーは、
+   条件に通らなかったものとして扱う。
+   置き換えた後の還元は意味アクションを実行して木のノードを作るが、その木は捨てる。 *)
 module I = Parser'.MenhirInterpreter
 
+(* 識別子に置き換えた状態から、次の入力を求めるところまで進める *)
+let rec advance cp =
+  match cp with
+  | I.Shifting _ | I.AboutToReduce _ -> advance (I.resume cp)
+  | _ -> cp
+
+let misused_reserved_word lexer ~after_brace before (tok, sp, ep) =
+  match Lexer'.reserved_word tok with
+  | None -> None
+  | Some w ->
+      let prev = lexer.Lexer'.prev and last_sp = lexer.Lexer'.last_sp and last_ep = lexer.Lexer'.last_ep in
+      let next = match Lexer'.read lexer with next, nsp, _ -> Some (next, nsp) | exception Lexer.Lex_error _ -> None in
+      lexer.Lexer'.prev <- prev;
+      lexer.Lexer'.last_sp <- last_sp;
+      lexer.Lexer'.last_ep <- last_ep;
+      let continues (next, nsp) =
+        match advance (I.offer before (Lexer'.Parser.LOWER_IDENTIFIER w, sp, ep)) with
+        | I.InputNeeded _ as cp -> I.acceptable cp next nsp
+        | _ -> false
+        | exception (Syntax.Syntax_error _ | Syntax.Syntax_error_at _) -> false
+      in
+      let record_label = function Lexer'.Parser.EQ, _ | Lexer'.Parser.COMMA, _ -> after_brace | _ -> false in
+      let operand () =
+        match advance (I.offer before (Lexer'.Parser.LPAREN, sp, sp)) with
+        | I.InputNeeded _ as cp -> I.acceptable cp tok sp
+        | _ -> false
+        | exception (Syntax.Syntax_error _ | Syntax.Syntax_error_at _) -> false
+      in
+      let literal = match tok with Lexer'.Parser.BOOL _ -> true | _ -> false in
+      match next with
+      | Some n when (continues n || record_label n) && (literal || not (operand ())) -> Some (w, sp)
+      | _ -> None
+
 let parse_program lexer =
-  let rec run cp =
+  let rec run last prev_tok cp =
     match cp with
-    | I.InputNeeded _ -> run (I.offer cp (Lexer'.read lexer))
-    | I.Shifting _ | I.AboutToReduce _ -> run (I.resume cp)
+    | I.InputNeeded _ ->
+        let triple = Lexer'.read lexer in
+        run (Some (cp, triple)) (Option.map (fun (_, (t, _, _)) -> t) last) (I.offer cp triple)
+    | I.Shifting _ | I.AboutToReduce _ -> run last prev_tok (I.resume cp)
     | I.Accepted v -> v
-    | I.HandlingError _ | I.Rejected -> raise Parser'.Error
+    | I.HandlingError _ | I.Rejected -> (
+        let after_brace = prev_tok = Some Lexer'.Parser.LBRACE_BLOCK in
+        match Option.bind last (fun (before, triple) -> misused_reserved_word lexer ~after_brace before triple) with
+        | Some (w, sp) ->
+            raise (Syntax.Syntax_error_at (sp, Printf.sprintf "予約語 %s はここには書けません(予約語は識別子に使えません)" w))
+        | None -> raise Parser'.Error)
   in
   (* 開始位置は空の lexbuf の位置(1 行目の 0 桁)である。
      開始直後に空の規則を還元したときだけ、ノードの位置になる *)
-  run (Parser'.Incremental.program (Lexing.from_string "").Lexing.lex_curr_p)
+  run None None (Parser'.Incremental.program (Lexing.from_string "").Lexing.lex_curr_p)
 
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
    上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
 
-   - `Parser'.Error`：menhir が次に進む節を選べなかった(文法に合わない)
+   - `Parser'.Error`：§16.3a の駆動で、menhir が次に進む節を選べず、
+     予約語の誤用でもなかった(文法に合わない)
    - `Syntax.Syntax_error`：文法は通ったが、脱糖(第3章)が形を拒否した
-   - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した
+   - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した。
+     §16.3a の `parse_program` が、予約語を識別子の位置に書いた誤りを報告するときもこれを投げる
    - `Stack_overflow` と `Out_of_memory`：構文解析が処理系の限度を超えた
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
