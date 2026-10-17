@@ -464,6 +464,16 @@ let negate sloc (sp : Lexing.position) (ep : Lexing.position) e =
    「@ を省略した pub は純粋」の検査の 3 つに使う。
    `pub` を付けられない宣言(`type instance` と式文)は、ここで弾く。
 
+   `type instance` の本体の `let` と `let rec` にも `pub` を付けられない。
+   インスタンスのメソッドは名前で import するものではなく、
+   クラスのメソッドの名前を通して、インスタンスが見える範囲から使う。
+   したがって `pub` は可視性を何も変えず、§15.2 の完全な注釈の要求と、
+   最外の `@` を省略した行を `@ {}` と読む規則だけを持ち込む。
+   これを黙って受理すると、公開したつもりのメソッドがなぜ import できないのかを利用者が探すことになるので、
+   本体を読み終えた時点で構文エラーにする(`check_instance_body`)。
+   位置は `type` の位置で、最初に見つかった `pub` のメソッドの名前を文面に入れる。
+   本体の後ろのトークンを読んでから投げるので、最後に読んだトークンの位置では誤りの場所を指さない。
+
    `newtype` の右辺には 4 つの形がある。
    省略、短縮形 `newtype UserId(Int32)`、コンストラクタの並び、`???`(未実装の穴)である。
    このうち短縮形は `newtype UserId = UserId(Int32)` の略で、
@@ -483,6 +493,21 @@ let set_pub pos = function
   | DExtern e -> DExtern { e with ex_pub = true }
   | DInstance _ -> syntax_error_at pos "type instance に pub は付けられません"
   | DExp _ -> syntax_error_at pos "式文に pub は付けられません"
+
+let check_instance_body pos items =
+  let name_of ((_, b) : let_binding) =
+    match b.lb_name with (_, PVar x) -> x | _ -> "_"
+  in
+  let pub_binding = function
+    | (_, DLet ((_, b) as bnode)) when b.lb_pub -> Some (name_of bnode)
+    | (_, DLetRec bs) -> (
+        match List.find_opt (fun (_, b) -> b.lb_pub) bs with Some bnode -> Some (name_of bnode) | None -> None)
+    | _ -> None
+  in
+  match List.find_map pub_binding items with
+  | Some x ->
+      syntax_error_at pos ("type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): " ^ x)
+  | None -> items
 
 type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl list
 %}
@@ -614,6 +639,7 @@ long_id:
    そのため、文脈の違反は原則として第11章(elab.ml)が検査する。
    ただし、ブロックの中に `module` を書いたときのように、ブロックの中で式に落とせない宣言は、
    §3.7 の `block_of_items` が構文エラーにする。
+   `type instance` の本体の `pub` も、§3.10 の `check_instance_body` が構文エラーにする。
 
    `items` は余分な `semi` を読み飛ばす。
    ASI が改行を落とすかどうかの判断は完全ではないので、ここは寛容にしておくのが実際的である。
@@ -701,7 +727,7 @@ decl_body:
   | TYPE CLASS upper_id typarams class_body
       { DClass { cls_pub = false; cls_name = $3; cls_params = $4; cls_vals = $5 } }
   | TYPE INSTANCE typarams_opt upper_id LBRACKET ty_args RBRACKET instance_body
-      { DInstance { ins_tparams = $3; ins_class = $4; ins_args = $6; ins_body = $8 } }
+      { DInstance { ins_tparams = $3; ins_class = $4; ins_args = $6; ins_body = check_instance_body $startpos $8 } }
   | NEWTYPE upper_id typarams_opt newtype_rhs
       { let rhs =
           match $4 with
