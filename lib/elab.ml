@@ -1595,10 +1595,10 @@ let rec is_value ((_, e) : T.exp) =
    リテラルの型はその場で決まる。
    `Hole`(`???`)は新しい型変数を型とし、実行時に評価されると落ちる。 *)
 
-(* 再帰群の束縛の本体を検査する前の pre の形。Open は未定変数の位置で、Fixed は決まっていた
-   位置の型の構成子の種類と子の形、Row は決まっていた行の欄のラベルと形、および行の残りの形
-   である(§11.29) *)
-type pre_shape = Open | Fixed of int * pre_shape list | Row of (oid * pre_shape) list * pre_shape
+(* 再帰群の束縛の本体を検査する前の pre の形。Open は未定変数の位置とその変数で、Fixed は
+   決まっていた位置の型の構成子の種類と子の形、Row は決まっていた行の欄のラベルと形、および
+   行の残りの形である(§11.29) *)
+type pre_shape = Open of tvar ref | Fixed of int * pre_shape list | Row of (oid * pre_shape) list * pre_shape
 
 (* 再帰群の記録。群の束縛の pre と束縛ノード、いま検査している束縛、pre を通した参照の列。
    参照は群の終わりに、参照先の辞書パラメータの正準順で証拠を組み直す(§11.29) *)
@@ -3556,7 +3556,12 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    その束縛と型パラメータの名前を挙げる(`test/rec_tparam_note.t` の twotp)。
    もう一方がそれ以外の型で、落ちたのが `pre` と本体の型の単一化のときは、
    本体を検査する前に写し取った `pre` の形と、本体の型とを並べてたどる。
-   写しで未定変数だった位置はたどらない。
+   たどる先が写しで未定変数の位置になったときは、同じ未定変数が写しのほかの位置にも現れて
+   いれば、その位置を決まっていたものとみなし、本体の型の側の部分木の剛定数をすべて集める。
+   写しで同じ未定変数が 2 か所に現れる形には、前の束縛の参照がその 2 つの位置をつないだ
+   形がある(alias3)。
+   位置をつなぐことも、位置を決めることの 1 つの形とみなす。
+   ほかの位置に現れない未定変数の位置からは、何も集めない。
    写しで決まっていた位置では、本体の型の側にある、衝突した束縛自身の型パラメータの剛定数を集める。
    行(レコードとバリアントの中身)は、欄を並びの位置ではなくラベルで対応づけてたどる。
    レコード式のラベルの順は型に影響しないので(§7)、
@@ -3570,14 +3575,20 @@ and finish_binding_dicts node ~gen ~rigids hmark fn_ty =
    写しの `Option[Int32]` と本体の型の `F[Int32]`(型パラメータ F の適用)を比べる位置が、
    その例である。
    このように迷う位置では、注記を付ける側に倒す。
+   このたどり方は、写しと本体の型の上で上に書いた点を調べる近似である。
+   調べない形では、原因でない前の束縛を挙げることも、原因である前の束縛を挙げ落とすことも
+   ありうる。
    集めた剛定数に衝突した剛定数があれば、
    前にある束縛のうち検査している束縛を参照したものの名前を挙げる(concrete)。
    このときの末尾には、具体的な型を渡す形を書いた §18.2 も挙げる。
    挙げる名前は群の中の参照の記録から取り、その位置を決めた参照に絞らない。
    selfrec は前の束縛が g を名前で参照するだけの形で、
+   その参照は g の `pre` のどの未定変数も決めないので、写しを取らず、前の束縛を挙げない。
    selfret は前の束縛が g の返り値の位置を `Int32` に決め、
    型パラメータ B の位置(引数)を未定のまま残す形である。
-   どちらも B の位置が写しで未定変数なので、前の束縛を挙げない。
+   B の位置の未定変数は写しのほかの位置に現れないので、前の束縛を挙げない。
+   alias3 は、前の束縛の本体の `fn(x) => g(x, x)` が、g の型パラメータ B と C の位置を同じ
+   未定変数につなぐ形で、つないだ位置として f を挙げる。
    recfield は、前の束縛が g の注釈と違うラベルの順のレコード式を渡し、
    g の型パラメータ B の欄を `Int32` に決める形で、f を挙げる。
    recfieldself は、前の束縛が g の注釈と違うラベルの順のレコード式で B の欄を未定のまま残し、
@@ -3718,7 +3729,9 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
       (List.assq pre pre_vars)
   in
   (* 本体の前の pre の形を写し取り、本体の後で本体の型 fn_ty と並べてたどる。写しで決まって
-     いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。行の欄は
+     いた位置のうち、fn_ty の側が束縛自身の型パラメータの剛定数であるものを集める。写しの
+     2 か所以上に現れる未定変数(joined)の位置も決まっていたものとみなし、fn_ty の側の部分木
+     の剛定数をすべて集める。行の欄は
      ラベルで対応づける。fn_ty の側にしかないラベルの欄と、構成子の種類が両側で違う位置では、
      fn_ty の側の部分木の剛定数をすべて集める。どちらかの側にしかないラベルがあれば、fn_ty
      の側の行の残りも同じように集める。写しを取るのは、本体の検査が pre の未定変数を決める
@@ -3742,7 +3755,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
   in
   let rec shape t =
     match repr t with
-    | TVar { contents = Unbound _ } -> Open
+    | TVar ({ contents = Unbound _ } as r) -> Open r
     | TRowExtend _ as t' ->
         let fs, tl = row_fields t' in
         Row (List.map (fun (l, f) -> (l, shape f)) fs, shape tl)
@@ -3758,9 +3771,18 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
     | (l', sh) :: rest when l' = l -> Some (sh, rest)
     | x :: rest -> Option.map (fun (sh, rest') -> (sh, x :: rest')) (take l rest)
   in
-  let rec fixed_rigids own sh f =
+  let rec opens acc = function
+    | Open r -> r :: acc
+    | Fixed (_, shs) -> List.fold_left opens acc shs
+    | Row (fs, tl) -> opens (List.fold_left (fun acc (_, sh) -> opens acc sh) acc fs) tl
+  in
+  let joined sh =
+    let rs = opens [] sh in
+    List.filter (fun r -> List.length (List.filter (fun r' -> r' == r) rs) >= 2) rs
+  in
+  let rec fixed_rigids own joint sh f =
     match (sh, repr f) with
-    | Open, _ -> []
+    | Open r, f' -> if List.memq r joint then rigids_in own f' else []
     | _, TVar r when List.memq r own -> [ r ]
     | Row (sfs, stl), (TRowExtend _ as f') ->
         let bfs, btl = row_fields f' in
@@ -3768,14 +3790,14 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
           List.fold_left
             (fun (sfs, acc, extra) (l, bf) ->
               match take l sfs with
-              | Some (sh, sfs') -> (sfs', acc @ fixed_rigids own sh bf, extra)
+              | Some (sh, sfs') -> (sfs', acc @ fixed_rigids own joint sh bf, extra)
               | None -> (sfs, acc @ rigids_in own bf, true))
             (sfs, [], false) bfs
         in
-        found @ if left = [] && not extra then fixed_rigids own stl btl else rigids_in own btl
+        found @ if left = [] && not extra then fixed_rigids own joint stl btl else rigids_in own btl
     | Fixed (k, shs), f' ->
         let k', ts = kids f' in
-        if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own) shs ts)
+        if k = k' && List.length shs = List.length ts then List.concat (List.map2 (fixed_rigids own joint) shs ts)
         else rigids_in own f'
     | Row _, f' -> rigids_in own f'
   in
@@ -3862,7 +3884,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
                vty
          in
          (match snap with
-         | Some sh -> settled_before := (bnode, fixed_rigids (List.map (fun (_, _, r) -> r) rigids) sh fn_ty) :: !settled_before
+         | Some sh -> settled_before := (bnode, fixed_rigids (List.map (fun (_, _, r) -> r) rigids) (joined sh) sh fn_ty) :: !settled_before
          | None -> ());
          (try Unify.unify pre fn_ty
           with Type_error msg when clash msg -> (
