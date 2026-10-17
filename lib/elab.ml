@@ -2577,7 +2577,7 @@ and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> fal
    分類の結果は、`set_resolved` で木に書く。
    評価器が節の種別を判定し直さないようにするためで、§11.8 と同じ方針である。
 
-   節を 1 つ取り上げて調べる検査は、`at_node` でその節の位置を付けて報告する。
+   次の誤りは、`at_node` でその節の位置を付けて報告する。
    節の頭の形の誤り、2 つ目の return 節と cancel 節、return 節と cancel 節の修飾、
    対象エフェクトに属さない操作、操作節の引数の個数とラベルの誤りは、
    節のパターン(`case` の直後)を指す。
@@ -2588,6 +2588,7 @@ and is_never t = match repr t with TCon (n, []) -> n = intern "Never" | _ -> fal
    未知のエフェクトを名指す修飾のように、1 つの節の修飾だけから決まる誤りもここに入る。
    修飾を持つ最初の節に寄せることもできるが、そうすると §11.23 の中で位置の規則が 2 つに割れる。
    操作節が 1 つも無い誤りも、節の不在から決まるので、handle 式の位置で報告する。
+   節のガードや本体の型の不一致と、到達しない節の警告にも、節の位置を付けない。
    `test/handle_clause_loc.t` が、それぞれの位置を確かめる。 *)
 
 and elab_handle env level eff clauses body =
