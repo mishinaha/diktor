@@ -1,5 +1,5 @@
 pub newtype のフィールド、effect の操作、type class のメソッドごとの検査の診断の位置。
-下の各ブロックは、どの検査の診断がどの位置を指すかを 1 つずつ示す。
+下のブロックは、検査ごとに、その診断がどの位置を指すかを示す。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
