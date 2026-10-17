@@ -167,6 +167,35 @@ MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧�
   $ diktor --type-check maannot.kel
   use : (MutableArray[h, A], Int32) => A @ {Heap[h]}
 
+印字は型パラメータを付け直す。Ref と MutableArray の第 1 引数か Heap の引数に
+現れる変数は h、h1 の順に名付け、ほかの型の変数とは別に数える(two)。束縛子の
+綴り r、s は表示に残らない。同じ変数が値の型の位置にも現れるときも h と書く
+(both)。一般化されない変数には下線が付く(w)。利用者の newtype の型引数は
+リージョンの位置に数えないので、Box[k] の k は、同じ印字に Ref[k, Int32] が
+現れる unbox では h、現れない size では A と出る。run の剛定数は ς のまま出る
+(regionshow2):
+
+  $ cat > regionshow.kel <<'KEL'
+  > let two[r, s, A](x: Ref[r, A], y: MutableArray[s, Int32]): A @ {Heap[r], Heap[s]} = Ref.get(x)
+  > let both[A](x: A, r: Ref[A, Int32]): Int32 = 0
+  > let id[A](x: A): A = x
+  > let w = id(Ref.new)
+  > newtype Box[k] = Box(Ref[k, Int32])
+  > let unbox[k](b: Box[k]): Ref[k, Int32] = b match { case Box(r) => r }
+  > let size[k](b: Box[k]): Int32 = 0
+  > KEL
+  $ diktor --type-check regionshow.kel
+  two : (Ref[h, A], MutableArray[h1, Int32]) => A @ {Heap[h], Heap[h1]}
+  both : (h, Ref[h, Int32]) => Int32
+  id : (A) => A
+  w : (_A) => Ref[_h, _A] @ {Heap[_h]}
+  unbox : (Box[h]) => Ref[h, Int32]
+  size : (Box[A]) => Int32
+  $ printf 'let main(): Int32 = run h { let r = Ref.new(1); r }\n' > regionshow2.kel
+  $ diktor --type-check regionshow2.kel
+  ! regionshow2.kel:1:21: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
+  [1]
+
 添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
 
   $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 1)) }\necholn(show(Array.get(mk(), 5)))\n' > oob1.kel
