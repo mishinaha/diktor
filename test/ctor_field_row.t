@@ -90,8 +90,8 @@ ctorrowvar の Two の 2 つのフィールドは、どちらも行を行変数 
   ! ctorrowvar.kel:4:9: 型エラー: ラベル Console がありません(行は閉じています)
   [1]
 
-ctorrecnoarrow は、矢印も閉じた行も無いレコードのフィールドで、レコードのフィールド g が
-欠けた形で、読み方を添えない:
+ctorrecnoarrow は、行の閉じた矢印も型引数に書いた閉じた行も無いレコード(レコード自身の
+行は閉じている)のフィールドで、レコードのフィールド g が欠けた形で、読み方を添えない:
 
   $ cat > ctorrecnoarrow.kel <<'KEL'
   > newtype R = R({f: Int32, g: Int32})
