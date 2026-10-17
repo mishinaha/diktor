@@ -341,12 +341,20 @@ let has_sub sub s =
 
 (* 失敗が行の単一化に由来するかどうか(エラー文言を言い換えるかどうかの判定)。
    引数の型の不一致まで、仕様 §9 の行の話にしないために使う。
-   pub の言い換え(§11.12、§11.28、§11.29)、行が空の位置の言い換え(§11.12)、
+   pub の言い換え(§11.12)、行が空の位置の言い換え(§11.12)、
    newtype のフィールドの言い換え(§11.18)、
    インスタンスメソッドの純粋性の言い換え(§11.38)が共用する *)
 let row_failure msg =
   let has = has_sub in
   has "行型ではありません" msg || has "スコープ付きの型" msg || has "ラベル " msg || has "は注釈で固定された行変数" msg
+
+(* 失敗が、剛定数がスコープの外に漏れたことによるかどうか。
+   pub の言い換えのうち、呼び出し先の行の単一化(§11.12)は、この失敗を言い換えから除く。
+   pub で @ を省略した本体の行は空の行で、剛定数を含まない。
+   そこで漏れが起きるのは、run の本体の行のヒープのような、本体の中で作った剛定数を、
+   外側の単相の型変数に入れようとしたときである。
+   その原因は本体がエフェクトを起こすことではないので、pub の規則を名指さない *)
+let escape_failure msg = has_sub "がスコープの外に漏れています" msg
 
 (* 型の中に、閉じた行を書いた位置があるかどうか。
    数えるのは、最外の行が閉じた矢印と、型の型引数に書いた閉じた行(`Cb[{}]` の `{}`)である。
@@ -450,6 +458,28 @@ let outer_eff_written (b : T.let_binding') =
   match b.T.lb_params with
   | Some _ -> b.T.lb_eff <> None
   | None -> ( match b.T.lb_ret with Some (_, T.EArrow (_, _, eff)) -> eff <> None | Some _ -> true | None -> false)
+
+(* pub で頭の @ を省略した値束縛の、注釈と初期化式の型の単一化(§11.28、§11.29)。
+   注釈の頭の行は空の行である。
+   初期化式の型の頭も矢印なら、引数と返り値を先に単一化し、頭の行どうしを最後に単一化する。
+   pub の規則を名指す文言にするのは、頭の行どうしの失敗だけである。
+   引数、返り値、入れ子の矢印の行の失敗は other に渡す。
+   レコードのフィールドやヴァリアントの選択肢の失敗も、エフェクトの行の失敗と同じ
+   「ラベル … がありません」の文言になるので、文言からは見分けられないからである。
+   単一化する組と順序は、Unify.unify の矢印どうしの分岐(§8.7)と同じである。
+   引数の個数の比べ方と、その報告に示す 2 つの型も同じである *)
+let unify_pub_value_annot vty body ~other =
+  match (repr vty, repr body) with
+  | (TArrow (p1, r1, e1) as ta), (TArrow (p2, r2, e2) as tb) ->
+      (try
+         Unify.check_arity ta tb p1 p2;
+         Unify.unify p1 p2;
+         Unify.unify r1 r2
+       with Type_error msg -> other msg);
+      (try Unify.unify e1 e2
+       with Type_error msg ->
+         type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"))
+  | _ -> ( try Unify.unify vty body with Type_error msg -> other msg)
 
 (* 注釈の中の矢印のうち、@ を省略したものを探す。pub の完全注釈検査
    (check_pub_annots と、§11.31 の pub newtype のフィールド)が使う。
@@ -2031,8 +2061,19 @@ and elab_exp' env level eff node e =
    pub の規則を名指しする。
    この位置の行が空(注釈の `@ {}` か、高階の引数の行が `@ {}`)である形では、
    仕様 §9 の、入れ子の矢印で省略した `@` を `@ {}`(純粋)と読む規則を案内する。
-   言い換えるのは行に由来する失敗だけで、その判定を `row_failure` が行う。
+   言い換えるのは、呼び出し先の型が矢印で、行に由来する失敗だけである。
+   行に由来するかどうかは `row_failure` が判定する。
+   呼び出し先が矢印なら、単一化の相手の引数と返り値は新しい型変数なので、
+   落ちるのは行の単一化か、剛定数の漏れだけである。
+   呼び出し先が型パラメータの剛定数のように矢印でない型なら、
+   失敗は呼び出し先が関数でないことによるので、言い換えない。
+   その報告の文面も `スコープ付きの型` を含み、`row_failure` だけでは見分けられない。
    引数の型の不一致は言い換えない。
+   pub の規則を名指すのは、剛定数がスコープの外に漏れた失敗(`escape_failure`)を除いた場合である。
+   run の本体の行には、本体の中で作ったヒープのラベルが積まれている。
+   呼び出し先の関数の行が外側の単相の行変数なら、単一化はそのラベルを行変数に入れようとして、
+   ヒープがスコープの外に漏れたと報告する。
+   この失敗は pub の有無によらず起き、本体のエフェクトが原因ではない。
 
    引数を検査する前に、`check_call_arity` が実引数の個数と仮引数の個数を比べる。
    実引数の並びが `_item` だけでできていて、仮引数の行が閉じた `_item` 行のときに限り、
@@ -2057,9 +2098,10 @@ and elab_exp' env level eff node e =
             衝突する形は perform よりよく起きるのに、一般的な文言「行型ではありません: ς1」では
             原因にたどり着けない。そこで perform の側(§11.15)と同じ言い換えをここにも置く *)
          let pub_pure = is_pub_pure_row eff in
-         if pub_pure && row_failure msg then
+         let callee_arrow = match repr tf with TArrow _ -> true | _ -> false in
+         if pub_pure && callee_arrow && row_failure msg && not (escape_failure msg) then
            type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
-         else if row_failure msg && repr eff = TRowEmpty then
+         else if callee_arrow && row_failure msg && repr eff = TRowEmpty then
            type_error
              (msg
             ^ "(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
@@ -3497,10 +3539,14 @@ and release_rigids rigids =
 
    注釈と本体の単一化が落ちたとき、`pub` で頭の `@` を省略した値束縛だけは、
    言い換えをもう 1 段詳しくする。
-   その形で行の単一化が落ちる原因は、本体が純粋でないことである。
+   注釈の頭の行は空の行なので、頭の行どうしの単一化が落ちる原因は、本体が純粋でないことである。
    そこで関数束縛(§11.12)と同じく、`pub` の規則を名指しして元の報告を添える。
    `let rec` の値束縛(§11.29)も、同じ形で同じ言い換えをする。
-   行に由来する失敗かどうかは、`row_failure` で判定する。
+   頭の行の失敗を見分けるために、`unify_pub_value_annot` が頭の行を最後に分けて単一化する。
+   引数や返り値のレコードのフィールド、ヴァリアントの選択肢、入れ子の矢印の行の失敗は、
+   `pub` でない束縛と同じ文言で報告する。
+   これらの失敗も「ラベル … がありません」の文言になるので、
+   `row_failure` では頭の行の失敗と見分けられない。
 
    ここでいう本体は、注釈の頭の矢印の本体である。
    値束縛の初期化式そのものは `eff`(束縛の外側の行)で推論するので、
@@ -3589,13 +3635,14 @@ and elab_binding ?expected_params env level eff ((_, b) as node : T.let_binding)
               t
           | _ -> elab_exp env_ty lvl eff b.T.lb_body
         in
-        (try Unify.unify vty (subsume_closed lvl body_ty vty)
-         with Type_error msg when b.T.lb_ret <> None ->
-           (* pub の省略 @ の値束縛では、失敗の原因は本体が純粋でないこと。
-              関数束縛(§11.12)と同じ言い換えをここでも置く *)
-           if b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg then
-             type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")")
-           else type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
+        let body_ty = subsume_closed lvl body_ty vty in
+        (* pub の省略 @ の値束縛では、頭の行の失敗の原因は、初期化式が返す関数が純粋でないこと。
+           関数束縛(§11.12)と同じ言い換えを、頭の行の失敗にだけ置く *)
+        if b.T.lb_pub && not (outer_eff_written b) then
+          unify_pub_value_annot vty body_ty ~other:(fun msg -> type_error ("注釈された型を満たしません(" ^ msg ^ ")"))
+        else (
+          try Unify.unify vty body_ty
+          with Type_error msg when b.T.lb_ret <> None -> type_error ("注釈された型を満たしません(" ^ msg ^ ")"));
         vty
   in
   Tree.set_ty node fn_ty;
@@ -4079,9 +4126,9 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
                   省略した注釈の行は {} に読んであり、本体がエフェクトを起こす失敗は
                   let(§11.28)と同じ言い換えをする *)
                let vty = match sig_vty with Some t -> t | None -> new_var lvl in
-               (try Unify.unify vty (subsume_closed lvl (elab_exp env_ty lvl eff b.T.lb_body) vty)
-                with Type_error msg when b.T.lb_pub && (not (outer_eff_written b)) && row_failure msg ->
-                  type_error ("pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: " ^ msg ^ ")"));
+               let body_ty = subsume_closed lvl (elab_exp env_ty lvl eff b.T.lb_body) vty in
+               if b.T.lb_pub && not (outer_eff_written b) then unify_pub_value_annot vty body_ty ~other:type_error
+               else Unify.unify vty body_ty;
                vty
          in
          (match snap with
