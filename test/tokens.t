@@ -657,9 +657,12 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
   _ : Int32 = 2
 
 数値と続きのトークンの間に空白がある形と、続きが英数字でも . でもない形は、
-従来の文面のまま。浮動小数の後ろの . はフィールド選択として文法に合うので、
-その後ろの予約語で詰まる形は数値の綴りの誤りとはしない(後ろのトークンによって
-予約語の誤用か汎用の文面になる。test/reserved_word.t)。
+数値を名指さない汎用の文面になる。浮動小数の後ろの . はフィールド選択として
+文法に合うので、その後ろの予約語で詰まる形は数値の綴りの誤りとはせず、
+予約語の誤用の判定(test/reserved_word.t)に任せる。gluedkw は match を識別子に
+置き換えると次の { まで読み進められるので、予約語の誤用の文面になる。
+gluedkw2 は match の後ろの改行が捨てられて次のトークンが 2 行目の let になり、
+置き換えても読み進められないので、汎用の文面になる。
 数値に予約語が隙間なく続いても文法に合えば受理する:
 
   $ printf 'let a = 1 x\n' > gluedsp.kel
@@ -673,6 +676,10 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、is_valid で先に
   $ printf 'let a = 1.2.match { case _ => 1 }\n' > gluedkw.kel
   $ diktor --type-check gluedkw.kel
   gluedkw.kel:1:13: 構文エラー: 予約語 match はここには書けません(予約語は識別子に使えません)
+  [2]
+  $ printf 'let a = 1.2.match\nlet b = 2\n' > gluedkw2.kel
+  $ diktor --type-check gluedkw2.kel
+  gluedkw2.kel:1:13: 構文エラー: 付近のトークンを確認してください
   [2]
   $ printf 'let c = true\nlet a = if c then 1else 2\n' > gluedelse.kel
   $ diktor --type-check gluedelse.kel
