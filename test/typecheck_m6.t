@@ -220,8 +220,8 @@ File. の修飾だけを外すと対象が決まらなくなり、診断が変�
   [1]
 
 qual4 から case write(s) を落とすと、File の write の網羅漏れと flush の
-所属違反が同時に成り立つ。対象確定後の検査は網羅を先に見るので、網羅漏れが
-報告される:
+所属違反が同時に成り立つ。対象確定後の検査は所属を先に見るので、書かれた
+節 flush の所属違反が報告される:
 
   $ cat > qual5.kel <<'EOF'
   > type Unit = {}
@@ -235,7 +235,24 @@ qual4 から case write(s) を落とすと、File の write の網羅漏れと f
   > EOF
   $ diktor --type-check --no-prelude qual5.kel
   prog : () => String @ {File}
-  ! qual5.kel:5:19: 型エラー: ハンドラが操作を網羅していません: File の write が漏れています
+  ! qual5.kel:5:19: 型エラー: 操作 flush はエフェクト File に属しません
+  [1]
+
+qual5 から flush の節を落とすと、残る誤りは網羅漏れだけになり、それが
+報告される:
+
+  $ cat > qual5w.kel <<'EOF'
+  > type Unit = {}
+  > effect File = { read: () => String, write: (String) => Unit }
+  > effect Sink = { write: (String) => Unit, flush: () => Unit }
+  > let prog(): String @ File = perform read()
+  > let h(): String = prog() handle {
+  >   case File.read() => resume("x")
+  > }
+  > EOF
+  $ diktor --type-check --no-prelude qual5w.kel
+  prog : () => String @ {File}
+  ! qual5w.kel:5:19: 型エラー: ハンドラが操作を網羅していません: File の write が漏れています
   [1]
 
 修飾できるのは操作節だけで、return 節と cancel 節は修飾できない
