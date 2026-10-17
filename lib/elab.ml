@@ -1026,7 +1026,11 @@ and find_row_alias n =
    effect は module の中に宣言できない(§11.42)ので、module の同義語をたどる必要が無い。
    どちらでもなければ、行にならないエイリアスを同じ 2 つの場所で探して返す。
    呼び出し側はそれを、エフェクト位置に置いた Type エイリアスの誤りとして報告する。
-   返すエイリアスには、elab_type と同じ可視性の検査を課す *)
+   返すエイリアスが EffectRow エイリアスなら、elab_type と同じ可視性の検査を課す。
+   行にならないエイリアスには課さない。
+   それらは pub を付けてもエフェクト位置で使えないので、
+   可視性の誤りではなく、呼び出し側が報告する Type エイリアスの誤りを先に出す。
+   カインドの注記を足した後に pub が足りなければ、そのときにこの検査が落とす *)
 and find_alias n =
   let c = intern n in
   let found =
@@ -1040,7 +1044,7 @@ and find_alias n =
   in
   Option.map
     (fun (oid, info) ->
-      Decls.check_con_visible oid;
+      if info.Decls.al_kind = Some "EffectRow" then Decls.check_con_visible oid;
       info)
     found
 
