@@ -307,14 +307,14 @@ let misused_reserved_word lexer ~after_brace before (tok, sp, ep) =
         match advance (I.offer before (Lexer'.Parser.LOWER_IDENTIFIER w, sp, ep)) with
         | I.InputNeeded _ as cp -> I.acceptable cp next nsp
         | _ -> false
-        | exception (Syntax.Syntax_error _ | Syntax.Syntax_error_at _) -> false
+        | exception Syntax.Syntax_error_at _ -> false
       in
       let record_label = function Lexer'.Parser.EQ, _ | Lexer'.Parser.COMMA, _ -> after_brace | _ -> false in
       let operand () =
         match advance (I.offer before (Lexer'.Parser.LPAREN, sp, sp)) with
         | I.InputNeeded _ as cp -> I.acceptable cp tok sp
         | _ -> false
-        | exception (Syntax.Syntax_error _ | Syntax.Syntax_error_at _) -> false
+        | exception Syntax.Syntax_error_at _ -> false
       in
       let literal = match tok with Lexer'.Parser.BOOL _ -> true | _ -> false in
       match next with
@@ -341,18 +341,17 @@ let parse_program lexer =
   run None None (Parser'.Incremental.program (Lexing.from_string "").Lexing.lex_curr_p)
 
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
-   上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
+   上流から来る失敗のうち、この関数が受けるのは次の 3 種類である。
 
    - `Parser'.Error`：§16.3a の駆動で、menhir が次に進む節を選べず、
      予約語の誤用でもなかった(文法に合わない)
-   - `Syntax.Syntax_error`：文法は通ったが、脱糖(第3章)が形を拒否した
-   - `Syntax.Syntax_error_at`：同じく脱糖が形を拒否し、誤りの位置を指定した。
+   - `Syntax.Syntax_error_at`：文法は通ったが、脱糖(第3章)が形を拒否し、誤りの位置を指定した。
      §16.3a の `parse_program` が、予約語を識別子の位置に書いた誤りを報告するときもこれを投げる
    - `Stack_overflow` と `Out_of_memory`：構文解析が処理系の限度を超えた
 
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
-   前の 3 つには位置を付ける。
-   `Syntax_error_at` には指定された位置を、ほかの 2 つには最後に読んだトークンの位置を使う。
+   前の 2 つには位置を付ける。
+   `Syntax_error_at` には指定された位置を、`Parser'.Error` には最後に読んだトークンの位置を使う。
 
    構文解析が限度を超えるのは、文法の動作の中の末尾でない再帰による。
    たとえば、ブロックの文の列を畳む `block_of_items` と、引数の列から行を組む `record_of_args` は、
@@ -373,8 +372,6 @@ let parse_unit_with lexer =
   try parse_program lexer with
   | Parser'.Error ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lexer.Lexer'.last_sp)))
-  | Syntax.Syntax_error msg ->
-      raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos lexer.Lexer'.last_sp) msg))
   | Syntax.Syntax_error_at (pos, msg) -> raise (Parse_error (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg))
   | (Stack_overflow | Out_of_memory) as ex -> raise (Parse_error (read_limit_message lexer.Lexer'.last_sp.Lexing.pos_fname ex))
 
@@ -875,7 +872,6 @@ let try_parse ~line ?(col = 0) source =
   | exception Lexer.Lex_error (msg, _) when msg = Lexer.unterminated_text_msg || msg = Lexer.unterminated_comment_msg ->
       Incomplete
   | exception Lexer.Lex_error (msg, pos) -> Failed (Printf.sprintf "%s: 字句エラー: %s" (show_pos pos) msg)
-  | exception Syntax.Syntax_error msg -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos lx.Lexer'.last_sp) msg)
   | exception Syntax.Syntax_error_at (pos, msg) -> Failed (Printf.sprintf "%s: 構文エラー: %s" (show_pos pos) msg)
   | exception ((Stack_overflow | Out_of_memory) as ex) -> Failed (read_limit_message "<stdin>" ex)
 

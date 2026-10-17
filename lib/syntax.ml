@@ -111,22 +111,21 @@ open Aux
    第3章は成分が大文字で始まるかどうかを見て、`r.x.y` のようなレコードの選択とパスの参照を、
    同じドットから読み分ける。
 
-   `Syntax_error` は意味アクションが投げる構文エラーで、
+   `Syntax_error_at` は意味アクションが投げる構文エラーで、
    Menhir の `Parser.Error` とは別の系統である。
    文法で表現すると LR(1) が壊れるが、構文の誤りではある、という種類の誤りをここへ集める。
    たとえば、レコードのラベルに大文字の識別子を書いた場合である。
-   第16章は、`Parser.Error` も下の 2 つの例外も、終了コード 2 にそろえる。
+   第16章は、`Parser.Error` も下の例外も、終了コード 2 にそろえる。
 
-   `Syntax_error` の位置は、第16章が最後に読んだトークンの位置で補う。
-   `Syntax_error_at` は、意味アクションが位置を指定する構文エラーである。
-   最後に読んだトークンが誤りの場所を指さない診断(末尾ブロックの診断は、
-   `}` の後ろのトークンを読んでから出る)で使う。
+   `Syntax_error_at` は誤りの位置を持ち、その位置は意味アクションが指定する。
+   多くは拒否した構文の始まりである。
+   Menhir は規則を還元するために次のトークンを先読みするので、
+   最後に読んだトークンは拒否した構文の後ろにあり、誤りの場所を指さない
+   (末尾ブロックの診断は、`}` の後ろのトークンを読んでから出る)。
    末尾ブロックでは、誤った形を受けるためだけの規則を文法に置き、その意味アクションから投げる
    (第3章 §3.19)。 *)
 
 type long_id = LongId of string list
-
-exception Syntax_error of string
 
 (* import 文 1 個。im_names の各要素は [A] か [A; b] の 2 段まで *)
 type import_name = { in_path : string list; in_loc : Location.span }
@@ -804,7 +803,7 @@ type type_param = {
    AST の全ノードは `Data.t * ノード` の組である。
    `Data` を差し替えることで、同じ AST の定義を、注釈の異なる木として使い回す。
 
-   - `EmptyData` は `t = unit` で、注釈を一切持たない最小の実体化である。
+   - `EmptyData` は `t = Location.span` で、位置のほかに注釈を持たない最小の実体化である。
      本実装はどこからも `EmptyData` を使っていない。
      `Data` を差し替えられるという性質を、
      散文ではなくコードで示すためだけに置いてある(§3.1 も同じ例を指す)。
@@ -820,6 +819,9 @@ type type_param = {
    `allocate` は `Location.span` を受け取る。
    エラーに位置を出すには全ノードに span が要り、
    後から足そうとすると全ノードの構築箇所を書き換えることになる。
+   `loc` は、ノードの注釈からその span を取り出す。
+   第3章のパーサは、意味アクションが構文の形を拒否するとき、
+   拒否した構文の始まりの位置を `loc` で読んで構文エラーに付ける。
 
    代償として、パターンマッチはすべて `(_, Ident ...)` の形になり、読みにくくなる。 *)
 
@@ -827,12 +829,16 @@ module type Data = sig
   type t
 
   val allocate : Location.span -> t
+
+  val loc : t -> Location.span
 end
 
 module EmptyData : Data = struct
-  type t = unit
+  type t = Location.span
 
-  let allocate _ = ()
+  let allocate loc = loc
+
+  let loc d = d
 end
 
 module Make (Data : Data) = struct

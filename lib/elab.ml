@@ -5506,9 +5506,9 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?
    `NotImplemented` / `NotImplemented_at` は終了コード 4 になる。
    残りの 1 系統は、処理系の限度を超えたことを表す `Stack_overflow` / `Out_of_memory` で、
    型検査での拒否と同じ終了コード 1 になる(下の `limit_error`)。
-   `Syntax_error` と `Syntax_error_at` の節は置かない。
-   この 2 つを投げるのは parser.mly だけで、
-   第16章の `parse_with` がそれをすべて `Parse_error` に包み直してから型検査に入るからである。
+   `Syntax_error_at` の節は置かない。
+   この例外を投げるのは構文解析だけで、
+   第16章の `parse_with` がそれを `Parse_error` に包み直してから型検査に入るからである。
    診断は `error` レコード(位置、種別の語、終了コード、本文)として返す。
    そこから先の整形と印字は、第16章(driver.ml)が行う。
 
@@ -5553,8 +5553,8 @@ let type_check ?(prelude = []) decls =
   try (type_check_decls ~prelude decls, None) with
   | Type_error_at (loc, msg) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   | Type_error msg -> (List.rev !current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
-  (* Syntax_error と Syntax_error_at の節は置かない。投げるのは parser.mly だけで、第16章の parse_with が
-     すべて Parse_error に包み直してから型検査に入る。届く例外は、Type_error と、未実装の
+  (* Syntax_error_at の節は置かない。投げるのは構文解析だけで、第16章の parse_with が
+     Parse_error に包み直してから型検査に入る。届く例外は、Type_error と、未実装の
      NotImplemented と、処理系の限度の 3 系統だけ *)
   | NotImplemented_at (loc, feat) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })
   | NotImplemented feat -> (List.rev !current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })

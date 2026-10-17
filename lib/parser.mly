@@ -51,7 +51,7 @@
    第11章(elab.ml)がそこへ型と解決結果を書く。
    パーサはそのフィールドの存在を知る必要がない。
    第16章(driver.ml)が `Parser.Make (Tree.ElabData)` を呼ぶだけで、両者がつながる。
-   注釈が要らない用途なら第1章の `EmptyData` を渡せばよく、ノードの注釈は unit になる。
+   注釈が要らない用途なら第1章の `EmptyData` を渡せばよく、ノードの注釈は位置だけになる。
    本実装は `EmptyData` をどこでも使っておらず、見本として置いてあるだけである。
 
    これが成り立つのは、`Syntax.Make` が**アプリカティブ**なファンクタだからである。
@@ -84,7 +84,7 @@
    そのため、外すときはビルドが通ることを確かめる。
 
    続く 2 つの `open` で、AST のコンストラクタと、
-   意味アクションが投げる `Syntax_error`(第1章 syntax.ml で定義)を修飾なしで書けるようにする。 *)
+   意味アクションが投げる `Syntax_error_at`(第1章 syntax.ml で定義)を修飾なしで書けるようにする。 *)
 module Diktor = struct end
 
 open Syntax
@@ -119,8 +119,18 @@ open Syntax.Make(Data)
    どちらも、借り元のノードはその場で捨てる。
    借りているのは位置だけではなく ElabData のレコードそのものなので、
    借り元のノードを捨てずに残すと、2 つのノードが型フィールドまで共有してしまう。
-   §3.7 で `Seq` を例にこの問題を説明する。 *)
+   §3.7 で `Seq` を例にこの問題を説明する。
+
+   `start_of` は、ノードの始まりの位置を第1章の `Data.loc` で読む。
+   `syntax_error_at` は、位置を付けた構文エラーを投げる。
+   意味アクションが構文の形を拒否するときは、拒否した構文の始まりを位置にする。
+   menhir は規則を還元するために次のトークンを先読みするので、
+   最後に読んだトークンは拒否した構文の後ろにあり、誤りの場所を指さないからである。 *)
 let mk (sp, ep) x = (Data.allocate { Location.start = sp; Location.finish = ep }, x)
+
+let start_of (d, _) = (Data.loc d).Location.start
+
+let syntax_error_at pos msg = raise (Syntax_error_at (pos, msg))
 
 (* ## 3.4 大文字かどうかの判定と `dot_select`
 
@@ -164,12 +174,12 @@ let is_index_label s =
       String.iteri (fun i c -> if i > 0 && not (c >= '0' && c <= '9') then ok := false) s;
       !ok)
 
-let dot_select sloc e id =
+let dot_select sloc e (id_pos, id) =
   match e with
   | (_, Ident (LongId comps)) when List.for_all is_upper comps ->
       mk sloc (Ident (LongId (comps @ [ id ])))
   | _ ->
-      if is_upper id then raise (Syntax_error ("レコードのラベルに大文字識別子は使えません: " ^ id))
+      if is_upper id then syntax_error_at id_pos ("レコードのラベルに大文字識別子は使えません: " ^ id)
       else if is_index_label id then
         (* t._N = (t \ _item)^N ._item *)
         let n = int_of_string (String.sub id 1 (String.length id - 1)) in
@@ -224,7 +234,7 @@ let variant_payload sloc = function
   | [ (None, e) ] -> e
   | args ->
       if List.exists (fun (l, _) -> l <> None) args then
-        raise (Syntax_error "#Foo(...) にラベル付き引数は使えません")
+        syntax_error_at (fst sloc) "#Foo(...) にラベル付き引数は使えません"
       else tuple_exp sloc (List.map snd args)
 
 (* ## 3.6 `call` は先頭が大文字なら構築、小文字なら適用にする
@@ -287,9 +297,6 @@ let call sloc callee args =
    数値リテラル `1` の型が String になる。
    その結果、第14章の `number_value` が実行時エラーで落ちる。
    `mk sloc` で作れば、位置はブロック全体になり、共有は起きない。
-   パーサからは `Data.t` の中身を読めない(第1章の `allocate` だけが見える)ので、
-   「先頭の文の始点から末尾の文の終点まで」の span を組むことはできず、
-   `mk sloc` のほかに方法は無い。
 
    最後の分岐は、`items` をすべての位置で共有した代償である。
    `module` や `type` はブロックの中では式に落とせないので、ここで構文エラーにするしかない。
@@ -300,7 +307,7 @@ let call sloc callee args =
    トップレベルの `with` より後ろの文もブロックになる(§3.8)ので、
    `with` より後ろの `pub let` もここで拒否される。
    黙って受理すると、公開したつもりの宣言が import できない理由を利用者が探すことになる。
-   位置は最後の分岐と同じく、パーサが最後に読んだトークンになる。 *)
+   どちらの構文エラーも、最後の分岐と同じく、拒否した宣言の始まり(`pub` を含む)を指す。 *)
 let rec block_of_items sloc items =
   match items with
   | [] -> mk sloc RecordEmpty
@@ -309,13 +316,13 @@ let rec block_of_items sloc items =
       match block_of_items sloc rest with
       | (_, Seq es) -> mk sloc (Seq (e :: es))
       | r -> mk sloc (Seq [ e; r ]))
-  | (_, DLet (_, b)) :: _ when b.lb_pub ->
-      raise (Syntax_error "ブロックの中の let には pub を付けられません(with より後ろの宣言は公開できません)")
-  | (_, DLetRec bs) :: _ when List.exists (fun (_, b) -> b.lb_pub) bs ->
-      raise (Syntax_error "ブロックの中の let rec には pub を付けられません(with より後ろの宣言は公開できません)")
+  | ((_, DLet (_, b)) as b_node) :: _ when b.lb_pub ->
+      syntax_error_at (start_of b_node) "ブロックの中の let には pub を付けられません(with より後ろの宣言は公開できません)"
+  | ((_, DLetRec bs) as b_node) :: _ when List.exists (fun (_, b) -> b.lb_pub) bs ->
+      syntax_error_at (start_of b_node) "ブロックの中の let rec には pub を付けられません(with より後ろの宣言は公開できません)"
   | (d, DLet b) :: rest -> (d, Let (b, block_of_items sloc rest))
   | (d, DLetRec bs) :: rest -> (d, LetRec (bs, block_of_items sloc rest))
-  | _ :: _ -> raise (Syntax_error "この宣言はブロック内では使えません(let / let rec / 式のみ)")
+  | b_node :: _ -> syntax_error_at (start_of b_node) "この宣言はブロック内では使えません(let / let rec / 式のみ)"
 
 (* ## 3.8 `with_splice` で継続を引数の末尾に差し込む
 
@@ -354,7 +361,7 @@ let append_last_arg sloc (d, f, args) k =
     match a with
     | RecordEmpty -> (ad, RecordExtend (mk sloc RecordEmpty, "_item", k))
     | RecordExtend (rest, l, v) -> (ad, RecordExtend (splice rest, l, v))
-    | _ -> raise (Syntax_error "with: 呼び出しの引数形が不正です")
+    | _ -> syntax_error_at (fst sloc) "with: 呼び出しの引数形が不正です"
   in
   (d, Apply (f, splice args))
 
@@ -363,7 +370,7 @@ let with_splice sloc pat call k_body =
   let k = mk sloc (Lambda { l_params = k_params; l_body = k_body }) in
   match call with
   | (d, Apply (f, args)) -> append_last_arg sloc (d, f, args) k
-  | _ -> raise (Syntax_error "with の右辺は関数呼び出しでなければなりません")
+  | _ -> syntax_error_at (start_of call) "with の右辺は関数呼び出しでなければなりません"
 
 (* 末尾ブロック(§3.19)の補助関数。
    `trailing_call` は、`{` の位置(lbrace_pos)と、その直前のトークンの終わり(prev_end)を受け取る。
@@ -428,7 +435,7 @@ let variant_pat_payload sloc = function
   | [ { cap_label = None; cap_pat = p } ] -> p
   | args ->
       if List.exists (fun a -> a.cap_label <> None) args then
-        raise (Syntax_error "#Foo(...) パターンにラベル付き引数は使えません")
+        syntax_error_at (fst sloc) "#Foo(...) パターンにラベル付き引数は使えません"
       else pat_tuple sloc (List.map (fun a -> a.cap_pat) args) None
 
 let tuple_ty sloc tys = mk sloc (EBraceRow (List.map (fun t -> BField ("_item", t)) tys, None))
@@ -462,7 +469,7 @@ let negate sloc (sp : Lexing.position) (ep : Lexing.position) e =
    そこで、`nt_rhs_raw` という生の中間形でいったん受け(§3.17)、
    名前が見えている `decl_body` の意味アクション(§3.15)で解釈する。
    こうすれば、短縮形のために文法を分けずに済む。 *)
-let set_pub = function
+let set_pub pos = function
   | DType t -> DType { t with ta_pub = true }
   | DNewtype n -> DNewtype { n with nt_pub = true }
   | DEffect e -> DEffect { e with ef_pub = true }
@@ -471,8 +478,8 @@ let set_pub = function
   | DLetRec bs -> DLetRec (List.map (fun (d, b) -> (d, { b with lb_pub = true })) bs)
   | DModule (_, n, ds) -> DModule (true, n, ds)
   | DExtern e -> DExtern { e with ex_pub = true }
-  | DInstance _ -> raise (Syntax_error "type instance に pub は付けられません")
-  | DExp _ -> raise (Syntax_error "式文に pub は付けられません")
+  | DInstance _ -> syntax_error_at pos "type instance に pub は付けられません"
+  | DExp _ -> syntax_error_at pos "式文に pub は付けられません"
 
 type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl list
 %}
@@ -523,7 +530,8 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
    menhir は構文エラーを `Error` という名前の例外で投げる。
    第2章(lexer.ml)の字句エラーが同じ名前だと、ドライバの `try` がどちらを捕まえたのか区別できない。
    そのため、字句エラーは `Lex_error` という別の名前にしてある。
-   第16章(driver.ml)はこの 2 つと、意味アクションが投げる `Syntax_error` の 3 種類を別々に捕まえ、
+   第16章(driver.ml)はこの 2 つと、
+   意味アクションが投げる `Syntax_error_at` の 3 種類を別々に捕まえ、
    字句エラーと構文エラーを区別して報告したうえで、どちらも終了コード 2 にそろえる。 *)
 %start <Syntax.import_decl list * Syntax.Make(Data).decl list> program
 
@@ -679,7 +687,7 @@ items:
 
 item: decl { $1 } | exp { mk $sloc (DExp $1) }
 
-decl: PUB decl_body { mk $sloc (set_pub $2) } | decl_body { mk $sloc $1 }
+decl: PUB decl_body { mk $sloc (set_pub $startpos $2) } | decl_body { mk $sloc $1 }
 
 decl_body:
   | LET binding                                        { DLet $2 }
@@ -1006,8 +1014,8 @@ prefix_exp:
    そのため `run_body` は 3 種類を束ねた `lbrace` で受ける(§3.14)。 *)
 
 postfix_exp:
-  | postfix_exp DOT lower_id            { dot_select $sloc $1 $3 }
-  | postfix_exp DOT upper_id            { dot_select $sloc $1 $3 }
+  | postfix_exp DOT lower_id            { dot_select $sloc $1 ($startpos($3), $3) }
+  | postfix_exp DOT upper_id            { dot_select $sloc $1 ($startpos($3), $3) }
   | postfix_exp BACKSLASH lower_id      { mk $sloc (RecordRestriction ($1, $3)) }
   | postfix_exp LPAREN call_args RPAREN { call $sloc $1 $3 }
   | tb_call                             { $1 }
@@ -1017,7 +1025,7 @@ tb_call:
   | postfix_exp LPAREN call_args RPAREN trailing_block
       { trailing_call $sloc $1 $3 ($startpos($5), $endpos($4), $5) }
   | postfix_exp DOT lower_id trailing_block
-      { trailing_call $sloc (dot_select $sloc $1 $3) [] ($startpos($4), $endpos($3), $4) }
+      { trailing_call $sloc (dot_select $sloc $1 ($startpos($3), $3)) [] ($startpos($4), $endpos($3), $4) }
   | lower_id trailing_block
       { trailing_call $sloc (mk $loc($1) (Ident (LongId [ $1 ]))) [] ($startpos($2), $endpos($1), $2) }
   | postfix_exp LPAREN call_args RPAREN trailing_other { trailing_other $startpos($5) $5 }
@@ -1074,8 +1082,8 @@ atom:
         match $3 with
         | [] -> mk $sloc (Resume None)
         | [ (None, e) ] -> mk $sloc (Resume (Some e))
-        | [ (Some _, _) ] -> raise (Syntax_error "resume の引数にラベルは付けられません")
-        | _ -> raise (Syntax_error "resume の引数は高々1個です") }
+        | [ (Some _, _) ] -> syntax_error_at $startpos "resume の引数にラベルは付けられません"
+        | _ -> syntax_error_at $startpos "resume の引数は高々1個です" }
   | PERFORM perform_op LPAREN call_args RPAREN trailing_block
       { raise (Syntax_error_at ($startpos($6), "perform には末尾ブロックを付けられません")) }
   | RESUME LPAREN call_args RPAREN trailing_block
@@ -1118,7 +1126,7 @@ arg: lower_id EQ exp { (Some $1, $3) } | exp { (None, $1) }
    `{P with x = 3}` のように大文字で始まる基底を書いた入力も、
    レコード更新として分類されてここへ届く。
    大文字で始まる識別子はコンストラクタであってレコードではないので、
-   `record_exp` の最後の規則の意味アクションが `Syntax_error` で落とす。
+   `record_exp` の最後の規則の意味アクションが、基底の位置を付けた構文エラーで落とす。
    字句層に大小の区別を持ち込まないのは、§2.9 の表を 5 行のまま保つためである。
 
    パンニング `{a, b}` は `{a = a, b = b}` に展開する。
@@ -1146,7 +1154,7 @@ record_exp:
            大文字も通るので、レコードでないものはここで落とす *)
         (match $2 with
         | _, Ident (LongId [ x ]) when not (is_upper x) -> ()
-        | _ -> raise (Syntax_error "レコード更新の基底は小文字始まりの識別子 1 個です"));
+        | _ -> syntax_error_at $startpos($2) "レコード更新の基底は小文字始まりの識別子 1 個です");
         List.fold_left (fun acc (l, v) -> mk $sloc (RecordUpdate (acc, l, v))) $2 $4 }
 field_list:
   | field                  { [ $1 ] }

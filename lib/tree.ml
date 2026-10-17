@@ -229,6 +229,9 @@ type dict_info =
    `loc` は、型エラーのメッセージに位置を付けるために使う。
    第11章の `at_node` が `loc_of` で span を取り出し、
    位置のない `Type_error` に最も内側のノードの位置を付けて、`Type_error_at` として投げ直す。
+   第3章(parser.mly)も、`Syntax.Data` の署名の `loc` を通してこのフィールドを読む。
+   意味アクションが構文の形を拒否するとき、
+   拒否した構文の始まりの位置を構文エラーに付けるためである。
 
    `oid_of` は、宣言がどの module に属するかを引くために使う。
    `Decls.decl_module` はノードの oid を鍵にしているので、
@@ -243,6 +246,8 @@ module ElabData = struct
   }
 
   let allocate loc = { oid = new_oid (); loc; ty_field = None; resolved = None; dict = DNone }
+
+  let loc d = d.loc
 end
 
 (* ## 5.3 この木を独立したファイルに置く理由
