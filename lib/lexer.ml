@@ -575,7 +575,7 @@ module Make (Data : Syntax.Data) = struct
 
 (* ## 2.8 字句解析器の状態と先読みキュー
 
-   `lexbuf` のほかに、層 2 と層 3 が共有する状態が 7 つある。
+   `lexbuf` のほかに、層 2 と層 3 が共有する状態が 8 つある。
 
    - `pending`：生トークンの先読みキュー。先頭が次に消費者へ渡すトークンである
    - `regions`：ASI の region スタック。底は常に `RTop` である
@@ -587,6 +587,8 @@ module Make (Data : Syntax.Data) = struct
      そのトークンの後ろの改行を続きとして捨てる状態だったか。
      §2.11 の `error_positions` が、
      行をまたいで文法に合わなくなったトークンの報告位置を決めるのに使う
+   - `recent`：直前に渡したトークンから遡って高々 3 個(新しいものが先頭)。
+     §2.14 が、構文エラーの直前で数値が別のトークンに割れたかを調べるのに使う
 
    `peek t i` は、キューが足りなければ生トークンを継ぎ足して i 番目を返す。
    `peek_sig t k` は、`NL` を飛ばして k 個目の有意トークンを覗く。
@@ -626,6 +628,7 @@ module Make (Data : Syntax.Data) = struct
     mutable last_ep : Lexing.position;
     mutable before_ep : Lexing.position; (* last_sp のトークンの 1 つ前のトークンの終了位置 *)
     mutable before_cont : bool; (* 1 つ前のトークンの後ろの改行を、続きとして捨てる状態だったか *)
+    mutable recent : entry list; (* 直前に消費者へ渡したトークンから遡って高々 3 個(§2.14) *)
   }
 
   let from_sedlex lexbuf =
@@ -638,6 +641,7 @@ module Make (Data : Syntax.Data) = struct
       last_ep = Lexing.dummy_pos;
       before_ep = Lexing.dummy_pos;
       before_cont = false;
+      recent = [];
     }
 
   let from_string source = Sedlexing.Utf8.from_string source |> from_sedlex
@@ -956,7 +960,7 @@ module Make (Data : Syntax.Data) = struct
    パーサの駆動は第16章(driver.ml)の `parse_program` が menhir の増分 API で行う。
    増分 API はトークンと開始位置と終了位置の三つ組を 1 個ずつ受け取り、`read` がその三つ組を返す。
    `read` は、あわせて直前に渡したトークンとその開始位置と終了位置と、
-   その 1 つ前のトークンの終了位置と続きの状態を控える
+   その 1 つ前のトークンの終了位置と続きの状態と、直近の 3 個のトークンを控える
    (位置を構文エラーの報告に使うのは第16章である)。
 
    `error_positions` は、文法に合わなかったトークンの報告位置を返す。
@@ -984,6 +988,7 @@ module Make (Data : Syntax.Data) = struct
     let e = read_token t in
     t.last_sp <- e.sp;
     t.last_ep <- e.ep;
+    t.recent <- (match t.recent with a :: b :: _ -> [ e; a; b ] | l -> e :: l);
     (e.tok, e.sp, e.ep)
 
   (* 文法に合わなかったトークンの報告位置。1 つ前のトークンが続きを求めていて、
@@ -1097,5 +1102,47 @@ module Make (Data : Syntax.Data) = struct
     match keyword_or_ident s with
     | LOWER_IDENTIFIER _ | LOWLINE -> None
     | t when t = tok -> Some s
+    | _ -> None
+
+(* ## 2.14 数値の綴り間違いが割ったトークン
+
+   §2.2 の規則は最も長く一致する綴りで切るので、数値の綴り間違いは字句エラーにならない。
+   `0b102` は `0b10` と `2` に、`1x` と `0x` は数値と識別子に、
+   `1.2.3` は `1.2` と `.` と `3` に切れる。
+   どれも続きのトークンで文法に合わなくなり、構文エラーになる。
+   そのとき menhir が詰まるのは続きのトークンなので、`last_sp` は数値の後ろの位置を指し、
+   利用者は数値を書き間違えたことを読み取りにくい。
+
+   `glued_number` は、構文エラーのときに直近のトークンを見て、この形を見分ける。
+   見分けるのは次の 2 つの形で、どちらも数値とその直後のトークンの間に隙間が無い。
+
+   - 詰まったトークンの直前が数値で、詰まったトークンが英数字か `_` か `.` で始まる
+   - 詰まったトークンが数値で、1 つ前が `.`、2 つ前が数値である(`1.2.3` の `3` で詰まる形)
+
+   2 つ目の形で詰まったトークンを数値に限るのは、浮動小数の後ろの `.` が、
+   `1.2.foo` のようにフィールド選択として文法に合うからである。
+   `.` の後ろで詰まるのは数値か予約語のときで、
+   `1.2.match` のような予約語の形は数値の綴りの誤りではない。
+   2 つ目の形では、`.` とその後ろの数値をつなげて、
+   数値の直後に続く綴りとして返す(`1.2.3` なら `.3`)。
+
+   英数字で始まるかどうかは `show_token` の表記の先頭の文字で判定する。
+   予約語と識別子と数値は綴りのまま表示し、`<NL>` や文字列は記号で始まるからである。
+   返すのは、数値、その開始位置、数値の直後に続く綴りの 3 つである。
+   この判定は診断の文面と位置を変えるだけで、字句の切り方も受理するプログラムも変えない。
+   `1else` のように数値に予約語が隙間なく続いても文法に合う入力は、従来どおり受理する。 *)
+
+  let glued_number t =
+    let touches a b = a.ep.Lexing.pos_cnum = b.sp.Lexing.pos_cnum in
+    let wordlike tok =
+      let s = show_token tok in
+      s <> ""
+      && match s.[0] with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '.' -> true | _ -> false
+    in
+    match t.recent with
+    | ({ tok = NUMBER m; _ } as e) :: ({ tok = DOT; _ } as d) :: ({ tok = NUMBER n; _ } as p) :: _
+      when touches p d && touches d e ->
+        Some (n, p.sp, "." ^ show_number m)
+    | e :: ({ tok = NUMBER n; _ } as p) :: _ when touches p e && wordlike e.tok -> Some (n, p.sp, show_token e.tok)
     | _ -> None
 end

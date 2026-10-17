@@ -302,12 +302,14 @@ let misused_reserved_word lexer ~after_brace before (tok, sp, ep) =
   | Some w ->
       let prev = lexer.Lexer'.prev and last_sp = lexer.Lexer'.last_sp and last_ep = lexer.Lexer'.last_ep in
       let before_ep = lexer.Lexer'.before_ep and before_cont = lexer.Lexer'.before_cont in
+      let recent = lexer.Lexer'.recent in
       let next = match Lexer'.read lexer with next, nsp, _ -> Some (next, nsp) | exception Lexer.Lex_error _ -> None in
       lexer.Lexer'.prev <- prev;
       lexer.Lexer'.last_sp <- last_sp;
       lexer.Lexer'.last_ep <- last_ep;
       lexer.Lexer'.before_ep <- before_ep;
       lexer.Lexer'.before_cont <- before_cont;
+      lexer.Lexer'.recent <- recent;
       let continues (next, nsp) =
         match advance (I.offer before (Lexer'.Parser.LOWER_IDENTIFIER w, sp, ep)) with
         | I.InputNeeded _ as cp -> I.acceptable cp next nsp
@@ -357,7 +359,10 @@ let parse_program lexer =
    利用者から見ると、どれも入力を読めなかったという誤りなので、1 行にそろえて `Parse_error` にする。
    前の 2 つには位置を付ける。
    `Syntax_error_at` には指定された位置を使う。
-   `Parser'.Error` の位置は、`parse_error_message` が第2章の `error_positions` で決める。
+   `Parser'.Error` の位置と文面は、`parse_error_message` が決める。
+   直前で数値が隙間なく別のトークンに割れていたときは(第2章 §2.14)、
+   数値の開始位置を指し、数値とその直後に続く綴りを名指す。
+   そうでなければ、第2章の `error_positions` で位置を決める。
    行をまたいで続きを求める形で合わなくなったときは、直前のトークンの終わりを主な位置にし、
    合わなかったトークンの位置を本文に添える。
    それ以外は、合わなかったトークンの位置である。
@@ -378,12 +383,17 @@ let read_limit_message file = function
   | _ -> file ^ ": 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)"
 
 let parse_error_message lx =
-  match Lexer'.error_positions lx with
-  | pos, None -> Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos pos)
-  | pos, Some next ->
-      Printf.sprintf "%s: 構文エラー: この位置の後ろ、%d:%d のトークンが文法に合いません" (show_pos pos)
-        next.Lexing.pos_lnum
-        (next.Lexing.pos_cnum - next.Lexing.pos_bol + 1)
+  match Lexer'.glued_number lx with
+  | Some (n, sp, next) ->
+      Printf.sprintf "%s: 構文エラー: 数値リテラル %s の直後に %s が続いています(数値リテラルの綴りを確認してください)"
+        (show_pos sp) (Lexer.show_number n) next
+  | None -> (
+      match Lexer'.error_positions lx with
+      | pos, None -> Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos pos)
+      | pos, Some next ->
+          Printf.sprintf "%s: 構文エラー: この位置の後ろ、%d:%d のトークンが文法に合いません" (show_pos pos)
+            next.Lexing.pos_lnum
+            (next.Lexing.pos_cnum - next.Lexing.pos_bol + 1))
 
 let parse_unit_with lexer =
   try parse_program lexer with
