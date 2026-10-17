@@ -231,7 +231,7 @@ cancel 節のガードも、ガードの式(5:20)を指す:
   [1]
 
 対象エフェクトを決める計算の誤りは、handle 式の位置(3:3)を指す。missing は、
-修飾の無い節の操作をすべて宣言するエフェクトが、自分の操作を網羅されていない形である:
+修飾の無い節 one() の操作を宣言する唯一の候補 Two に、two の節が無い形である:
 
   $ cat > missing.kel <<'KEL'
   > effect Two = { one: () => Int32, two: () => Int32 }
@@ -244,6 +244,22 @@ cancel 節のガードも、ガードの式(5:20)を指す:
   > KEL
   $ diktor --type-check missing.kel
   ! missing.kel:3:3: 型エラー: ハンドラが操作を網羅していません: Two の two が漏れています
+  [1]
+
+qualmissing は、修飾 Two.one() で対象を Two に決めた後の網羅の検査が、two の節が無い
+ことを見つける形である。この検査も節の位置を付けないので、handle 式の位置(3:3)を指す:
+
+  $ cat > qualmissing.kel <<'KEL'
+  > effect Two = { one: () => Int32, two: () => Int32 }
+  > let r =
+  >   perform one() handle {
+  >     case return(v) => v
+  >     case Two.one() => resume(1)
+  >   }
+  > echoln(show(r))
+  > KEL
+  $ diktor --type-check qualmissing.kel
+  ! qualmissing.kel:3:3: 型エラー: ハンドラが操作を網羅していません: Two の two が漏れています
   [1]
 
 unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指す形である。誤りは
