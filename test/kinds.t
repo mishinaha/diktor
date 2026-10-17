@@ -182,7 +182,7 @@ EffectRow エイリアスをフィールドに書いた形も宣言の時点で�
   $ diktor --type-check --no-prelude fwdrow2.kel
   f : (A5[R1]) => A5[R1]
 
-連鎖と module の中でも同じ(投機は宣言順に 1 周するだけだが、深さ 2 は届く):
+連鎖(fwdrow3)と module の中(fwdrowmod)でも同じ:
 
   $ cat > fwdrow3.kel <<'EOF'
   > type Unit = {}
