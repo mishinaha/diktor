@@ -465,16 +465,43 @@ visrow22〜25 では、名前 E は型パラメータ E に当たり、同じ診
   ! visrow25.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
   [1]
 
-同名の EffectRow エイリアスは、行の要素では型パラメータより先に当たる(visrow26)。
-`@ E` と書くと型パラメータが当たる(visrow26b)ので、`@ E` と `@ {E}` は別のものを指す。
-これは `@ Print` を `@ {Print}` の略記とする doc/sample.kel の規則と食い違う:
+型パラメータは、行の要素でも同名の EffectRow エイリアスを覆い、引数なしの要素は
+行変数の合成として拒否する。visrow26 はエイリアスが同じ module にある形、visrow27 は
+トップレベルにあって {Console, E} と書いた形、visrow28 は同名の module の pub でない
+EffectRow エイリアスがコンパニオンになる形で、どれも同じ診断になる:
 
   $ printf 'module M {\n  type E: EffectRow = {Print}\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow26.kel
   $ diktor --type-check visrow26.kel
-  M.f : (Int32) => Int32 @ {Print}
+  ! visrow26.kel:3:31: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+  $ printf 'type E: EffectRow = {Print}\nlet f[E](x: Int32): Int32 @ {Console, E} = x\n' > visrow27.kel
+  $ diktor --type-check visrow27.kel
+  ! visrow27.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+  $ printf 'module E { type E: EffectRow = {Print} }\nlet f[E](x: Int32): Int32 @ {E} = x\n' > visrow28.kel
+  $ diktor --type-check visrow28.kel
+  ! visrow28.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+
+@ E も型パラメータを指す。visrow26b は visrow26 の @ {E} を @ E にした形で、
+返り値の型に行が付かない。visrow29 は同じ module の中で、型パラメータ E を持つ f の
+@ E と、型パラメータを持たない g の @ {E} を並べた形で、g の @ {E} はエイリアスを指す:
+
   $ printf 'module M {\n  type E: EffectRow = {Print}\n  let g[E](x: Int32): Int32 @ E = x\n}\n' > visrow26b.kel
   $ diktor --type-check visrow26b.kel
   M.g : (Int32) => Int32
+  $ printf 'module M {\n  type E: EffectRow = {Print}\n  let f[E](x: Int32): Int32 @ E = x\n  let g(x: Int32): Int32 @ {E} = x\n}\n' > visrow29.kel
+  $ diktor --type-check visrow29.kel
+  M.f : (Int32) => Int32
+  M.g : (Int32) => Int32 @ {Print}
+
+引数つきの要素でも、型パラメータは同名のエイリアスを覆う。visrow30 の {E[R]} は
+エイリアス E[R] を引かず、E という effect も宣言されていないので、未知のエフェクトになる:
+
+  $ printf 'type E[R]: EffectRow = {Print extends R}\nlet f[E, R](x: Int32): Int32 @ {E[R]} = x\n' > visrow30.kel
+  $ diktor --type-check visrow30.kel
+  ! visrow30.kel:2:32: 型エラー: 未知のエフェクト: E
+  [1]
 
 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
 クラス M のメソッド f と値環境で区別できないため):
