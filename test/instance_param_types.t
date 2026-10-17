@@ -31,27 +31,36 @@ let rec の値束縛の形で書いた d3 の仮引数 n には署名の型を�
   ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   [1]
 
-insnever と同じく、Describe[Never] の describe の case _ には一致する値が無いという警告が出る。
-Lv の lv の l の型は署名の #Lo | #Hi に決まるので、第 3 節の case _ には冗長の警告が
-出る。--strict-exhaustive では終了状態 1 になる:
+insnever と同じく、Describe[Never] の describe の n の型は Never に決まるので、case _ には
+一致する値が無いという警告が出る。--strict-exhaustive では終了状態 1 になる:
 
-  $ cat > inswild.kel <<'KEL'
+  $ cat > inswildnever.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
   > type instance Describe[Never] { let describe(n) = n match { case _ => "never" } }
   > type instance Describe[Int32] { let describe(n) = show(n) }
+  > echo(describe(3i32))
+  > KEL
+  $ diktor inswildnever.kel
+  ⚠ このパターンには一致する値がありません
+  3
+  $ diktor --strict-exhaustive --type-check inswildnever.kel
+  ⚠ このパターンには一致する値がありません
+  _ : {}
+  [1]
+
+Lv の lv の l の型は署名の #Lo | #Hi に決まるので、第 3 節の case _ には冗長の警告が
+出る。--strict-exhaustive では終了状態 1 になる:
+
+  $ cat > inswildlv.kel <<'KEL'
   > type class Lv[A] { val lv: (A, #Lo | #Hi) => String }
   > type instance Lv[Int32] { let lv(n, l) = l match { case #Lo => "lo" case #Hi => "hi" case _ => "other" } }
-  > echo(describe(3i32))
   > echo(lv(1, #Hi))
   > KEL
-  $ diktor inswild.kel
-  ⚠ このパターンには一致する値がありません
+  $ diktor inswildlv.kel
   ⚠ 第 3 節は到達不能です(冗長)
-  3hi
-  $ diktor --strict-exhaustive --type-check inswild.kel
-  ⚠ このパターンには一致する値がありません
+  hi
+  $ diktor --strict-exhaustive --type-check inswildlv.kel
   ⚠ 第 3 節は到達不能です(冗長)
-  _ : {}
   _ : {}
   [1]
 
