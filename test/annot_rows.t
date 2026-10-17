@@ -1173,8 +1173,8 @@ recrowargpure、recrowargeff、recrowargext、recrowargown の後ろの束縛 b 
 決めず、通る。recrowargeff は Console を起こす関数式を渡して F に Console を求めるので
 落ちる。recrowargext は引数の行を {Console extends F} にした形で、Console を起こす
 関数式を渡しても F を決めないので通る。recrowargown は a が自分の行変数 E を持つ
-関数を渡すうえ、b が最外の行にも F を書くので、a の本体の b(f) が F を E に決めて
-落ちる(位置は b(f) である)。最外の行に F を書いた b を、型を注釈しない
+関数を渡して F を E に決めるので落ちる。b は最外の行にも F を書くので、落ちる位置は
+a の本体の b(f) である。最外の行に F を書いた b を、型を注釈しない
 関数式の中で呼び、その関数式を呼ばない recrowlam は、F を決めないので通る。その関数式を
 呼ぶ recrowlamcall と、行を Console と注釈した引数に渡す recrowlamkeep は、F を a の
 行や引数の行に決めるので落ちる。行を {Console extends R} と注釈した引数に渡す
