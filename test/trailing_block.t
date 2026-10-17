@@ -101,7 +101,7 @@ g(1)(2) { k } では、末尾ブロックは 2 つ目の呼び出しに加わる
   > EOF
   $ diktor --type-check tuple2.kel
   apply2 : (Int32, Int32, (Int32, Int32) => Int32 @ {}) => Int32
-  ! tuple2.kel:2:22: 型エラー: 型が一致しません: (_A, _A) と Int32
+  ! tuple2.kel:2:22: 型エラー: 引数の個数が一致しません: ((_A, _A)) => _A と (Int32, Int32) => Int32 @ {}(引数は 1 個と 2 個です)
   [1]
 
 { case ... } の照合は match と同じ規則で、残りを受ける節が無ければ照合対象の

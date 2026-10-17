@@ -789,5 +789,5 @@ with _ と with (_) は引数のない無名関数を、with _x は 1 引数の�
   > KEL
   $ diktor --type-check with2.kel
   one : ((Int32) => A) => A
-  ! with2.kel:3:3: 型エラー: ラベル _item がありません(行は閉じています)
+  ! with2.kel:3:3: 型エラー: 引数の個数が一致しません: () => _A と (Int32) => _B(引数は 0 個と 1 個です)
   [1]
