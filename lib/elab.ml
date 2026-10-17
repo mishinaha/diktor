@@ -5499,9 +5499,13 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?
    `process_decls` の各パスと後始末のループ、`flatten_modules` の宣言の単位である。
    宣言の単位の包みが最後の受け手なので、どのエラーにも、少なくともその宣言の先頭の位置が付く。
 
-   例外を型付きの返り値に変えるのは、下の `type_check` の 1 か所だけである。
-   受けるのは 2 系統だけで、`Type_error` / `Type_error_at` は終了コード 1、
+   例外を型付きの返り値に変えるのは、下の `type_check` と、
+   §11.44 の `catch_input_errors`、§11.45 の `type_check_units` の 3 か所である。
+   どれも同じ 3 系統を受け(`type_check_units` はさらに `Import_error` を受ける)、
+   `Type_error` / `Type_error_at` は終了コード 1、
    `NotImplemented` / `NotImplemented_at` は終了コード 4 になる。
+   残りの 1 系統は、処理系の限度を超えたことを表す `Stack_overflow` / `Out_of_memory` で、
+   型検査での拒否と同じ終了コード 1 になる(下の `limit_error`)。
    `Syntax_error` と `Syntax_error_at` の節は置かない。
    この 2 つを投げるのは parser.mly だけで、
    第16章の `parse_with` がそれをすべて `Parse_error` に包み直してから型検査に入るからである。
@@ -5534,6 +5538,16 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?
    (包みの外で投げられた例外では None) *)
 type error = { e_loc : Location.span option; e_word : string; e_exit : int; e_msg : string }
 
+(* 型検査が処理系の限度を超えたときの診断。
+   深すぎる入れ子の推論はスタックを使い尽くし、Stack_overflow になる。
+   これは評価の誤りではなく型検査の段で起きるので、
+   実行時エラーではなく型検査での拒否と同じ終了コード 1 にする。
+   位置は付けない。
+   例外が上がった時点で、どの節点の推論が深すぎたかを示す情報は残っていないからである *)
+let limit_error = function
+  | Out_of_memory -> { e_loc = None; e_word = "処理系の限度"; e_exit = 1; e_msg = "型検査でメモリが不足しました" }
+  | _ -> { e_loc = None; e_word = "処理系の限度"; e_exit = 1; e_msg = "型検査で再帰が深すぎます(スタックオーバーフロー)" }
+
 let type_check ?(prelude = []) decls =
   current_out := [];
   try (type_check_decls ~prelude decls, None) with
@@ -5541,9 +5555,10 @@ let type_check ?(prelude = []) decls =
   | Type_error msg -> (List.rev !current_out, Some { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg })
   (* Syntax_error と Syntax_error_at の節は置かない。投げるのは parser.mly だけで、第16章の parse_with が
      すべて Parse_error に包み直してから型検査に入る。届く例外は、Type_error と、未実装の
-     NotImplemented の 2 系統だけ *)
+     NotImplemented と、処理系の限度の 3 系統だけ *)
   | NotImplemented_at (loc, feat) -> (List.rev !current_out, Some { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat })
   | NotImplemented feat -> (List.rev !current_out, Some { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat })
+  | (Stack_overflow | Out_of_memory) as ex -> (List.rev !current_out, Some (limit_error ex))
 
 (* ## 11.44 対話的な実行の入口
 
@@ -5569,6 +5584,7 @@ let catch_input_errors f =
   | Type_error msg -> Error { e_loc = None; e_word = "型エラー"; e_exit = 1; e_msg = msg }
   | NotImplemented_at (loc, feat) -> Error { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
   | NotImplemented feat -> Error { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  | (Stack_overflow | Out_of_memory) as ex -> Error (limit_error ex)
 
 let start_input () =
   current_out := [];
@@ -5917,5 +5933,6 @@ let type_check_units ~prelude (units : src_unit list) =
   | Import_error (loc, msg) -> fail { e_loc = Some loc; e_word = "import エラー"; e_exit = 1; e_msg = msg }
   | NotImplemented_at (loc, feat) -> fail { e_loc = Some loc; e_word = "未実装"; e_exit = 4; e_msg = feat }
   | NotImplemented feat -> fail { e_loc = None; e_word = "未実装"; e_exit = 4; e_msg = feat }
+  | (Stack_overflow | Out_of_memory) as ex -> fail (limit_error ex)
 
 let () = Show.unit_label := fun o -> Decls.unit_path (Decls.entity_unit o)
