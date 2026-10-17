@@ -282,6 +282,51 @@ i32、i64、f64 以外の接尾辞は言語に無いので、型エラー(終了
   ! lead0f.kel:1:13: 型エラー: 数値リテラル 7f064 の接尾辞 f064 はありません(接尾辞は i32、i64、f64 だけです)
   [1]
 
+基数つきの字面、浮動小数の接尾辞、パターンの位置、対話的な実行でも同じ型エラーになる:
+
+  $ printf 'let x = 0xffu8\n' > hexu8.kel
+  $ diktor hexu8.kel
+  ! hexu8.kel:1:9: 型エラー: 数値リテラル 0xffu8 の接尾辞 u8 はありません(接尾辞は i32、i64、f64 だけです)
+  [1]
+  $ printf 'let x = 1.5f32\n' > f32.kel
+  $ diktor f32.kel
+  ! f32.kel:1:9: 型エラー: 数値リテラル 1.5f32 の接尾辞 f32 はありません(接尾辞は i32、i64、f64 だけです)
+  [1]
+  $ cat > patsfx.kel <<'EOF'
+  > let f(n: Int32): Int32 = n match {
+  >   case 1i8 => 0
+  >   case _ => 1
+  > }
+  > EOF
+  $ diktor patsfx.kel
+  ! patsfx.kel:2:8: 型エラー: 数値リテラル 1i8 の接尾辞 i8 はありません(接尾辞は i32、i64、f64 だけです)
+  [1]
+  $ printf '1u8\n1 + 1\n' | diktor --repl
+  ! <stdin>:1:1: 型エラー: 数値リテラル 1u8 の接尾辞 u8 はありません(接尾辞は i32、i64、f64 だけです)
+  _ : Int32 = 2
+
+浮動小数の本体に整数の接尾辞を付けた字面は、幅を見る前に本体の誤りとして報告する:
+
+  $ printf 'let x = 1.5i8\n' > floati8.kel
+  $ diktor floati8.kel
+  ! floati8.kel:1:9: 型エラー: 数値リテラル 1.5i8 は浮動小数の本体に整数接尾辞が付いています
+  [1]
+
+言語に無い数値型の名前は、宣言が無ければ未知の型で、数値型の一覧を添える。
+宣言の無い名前なので、利用者が同じ名前の型を宣言すれば使える:
+
+  $ printf 'let f(x: Int8): Int8 = x\n' > int8.kel
+  $ diktor int8.kel
+  ! int8.kel:1:10: 型エラー: 未知の型: Int8(数値型は Int32、Int64、Float64 だけです)
+  [1]
+  $ cat > int8user.kel <<'EOF'
+  > newtype Int8 = Int8(Int32)
+  > let f(x: Int8): Int8 = x
+  > echoln("ok")
+  > EOF
+  $ diktor int8user.kel
+  ok
+
 小数部を省いた浮動小数リテラル(A4 / D25。1. / 2.e3 / 1.f64):
 
   $ cat > dotlit.kel <<'KEL'

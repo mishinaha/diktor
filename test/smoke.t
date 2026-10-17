@@ -26,3 +26,10 @@
   $ diktor cr.kel; echo "exit: $?"
   ! cr.kel:2:9: 未実装: cancel(reason)(v0 は case cancel のみ)
   exit: 4
+
+言語に無い数値の接尾辞は型エラーで exit 1(LangSpec §4.2、§15.5):
+
+  $ echo 'let x = 1u8' > u8.kel
+  $ diktor u8.kel; echo "exit: $?"
+  ! u8.kel:1:9: 型エラー: 数値リテラル 1u8 の接尾辞 u8 はありません(接尾辞は i32、i64、f64 だけです)
+  exit: 1
