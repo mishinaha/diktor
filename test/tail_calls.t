@@ -193,9 +193,103 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
 
+cancel 節から起こした再開しない操作による破棄が打ち切られた後に、ハンドラの本体の中で
+評価される節の本体も、末尾位置にある(§5.7、§13.6)。打ち切られるのが外側のハンドラ
+(retrycancel)でも、再開する操作の節から送出を受けるハンドラ(retrycancelvia)でも、
+破棄を進めている当のハンドラ(retrycancelsame)でも、再試行の回数によって領域が増えない。
+打ち切りのたびに同じ診断が 1 行記録される:
+
+  $ cat > retrycancel.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > effect Stop = { stop: () => Never }
+  > effect Res = { use: () => Unit }
+  > let rec loop(n: Int32): Int32 =
+  >   if n == 0 then 0 else
+  >   ({ perform use(); perform stop(); 1 }) handle {
+  >     case use() => resume()
+  >     case cancel => perform throw("from cancel")
+  >   } handle {
+  >     case stop() => loop(n - 1)
+  >   }
+  > let r = loop(100000) handle {
+  >   case throw(e) => { echoln("caught " + e); 1 }
+  > }
+  > echoln(show(r))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retrycancel.kel 2> err.txt
+  0
+  $ sort err.txt | uniq -c | sed 's/^ *//'
+  100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  $ cat > retrycancelvia.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > effect Ask = { ask: () => Int32 }
+  > effect Stop = { stop: () => Never }
+  > effect Res = { use: () => Unit }
+  > let rec loop(n: Int32): Int32 =
+  >   if n == 0 then 0 else
+  >   ({ perform use(); perform stop(); 1 }) handle {
+  >     case use() => resume()
+  >     case cancel => { let a = perform ask(); () }
+  >   } handle {
+  >     case stop() => loop(n - 1)
+  >   }
+  > let r = (loop(100000) handle {
+  >   case ask() => perform throw("from ask")
+  > }) handle {
+  >   case throw(e) => { echoln("caught " + e); 1 }
+  > }
+  > echoln(show(r))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retrycancelvia.kel 2> err.txt
+  0
+  $ sort err.txt | uniq -c | sed 's/^ *//'
+  100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+  $ cat > retrycancelsame.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > effect Res = { use: () => Unit }
+  > let rec loop(n: Int32): Int32 =
+  >   if n == 0 then 0 else
+  >   ({ perform use(); perform throw("first") }) handle {
+  >     case use() => resume()
+  >     case cancel => perform throw("from cancel")
+  >   } handle {
+  >     case throw(e) => loop(n - 1)
+  >   }
+  > echoln(show(loop(100000)))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retrycancelsame.kel 2> err.txt
+  0
+  $ sort err.txt | uniq -c | sed 's/^ *//'
+  100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+
+打ち切られた外側のハンドラの return 節も末尾位置にあり(§5.7)、return 節から再帰しても
+回数によって領域が増えない:
+
+  $ cat > retcancelret.kel <<'KEL'
+  > effect Fail = { throw: (String) => Never }
+  > effect Stop = { stop: () => Never }
+  > effect Res = { use: () => Unit }
+  > let rec loop(n: Int32): Int32 =
+  >   if n == 0 then 0 else
+  >   (({ perform use(); perform stop(); 1 }) handle {
+  >     case use() => resume()
+  >     case cancel => perform throw("from cancel")
+  >   } handle {
+  >     case stop() => 5
+  >   }) handle {
+  >     case throw(e) => { echoln("caught " + e); 1 }
+  >     case return(x) => loop(n - 1)
+  >   }
+  > echoln(show(loop(100000)))
+  > KEL
+  $ OCAMLRUNPARAM=l=100k diktor retcancelret.kel 2> err.txt
+  0
+  $ sort err.txt | uniq -c | sed 's/^ *//'
+  100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
+
 再開しない操作の節の値が、同じハンドラの末尾でない resume の戻り値として届く形(§5.7 の
-但し書き)。保留していた節の評価が続くので、節の本体は末尾位置にならず、この実装では
-小さい上限で落ちる:
+但し書き)。節の値を受け取った resume(1) の後ろの計算が残るので、節の本体は末尾位置に
+ならず、この実装では小さい上限で落ちる:
 
   $ cat > retryresumepath.kel <<'KEL'
   > effect E = { throw: (String) => Never, ask: () => Int32 }
