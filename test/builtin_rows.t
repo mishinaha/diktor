@@ -1,13 +1,13 @@
 標準環境の署名の行(LangSpec §16 の冒頭)。最外の @ を省略した署名は、プリミティブを
-除き @ {} と読む。処理系は組み込みのクラスのメソッドと Ref、Array の操作の最外の行を
-閉じた行で持ち、名前の参照、呼び出し、演算子の使用のときに、使用時の開き(LangSpec
-§13.2)が尾部を開く。
+除き @ {} と読む。処理系は、組み込みのクラスのメソッドや、Array.length、Ref.get のように
+署名の最外の行が閉じた行の操作を、閉じた行で持ち、名前の参照、呼び出し、演算子の使用の
+ときに、使用時の開き(LangSpec §13.2)が尾部を開く。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
 一般化しない値束縛 f に組み込みのメソッド show を入れると、f の行は名前の参照で開いた
-尾部のまま残り、束縛の終わりに閉じた {} に戻る(LangSpec §13.2)。そのため f を Console
-の文脈と Print の文脈の両方から呼べる:
+尾部のまま残り、束縛の終わりに閉じた {} に戻る(LangSpec §13.2)。--type-check の f の型に
+@ {} が付き、f を Console の文脈と Print の文脈の両方から呼べる:
 
   $ cat > bshowweak.kel <<'KEL'
   > let idf[A](x: A): A = x
@@ -20,6 +20,13 @@
   $ diktor bshowweak.kel
   1
   2
+  $ diktor --type-check bshowweak.kel
+  idf : (A) => A
+  f : [_A: Show] (_A) => String @ {}
+  p : () => {} @ {Console}
+  q : () => {} @ {Print}
+  _ : {}
+  _ : {}
 
 注釈で型を決めた f も閉じた {} に戻り、--type-check の表示に @ {} が付く:
 
