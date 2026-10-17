@@ -421,7 +421,7 @@ s より後ろで宣言されていても、辞書はファイル全体を見て
   [1]
 
 mkshow が返すラムダは、mkshow の外で呼んでも、作った位置の型の show を使う。
-f は Int32 の show、g は Bool の show を使い、f を後でもう一度呼んでも変わらない:
+f は Int32 の show、g は Boolean の show を使い、f を後でもう一度呼んでも変わらない:
 
   $ cat > capdict.kel <<'KEL'
   > let mkshow[A: Show](x: A): () => String = fn() => show(x) + "!"
