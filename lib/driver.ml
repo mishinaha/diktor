@@ -241,6 +241,27 @@ let dump_tokens_file file =
   let tokens = with_input (fun () -> Lexer'.all_tokens (Lexer'.from_filename file)) in
   List.iter (fun e -> Printf.printf "%4d  %s\n" e.Lexer'.sp.Lexing.pos_lnum (Lexer'.show_token e.Lexer'.tok)) tokens
 
+(* ## 16.3a 増分 API による駆動
+
+   パーサは menhir の表の形(`--table`)で生成し、増分 API で 1 トークンずつ駆動する。
+   こうすると、文法に合わないトークンに出会ったとき、その直前の状態が手元に残る。
+   `parse_program` は、文法に合わないトークンに出会うと `Parser'.Error` を投げる。
+   トークンは第2章の `read` から 1 個ずつ受け取るので、
+   字句解析器が控える直前のトークンとその位置は、伝統的な API で駆動したときと同じに進む。 *)
+module I = Parser'.MenhirInterpreter
+
+let parse_program lexer =
+  let rec run cp =
+    match cp with
+    | I.InputNeeded _ -> run (I.offer cp (Lexer'.read lexer))
+    | I.Shifting _ | I.AboutToReduce _ -> run (I.resume cp)
+    | I.Accepted v -> v
+    | I.HandlingError _ | I.Rejected -> raise Parser'.Error
+  in
+  (* 開始位置は空の lexbuf の位置(1 行目の 0 桁)である。
+     開始直後に空の規則を還元したときだけ、ノードの位置になる *)
+  run (Parser'.Incremental.program (Lexing.from_string "").Lexing.lex_curr_p)
+
 (* `parse_with` は、パースの入口を 1 つにまとめる関数である。
    上流から来る失敗のうち、この関数が受けるのは次の 4 種類である。
 
@@ -269,7 +290,7 @@ let read_limit_message file = function
   | _ -> file ^ ": 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)"
 
 let parse_unit_with lexer =
-  try Lexer'.parse Parser'.program lexer with
+  try parse_program lexer with
   | Parser'.Error ->
       raise (Parse_error (Printf.sprintf "%s: 構文エラー: 付近のトークンを確認してください" (show_pos lexer.Lexer'.last_sp)))
   | Syntax.Syntax_error msg ->
@@ -764,7 +785,7 @@ let try_parse ~line ?(col = 0) source =
   Sedlexing.set_position lexbuf { Lexing.pos_fname = "<stdin>"; pos_lnum = line; pos_bol = -col; pos_cnum = 0 };
   Sedlexing.set_filename lexbuf "<stdin>";
   let lx = Lexer'.from_sedlex lexbuf in
-  match Lexer'.parse Parser'.program lx with
+  match parse_program lx with
   | [], ds -> Complete ds
   | im :: _, _ ->
       Failed (Printf.sprintf "%s: 構文エラー: import は対話的な実行では書けません" (show_pos im.Syntax.im_loc.Location.start))

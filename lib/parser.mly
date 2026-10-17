@@ -101,12 +101,12 @@ open Syntax.Make(Data)
    menhir の伝統的な API は `(Lexing.lexbuf -> token) -> Lexing.lexbuf -> 'a` という形をしていて、
    位置を `Lexing.lexbuf` の可変フィールドから読む。
    sedlex はその lexbuf を持たない。
-   そこで第2章(lexer.ml)は、`MenhirLib.Convert.Simplified.traditional2revised` で改訂版の API に変換する。
-   改訂版の API は `(unit -> token * position * position) -> 'a` という形で、
-   トークンと開始位置と終了位置の三つ組を 1 個ずつ受け取る。
-   この関数呼び出し 1 つが、字句層と構文層をつなぐ唯一の継ぎ目である。
+   そこで本章のパーサは表の形(`--table`)で生成し、第16章(driver.ml)が増分 API で駆動する。
+   増分 API は、トークンと開始位置と終了位置の三つ組を 1 個ずつ受け取る。
+   第2章(lexer.ml)の `read` がこの三つ組を返し、第16章の `parse_program` がそれをパーサに渡す。
+   この受け渡し 1 か所が、字句層と構文層をつなぐ唯一の継ぎ目である。
 
-   この変換により `$sloc` が実際の位置を返すので、意味アクションは `mk $sloc x` と書くだけで済む。
+   三つ組で渡すので `$sloc` が実際の位置を返し、意味アクションは `mk $sloc x` と書くだけで済む。
    位置の出所は、第2章が渡す三つ組の 1 か所だけである。
    全ノードに入れた位置は、第11章の `at_node` が型エラーに結びつけている。
 
@@ -510,7 +510,8 @@ type nt_rhs_raw = RhsNone | RhsShort of field_decl list | RhsCtors of ctor_decl 
 
 (* ## 3.13 `--strict` で conflict 0 を保つ
 
-   `lib/dune` は menhir を `--explain --strict` で走らせる。
+   `lib/dune` は menhir を `--explain --strict --table` で走らせる。
+   `--table` は、第16章の増分 API による駆動(§3.3)のためである。
 
    menhir は既定では conflict を警告にとどめ、記述順と優先順位で黙って解決する。
    conflict を放置すると、ビルドは通るのに、文法の意味が書いたつもりと違っている状態になりうる。

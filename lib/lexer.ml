@@ -945,10 +945,10 @@ module Make (Data : Syntax.Data) = struct
 
 (* ## 2.11 消費者 API
 
-   Menhir の revised API は `unit -> token * position * position` の関数を求める。
-   `read` がその関数で、あわせて直前に渡したトークンの開始位置と終了位置を状態に控える
-   (そのうち開始位置を構文エラーの報告に使うのは第16章(driver.ml)である)。
-   `parse` は、`traditional2revised` で包むだけの薄い層である。
+   パーサの駆動は第16章(driver.ml)の `parse_program` が menhir の増分 API で行う。
+   増分 API はトークンと開始位置と終了位置の三つ組を 1 個ずつ受け取り、`read` がその三つ組を返す。
+   `read` は、あわせて直前に渡したトークンとその開始位置と終了位置を状態に控える
+   (そのうち開始位置を構文エラーの報告に使うのは第16章である)。
 
    `all_tokens` は `--dump-tokens` のための出口で、ASI を適用した後のトークン列を EOF まで集める。
    3 つの層すべてを通した結果をそのまま見られるので、ゴールデンテストはこの出口を使う。 *)
@@ -960,8 +960,6 @@ module Make (Data : Syntax.Data) = struct
     t.last_sp <- e.sp;
     t.last_ep <- e.ep;
     (e.tok, e.sp, e.ep)
-
-  let parse rule lexer = MenhirLib.Convert.Simplified.traditional2revised rule (fun () -> read lexer)
 
   (* --dump-tokens 用。ASI を適用した後のトークン列を EOF まで集める *)
   let all_tokens t =

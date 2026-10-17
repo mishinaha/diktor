@@ -7,7 +7,7 @@
   (pps sedlex.ppx)))
 
 (menhir
- (flags --explain --strict)
+ (flags --explain --strict --table)
  (modules parser))
 
 ; プレリュードを文字列として埋め込む(--prelude PATH で差し替えられる)
