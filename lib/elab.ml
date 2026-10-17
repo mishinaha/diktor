@@ -187,9 +187,11 @@ let at_node node f =
 
    残った `Integral` / `Fractional` は、
    宣言の終わりに `default_numerics` が Int32 / Float64 に落とす(第8章)。
+   `number_ty` はリテラルの位置を第8章の `literal_origins` に控える。
+   既定の型が他の制約を満たさないとき、既定化はその位置で報告する(第8章 §8.9)。
    既定化が表示より先に走るので、通常の型表示にこれらの述語は現れない。 *)
 
-let number_ty level (n : number) : ty =
+let number_ty ~loc level (n : number) : ty =
   match n.n_suffix with
   (* 浮動小数の本体に整数接尾辞が付いたリテラル(1.i32 / 1e3i64)は拒否する。受理すると、
      実行時の Int32.of_string が本体を読めず、型検査を通ったリテラルが実行時に必ず落ちる *)
@@ -201,7 +203,9 @@ let number_ty level (n : number) : ty =
   | Some _ -> noimpl ("数値接尾辞 " ^ Lexer.show_number n ^ "(v0 は i32/i64/f64 のみ)")
   | None ->
       let v = new_var level in
-      Unify.add_class v (if n.n_is_float then cls_fractional else cls_integral);
+      let c = if n.n_is_float then cls_fractional else cls_integral in
+      Unify.add_class v c;
+      Unify.note_literal ~loc v c;
       v
 
 (* 名前だけを受理し、Diktor では実行できない数値型 *)
@@ -1333,7 +1337,7 @@ let rec elab_pat env level seen expected ((_, p) as node : T.pat) : env =
       Unify.unify expected t_string;
       env
   | T.PNumber n ->
-      Unify.unify expected (number_ty level n);
+      Unify.unify expected (number_ty ~loc:(Tree.loc_of node) level n);
       env
   | T.PRecord (fields, rest) -> (
       let ftys = List.map (fun (l, _) -> (l, new_var level)) fields in
@@ -1546,7 +1550,7 @@ and elab_exp' env level eff node e =
   match e with
   | T.Bool _ -> t_boolean
   | T.Text _ -> t_string
-  | T.Number n -> number_ty level n
+  | T.Number n -> number_ty ~loc:(Tree.loc_of node) level n
 (* ## 11.11 変数とラムダ
 
    ### 証拠の穴

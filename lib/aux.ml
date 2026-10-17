@@ -93,7 +93,10 @@ let type_error msg = raise (Type_error msg)
    Type_error_at も必ず捕まえる。
    (c) Unify の関数(unify、rewrite_row)だけを包む節は、言い換えるにせよ握り潰すにせよ、
    Type_error_at を捕まえなくてよい。
-   Unify は位置を知らないので、そこから Type_error_at は出ない *)
+   unify と rewrite_row は位置を知らないので、そこから Type_error_at は出ない。
+   Unify のうち Type_error_at を出すのは、
+   数値リテラルの既定化(generalize と default_numerics)だけで、
+   どちらも (c) の節には包まれない *)
 exception Type_error_at of Location.span * string
 
 (* 位置つきの未実装。at_node は NotImplemented にも同じ規則で span を貼る *)

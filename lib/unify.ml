@@ -31,7 +31,8 @@
    | `kind_of` / `var_info_of` / `map_generics_with` | 第11章の型の補助関数 |
    | `is_predicate` / `show_ref` | 第9章(show.ml)。制約の印字と、循環参照を避けるための穴 |
 
-   `bind` も外から見えるが、呼ぶのは本章の `unify` / `generalize` / `default_numerics` だけである。
+   `bind` も外から見えるが、呼ぶのは本章の `unify` と、
+   `generalize` / `default_numerics` が使う `default_to` だけである。
    外向けの関数ではないので、§8.5 で内部の手続きとして扱う。
    第10章が `unify` を呼ぶのは構造的ヴァリアントの行を閉じる 1 か所だけで、
    それ以外は型を読むだけである。
@@ -288,6 +289,22 @@ let note_class_var v =
 
 (* いまの番号。これより後に台帳へ載る項目は、これより大きい番号を持つ *)
 let class_mark () = !class_seq
+
+(* 数値リテラルが述語を付けた変数と、述語と、リテラルの位置。
+   既定化の失敗を報告する位置を探すのに使う(§8.9 の default_to)。
+   default_numerics が宣言の終わりに空に戻す *)
+let literal_origins : (tvar ref * oid * Location.span) list ref = ref []
+
+let note_literal ~loc t c = match t with TVar r -> literal_origins := (r, c, loc) :: !literal_origins | _ -> ()
+
+(* 証拠の穴の台帳(§8.11)。既定化の失敗を報告する位置を探すのにも使うので、ここで定義する *)
+let holes : (int * Tree.hole) list ref = ref []
+
+(* 前の宣言の終わりに控えた oid。
+   これより大きい h_id の穴は、いまの宣言で作ったものである。
+   一般化しない束縛の穴は宣言をまたいで台帳に残るので、
+   既定化の失敗の位置を探すときはこの床で前の宣言の穴を除く *)
+let decl_hole_floor = ref 0
 
 (* 制約つきの新変数はここで作り、作った時点で台帳に載せる。
    instantiate、subst_params、第11章のコンストラクタの具体化(dd_params の展開)もここを通る。
@@ -668,7 +685,52 @@ and unify_row label field rest row2 =
    `unbound_var` は `Generic` を未定変数と見なさないので、`unify` は `bind` へ進まず、
    §8.7 の剛な行変数の分岐に落ちる。
    その結果、構造的ヴァリアントの行を閉じる `match` が、原因と関係のない型エラーで落ちる。
-   `Generic` を単一化に渡さないという、§8.3 と同じ前提を守るための順序である。 *)
+   `Generic` を単一化に渡さないという、§8.3 と同じ前提を守るための順序である。
+
+   ### 既定化の失敗を報告する位置
+
+   既定化は、述語つきの変数に付いた他の制約を、既定の型で初めて確かめる。
+   `1.5 % 2.0` の `Rem` は、`Float64` に落とした時点で満たせないと分かる。
+   この時点では式の検査が終わっているので、外側の `at_node` に任せると、
+   位置は束縛の名前か宣言の先頭になる。
+   そこで既定化は、失敗した制約の発生位置を自分で探し、`Type_error_at` で報告する。
+   発生位置の手がかりは 2 つある。
+   1 つは証拠の穴(§8.11)で、穴は制約を持ち込んだ参照や演算子の位置を持つ。
+   もう 1 つは `literal_origins` で、予約述語を付けたリテラルの位置を控える。
+   予約述語には穴が無いので、`1 + 1.5` の `Fractional` の位置はこちらから引く。
+   本章で位置つきの例外を出すのはこの経路だけである。 *)
+
+(* 述語つきの変数 v を既定の型 t へ束縛する。
+   束縛の前に、v の制約を 1 つずつ t に付けてみて、失敗した制約 c の発生位置で報告する。
+   発生位置は、いまの宣言で作った c の証拠の穴のうち最も古いものの位置
+   (制約を持ち込んだ参照や演算子)で、
+   穴の無い予約述語では、その述語を付けた最も古いリテラルの位置である。
+   前の宣言の一般化しない束縛から伝わった制約のように、
+   いまの宣言に c の発生位置が見つからなければ、
+   既定の型を選んだ述語 pred を付けた最も古いリテラルの位置で報告する。
+   それも見つからなければ、位置なしの Type_error のまま投げ、外側の at_node に任せる。
+   Int32 と Float64 は型引数を持たないので、
+   ここで付けた制約を bind がもう一度付けても結果は変わらない *)
+let default_to ~pred v t =
+  let same u = match repr u with TVar r -> r == v | _ -> false in
+  let origin c =
+    let from_holes =
+      List.filter_map (fun (_, (h : Tree.hole)) -> if h.h_id > !decl_hole_floor && h.h_sol = None && h.h_cls = c && same h.h_ty then Some h.h_loc else None) !holes
+    in
+    let from_literals c = List.filter_map (fun (r, c', loc) -> if c' = c && same (TVar r) then Some loc else None) !literal_origins in
+    match (List.rev from_holes, List.rev (from_literals c), List.rev (from_literals pred)) with
+    | loc :: _, _, _ | [], loc :: _, _ | [], [], loc :: _ -> Some loc
+    | [], [], [] -> None
+  in
+  (match !v with
+  | Unbound i ->
+      List.iter
+        (fun c ->
+          try add_class t c
+          with Type_error msg -> ( match origin c with Some loc -> raise (Type_error_at (loc, msg)) | None -> raise (Type_error msg)))
+        i.vcls
+  | _ -> ());
+  bind v t
 
 (* level より深い Unbound を Generic にする。Rigid は一般化しない。
    予約述語つきの変数は既定の型へ bind する(Integral → Int32、Fractional → Float64) *)
@@ -677,8 +739,8 @@ let rec generalize level t =
   | TVar v -> (
       match !v with
       | Unbound i when i.vlevel > level ->
-          if List.mem cls_integral i.vcls then bind v t_int32
-          else if List.mem cls_fractional i.vcls then bind v t_float64
+          if List.mem cls_integral i.vcls then default_to ~pred:cls_integral v t_int32
+          else if List.mem cls_fractional i.vcls then default_to ~pred:cls_fractional v t_float64
           else set_tv v (Generic i)
       | _ -> ())
   | TCon (_, args) -> List.iter (generalize level) args
@@ -733,17 +795,20 @@ let lower_levels ~since level t =
   go t
 
 (* 宣言の終わりに、台帳に残った述語つきの弱い変数を既定の型に落とす。
-   述語のない変数はどちらの分岐にも当たらず素通りする *)
+   述語のない変数はどちらの分岐にも当たらず素通りする。
+   台帳を古い順にたどるので、既定化の失敗が 2 つ以上あるときは、先に作った変数の失敗を報告する *)
 let default_numerics () =
   List.iter
     (fun (_, v) ->
       match !v with
       | Unbound { vcls; _ } ->
-          if List.mem cls_integral vcls then bind v t_int32
-          else if List.mem cls_fractional vcls then bind v t_float64
+          if List.mem cls_integral vcls then default_to ~pred:cls_integral v t_int32
+          else if List.mem cls_fractional vcls then default_to ~pred:cls_fractional v t_float64
       | _ -> ())
-    !class_vars;
-  class_vars := []
+    (List.rev !class_vars);
+  class_vars := [];
+  literal_origins := [];
+  decl_hole_floor := new_oid ()
 
 (* 型に現れる変数の vid の集合 *)
 let rec collect_vars t (acc : (oid, unit) Hashtbl.t) =
@@ -954,8 +1019,6 @@ let subst_params level args t =
 
 module TT = Tree
 
-let holes : (int * TT.hole) list ref = ref []
-
 let hole_seq = ref 0
 
 let hole_mark () = !hole_seq
@@ -1062,4 +1125,6 @@ let unsolved_holes () = List.filter (fun (_, (h : TT.hole)) -> h.h_sol = None) !
 
 let reset () =
   class_vars := [];
+  literal_origins := [];
+  decl_hole_floor := new_oid ();
   holes := []
