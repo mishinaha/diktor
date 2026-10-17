@@ -397,6 +397,39 @@ pub を付けてもエフェクト位置では使えないからである。Effe
   ! visrow21.kel:2:26: 型エラー: 型 M.T は module M の外からは参照できません(pub を付けてください)
   [1]
 
+行の要素に引数なしで書いた型パラメータは、行変数の合成として拒否する。
+同名の Type エイリアスが同じ module にあっても(visrow22)トップレベルにあっても
+(visrow23)、同名の module の Type エイリアスのコンパニオンが pub でも(visrow24)
+pub でなくても(visrow25)、同じ診断になる:
+
+  $ printf 'module M {\n  type E = Int32\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow22.kel
+  $ diktor --type-check visrow22.kel
+  ! visrow22.kel:3:31: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+  $ printf 'type E = Int32\nlet f[E](x: Int32): Int32 @ {Print, E} = x\n' > visrow23.kel
+  $ diktor --type-check visrow23.kel
+  ! visrow23.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+  $ printf 'module E { pub type E = Int32 }\nlet f[E](x: Int32): Int32 @ {E} = x\n' > visrow24.kel
+  $ diktor --type-check visrow24.kel
+  ! visrow24.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+  $ printf 'module E { type E = Int32 }\nlet f[E](x: Int32): Int32 @ {E} = x\n' > visrow25.kel
+  $ diktor --type-check visrow25.kel
+  ! visrow25.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
+  [1]
+
+同名の EffectRow エイリアスは、行の要素では型パラメータより先に当たる(visrow26)。
+`@ E` と書くと型パラメータが当たる(visrow26b)ので、`@ E` と `@ {E}` は別のものを指す。
+`@ Print` を `@ {Print}` の略記とする doc/sample.kel の規則とは食い違う、現状の振る舞いである:
+
+  $ printf 'module M {\n  type E: EffectRow = {Print}\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow26.kel
+  $ diktor --type-check visrow26.kel
+  M.f : (Int32) => Int32 @ {Print}
+  $ printf 'module M {\n  type E: EffectRow = {Print}\n  let g[E](x: Int32): Int32 @ E = x\n}\n' > visrow26b.kel
+  $ diktor --type-check visrow26b.kel
+  M.g : (Int32) => Int32
+
 同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
 クラス M のメソッド f と値環境で区別できないため):
 
