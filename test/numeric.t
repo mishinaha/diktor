@@ -342,9 +342,8 @@ i32、i64、f64 以外の接尾辞は言語に無いので、型エラー(終了
   2000.0
   1.0
 
-鍵は 3 通りの読みの積(260829-5 M12 検証修正)。Int32 列で読めない
-10 進と折り返す 16 進が同じ鍵に潰れず、到達可能な節に偽の冗長警告を
-出さない:
+Int32 の列で読めない 10 進 4294967295 は、同じビット列に折り返す
+16 進 0xFFFFFFFF と並べても、宣言の終わりに型エラーになる(LangSpec §4.2):
 
   $ cat > mask.kel <<'KEL'
   > let f(x: Int32): Int32 = x match {
@@ -354,10 +353,82 @@ i32、i64、f64 以外の接尾辞は言語に無いので、型エラー(終了
   > }
   > echoln(show(f(0 - 1)))
   > KEL
-  $ diktor mask.kel
-  2
-  $ diktor --type-check --strict-exhaustive mask.kel > /dev/null; echo "exit: $?"
-  exit: 0
+  $ diktor --type-check mask.kel
+  f : (Int32) => Int32
+  ! mask.kel:2:8: 型エラー: 数値リテラルのパターン 4294967295 は Int32 の範囲を超えるので、どの値にも一致しません
+  [1]
+
+Int64 の列では 0xFFFFFFFF と -1 は別の値なので、網羅性検査は両方の節を
+残し、-1 の節を冗長と報告しない(Int32 の読みでは同じ -1 になる):
+
+  $ cat > mask64.kel <<'KEL'
+  > let f(x: Int64): Int32 = x match {
+  >   case 0xFFFFFFFF => 1
+  >   case -1 => 2
+  >   case _ => 3
+  > }
+  > echoln(show(f(-1i64)) + show(f(4294967295i64)))
+  > KEL
+  $ diktor mask64.kel
+  21
+  $ diktor --type-check --strict-exhaustive mask64.kel
+  f : (Int64) => Int32
+  _ : {}
+
+パターンの整数リテラルは、宣言の終わりに照合する値の型で読み、読めなければ
+リテラルを指す型エラーにする(LangSpec §4.2)。10 進は符号付きの範囲、
+16 進はビット幅で決まる。入れ子のパターン、操作節の引数、型が既定化で
+Int32 に決まる注釈なしの引数でも同じ:
+
+  $ cat > litpat.kel <<'KEL'
+  > let a(x: Int32): Int32 = x match { case 0x1FFFFFFFF => 1  case _ => 2 }
+  > KEL
+  $ diktor litpat.kel
+  ! litpat.kel:1:41: 型エラー: 数値リテラルのパターン 0x1FFFFFFFF は Int32 の範囲を超えるので、どの値にも一致しません
+  [1]
+  $ printf 'let b(x: Int64): Int32 = x match { case 9223372036854775808 => 1  case _ => 2 }\n' > lit64.kel
+  $ diktor lit64.kel
+  ! lit64.kel:1:41: 型エラー: 数値リテラルのパターン 9223372036854775808 は Int64 の範囲を超えるので、どの値にも一致しません
+  [1]
+  $ printf 'let c(o: Option[Int32]): Int32 = o match { case Some(4294967295) => 1  case _ => 2 }\n' > litnest.kel
+  $ diktor litnest.kel
+  ! litnest.kel:1:54: 型エラー: 数値リテラルのパターン 4294967295 は Int32 の範囲を超えるので、どの値にも一致しません
+  [1]
+  $ printf 'let d = fn(x) => x match { case 4294967295 => 1i32  case _ => 2i32 }\n' > litdef.kel
+  $ diktor litdef.kel
+  ! litdef.kel:1:33: 型エラー: 数値リテラルのパターン 4294967295 は Int32 の範囲を超えるので、どの値にも一致しません
+  [1]
+  $ cat > litop.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = { perform ask(7) } handle {
+  >   case ask(4294967295) => resume(1)
+  >   case ask(_) => resume(2)
+  >   case return(v) => v
+  > }
+  > KEL
+  $ diktor litop.kel
+  ! litop.kel:3:12: 型エラー: 数値リテラルのパターン 4294967295 は Int32 の範囲を超えるので、どの値にも一致しません
+  [1]
+
+型の境界の字面と、型で読める字面は通る。局所の束縛で、網羅性検査の後に
+照合の型が Int64 に決まる形も、Int64 で読んで受理する:
+
+  $ cat > litok.kel <<'KEL'
+  > let f(x: Int32): Int32 = x match {
+  >   case 2147483647 => 1
+  >   case -2147483648 => 2
+  >   case 0xFFFFFFFF => 3
+  >   case _ => 4
+  > }
+  > let id[A](y: A): A = y
+  > let g(n: Int64): Int32 = {
+  >   let k = id(fn(x) => x match { case 4294967295 => 1  case _ => 2 })
+  >   k(n)
+  > }
+  > echoln(show(f(0 - 1)) + show(g(4294967295i64)))
+  > KEL
+  $ diktor litok.kel
+  31
 
 浮動小数の本体に整数接尾辞は書けない(D25 の副作用の封鎖。受理すると
 型検査を通ったリテラルが実行時に必ず落ちた):
