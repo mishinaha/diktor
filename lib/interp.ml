@@ -26,8 +26,8 @@
    | 深いハンドラ `handle { … }` | `match_with` 1 つ |
    | `perform op(args)` | `Effect.perform (Op (op, args))` |
    | `resume(e)` | `Effect.Deep.continue k v` |
-   | resume を呼ばずに節を抜ける | `discontinue k (Unwind (inst, v))` |
-   | 再開しない操作の節 | 節の本体の前に `discontinue`、本体は `effc` の末尾で評価 |
+   | resume を呼ばずに節を抜ける | `discontinue k (Unwind (inst, UValue v))` |
+   | 再開しない操作の節 | 節の本体の前に `discontinue`、本体は `exnc` の末尾で評価 |
    | `case return(x)` | `retc`(親のスタック上で走る) |
    | `case cancel` | `exnc` の中で節を走らせる |
    | 最も内側のハンドラが捕まえる | `effc` が `None` を返せば外側へ進む |
@@ -407,9 +407,9 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
       (* この分岐に来るのは、節本体の末尾の背骨の外にある resume だけである。
          背骨の上の resume は §14.9 の eval_clause_tail が処理する *)
       let r, v = take_resume env arg in
-      (* 末尾でない resume。再開した計算が再開しない操作の節で終わると、その節の本体の
-         閉包(破棄の印)が戻ってくるので、ここで評価した値を resume の返り値にする *)
-      (match Effect.Deep.continue r.r_k v with VPending f -> f () | v -> v)
+      (* 末尾でない resume。再開した計算が再開しない操作の節で終わると、その節の本体は
+         ハンドラの exnc で評価済みで、その値がここに戻る *)
+      Effect.Deep.continue r.r_k v
   | T.Run (_, body) -> eval env body (* 実行時は恒等。リージョンの安全性は型が保証する *)
 
 (* ## 14.5 関数の適用
@@ -642,15 +642,14 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    ### Unwind のプロトコル
 
-   `Unwind (inst, v)` は、例外の形をした通知である。
-   resume されずに終わった節の値 `v` を、
-   `inst` 番のハンドラの handle 式全体の値として届けることを依頼する。
-   再開しない操作の節では、`v` は節の本体を評価する閉包(`VPending`。破棄の印)で、
-   受け取った側が評価する
-   (下の「再開しない操作の節」)。
+   `Unwind (inst, u)` は、例外の形をした通知である。
+   `inst` 番のハンドラに、handle 式全体の値をそこで決めることを依頼する。
+   `u` は、resume されずに終わった再開する操作の節の値 `UValue v` か、
+   再開しない操作の節の本体を評価する閉包 `UClause f` である。
+   閉包は、受け取ったハンドラの `exnc` が評価する(下の「再開しない操作の節」)。
 
    1. 節が resume を呼ばずに `v` を返す。
-   2. `discontinue k (Unwind (inst, v))` で、捨てる継続の中にこの例外を送り込む。
+   2. `discontinue k (Unwind (inst, UValue v))` で、捨てる継続の中にこの例外を送り込む。
    3. 中断された計算の断片が、内側から巻き戻る。
       途中のハンドラは `exnc` で自分宛てでない `Unwind` を受け取り、
       `cancel` 節を走らせてから再送出する。
@@ -670,7 +669,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    | 節の終わり方 | 処理 | 理由 |
    |---|---|---|
    | resume した後に値 `v` を返した | `v` を返す | 継続は消費済みで、返り値が handle 式の値になる |
-   | resume せずに値 `v` を返した | `discontinue k (Unwind (inst, v))` | 捨てた継続の中の cancel 節を走らせる |
+   | resume せずに値 `v` を返した | `discontinue k (Unwind (inst, UValue v))` | 捨てた継続の中の cancel 節を走らせる |
    | 例外 `ex` で脱出した | resume していなければ `discontinue k ex` | 捨てた継続の中と自分の cancel 節を走らせる |
 
    2 行目で `v` を直接返すと、捨てた継続の中にあるハンドラの `cancel` 節が走らず、資源が漏れる。
@@ -701,55 +700,47 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    返り値の型が `Never` の操作(再開しない操作。第11章 §11.15)の節には、
    第11章が `RNeverOp` の印を付ける。
    この節は `resume` を持てないので、継続を捨てる時点を節の評価の前に動かせる。
-   `effc` は、節を選んだ後、`discontinue k (Unwind (inst, 印))` で継続を捨てる。
-   印は、節の本体を評価する閉包(`VPending`)で、破棄ごとに新しく確保する。
+   `effc` は、節を選んだ後、節の本体を評価する閉包 `f` を作り、
+   `discontinue k (Unwind (inst, UClause f))` を末尾で呼んで継続を捨てる。
    捨てる継続の中のハンドラは内側から外側の順に `cancel` 節を走らせ、
-   最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、
-   載っていた印を持って `discontinue` が戻る。
-   印が戻った後、節の本体を `effc` の関数の末尾で評価し、その値が handle 式の値になる。
+   最後に自分の `exnc` が自分宛ての `Unwind` を受け取って、`f` を末尾で呼ぶ。
+   その値が handle 式の値になる。
    継続が無いので、3 つの経路の包み(`match … with exception`)は要らない。
-   本体の実行時エラーはそのまま `effc` の外へ出て、自分の `exnc` を通らないので、
+   本体の実行時エラーはそのまま `exnc` の外へ出て、自分の `exnc` には戻らないので、
    自分の `cancel` 節は走らない。
    本体から操作を起こして外側のハンドラが継続を捨てるときも同じである。
    同じエフェクトへの再送出でも、別のエフェクトの再開しない操作でも、
    resume しない外側の節でも変わらない。
+
    送った `Unwind` が、捨てる継続の中の `cancel` 節の打ち切り(下の「cancel 節の実行文脈」)で止まることがある。
    `cancel` 節が再開しない操作を起こした場合である。
-   このとき `discontinue` は、本体が返した値か、先に送られていた別の破棄の印を持って戻る。
+   このとき、自分宛ての `Unwind` は自分の `exnc` に届かず、`f` は呼ばれない。
+   ハンドラの本体はそのまま続き、その値か、先に送られていた別の破棄の節の値が、
+   `discontinue` の値になる。
    後者は、破棄を進めている当のハンドラが `cancel` 節からの操作を受け取ったときで、
-   先の破棄の `Unwind` が自分の `exnc` に届き、その印が内側の `discontinue` に戻る。
-   そこで、印は破棄ごとに新しく確保し、
-   `discontinue` が自分の印を持って戻ったときだけ本体を評価する。
-   印が戻らなければ節の本体を評価せず、戻った値をそのまま返す。
-   内側の `effc` が返した先の破棄の印は、外側の `discontinue` か末尾でない `resume` の戻り値になり、
-   そこで先の操作の節の本体が走る。
-   印を 1 つの真偽値で持つと、当のハンドラが受け取った場合に打ち切られた操作の節の本体が走り、
-   先の操作の節の本体が走らない。
-   印を使わずに常に本体を評価すると、本体が正常に終わった後に節の本体が走り、本体の値が捨てられる。
+   先の破棄の `Unwind` が自分の `exnc` に届き、そこで先の操作の節の本体が走る。
+   どの節の本体が走るかは、どの `Unwind` が `exnc` に届いたかだけで決まるので、
+   破棄ごとの印も、印の照合も要らない。
+   本体を `effc` の中で `discontinue` が戻った後に評価する形では、
+   `discontinue` が先の破棄の値を持って戻ったときに打ち切られた節の本体を走らせないよう、
+   破棄ごとの印で区別しなければならない。
    回帰テストは `test/never_ops.t` の cancelnormal と cancelsame である。
 
-   印が、同じハンドラの再開する操作の節の、末尾でない `resume` の戻り値として届くこともある。
+   先の破棄の節の値が、同じハンドラの再開する操作の節の、
+   末尾でない `resume` の戻り値になることもある。
    捨てる継続の中の `cancel` 節がその操作を起こし、その節が末尾でない `resume` で再開した場合で、
-   再開した計算が先の破棄で終わると、`continue` は印を持って戻る。
-   §14.4 の `Resume` は、戻り値が `VPending` ならその閉包を評価し、
-   その値を `resume` の返り値にする。
+   再開した計算が先の破棄で終わると、`exnc` が評価した節の値を持って `continue` が戻る。
    仕様(LangSpec.md §13.6)が、末尾位置にない `resume` で再開した計算の中では節の値がその `resume` の返り値になる、
    と定めているのにあたる。
-   印を閉包ではなく値にすると、この経路で印が利用者の値として漏れ、節の本体が走らない。
    回帰テストは `test/never_ops.t` の cancelresume である。
-   この分岐のために §14.4 の `Resume` の `continue` は末尾呼び出しでなくなり、
-   末尾でない `resume` を入れ子にできる深さは、
-   小さいスタックの上限の下で 2 割強浅くなる(再開しない操作を使わないプログラムも同じ)。
-   末尾でない `resume` は仕様が領域を保証しない範囲である(LangSpec.md §5.7)。
-   判定を `exnc` に移せば `continue` を末尾に保てるが、採っていない。
+   §14.4 の `Resume` は戻り値を調べないので、`continue` は末尾呼び出しである。
 
-   打ち切られたハンドラの `effc` は、`discontinue` が戻るまで、
-   つまりそのハンドラ式の値が決まるまで枠を残す。
-   打ち切られたのが破棄を進めている当のハンドラなら、進めていた破棄が終わって枠はすぐ戻る。
-   別のハンドラが打ち切られると、
-   その後にそのハンドラの本体の中で評価される節の本体(再試行の再帰など)は、
-   残った枠の上で走り、繰り返すと領域が回数に比例して増える。
-   仕様(LangSpec.md §5.7)はこの形を末尾位置の保証から除いている。
+   `effc` は `discontinue` を末尾で呼ぶので、`discontinue` が戻るのを待つ枠を残さない。
+   打ち切られたハンドラが、破棄を進めている当のハンドラでも別のハンドラでも、
+   打ち切りの後にそのハンドラの本体の中で評価される節の本体(再試行の再帰など)は、
+   打ち切りの回数によって領域を増やさない。
+   回帰テストは `test/tail_calls.t` の retrycancel と retrycancelvia である。
+
    仕様(LangSpec.md §13.6)は、再開しない操作の節の本体をハンドラの外側で評価し、
    ハンドラ自身の `return` 節と `cancel` 節を実行しないと定めている。
    内側の `cancel` 節が節の本体より先に走る順序は `test/never_ops.t` の order が、
@@ -815,7 +806,7 @@ and eval_rec_bindings env (bs : T.let_binding list) =
    `match_with` の結果を受け取ってから何かをする形にすると、`return` 節の経路で
    `eval_handle` の枠が再帰の段ごとに残り、
    `test/tail_calls.t` の retc.kel が小さいスタックの上限で落ちる。
-   再開しない操作の節の本体を、`match_with` の後ではなく `effc` の末尾で評価するのは、
+   再開しない操作の節の本体を、`match_with` の後ではなく `exnc` の末尾で評価するのは、
    このためである。
 
    ### アフィンな resume と second-class
@@ -995,9 +986,10 @@ and eval_handle env body clauses =
       exnc =
         (fun ex ->
           match ex with
-          (* 自分宛ての巻き戻し。保留していた節の値(再開しない操作の節では破棄の印)を
-             discontinue の戻り値として effc に返す *)
-          | Unwind (id, v) when id = inst -> v
+          (* 自分宛ての巻き戻し。再開する操作の節の値はそのまま返し、再開しない操作の
+             節の本体はここで末尾で評価する。どちらも handle 式の値になる *)
+          | Unwind (id, UValue v) when id = inst -> v
+          | Unwind (id, UClause f) when id = inst -> f ()
           | ex ->
               (* 外側による巻き戻し(または実行時エラー)の通過。cancel 節を実行してから再送出する *)
               run_cancel ();
@@ -1047,20 +1039,14 @@ and eval_handle env body clauses =
                           Effect.Deep.discontinue k
                             (Runtime_error ("handle のどの節にも一致しません: " ^ Type.display_of op ^ show args))
                       | Some (locals, c, `Never) ->
-                          (* 再開しない操作の節。継続を先に捨てて(捨てた継続の中の cancel 節を
-                             走らせ、自分の exnc が Unwind を受け取る)、節の本体をこの関数の
-                             末尾で評価する。継続は無いので、本体の例外に備える包みは要らず、
-                             自分の cancel 節も走らない。Unwind には、節の本体を評価する閉包を
-                             破棄ごとに新しく確保して載せる。discontinue が同じ閉包(物理的に
-                             同じ値)を持って戻ったときだけ本体を評価する。閉包が戻らないのは、
-                             送った Unwind が cancel 節の打ち切りで止まったときで、本体の値か、
-                             先に送った別の破棄の閉包が戻る。そのときは本体を評価せず、戻った
-                             値をそのまま返す。閉包が末尾でない resume の戻り値として別の節に
-                             届いたときは、その節が評価する(§14.4 の Resume) *)
-                          let tok = VPending (fun () -> eval { env with locals; resume = None } c.T.cl_body) in
-                          (match Effect.Deep.discontinue k (Unwind (inst, tok)) with
-                          | VPending f as v when v == tok -> f ()
-                          | v -> v)
+                          (* 再開しない操作の節。節の本体の閉包を Unwind に載せて継続を
+                             末尾で捨てる。捨てた継続の中の cancel 節が走った後、自分の exnc が
+                             閉包を受け取って本体を評価する。継続は無いので、本体の例外に備える
+                             包みは要らず、自分の cancel 節も走らない。送った Unwind が cancel 節の
+                             打ち切りで止まったときは exnc に届かず、本体は評価されない。
+                             discontinue を末尾で呼ぶので、この関数の枠は残らない *)
+                          Effect.Deep.discontinue k
+                            (Unwind (inst, UClause (fun () -> eval { env with locals; resume = None } c.T.cl_body)))
                       | Some (locals, c, `Resumable tail) -> (
                           match snd c.T.cl_body with
                           | T.Resume arg -> (
@@ -1090,7 +1076,7 @@ and eval_handle env body clauses =
                               match eval { env with locals; resume = Some r } c.T.cl_body with
                               | v ->
                                   r.r_alive <- false;
-                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
+                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, UValue v))
                               | exception ex ->
                                   r.r_alive <- false;
                                   if r.r_used then raise ex else Effect.Deep.discontinue k ex)
@@ -1106,7 +1092,7 @@ and eval_handle env body clauses =
                                   r.r_alive <- false;
                                   (* resume していなければ継続を巻き戻し、
                                      自分の exnc で v を受け取り直す *)
-                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, v))
+                                  if r.r_used then v else Effect.Deep.discontinue k (Unwind (inst, UValue v))
                               | exception ex ->
                                   (* 節が例外で脱出したときも、resume していなければ
                                      discontinue して、捨てた継続の中の cancel 節を走らせる。
