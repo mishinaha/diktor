@@ -93,6 +93,90 @@ from と import は予約語である:
   pb2.kel:2:1: 構文エラー: ブロックの中の let rec には pub を付けられません(with より後ろの宣言は公開できません)
   [2]
 
+## インスタンスの本体の pub
+
+type instance の本体の let と let rec に付けた pub は構文エラーにする。位置は type instance の
+type の位置で、最初の pub のメソッドの名前を文面に出す。pi1 は注釈が完全で本体が純粋な
+pub let の形で、これも拒否する:
+
+  $ cat > pi1.kel <<'KEL'
+  > type class Describe[A] {
+  >   val describe: (A) => String
+  > }
+  > type instance Describe[Int32] {
+  >   pub let describe(n: Int32): String = "int"
+  > }
+  > echoln(describe(1i32))
+  > KEL
+  $ diktor pi1.kel
+  pi1.kel:4:1: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): describe
+  [2]
+
+pi2 は module の中のインスタンスの pub let rec で、位置は module の中の type(3:3)である。
+pi3 は 2 つのメソッドの 2 つ目にだけ pub を付けた形で、名前 second を挙げる。pi4 は
+pub type instance の本体に pub を付けた形で、インスタンスの pub の診断より先に本体の pub を
+報告する(位置は type の 2:5):
+
+  $ cat > pi2.kel <<'KEL'
+  > pub newtype Box(Int32)
+  > module M {
+  >   type instance Show[Box] {
+  >     pub let rec show(b: Box): String = "box"
+  >   }
+  > }
+  > KEL
+  $ diktor pi2.kel
+  pi2.kel:3:3: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): show
+  [2]
+  $ cat > pi3.kel <<'KEL'
+  > type class Pair[A] {
+  >   val first: (A) => Int32
+  >   val second: (A) => Int32
+  > }
+  > type instance Pair[Int32] {
+  >   let first(n: Int32): Int32 = n
+  >   pub let second(n: Int32): Int32 = n
+  > }
+  > KEL
+  $ diktor pi3.kel
+  pi3.kel:5:1: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): second
+  [2]
+  $ cat > pi4.kel <<'KEL'
+  > type class D[A] { val d: (A) => Int32 }
+  > pub type instance D[Boolean] { pub let d(b: Boolean): Int32 = 0i32 }
+  > KEL
+  $ diktor pi4.kel
+  pi4.kel:2:5: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): d
+  [2]
+
+pi/lib.kel のインスタンスは pub を持たない。pi/main.kel はクラス Describe を import し、
+メソッドを名前 describe で使える。pi/main2.kel のように describe を import に並べると、
+公開の宣言が無いと報告する:
+
+  $ mkdir -p pi
+  $ cat > pi/lib.kel <<'KEL'
+  > pub type class Describe[A] {
+  >   val describe: (A) => String
+  > }
+  > pub newtype Box(Int32)
+  > type instance Describe[Box] {
+  >   let describe(b: Box): String = "box"
+  > }
+  > KEL
+  $ cat > pi/main.kel <<'KEL'
+  > from "./lib" import { Describe, Box }
+  > echoln(describe(Box(1i32)))
+  > KEL
+  $ diktor pi/main.kel
+  box
+  $ cat > pi/main2.kel <<'KEL'
+  > from "./lib" import { Describe, Box, describe }
+  > echoln(describe(Box(1i32)))
+  > KEL
+  $ diktor pi/main2.kel
+  ! pi/main2.kel:1:38: import エラー: ./lib に describe という公開の宣言はありません
+  [1]
+
 ## 読み込み
 
 import の循環は、循環を閉じた import 文の位置で報告し、循環に入っているファイルだけを並べる。
