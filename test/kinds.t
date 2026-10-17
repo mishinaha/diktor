@@ -1144,6 +1144,71 @@ D82 の型引数の読み分けから呼ぶときだけ照合を抑制する(~ch
   ! effkind6.kel:2:26: 型エラー: エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けてください)
   [1]
 
+逆向きに、注記の無いエイリアス(と : Type のエイリアス)の本体が行になる形は、
+宣言の位置で落とす。このエイリアスは値の型の位置ではカインドで落ち、エフェクト
+位置では Type エイリアスとして落ちるので、どこにも書けない。診断は : EffectRow
+の注記を案内する:
+
+  $ cat > aliasrow.kel <<'EOF'
+  > effect Log = { log: (String) => Unit }
+  > type P: EffectRow = {Log}
+  > type Q = P
+  > EOF
+  $ diktor --type-check aliasrow.kel
+  ! aliasrow.kel:3:10: 型エラー: Type エイリアス Q の本体のカインドが Type ではありません: {Log} :: Row(行に名前を付けるには : EffectRow を付けてください)
+  [1]
+  $ printf 'effect Log = { log: (String) => Unit }\ntype P: EffectRow = {Log}\ntype Q: Type = P\n' > aliasrow2.kel
+  $ diktor --type-check aliasrow2.kel
+  ! aliasrow2.kel:3:16: 型エラー: Type エイリアス Q の本体のカインドが Type ではありません: {Log} :: Row(行に名前を付けるには : EffectRow を付けてください)
+  [1]
+
+パラメータを持つエイリアスも同じ。宣言を通すと @ Q[E] と行を取る型引数の位置
+(Callback[Q[E]])では展開後のカインドで照合されて使えてしまうが、Type エイリアス
+を行の位置に書いていることに変わりはない:
+
+  $ cat > aliasrow3.kel <<'EOF'
+  > effect Log = { log: (String) => Unit }
+  > type P[E]: EffectRow = {Log extends E}
+  > type Q[E] = P[E]
+  > let f[E](x: Int32): Int32 @ Q[E] = x
+  > EOF
+  $ diktor --type-check aliasrow3.kel
+  ! aliasrow3.kel:3:13: 型エラー: Type エイリアス Q の本体のカインドが Type ではありません: {Log extends ς1} :: Row(行に名前を付けるには : EffectRow を付けてください)
+  [1]
+
+import したファイルのエイリアスでも、診断はファイルの中での名前で出る:
+
+  $ printf 'effect Log = { log: (String) => Unit }\npub type P[E]: EffectRow = {Log extends E}\npub type Q[E] = P[E]\npub type Id[A] = A\n' > aliasrowlib.kel
+  $ printf 'from "./aliasrowlib" import { Id }\nlet x: Id[Int32] = 4\n' > aliasrowmain.kel
+  $ diktor --type-check aliasrowmain.kel
+  ! aliasrowlib.kel:3:17: 型エラー: Type エイリアス Q の本体のカインドが Type ではありません: {Log extends ς1} :: Row(行に名前を付けるには : EffectRow を付けてください)
+  [1]
+
+落とすのは本体が行のときだけである。高階カインドのパラメータを裸で書いた本体は
+Type ではないが、別のエイリアスの引数(App[Q[F]])の形で使えるので、宣言を通す:
+
+  $ cat > aliasrow4.kel <<'EOF'
+  > type Q[F[_]] = F
+  > type App[G[_]] = G[Int32]
+  > let get[F[_]](x: App[Q[F]], f: (F[Int32]) => Int32): Int32 = f(x)
+  > echoln(show(get(Some(5), fn(o) => o match { case Some(n) => n case None => 0 })))
+  > EOF
+  $ diktor aliasrow4.kel
+  5
+
+この照合はパス 2 で宣言順に走る。エイリアスより前の宣言がそれを使っていれば、
+使用点の診断が先に出る:
+
+  $ cat > aliasrow5.kel <<'EOF'
+  > effect Log = { log: (String) => Unit }
+  > let f(x: Int32): Int32 @ Q = x
+  > type P: EffectRow = {Log}
+  > type Q = P
+  > EOF
+  $ diktor --type-check aliasrow5.kel
+  ! aliasrow5.kel:2:26: 型エラー: エフェクト位置に Type エイリアス Q は使えません(: EffectRow を付けてください)
+  [1]
+
 最後の枝へ通る 3 つ目の道は {… extends <ty>} の右(文法の extends は eff ではなく
 ty を取る)。この経路ができたぶん、EBraceRow の枝の「extends の右は行でなければ
 なりません」は到達不能になった(枝は安全網として残してある):
