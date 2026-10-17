@@ -607,9 +607,9 @@ long_id:
    `header` に `semi header` を足す形では、`items` の `semi items` と同じ区切りを
    2 通りに読むことになり、reduce/reduce の衝突が出る。
    ファイルの先頭に `;` を書いた後の import は、
-   `items` の `semi items` に入るのでパースエラーになる。
+   `items` の `semi items` に入るので構文エラーになる。
    改行だけでは先頭の区切りは生じない(直前のトークンが無いので、最初の改行は捨てられる)。
-   import の名前は 2 段まで(`M.f`)で、`D.E.f` は 2 個目の `.` でパースエラーになる。 *)
+   import の名前は 2 段まで(`M.f`)で、`D.E.f` は 2 個目の `.` で構文エラーになる。 *)
 
 program: header EOF { $1 }
 
@@ -1166,7 +1166,7 @@ guard_opt: { None } | IF exp { Some $2 }
    パターンの文法に `|` を出さなければ、必要になってから足しても既存の文法と衝突しない。
    節パターンの型注釈(`case n: Int32 =>`)も無い。
    入れる場合は、矢印を含む型注釈に括弧が必須になる(第2章 §2.10)。
-   どちらも入っていないことを、`test/nonfeatures.t` がパースエラーの位置も含めて固定している。 *)
+   どちらも入っていないことを、`test/nonfeatures.t` が構文エラーの位置も含めて固定している。 *)
 
 pat:
   | LOWLINE                           { mk $sloc PWildcard }

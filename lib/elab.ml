@@ -645,7 +645,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    表の 2 行目のうち、レコード型のフィールドとタプル型の要素は、
    仕様 §9 の入れ子の矢印の一覧にも挙がっている(sample.kel:498-500)。
    レコード型のフィールドにも裸の矢印を書ける。
-   `{run: () => Unit}` がパースエラーになるのは矢印のせいではなく、
+   `{run: () => Unit}` が構文エラーになるのは矢印のせいではなく、
    `run` が予約語(§2.4)で、ラベルの位置に置けないからである。
    フィールド名を変えれば書け、省略した `@` はほかの入れ子と同じく `@ {}` になる
    (`test/annot_rows.t` の nestrec、`test/nonfeatures.t` の kwlabel)。
