@@ -372,7 +372,7 @@ clsvalrow は、注釈を書かない値束縛の初期化式で、@ Print と�
   > echoln(show(Cons(Op(1), Nil)))
   > KEL
   $ diktor --type-check pshowop.kel
-  ! pshowop.kel:2:13: 型エラー: Opaque は Show のインスタンスではありません
+  ! pshowop.kel:2:13: 型エラー: Opaque は Show のインスタンスではありません。List[Opaque] が Show であるための前提として要求されました
   [1]
 
 同梱プレリュードの下でユーザが同じ頭をもう一度宣言すると、コヒーレンス違反に

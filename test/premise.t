@@ -35,7 +35,7 @@
   > let ng = Cons(MkOpaque(1i32), Nil) == Cons(MkOpaque(1i32), Nil)
   > EOF
   $ diktor --type-check --no-prelude pr2.kel
-  ! pr2.kel:10:10: 型エラー: Opaque は Eq のインスタンスではありません
+  ! pr2.kel:10:10: 型エラー: Opaque は Eq のインスタンスではありません。List[Opaque] が Eq であるための前提として要求されました
   [1]
 
 前提が構造的導出の先へも届く(レコードのフィールドが List[Opaque]):
@@ -55,7 +55,7 @@
   > EOF
   $ diktor --type-check --no-prelude pr3.kel
   ok : ({xs: List[Int32]}, {xs: List[Int32]}) => Boolean
-  ! pr3.kel:11:65: 型エラー: Opaque は Eq のインスタンスではありません
+  ! pr3.kel:11:65: 型エラー: Opaque は Eq のインスタンスではありません。List[Opaque] が Eq であるための前提として要求されました
   [1]
 
 束縛子を書かないと頭のカインドが合わない(Eq は Type のクラス):
@@ -303,12 +303,12 @@ module 越しの前提つきインスタンス(頭は修飾名 M.L[_]):
   > EOF
   $ diktor --type-check --no-prelude pr17.kel
   ok : (Pair[Int32, Int32], Pair[Int32, Int32]) => Boolean
-  ! pr17.kel:9:68: 型エラー: Opaque は Sh のインスタンスではありません
+  ! pr17.kel:9:68: 型エラー: Opaque は Sh のインスタンスではありません。Pair[Int32, Opaque] が Eq であるための前提として要求されました
   [1]
   $ sed 's/Pair\[Int32, Opaque\]/Pair[Opaque, Int32]/g; s/ng1/ng2/' pr17.kel > pr18.kel
   $ diktor --type-check --no-prelude pr18.kel
   ok : (Pair[Int32, Int32], Pair[Int32, Int32]) => Boolean
-  ! pr18.kel:9:68: 型エラー: Opaque は Eq のインスタンスではありません
+  ! pr18.kel:9:68: 型エラー: Opaque は Eq のインスタンスではありません。Pair[Opaque, Int32] が Eq であるための前提として要求されました
   [1]
 
 束縛子が穴より少ない形(部分適用の頭に前提が載る唯一の組み合わせ — 頭は
@@ -326,5 +326,5 @@ module 越しの前提つきインスタンス(頭は修飾名 M.L[_]):
   > EOF
   $ diktor --type-check --no-prelude pr19.kel
   use1 : (P2[Int32, Int32]) => P2[Int32, Int32]
-  ! pr19.kel:8:57: 型エラー: Opaque は Eq のインスタンスではありません
+  ! pr19.kel:8:57: 型エラー: Opaque は Eq のインスタンスではありません。P2[Opaque] が Functor であるための前提として要求されました
   [1]

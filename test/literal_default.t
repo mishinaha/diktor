@@ -57,7 +57,7 @@ Fractional には穴が無いので、Fractional を付けたリテラル 1.5 �
   > let z = c(Box(1.5))
   > KEL
   $ diktor premlit.kel
-  ! premlit.kel:5:9: 型エラー: Float64 は C のインスタンスではありません
+  ! premlit.kel:5:9: 型エラー: Float64 は C のインスタンスではありません。Box[Float64] が C であるための前提として要求されました
   [1]
 
 weaklit では、制約 C を持ち込んだ c の参照は 6 行目の g の宣言にある。
@@ -78,7 +78,7 @@ g の右辺は関数の適用で一般化しないので、C は 7 行目の宣�
   $ diktor --type-check weaklit.kel
   ident : (A) => A
   g : [_A: C] (_A) => Int32 @ {}
-  ! weaklit.kel:7:15: 型エラー: Float64 は C のインスタンスではありません
+  ! weaklit.kel:7:15: 型エラー: Float64 は C のインスタンスではありません。Box[Float64] が C であるための前提として要求されました
   [1]
 
 orderlit は、関数の本体に一般化しない束縛 u と w を並べ、どちらの既定化も失敗する。
