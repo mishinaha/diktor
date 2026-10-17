@@ -74,9 +74,11 @@ perform の式が要求される型になる。match の腕にそのまま置け
   caught x
   0
 
-従来の書き方 perform op(..) match {} は、照合対象の型変数に制約が付かず、束縛の型にも
-現れないので Never に決まり(§11.2)、網羅漏れの警告は出ない。同じ形から match {} を外しても、
-照合対象を Never と注釈しても、出力は同じである:
+absurd の get は、let で束縛した関数の本体で、再開しない操作の perform の結果を直接
+match {} で照合する。この get の照合対象の型変数は Never に決まり(§11.2)、網羅漏れの警告は
+出ない。absurdplain は get から match {} を外したもので、出力は absurd と同じである。
+absurdann は照合対象を Never と注釈した局所の値束縛 z で受けてから照合し、get(None) は
+absurd と同じく -1 を返す:
 
   $ cat > absurd.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
