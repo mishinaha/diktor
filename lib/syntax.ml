@@ -710,6 +710,12 @@ module Type = struct
      操作と一緒に直接登録する(理由は §1.10) *)
   let eff_heap = intern "Heap"
 
+  (* 第 1 引数がリージョンである組み込みの型構成子。
+     第8章は、この位置の不一致を述べる文言を選ぶのに使う *)
+  let ty_ref = intern "Ref"
+
+  let ty_mutable_array = intern "MutableArray"
+
   let eff_blocking = intern "Blocking"
 end
 

@@ -573,6 +573,10 @@ let rec unify a b =
     | _, Some v -> bind v t1
     | None, None -> (
         match (t1, t2) with
+        | TCon (n1, r1 :: as1), TCon (n2, r2 :: as2)
+          when n1 = n2 && (n1 = ty_ref || n1 = ty_mutable_array) && List.length as1 = List.length as2 ->
+            unify_region (name_of n1 ^ " の第 1 引数") (fun msg -> msg) r1 r2;
+            List.iter2 unify as1 as2
         | TCon (n1, as1), TCon (n2, as2) when n1 = n2 && List.length as1 = List.length as2 ->
             List.iter2 unify as1 as2
         | TApp (f1, a1), TApp (f2, a2) ->
@@ -641,9 +645,21 @@ and split_last = function
    この検査が無いと、推論器が停止しなくなる。
 
    フィールドの単一化が `Heap` ラベルで失敗したときは、エラーメッセージを差し替える。
-   `Heap[h]` の `h` は `run` が与えた剛定数なので、ここでの不一致はほぼ確実に、
-   別の `run` のスコープのヒープを使おうとしたことを意味する。
-   そのため、「スコープ付きの型が一致しません」より原因に近い言葉で伝える。
+   言い換えは `unify_region` が受け持ち、失敗した 2 つの型の形で 2 通りに分かれる。
+
+   - どちらも型変数のとき。
+     元の文言を、別の `run` のスコープのヒープを使おうとしている、という言葉で包む。
+     片方が注釈の型パラメータのリージョンでも、文言は同じである。
+   - どちらかが型変数でないとき。
+     `run` のリージョン変数と型パラメータは、単一化の中では型変数として現れる。
+     `@ Heap[Int32]` の `Int32` は型変数でないので、リージョンを表していない。
+     そこで、その型がリージョンではないことを述べる。
+     リージョン変数のカインドは `Type` なので、注釈の検査はこの形を拒否しない。
+     剛定数の名前 `ς1` を見せても、利用者は書いた `Int32` が原因だと読み取りにくい。
+
+   `Ref` と `MutableArray` の第 1 引数も同じ位置づけなので、§8.7 の `unify` は、
+   この 2 つの型構成子の第 1 引数を `unify_region` で単一化する。
+   こちらは、どちらも型変数のときは元の文言をそのまま使う。
 
    `rewrite_row` はラベルの名前だけで一致を判定し、
    ラベル引数(`Heap[h]` の `h`)は見つけた後で単一化する。
@@ -658,9 +674,23 @@ and unify_row label field rest row2 =
   (match tail_before with
   | Some tv -> ( match !tv with Link _ -> type_error "再帰的な行型が発生しました" | _ -> ())
   | None -> ());
-  (try unify field field2
-   with Type_error msg when label = eff_heap -> type_error ("別の run スコープのヒープを使おうとしています(" ^ msg ^ ")"));
+  if label = eff_heap then
+    unify_region "Heap の引数" (fun msg -> "別の run スコープのヒープを使おうとしています(" ^ msg ^ ")") field field2
+  else unify field field2;
   unify rest rest2
+
+(* リージョンの位置の 2 つの型を単一化する。
+   失敗したとき、どちらかが型変数でなければ、その型はリージョンではないと述べる。
+   どちらも型変数なら、元の文言を both で包んで報告する *)
+and unify_region what both r1 r2 =
+  let non_region = match (repr r1, repr r2) with TVar _, TVar _ -> None | TVar _, t | t, _ -> Some t in
+  try unify r1 r2
+  with Type_error msg -> (
+    match non_region with
+    | Some t ->
+        type_error
+          (what ^ " " ^ show t ^ " はリージョンではありません。" ^ what ^ "には run のリージョン変数か型パラメータを書きます")
+    | None -> type_error (both msg))
 
 (* ## 8.9 一般化
 
