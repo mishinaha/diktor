@@ -2,7 +2,7 @@
  (public_name diktor)
  (libraries sedlex menhirLib unix)
  (modules lexer parser syntax tree aux location dump prims decls unify show
-   exhaust elab value builtin interp prelude_embed driver ir ir_write ir_text ir_bin ir_check)
+   exhaust elab value builtin interp prelude_embed driver ir ir_write ir_text ir_bin ir_check ir_eval)
  (preprocess
   (pps sedlex.ppx)))
 
