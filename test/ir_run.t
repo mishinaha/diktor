@@ -391,3 +391,20 @@ n 段の `1 + (...)` の式は、深さ n + 1 のノードを持つ。
   $ diktor --via-ir nest_over.kel; echo "exit: $?"
   diktor: KIR を書き出せません: 処理系の限度: KIR の書き出しで入れ子が深すぎます
   exit: 1
+
+作る場所の鎖が輪になる `handlebody` の関数は持ち主を持たず、その中の `resume` は拒否する(IRSpec 13.8 節の 9)。
+cyc.kel の操作節 f$h0.op.ask は f$h1.body を作り、f$h1.body は f$h2.body を、f$h2.body は f$h3.body を作る。
+f$h2.body は `resume` を含み、その持ち主は操作節 f$h0.op.ask である。
+操作節が作る関数を f$h3.body に、f$h2.body が作る関数を f$h1.body に書き換えると、
+f$h1.body と f$h2.body は互いを作り、どちらの鎖も操作節に届かない。
+検証は輪をたどり続けずに、65 で終える。
+
+  $ cat > cyc.kel <<'EOF'
+  > effect Ask = { ask: () => Int32 }
+  > let f(): Int32 = perform ask() handle { case ask() => ((1 handle { case ask() => 0 }) + resume(1) handle { case ask() => 0 }) handle { case ask() => 0 } }
+  > EOF
+  $ diktor --no-prelude --emit-ir cyc.kir cyc.kel && diktor --run-ir cyc.kir; echo "exit: $?"
+  exit: 0
+  $ cp cyc.kir c1.kir && printf '\007' | dd of=c1.kir bs=1 seek=914 conv=notrunc 2> /dev/null && patch_kir c1.kir 967 '\003'
+  diktor: KIR の検証に失敗しました: 関数 main/f$h2.body: resume を書けない関数に resume があります
+  exit: 65
