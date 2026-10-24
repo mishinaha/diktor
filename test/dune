@@ -1,4 +1,25 @@
+; DIKTOR_VIA_IR は、旗の無い実行を KIR の経路に切り替える。
+; dune は環境変数を依存として追わないので、明示しておく。
+; 明示しないと、DIKTOR_VIA_IR=1 で走らせた結果を、普段の runtest が使い回す。
+
 (cram
  (deps
   %{bin:diktor}
+  (env_var DIKTOR_VIA_IR)
   (glob_files sample/*.kel)))
+
+; cram の全体を KIR の経路(DIKTOR_VIA_IR=1)で走らせ直す。
+; via-ir-exclude.txt に載ったコマンドだけは、木の評価器で走らせる。
+; dune の cram はコマンドを除外できないので、via_ir_run.py が cram と同じ形で走らせる。
+
+(rule
+ (alias runtest-via-ir)
+ (deps
+  via_ir_run.py
+  via-ir-exclude.txt
+  %{bin:diktor}
+  (env_var DIKTOR_VIA_IR)
+  (glob_files *.t)
+  (glob_files sample/*.kel))
+ (action
+  (run python3 via_ir_run.py --diktor %{bin:diktor} --exclude via-ir-exclude.txt)))

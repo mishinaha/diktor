@@ -47,7 +47,7 @@ open Aux
 
 (* ## 16.1 旗とモード
 
-   旗は 8 つ、モードは 5 つある。
+   旗は 13 個、モードは 6 つある。
 
    | 旗 | 効き先 | 働き |
    |---|---|---|
@@ -61,6 +61,18 @@ open Aux
    | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする(`--repl` では効かない) |
    | `--import-path DIR` | `o_import_path` | import の検索パスに DIR を足す。繰り返して書け、書いた順に探す(§16.3b) |
    | `--emit-ir-text FILE` | `o_emit_ir_text` | 型検査の後に評価せず、KIR の正準のテキストを FILE に書く(§16.6)。`--type-check`、`--dump-tokens`、`--dump-ast`、`--repl` とは併用できない |
+   | `--emit-ir FILE` | `o_emit_ir` | 型検査の後に評価せず、KIR のバイナリを FILE に書く(§16.6c)。併用の制限は `--emit-ir-text` と同じで、両方を書けば両方の形を書く |
+   | `--run-ir FILE` | `o_run_ir` | 型検査をせずに KIR のバイナリを読み、検証してから第22章で評価する(§16.6c)。入力の `.kel` もほかのモードの旗も書けない |
+   | `--via-ir` | `o_via_ir` | 型検査の後、KIR を書き出し、符号化し、読み戻し、検証してから第22章で評価する(§16.6c) |
+   | `--max-depth N` | `o_max_depth` | 第22章の評価器の論理的な深さの限度を N にする。第14章の評価器には効かない |
+   | `--dump-ir-tables` | `DumpIrTables` | KIR の組み込みの表を印字する(§16.6c)。入力のファイルは書けない |
+
+   環境変数 `DIKTOR_VIA_IR` が `1` のときは、
+   旗の無い `Run`(KIR を書き出す旗も `--run-ir` も無いもの)を
+   `--via-ir` と同じに扱う。
+   ほかのモードでは、この環境変数を見ない。
+   cram の全体を KIR の経路で走らせ直すとき(test/dune の別名 `runtest-via-ir`)に、
+   `--type-check` や `--repl` のブロックまで巻き込まないためである。
 
    `usage` の文字列は、使い方の唯一の説明である。
    テスト test/smoke.t は、この文字列をそのまま期待値に持つ。
@@ -88,9 +100,15 @@ let usage =
    \  --no-prelude / --prelude PATH\n\
    \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n\
    \  --import-path DIR    import の検索パスに DIR を足す(繰り返せる)\n\
-   \  --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く\n"
+   \  --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く\n\
+   \  --emit-ir FILE       型検査の後、実行せずに KIR のバイナリを FILE に書く\n\
+   \  --run-ir FILE        KIR のバイナリを読み、検証してから実行する(入力の .kel とは併用できない)\n\
+   \  --via-ir             KIR を書き出して読み戻し、検証してから KIR の評価器で実行する\n\
+   \  --max-depth N        KIR の評価器の論理的な深さの限度(既定は 1048576)\n\
+   \  --dump-ir-tables     KIR の組み込みの表を出力\n\
+   \  環境変数 DIKTOR_VIA_IR=1 は、旗の無い実行を --via-ir にする\n"
 
-type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl
+type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl | DumpIrTables
 
 type options = {
   o_mode : mode;
@@ -100,10 +118,16 @@ type options = {
   o_files : string list;
   o_import_path : string list; (* --import-path DIR。書いた順 *)
   o_emit_ir_text : string option; (* --emit-ir-text FILE *)
+  o_emit_ir : string option; (* --emit-ir FILE *)
+  o_run_ir : string option; (* --run-ir FILE *)
+  o_via_ir : bool; (* --via-ir *)
+  o_max_depth : int option; (* --max-depth N *)
 }
 
 let default_options =
-  { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = []; o_import_path = []; o_emit_ir_text = None }
+  { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = []; o_import_path = [];
+    o_emit_ir_text = None; o_emit_ir = None; o_run_ir = None; o_via_ir = false; o_max_depth = None;
+  }
 
 (* ## 16.2 引数解析
 
@@ -139,13 +163,33 @@ let default_options =
    仕様 sample.kel の回帰テストは、この順序を使ってスタブを sample.kel の前に置く。
    言語仕様は複数のファイルの扱いを定めない。
    この連結は diktor の取り決めである。 *)
+(* `--max-depth` の値は、10 進の数字だけの綴りで、1 以上の整数である。
+   符号、`0x`、`_` を含む綴りは受け付けない(`int_of_string` はこれらを受け付ける)。
+   上限は `max_int / 2` で、予備を足した限度(第22章 §22.6)が桁あふれしない大きさである。 *)
+let max_depth_of_string s =
+  if s = "" || not (String.for_all (fun c -> c >= '0' && c <= '9') s) then None
+  else match int_of_string_opt s with Some n when n >= 1 && n <= max_int / 2 -> Some n | _ -> None
+
 let parse_args args =
   let rec go opts = function
     | [] ->
-        if opts.o_files = [] && opts.o_mode <> Repl then Error "no input files"
-        else if opts.o_files <> [] && opts.o_mode = Repl then Error "--repl takes no input files"
+        let emits = opts.o_emit_ir_text <> None || opts.o_emit_ir <> None in
+        if opts.o_files <> [] && opts.o_mode = Repl then Error "--repl takes no input files"
+        else if opts.o_files <> [] && opts.o_mode = DumpIrTables then Error "--dump-ir-tables takes no input files"
+        else if opts.o_files <> [] && opts.o_run_ir <> None then Error "--run-ir takes no input files"
+        else if opts.o_files = [] && opts.o_mode <> Repl && opts.o_mode <> DumpIrTables && opts.o_run_ir = None then Error "no input files"
+        else if opts.o_mode = DumpIrTables && (emits || opts.o_run_ir <> None || opts.o_via_ir) then
+          Error "--dump-ir-tables cannot be combined with --emit-ir, --emit-ir-text, --run-ir or --via-ir"
         else if opts.o_emit_ir_text <> None && opts.o_mode <> Run then
           Error "--emit-ir-text cannot be combined with --type-check, --dump-tokens, --dump-ast or --repl"
+        else if opts.o_emit_ir <> None && opts.o_mode <> Run then
+          Error "--emit-ir cannot be combined with --type-check, --dump-tokens, --dump-ast or --repl"
+        else if
+          opts.o_run_ir <> None
+          && (opts.o_mode <> Run || emits || opts.o_via_ir || opts.o_no_prelude || opts.o_prelude <> None || opts.o_strict_exhaustive || opts.o_import_path <> [])
+        then Error "--run-ir cannot be combined with other modes, --emit-ir, --emit-ir-text, --via-ir or the prelude, import and exhaustiveness options"
+        else if opts.o_via_ir && (opts.o_mode <> Run || emits) then
+          Error "--via-ir cannot be combined with --type-check, --dump-tokens, --dump-ast, --repl, --dump-ir-tables, --emit-ir or --emit-ir-text"
         else Ok { opts with o_files = List.rev opts.o_files }
     | "--type-check" :: rest -> go { opts with o_mode = TypeCheck } rest
     | "--repl" :: rest -> go { opts with o_mode = Repl } rest
@@ -159,6 +203,17 @@ let parse_args args =
     | "--import-path" :: [] -> Error "--import-path requires a directory"
     | "--emit-ir-text" :: file :: rest -> go { opts with o_emit_ir_text = Some file } rest
     | "--emit-ir-text" :: [] -> Error "--emit-ir-text requires a path"
+    | "--emit-ir" :: file :: rest -> go { opts with o_emit_ir = Some file } rest
+    | "--emit-ir" :: [] -> Error "--emit-ir requires a path"
+    | "--run-ir" :: file :: rest -> go { opts with o_run_ir = Some file } rest
+    | "--run-ir" :: [] -> Error "--run-ir requires a path"
+    | "--via-ir" :: rest -> go { opts with o_via_ir = true } rest
+    | "--max-depth" :: n :: rest -> (
+        match max_depth_of_string n with
+        | Some d -> go { opts with o_max_depth = Some d } rest
+        | None -> Error ("--max-depth requires a positive integer: " ^ n))
+    | "--max-depth" :: [] -> Error "--max-depth requires a positive integer"
+    | "--dump-ir-tables" :: rest -> go { opts with o_mode = DumpIrTables } rest
     | arg :: _ when String.length arg > 0 && arg.[0] = '-' -> Error ("unknown option: " ^ arg)
     | file :: rest -> go { opts with o_files = file :: opts.o_files } rest
   in
@@ -950,19 +1005,153 @@ let unit_keys options deps roots =
     result;
   result
 
-(* 型検査の後に KIR の正準のテキストを書く。単位はプレリュード、import した単位、起点の順である *)
-let emit_ir_text options file =
+(* 型検査の後に KIR のプログラムを作る。単位はプレリュード、import した単位、起点の順である *)
+let ir_program options =
   let units, deps, roots = type_check_files_units ~quiet:true options in
   let prelude_paths = if options.o_no_prelude then [] else [ Option.value ~default:"<prelude>" options.o_prelude ] in
   let metas = (("prelude", prelude_paths) :: List.map (fun (k, d) -> (k, [ d ])) (unit_keys options deps roots)) @ [ ("main", options.o_files) ] in
   let srcs = List.map2 (fun (k, ps) ds -> { Ir_write.us_key = k; us_paths = ps; us_decls = ds }) metas units in
-  let text = Ir_text.to_string (Ir_write.program srcs) in
-  (* 出力先に書けない誤りは、標準出力に書けない誤りと同じく 74 にする。文面は出力先を名指す *)
-  match Out_channel.with_open_bin file (fun oc -> Out_channel.output_string oc text) with
+  Ir_write.program srcs
+
+(* 出力先に書けない誤りは、標準出力に書けない誤りと同じく 74 にする。文面は出力先を名指す *)
+let write_ir_file what file data =
+  match Out_channel.with_open_bin file (fun oc -> Out_channel.output_string oc data) with
   | () -> ()
   | exception Sys_error msg ->
-      (try Printf.eprintf "diktor: KIR のテキストを書き出せません: %s\n" msg with Sys_error _ -> ());
+      (try Printf.eprintf "diktor: KIR の%sを書き出せません: %s\n" what msg with Sys_error _ -> ());
       safe_exit 74
+
+(* ## 16.6c KIR の経路
+
+   KIR を扱う旗は、第18章から第22章までの部品を次のようにつなぐ。
+
+   | 旗 | 型検査 | 書き出し | 符号化 | 読み込み | 検証 | 評価 |
+   |---|---|---|---|---|---|---|
+   | `--emit-ir-text FILE` | ○ | ○ | テキスト(第19章) | × | × | × |
+   | `--emit-ir FILE` | ○ | ○ | バイナリ(第20章) | × | × | × |
+   | `--run-ir FILE` | × | × | × | ○ | ○ | 第22章 |
+   | `--via-ir` | ○ | ○ | バイナリ | ○ | ○ | 第22章 |
+
+   `--via-ir` は、自分で書いたバイナリを、ファイルを介さずにそのまま読み戻す。
+   読み戻したプログラムを第22章で評価した結果が、第14章の結果と一致すれば、
+   書き出し、符号化、読み込み、検証、評価のどこにも意味の取りこぼしが無いことの証拠になる。
+
+   終了状態は次のとおりである。
+
+   - 型検査までの誤りは、旗の無い `Run` と同じである(1、2、4、64)。
+   - UTF-8 でない名前を持つプログラムは、KIR を持たない(IRSpec 13.4 節)。
+     これは入力の名前の誤りなので、テキストとバイナリのどちらを求められても、
+     何も書かずに 64 で終える。
+     そのため、テキストだけを書くときも、先にバイナリへ符号化して名前を確かめる。
+     ほかの符号化の誤りは書き出しの不具合で、内部エラー(3)にする。
+   - ノードの深さが入れ子の限度(IRSpec 13.9 節)を超えるプログラムも、KIR を持たない。
+     どの読み手も、そのファイルを拒否するからである。
+     これは型検査の段の深すぎる入れ子と同じく処理系の限度なので、
+     テキストとバイナリのどちらも書かずに 1 で終える。
+     `--via-ir` も、評価を始めずに 1 で終える。
+   - 読み込みか検証が拒んだ KIR は 65 で終える。
+     65 は BSD の sysexits の EX_DATAERR である。
+     `--via-ir` で自分の書いたバイナリが拒まれたときも、同じく 65 にする。
+   - 評価の誤りは、第14章と同じ例外で受け皿に届き、同じ終了状態になる(§16.8)。
+     第22章は論理的な深さの限度を数え、超えたら実行時エラー(3)にする。
+     限度は `--max-depth N` で変えられ、既定は第22章の `default_max_depth` である。
+   - 第22章の評価器は、末尾でない呼び出しのたびに OCaml のスタックも使う。
+     1 段あたりの量は、その関数の中で呼び出しを囲む式の入れ子が深いほど増える。
+     そこで評価の前に OCaml のスタックの上限を `ir_stack_limit` まで上げ、
+     論理的な深さの限度より先にスタックが尽きる場合を減らす。
+     それでも尽きたときは、ほかの経路と同じくスタックオーバーフローの実行時エラー(3)である。
+     環境変数 `OCAMLRUNPARAM` か `CAMLRUNPARAM` が `l` を与えたときは、その値に従う。
+
+   `--dump-ir-tables` は、KIR の組み込みの表(IRSpec 付録 A)を印字する。
+   印字するのは、第18章と第13章が実際に使う表そのものである。
+   付録 A と照らし合わせれば、表の書き写しの食い違いが分かる。 *)
+let encode_ir prog =
+  match Ir_bin.encode_exn prog with
+  | data -> data
+  | exception Ir_bin.Name_error msg ->
+      flush_stdout_or_die ();
+      (try Printf.eprintf "diktor: KIR を符号化できません: %s\n" msg with Sys_error _ -> ());
+      safe_exit 64
+  | exception Ir_bin.Limit_error msg ->
+      flush_stdout_or_die ();
+      (try Printf.eprintf "diktor: KIR を書き出せません: %s\n" msg with Sys_error _ -> ());
+      safe_exit 1
+  | exception Ir_bin.Encode_error msg -> bug ("KIR を符号化できません: " ^ msg)
+
+let emit_ir options =
+  let prog = ir_program options in
+  let data = encode_ir prog in
+  Option.iter (fun file -> write_ir_file "テキスト" file (Ir_text.to_string prog)) options.o_emit_ir_text;
+  Option.iter (fun file -> write_ir_file "バイナリ" file data) options.o_emit_ir
+
+(* 読み込みか検証が拒んだときの報告。標準出力を先に flush する(§16.8 の出力先の規約) *)
+let reject_ir what msg =
+  flush_stdout_or_die ();
+  (try Printf.eprintf "diktor: %s: %s\n" what msg with Sys_error _ -> ());
+  safe_exit 65
+
+(* 読み込みと検証がメモリを使い尽くしたときも、壊れたファイルとして 65 にする *)
+let load_ir data =
+  match Ir_bin.decode data with
+  | Error msg -> reject_ir "KIR を読み込めません" msg
+  | exception Out_of_memory -> reject_ir "KIR を読み込めません" "処理系の限度: KIR の読み込みでメモリが不足しました"
+  | Ok prog -> (
+      match Ir_check.check prog with
+      | Ok () -> prog
+      | Error msg -> reject_ir "KIR の検証に失敗しました" msg
+      | exception Out_of_memory -> reject_ir "KIR の検証に失敗しました" "処理系の限度: KIR の検証でメモリが不足しました")
+
+let set_cancel_log () =
+  Interp.cancel_log :=
+    fun msg ->
+      (* stderr へ書く直前に stdout を flush する(§16.8 の出力先の規約) *)
+      flush_stdout_or_die ();
+      try Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg; flush stderr with Sys_error _ -> ()
+
+(* 第22章の評価器の OCaml のスタックの上限(語の数)。8 GiB にあたる *)
+let ir_stack_limit = 1 lsl 30
+
+let stack_limit_given () =
+  let given v = List.exists (fun x -> String.length x > 2 && String.sub x 0 2 = "l=") (String.split_on_char ',' v) in
+  List.exists (fun n -> match Sys.getenv_opt n with Some v -> given v | None -> false) [ "OCAMLRUNPARAM"; "CAMLRUNPARAM" ]
+
+let eval_ir options prog =
+  set_cancel_log ();
+  (if not (stack_limit_given ()) then
+     let g = Gc.get () in
+     if g.Gc.stack_limit < ir_stack_limit then Gc.set { g with Gc.stack_limit = ir_stack_limit });
+  Ir_eval.run ?max_depth:options.o_max_depth ~sink:print_string prog
+
+let run_ir options file =
+  let data = with_input (fun () -> In_channel.with_open_bin file In_channel.input_all) in
+  eval_ir options (load_ir data)
+
+let via_ir options =
+  let prog = ir_program options in
+  eval_ir options (load_ir (encode_ir prog))
+
+(* 環境変数は旗の無い `Run` にだけ効く(§16.1) *)
+let via_ir_requested options = options.o_via_ir || Sys.getenv_opt "DIKTOR_VIA_IR" = Some "1"
+
+(* 組み込みの表を、付録 A の節の順に 1 行 1 項目で印字する。
+   インスタンスのメソッドは、クラスの順、型の順、メソッドの順に並べ、
+   プリミティブで書いていない実装の欄は `-` にする *)
+let dump_ir_tables () =
+  List.iter (fun t -> Printf.printf "type builtin/%s\n" t) Ir_write.builtin_types;
+  List.iter (fun (c, ms) -> Printf.printf "class builtin/%s %s\n" c (String.concat " " ms)) Ir_write.builtin_classes;
+  let impls = Builtin.builtin_method_prims @ List.map (fun (k, _) -> (k, "-")) Builtin.builtin_method_direct in
+  List.iter
+    (fun (c, ms) ->
+      List.iter
+        (fun t ->
+          List.iter
+            (fun m -> match List.assoc_opt (c, t, m) impls with Some p -> Printf.printf "method %s %s %s %s\n" c t m p | None -> ())
+            ms)
+        Ir_write.builtin_types)
+    Ir_write.builtin_classes;
+  List.iter (fun v -> Printf.printf "value builtin/%s\n" v) Ir_write.builtin_values;
+  List.iter (fun (p, _) -> Printf.printf "prim %s\n" p) Builtin.prims;
+  List.iter (fun (p, _) -> Printf.printf "c %s\n" p) Builtin.c_prims
 
 (* ## 16.6b 対話的な実行
 
@@ -1283,6 +1472,10 @@ let repl options =
    | `DumpAst` | ○ | ○ | × | × | × | × |
    | `TypeCheck` | ○ | ○ | ○ | ○ | ○ | × |
    | `Run` | ○ | ○ | ○ | ○ | ○ | ○ |
+   | `DumpIrTables` | × | × | × | × | × | × |
+
+   `Run` の中の KIR の旗の経路は §16.6c の表にある。
+   `--run-ir` は字句から型検査までを通らず、KIR を読んで検証してから評価する。
 
    読み込みは、import をたどって依存する単位を集める段である(§16.3b)。
    ダンプ系のモードは import をたどらず、渡したファイルだけを読む。
@@ -1323,14 +1516,13 @@ let run_with options =
       Interp.cancel_log :=
         (fun msg -> try Printf.printf "cancel 節で例外が抑制されました: %s\n" msg with Sys_error _ -> ());
       repl options
-  | Run when options.o_emit_ir_text <> None -> emit_ir_text options (Option.get options.o_emit_ir_text)
+  | DumpIrTables -> dump_ir_tables ()
+  | Run when options.o_emit_ir_text <> None || options.o_emit_ir <> None -> emit_ir options
+  | Run when options.o_run_ir <> None -> run_ir options (Option.get options.o_run_ir)
+  | Run when via_ir_requested options -> via_ir options
   | Run ->
       let units = type_check_files ~quiet:true options in
-      Interp.cancel_log :=
-        (fun msg ->
-          (* stderr へ書く直前に stdout を flush する(§16.8 の出力先の規約) *)
-          flush_stdout_or_die ();
-          try Printf.eprintf "cancel 節で例外が抑制されました: %s\n" msg; flush stderr with Sys_error _ -> ());
+      set_cancel_log ();
       Interp.run_units ~sink:print_string units);
   (* モードの最後に stdout を flush し切る。受け皿の中で flush して、
      失敗を終了コード 74 にするためである(§16.8 の不変条件) *)
@@ -1343,21 +1535,22 @@ let run_with options =
    | コード | 意味 | 出所 |
    |---|---|---|
    | 0 | 正常終了 | `run_with` が最後まで走った |
-   | 1 | 型エラー、import エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive`、§16.3b の `Import_error` |
+   | 1 | 型エラー、import エラー | 第11章の診断、`Aux.Type_error`、`--strict-exhaustive`、§16.3b の `Import_error`、KIR の入れ子の限度 |
    | 2 | 構文エラー、字句エラー | `Parse_error`、`Lex_error`(不正な UTF-8 を含む) |
    | 3 | 実行時エラー | `Runtime_error`、未処理のエフェクト、再帰過多、メモリ不足、内部異常 |
    | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(module の入れ子、cancel(reason) など) |
-   | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない |
+   | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない、UTF-8 でない名前を KIR に書けない |
+   | 65 | 不正な KIR | `--run-ir` と `--via-ir` の読み込みと検証が拒んだ(§16.6c) |
    | 74 | 出力に書き出せない | 標準出力への flush の失敗 |
 
    言語に無い数値の接尾辞(`1u8`)と、宣言の無い言語に無い数値型の名前(`Int8`)は、
    未実装ではなく第11章の型エラーであり、1 に数える。
 
    再帰過多とメモリ不足は、処理系の限度を超えたことを表し、起きた段の誤りに数える。
-   読み込みの段では 2、型検査の段では 1、評価の段では 3 である。
+   読み込みの段では 2、型検査の段と KIR の書き出しの段では 1、評価の段では 3 である。
    表の 3 の行の再帰過多とメモリ不足は、評価の段のものである。
 
-   64 は BSD の sysexits の EX_USAGE、74 は EX_IOERR である。
+   64 は BSD の sysexits の EX_USAGE、65 は EX_DATAERR、74 は EX_IOERR である。
    独自の番号を選ぶより、既にある慣習に従うほうがシェルスクリプトから扱いやすい。
    74 をプログラムの誤り(3)と分けているのは、
    出力先の故障がプログラムの責任ではないからである。
@@ -1383,6 +1576,7 @@ let run_with options =
    | 評価の段の巨大な割り当て | 実行時エラー | 3 |
    | 構文解析の段の長すぎる列 | 処理系の限度 | 2 |
    | 型検査の段の深すぎる入れ子 | 処理系の限度 | 1 |
+   | KIR に書けないほど深い入れ子 | 処理系の限度 | 1 |
    | 標準出力に書けない(/dev/full) | 出力エラー | 74 |
 
    表の 3 行目の未実装は、第11章の `flatten_modules` が投げる。

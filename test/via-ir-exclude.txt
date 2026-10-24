@@ -1,0 +1,187 @@
+# KIR の経路(test/dune の別名 runtest-via-ir)で、木の評価器のまま走らせるコマンドの一覧。
+# 各行は「ファイル名:行番号 理由」で、行番号は .t の中の `  $ ` の行である。
+# 載せたコマンドも走らせて期待値と比べるが、DIKTOR_VIA_IR を 0 に戻して走らせる。
+# 後のコマンドが、載せたコマンドの作ったファイルや出力を使うことがあるからである。
+#
+# 理由は 2 種類ある。
+# - stack: OCAMLRUNPARAM=l=... で OCaml のスタックの上限を絞るコマンド。
+#   木の評価器のスタックの限度を試すもので、KIR の評価器は論理的な深さで限度を数えるので、
+#   この経路の比較の対象にしない(恒久の除外)。
+# - handle: 評価が handle に届くコマンド。KIR の評価器がまだ handle を評価できず、
+#   「未実装」の 4 で終わるので、一時的に除外する。handle を評価できるようになったら消す。
+#   stack と handle の両方にあたるコマンドは、stack として載せ、理由に handle も書く。
+
+
+# annot_rows.t
+annot_rows.t:387 handle: 評価が handle に届く
+annot_rows.t:495 handle: 評価が handle に届く
+annot_rows.t:545 handle: 評価が handle に届く
+annot_rows.t:944 handle: 評価が handle に届く
+annot_rows.t:1583 handle: 評価が handle に届く
+
+# builtin_rows.t
+builtin_rows.t:20 handle: 評価が handle に届く
+builtin_rows.t:61 handle: 評価が handle に届く
+builtin_rows.t:81 handle: 評価が handle に届く
+builtin_rows.t:106 handle: 評価が handle に届く
+builtin_rows.t:143 handle: 評価が handle に届く
+
+# effect_order.t
+effect_order.t:19 handle: 評価が handle に届く
+effect_order.t:71 handle: 評価が handle に届く
+
+# empty_match.t
+empty_match.t:16 handle: 評価が handle に届く
+empty_match.t:18 handle: 評価が handle に届く
+empty_match.t:36 handle: 評価が handle に届く
+empty_match.t:38 handle: 評価が handle に届く
+empty_match.t:48 handle: 評価が handle に届く
+empty_match.t:59 handle: 評価が handle に届く
+empty_match.t:67 handle: 評価が handle に届く
+empty_match.t:83 handle: 評価が handle に届く
+empty_match.t:85 handle: 評価が handle に届く
+empty_match.t:103 handle: 評価が handle に届く
+empty_match.t:219 handle: 評価が handle に届く
+
+# eval.t
+eval.t:99 handle: 評価が handle に届く
+eval.t:140 handle: 評価が handle に届く
+eval.t:166 handle: 評価が handle に届く
+eval.t:190 handle: 評価が handle に届く
+eval.t:215 handle: 評価が handle に届く
+eval.t:259 handle: 評価が handle に届く
+eval.t:290 handle: 評価が handle に届く
+eval.t:306 handle: 評価が handle に届く
+eval.t:344 handle: 評価が handle に届く
+eval.t:367 handle: 評価が handle に届く
+eval.t:390 handle: 評価が handle に届く
+eval.t:409 handle: 評価が handle に届く
+eval.t:428 handle: 評価が handle に届く
+eval.t:447 handle: 評価が handle に届く
+eval.t:466 handle: 評価が handle に届く
+eval.t:484 handle: 評価が handle に届く
+eval.t:502 handle: 評価が handle に届く
+eval.t:523 handle: 評価が handle に届く
+eval.t:540 handle: 評価が handle に届く
+eval.t:554 handle: 評価が handle に届く
+eval.t:568 handle: 評価が handle に届く
+eval.t:585 handle: 評価が handle に届く
+eval.t:601 handle: 評価が handle に届く
+eval.t:644 handle: 評価が handle に届く
+eval.t:713 handle: 評価が handle に届く
+eval.t:774 handle: 評価が handle に届く
+eval.t:815 handle: 評価が handle に届く
+eval.t:845 handle: 評価が handle に届く
+eval.t:956 handle: 評価が handle に届く
+
+# if.t
+if.t:259 stack: OCAMLRUNPARAM でスタックを絞る
+if.t:280 stack: OCAMLRUNPARAM でスタックを絞る
+if.t:298 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+
+# import.t
+import.t:516 handle: 評価が handle に届く
+
+# instance_init.t
+instance_init.t:65 handle: 評価が handle に届く
+
+# invariants.t
+invariants.t:108 handle: 評価が handle に届く
+invariants.t:124 handle: 評価が handle に届く
+invariants.t:342 handle: 評価が handle に届く
+
+# ir_emit.t
+ir_emit.t:841 handle: 評価が handle に届く
+ir_emit.t:949 handle: 評価が handle に届く
+
+# kinds.t
+kinds.t:59 handle: 評価が handle に届く
+kinds.t:678 handle: 評価が handle に届く
+kinds.t:686 handle: 評価が handle に届く
+
+# never_ops.t
+never_ops.t:33 handle: 評価が handle に届く
+never_ops.t:49 handle: 評価が handle に届く
+never_ops.t:72 handle: 評価が handle に届く
+never_ops.t:94 handle: 評価が handle に届く
+never_ops.t:108 handle: 評価が handle に届く
+never_ops.t:120 handle: 評価が handle に届く
+never_ops.t:198 handle: 評価が handle に届く
+never_ops.t:251 handle: 評価が handle に届く
+never_ops.t:270 handle: 評価が handle に届く
+never_ops.t:297 handle: 評価が handle に届く
+never_ops.t:328 handle: 評価が handle に届く
+never_ops.t:353 handle: 評価が handle に届く
+never_ops.t:372 handle: 評価が handle に届く
+never_ops.t:402 handle: 評価が handle に届く
+never_ops.t:438 handle: 評価が handle に届く
+never_ops.t:463 handle: 評価が handle に届く
+never_ops.t:481 handle: 評価が handle に届く
+never_ops.t:494 handle: 評価が handle に届く
+never_ops.t:521 handle: 評価が handle に届く
+never_ops.t:548 handle: 評価が handle に届く
+never_ops.t:572 handle: 評価が handle に届く
+never_ops.t:598 handle: 評価が handle に届く
+never_ops.t:621 handle: 評価が handle に届く
+never_ops.t:645 handle: 評価が handle に届く
+never_ops.t:678 handle: 評価が handle に届く
+never_ops.t:720 handle: 評価が handle に届く
+never_ops.t:740 handle: 評価が handle に届く
+
+# resume_guard.t
+resume_guard.t:14 handle: 評価が handle に届く
+resume_guard.t:24 handle: 評価が handle に届く
+resume_guard.t:40 handle: 評価が handle に届く
+resume_guard.t:74 handle: 評価が handle に届く
+resume_guard.t:88 handle: 評価が handle に届く
+resume_guard.t:103 handle: 評価が handle に届く
+
+# run_exit.t
+run_exit.t:95 handle: 評価が handle に届く
+run_exit.t:168 stack: OCAMLRUNPARAM でスタックを絞る
+run_exit.t:170 stack: OCAMLRUNPARAM でスタックを絞る
+run_exit.t:185 stack: OCAMLRUNPARAM でスタックを絞る
+run_exit.t:206 stack: OCAMLRUNPARAM でスタックを絞る
+
+# runtime_effects.t
+runtime_effects.t:41 handle: 評価が handle に届く
+
+# tail_calls.t
+tail_calls.t:12 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:23 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:33 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:46 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:60 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:71 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:82 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:97 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:124 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:138 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:149 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:163 stack: OCAMLRUNPARAM でスタックを絞る
+tail_calls.t:180 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:191 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:219 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:243 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:260 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:285 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+tail_calls.t:307 stack: OCAMLRUNPARAM でスタックを絞る(handle にも届く)
+
+# trailing_block.t
+trailing_block.t:359 handle: 評価が handle に届く
+
+# typecheck_m6.t
+typecheck_m6.t:497 handle: 評価が handle に届く
+typecheck_m6.t:503 handle: 評価が handle に届く
+
+# typecheck_sample.t
+typecheck_sample.t:78 handle: 評価が handle に届く
+
+# verify_fixes.t
+verify_fixes.t:59 handle: 評価が handle に届く
+verify_fixes.t:78 handle: 評価が handle に届く
+verify_fixes.t:99 handle: 評価が handle に届く
+verify_fixes.t:585 handle: 評価が handle に届く
+
+# visibility.t
+visibility.t:191 handle: 評価が handle に届く
