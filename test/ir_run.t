@@ -128,6 +128,15 @@
   diktor: KIR のバイナリを書き出せません: nodir/x.kir: No such file or directory
   exit: 74
 
+開けても書き込みに失敗すれば、出力が小さくても 74 である。
+
+  $ diktor --emit-ir /dev/full prog.kel; echo "exit: $?"
+  diktor: KIR のバイナリを書き出せません: No space left on device
+  exit: 74
+  $ diktor --emit-ir-text /dev/full prog.kel; echo "exit: $?"
+  diktor: KIR のテキストを書き出せません: No space left on device
+  exit: 74
+
 --run-ir は入力の .kel を取らず、ほかのモードの旗やプレリュードの旗とも併せられない(64)。
 読めないファイルは、ほかの入力と同じく 64 である。
 
@@ -316,6 +325,23 @@ Console だけを宣言するプレリュードに差し替え、利用者のエ
   $ patch_kir hw.kir 817 '\000'
   diktor: KIR の検証に失敗しました: 関数 main/g: runtime の印の付いた操作を持つエフェクト prelude/Console を handle します
   exit: 65
+
+ハンドラ式は、エフェクトのすべての操作の節を持たなくても検証を通る。
+そのエフェクトの操作は、節の無い操作でも、内側からいちばん近いそのエフェクトのハンドラが受け取る。
+どの節にも一致しなければ実行時の誤り(3)であり、外側のハンドラへ送り直さない(IRSpec 9.4 節)。
+内側のハンドラの b の節の操作を a に書き換えると、内側のハンドラは a の節を 2 つ持ち、b の節を持たない。
+
+  $ cat > two.kel <<'EOF'
+  > effect Two = { a: () => Int32, b: () => Int32 }
+  > let x(): Int32 @ {Two} = perform a() + perform b()
+  > let inner(): Int32 @ {Two} = x() handle { case a() => resume(1) case b() => resume(2) }
+  > let main: Int32 = inner() handle { case a() => resume(100) case b() => resume(20) }
+  > EOF
+  $ diktor --no-prelude --emit-ir two.kir two.kel && diktor --run-ir two.kir; echo "exit: $?"
+  exit: 0
+  $ patch_kir two.kir 925 '\000'
+  実行時エラー: handle のどの節にも一致しません: Two.b()
+  exit: 3
 
 UTF-8 でない名前を持つプログラムは KIR を持たず、テキストとバイナリのどちらを求めても、何も書かずに 64 で終える。
 2 つ目の起点のファイルを UTF-8 でない名前のディレクトリに置くと、そこから import した単位の鍵はディレクトリの綴りを含む(IRSpec 2.2 節)。
