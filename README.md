@@ -20,9 +20,10 @@ RustKeleut のテストの基準(テストオラクル)と、中間言語 KIR �
 `test/sample/sample.kel` の同期と同時に付け替えます。`doc/log` の過去エントリの
 行番号は当時のまま残します(書き換えると記録が読めなくなるため)。
 
-`--dump-ast` の S 式と `--dump-tokens` のトークン列は diktor 固有の診断用の出力で、
-仕様は形式を定めていません。`test/ast.t` や `test/tokens.t` などがゴールデンで固定
-していますが、実装の都合で変わります。他の実装との読み合わせには使えません。
+`--dump-ast` の S 式と `--dump-tokens` のトークン列は診断用の出力で、仕様は形式を
+定めていません。`test/ast.t` や `test/tokens.t` などがゴールデンで固定しています。
+RustKeleut の `keleut dump ast` と `keleut dump tokens` は同じ形式を出すので、
+RustKeleut との読み合わせ(差分試験)に使います。形式を変えるときは RustKeleut も合わせます。
 
 # 教材として読む(文芸的プログラミング)
 
