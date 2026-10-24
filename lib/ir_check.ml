@@ -502,24 +502,48 @@ let check_fn env origins f =
      ガードには `resume` を書けないからである。
    - ほかの関数は持ち主を持たない。
 
+   作る場所の鎖は、関数の表の中で輪になりうる。
+   根の関数から届かない `handlebody` の関数が、ハンドラ式で自身を作るか、
+   ほかの `handlebody` の関数と互いを順に作る場合である。
+   輪をなす関数の鎖は `opclause` に届かないので、その関数は持ち主を持たない。
+   鎖をたどる途中で、たどっている最中の関数に戻れば、輪に入ったとわかる。
+   そのとき、たどってきた関数のどれも持ち主を持たない。
+   たどった関数の持ち主は表に覚え、次にその関数に着いたらそこでたどるのをやめる。
+   どの関数も 1 度しかたどらないので、`handlebody` の関数が長い鎖をなしても、
+   たどる歩数は関数の数に比例する。
+
    持ち主の無い関数と、持ち主が N の操作節である関数の `resume` は拒否する。
    操作節の分類は、持ち主として受け取った `resume` の印から再計算する。
    ハンドラ式の本体の中の `resume` は背骨の上にないので、印は `ntail` で、持ち主の節は G になる。 *)
-let rec owner env origins f =
-  let fn = get "関数" env.fns f in
-  match (fn.f_kind, Hashtbl.find origins f) with
-  | Opclause, _ -> Some f
-  | Handlebody, Site { parent; in_guard = false; _ } -> owner env origins parent
-  | _ -> None
+type owner_memo = Walking | Done of string option
+
+let owner env origins memo f =
+  let rec walk path f =
+    match Hashtbl.find_opt memo f with
+    | Some (Done o) -> (o, path)
+    | Some Walking -> (None, path)
+    | None -> (
+        let fn = get "関数" env.fns f in
+        Hashtbl.replace memo f Walking;
+        let path = f :: path in
+        match (fn.f_kind, Hashtbl.find origins f) with
+        | Opclause, _ -> (Some f, path)
+        | Handlebody, Site { parent; in_guard = false; _ } -> walk path parent
+        | _ -> (None, path))
+  in
+  let found, path = walk [] f in
+  List.iter (fun g -> Hashtbl.replace memo g (Done found)) path;
+  found
 
 let check_classes env origins resumes =
   let owned = Hashtbl.create 64 in
+  let memo = Hashtbl.create 64 in
   Hashtbl.iter
     (fun f rs ->
       if rs <> [] then
-        match owner env origins f with
+        match owner env origins memo f with
         | None -> fail "関数 %s: resume を書けない関数に resume があります" f
-        | Some o -> Hashtbl.replace owned o (rs @ Option.value ~default:[] (Hashtbl.find_opt owned o)))
+        | Some o -> Hashtbl.replace owned o (List.rev_append rs (Option.value ~default:[] (Hashtbl.find_opt owned o))))
     resumes;
   Hashtbl.iter
     (fun f o ->
