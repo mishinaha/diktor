@@ -13,6 +13,12 @@
     --strict-exhaustive  網羅性・到達不能警告をエラー化
     --import-path DIR    import の検索パスに DIR を足す(繰り返せる)
     --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く
+    --emit-ir FILE       型検査の後、実行せずに KIR のバイナリを FILE に書く
+    --run-ir FILE        KIR のバイナリを読み、検証してから実行する(入力の .kel とは併用できない)
+    --via-ir             KIR を書き出して読み戻し、検証してから KIR の評価器で実行する
+    --max-depth N        KIR の評価器の論理的な深さの限度(既定は 1048576)
+    --dump-ir-tables     KIR の組み込みの表を出力
+    環境変数 DIKTOR_VIA_IR=1 は、旗の無い実行を --via-ir にする
   exit: 64
 
 最小の正常終了:
