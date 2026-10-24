@@ -47,7 +47,7 @@ open Aux
 
 (* ## 16.1 旗とモード
 
-   旗は 7 つ、モードは 5 つある。
+   旗は 8 つ、モードは 5 つある。
 
    | 旗 | 効き先 | 働き |
    |---|---|---|
@@ -60,6 +60,7 @@ open Aux
    | `--prelude PATH` | `o_prelude` | 埋め込みのプレリュードの代わりに PATH を読む |
    | `--strict-exhaustive` | `o_strict_exhaustive` | 網羅性と到達不能の警告をエラーにする(`--repl` では効かない) |
    | `--import-path DIR` | `o_import_path` | import の検索パスに DIR を足す。繰り返して書け、書いた順に探す(§16.3b) |
+   | `--emit-ir-text FILE` | `o_emit_ir_text` | 型検査の後に評価せず、KIR の正準のテキストを FILE に書く(§16.6)。`--type-check`、`--dump-tokens`、`--dump-ast`、`--repl` とは併用できない |
 
    `usage` の文字列は、使い方の唯一の説明である。
    テスト test/smoke.t は、この文字列をそのまま期待値に持つ。
@@ -86,7 +87,8 @@ let usage =
    \  --repl               対話的に実行する(FILE は不要)\n\
    \  --no-prelude / --prelude PATH\n\
    \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n\
-   \  --import-path DIR    import の検索パスに DIR を足す(繰り返せる)\n"
+   \  --import-path DIR    import の検索パスに DIR を足す(繰り返せる)\n\
+   \  --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く\n"
 
 type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl
 
@@ -97,10 +99,11 @@ type options = {
   o_strict_exhaustive : bool;
   o_files : string list;
   o_import_path : string list; (* --import-path DIR。書いた順 *)
+  o_emit_ir_text : string option; (* --emit-ir-text FILE *)
 }
 
 let default_options =
-  { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = []; o_import_path = [] }
+  { o_mode = Run; o_prelude = None; o_no_prelude = false; o_strict_exhaustive = false; o_files = []; o_import_path = []; o_emit_ir_text = None }
 
 (* ## 16.2 引数解析
 
@@ -141,6 +144,8 @@ let parse_args args =
     | [] ->
         if opts.o_files = [] && opts.o_mode <> Repl then Error "no input files"
         else if opts.o_files <> [] && opts.o_mode = Repl then Error "--repl takes no input files"
+        else if opts.o_emit_ir_text <> None && opts.o_mode <> Run then
+          Error "--emit-ir-text cannot be combined with --type-check, --dump-tokens, --dump-ast or --repl"
         else Ok { opts with o_files = List.rev opts.o_files }
     | "--type-check" :: rest -> go { opts with o_mode = TypeCheck } rest
     | "--repl" :: rest -> go { opts with o_mode = Repl } rest
@@ -152,6 +157,8 @@ let parse_args args =
     | "--strict-exhaustive" :: rest -> go { opts with o_strict_exhaustive = true } rest
     | "--import-path" :: dir :: rest -> go { opts with o_import_path = opts.o_import_path @ [ dir ] } rest
     | "--import-path" :: [] -> Error "--import-path requires a directory"
+    | "--emit-ir-text" :: file :: rest -> go { opts with o_emit_ir_text = Some file } rest
+    | "--emit-ir-text" :: [] -> Error "--emit-ir-text requires a path"
     | arg :: _ when String.length arg > 0 && arg.[0] = '-' -> Error ("unknown option: " ^ arg)
     | file :: rest -> go { opts with o_files = file :: opts.o_files } rest
   in
@@ -758,7 +765,7 @@ let eval_string ?(prelude = true) ~sink source =
 
 (* quiet は Run モードを表す。型の行は出さず、警告だけを stderr に出す。
    行の種別は、表示文字列ではなく out_line の値で判定する *)
-let type_check_files ?(quiet = false) options =
+let type_check_files_units ?(quiet = false) options =
   (* 平坦化の診断も、出力先をモード単位で決める規約に乗せる。素通しにすると、
      --type-check でも平坦化の「! 未実装:」だけが stderr に出て、規約が二通りになる。
      平坦化は型検査より前のパスなので、平坦化の診断より前に型の行が無いのは構造どおりである *)
@@ -817,7 +824,7 @@ let type_check_files ?(quiet = false) options =
       if options.o_strict_exhaustive && List.exists (function Elab.Warning _ -> true | _ -> false) lines then (
         flush_stdout_or_die ();
         safe_exit 1);
-      prelude :: flat
+      (prelude :: flat, deps, roots)
   | lines, Some err, _ ->
       List.iter put lines;
       (* 出力先はモード単位で決める。--type-check はレポートなので全部を stdout へ出す。
@@ -828,6 +835,134 @@ let type_check_files ?(quiet = false) options =
        else print_endline (render_error err));
       flush_stdout_or_die ();
       safe_exit err.Elab.e_exit
+
+let type_check_files ?quiet options =
+  let units, _, _ = type_check_files_units ?quiet options in
+  units
+
+(* ### KIR の単位の鍵
+
+   `--emit-ir-text` は、型検査を済ませた単位の列を第18章に渡し、第19章のテキストを書く。
+   単位の鍵は、コマンド行と import の文から決める(IRSpec 2.2 節)。
+   鍵は基準のディレクトリからの相対パスなので、作業ディレクトリや絶対パスの綴りは鍵に現れない。
+
+   - 基準のディレクトリ `B` は、コマンド行の最初のファイルの `dirname` を正規化した綴りである。
+   - 起点のファイルのディレクトリは、その `dirname` を正規化した綴りの、`B` からの相対パスである。
+     `B` と共通の先頭の成分を除き、`B` に残った成分の数だけ `..` を置いて、残りの成分を続ける。
+     一方だけが絶対パスのときと、`B` の残りに `..` があるときは、綴りから相対パスを決められない。
+     そのときは、両方のディレクトリの `realpath` から同じ規則で相対パスを作る。
+   - 相対パスの import の鍵は、import を書いたファイルの鍵のディレクトリ、import のパス、
+     `.kel` を連結して正規化したものである。
+   - 検索パスの import の鍵は、`@i/`、import のパス、`.kel` を連結したものである。
+     `i` は、そのファイルが見つかった `--import-path` のうち最も前のものの番号(1 から数える)である。
+
+   正規化は、空の成分と `.` を除き、`..` を直前の成分と相殺する。
+   直前の成分が無いか、直前の成分が `..` か、先頭の成分の検索パスの印(`@` と数字)なら、`..` を残す。
+   鍵は、起点のファイルを書いた順にたどり、各ファイルの import を書いた順に深さ優先でたどって、
+   最初に着いた import の文から決める。
+   第16章の `load_units` が単位を読む順と同じたどり方である。
+
+   綴りの規則だけでは、別のファイルが同じ鍵になることがある。
+   シンボリックリンクの下の `..` は、綴りの相殺と OS の解決で行き先が違うからである。
+   鍵が重なった KIR は記号で実体を名指せないので、書き出さずに 64 で終える。 *)
+let is_search_mark c =
+  String.length c > 1 && c.[0] = '@' && String.for_all (fun ch -> ch >= '0' && ch <= '9') (String.sub c 1 (String.length c - 1))
+
+let key_components p =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: rest -> go acc rest
+    | ".." :: rest -> (
+        match acc with
+        | [ x ] when is_search_mark x -> go (".." :: acc) rest
+        | x :: acc' when x <> ".." -> go acc' rest
+        | _ -> go (".." :: acc) rest)
+    | c :: rest -> go (c :: acc) rest
+  in
+  go [] (String.split_on_char '/' p)
+
+let key_normalize p = String.concat "/" (key_components p)
+
+let key_dir k = match String.rindex_opt k '/' with Some i -> String.sub k 0 i | None -> ""
+
+let is_absolute p = String.length p > 0 && p.[0] = '/'
+
+(* 正規化したディレクトリ b から d への相対パスの成分。b の残りに .. があれば決められない *)
+let relative_components b d =
+  let rec strip b d = match (b, d) with x :: b', y :: d' when x = y -> strip b' d' | _ -> (b, d) in
+  let b', d' = strip b d in
+  if List.mem ".." b' then None else Some (List.map (fun _ -> "..") b' @ d')
+
+let unit_keys options deps roots =
+  let first = match options.o_files with f :: _ -> f | [] -> "." in
+  let base_dir = Filename.dirname first in
+  let base = key_components base_dir in
+  let root_dir f =
+    let dir = Filename.dirname f in
+    let textual = if is_absolute base_dir = is_absolute dir then relative_components base (key_components dir) else None in
+    let comps =
+      match textual with
+      | Some cs -> cs
+      | None -> (
+          match relative_components (key_components (realpath base_dir)) (key_components (realpath dir)) with
+          | Some cs -> cs
+          | None -> bug ("KIR の単位の鍵: 起点のディレクトリの相対パスを決められません: " ^ f))
+    in
+    String.concat "/" comps
+  in
+  let keys = Hashtbl.create 8 in
+  let by_id = Hashtbl.create 8 in
+  List.iter (fun u -> Hashtbl.replace by_id u.u_id u) deps;
+  let key_of dir (im : Syntax.import_decl) id =
+    let src = im.Syntax.im_source in
+    match split_import_path im.Syntax.im_loc src with
+    | Some _, _ -> key_normalize ((if dir = "" then "" else dir ^ "/") ^ src ^ ".kel")
+    | None, comps ->
+        let file = String.concat "/" comps ^ ".kel" in
+        let rec find i = function
+          | [] -> bug ("KIR の単位の鍵: 検索パスに見つかりません: " ^ src)
+          | d :: rest ->
+              let path = Filename.concat d file in
+              if Sys.file_exists path && realpath path = id then "@" ^ string_of_int i ^ "/" ^ src ^ ".kel" else find (i + 1) rest
+        in
+        find 1 options.o_import_path
+  in
+  let rec visit dir u =
+    List.iter
+      (fun (im, id) ->
+        if not (Hashtbl.mem keys id) then (
+          let k = key_of dir im id in
+          Hashtbl.replace keys id k;
+          visit (key_dir k) (Hashtbl.find by_id id)))
+      u.u_targets
+  in
+  List.iter2 (fun r f -> visit (root_dir f) r) roots options.o_files;
+  let result = List.map (fun u -> (Hashtbl.find keys u.u_id, u.u_display)) deps in
+  (* 別のファイルが同じ鍵になったら、書き出さずに終える *)
+  let owner = Hashtbl.create 8 in
+  List.iter
+    (fun (k, d) ->
+      match Hashtbl.find_opt owner k with
+      | Some d0 ->
+          (try Printf.eprintf "diktor: KIR の単位の鍵が重なります: %s(%s と %s)\n" k d0 d with Sys_error _ -> ());
+          safe_exit 64
+      | None -> Hashtbl.replace owner k d)
+    result;
+  result
+
+(* 型検査の後に KIR の正準のテキストを書く。単位はプレリュード、import した単位、起点の順である *)
+let emit_ir_text options file =
+  let units, deps, roots = type_check_files_units ~quiet:true options in
+  let prelude_paths = if options.o_no_prelude then [] else [ Option.value ~default:"<prelude>" options.o_prelude ] in
+  let metas = (("prelude", prelude_paths) :: List.map (fun (k, d) -> (k, [ d ])) (unit_keys options deps roots)) @ [ ("main", options.o_files) ] in
+  let srcs = List.map2 (fun (k, ps) ds -> { Ir_write.us_key = k; us_paths = ps; us_decls = ds }) metas units in
+  let text = Ir_text.to_string (Ir_write.program srcs) in
+  (* 出力先に書けない誤りは、標準出力に書けない誤りと同じく 74 にする。文面は出力先を名指す *)
+  match Out_channel.with_open_bin file (fun oc -> Out_channel.output_string oc text) with
+  | () -> ()
+  | exception Sys_error msg ->
+      (try Printf.eprintf "diktor: KIR のテキストを書き出せません: %s\n" msg with Sys_error _ -> ());
+      safe_exit 74
 
 (* ## 16.6b 対話的な実行
 
@@ -1188,6 +1323,7 @@ let run_with options =
       Interp.cancel_log :=
         (fun msg -> try Printf.printf "cancel 節で例外が抑制されました: %s\n" msg with Sys_error _ -> ());
       repl options
+  | Run when options.o_emit_ir_text <> None -> emit_ir_text options (Option.get options.o_emit_ir_text)
   | Run ->
       let units = type_check_files ~quiet:true options in
       Interp.cancel_log :=
