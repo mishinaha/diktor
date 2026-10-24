@@ -939,7 +939,7 @@ let collect_types tb (u : unit_src) =
                       (n, match Type.repr r with Type.TCon (c, []) -> c = Type.intern "Never" | _ -> false)
                   | _ -> bug "KIR の書き出し: 操作の型が関数の型ではありません"
                 in
-                { I.o_name = o; o_arity = arity; o_never = never; o_runtime = s = "prelude/Console" && o = "write" })
+                { I.o_name = o; o_arity = arity; o_never = never; o_runtime = s = "prelude/Console" && o = "write" && arity = 1 })
               e.T.ef_ops
           in
           [ `Effect { I.e_sym = s; e_ops = ops } ]
