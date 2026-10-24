@@ -290,9 +290,9 @@ type program = {
   functions : fn list;
 }
 
-(* 版は 0.2 である。
+(* 版は 0.3 である。
    1.0 より前は、読み手は書き手と同じ版だけを受け付ける。 *)
-let version = (0, 2)
+let version = (0, 3)
 
 (* ## 17.12 テキストの綴り
 
