@@ -1,7 +1,8 @@
 opam-version: "2.0"
 name: "diktor"
 version: "dev"
-synopsis: "Diktor is a bootstrap interpreter of the Keleut programming language, written in OCaml."
+synopsis: "Diktor is the reference interpreter of the Keleut programming language, written in OCaml."
+description: "Diktor serves as the test oracle for RustKeleut, the main implementation of Keleut, and as the reference implementation of the intermediate representation KIR."
 maintainer: "tomoaki3478@balux.org"
 authors: ["Takezoe,Tomoaki"]
 license: "Apache-2.0 WITH LLVM-exception"
