@@ -12,6 +12,7 @@
     --no-prelude / --prelude PATH
     --strict-exhaustive  網羅性・到達不能警告をエラー化
     --import-path DIR    import の検索パスに DIR を足す(繰り返せる)
+    --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く
   exit: 64
 
 最小の正常終了:
