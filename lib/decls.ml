@@ -768,6 +768,22 @@ let classes : (oid, class_info) Hashtbl.t = Hashtbl.create 64
 
 let find_class c = Hashtbl.find_opt classes c
 
+(* クラスの宣言の順位。組み込みのクラスを登録した順に続けて、宣言を処理した順に振る。
+   第8章の正準順は、1 つの型変数に付いた制約をこの順位の昇順に並べる。
+   単位は初期化の順に、単位の中の宣言は書いた順に処理するので、
+   順位の順は KIR のクラスの表の並びと同じになる。
+   対話的な実行で取り消した宣言の順位は残るが、後の宣言はそれより大きい順位を持つので、
+   順位の大小は変わらない。 *)
+let class_ranks : (oid, int) Hashtbl.t = Hashtbl.create 64
+
+let class_count = ref 0
+
+let note_class_rank c =
+  incr class_count;
+  Hashtbl.replace class_ranks c !class_count
+
+let class_rank c = Option.value ~default:max_int (Hashtbl.find_opt class_ranks c)
+
 (* 実体の出身の単位。印の付いた綴りは印の単位、印の無い綴りは、標準環境(組み込みとプレリュード)の
    ものなら標準環境、それ以外は起点である。孤児規則と、診断のファイル名の添え字が使う *)
 let std_type c = Hashtbl.mem reserved_type_names c || prelude_owned "data" c || prelude_owned "alias" c
@@ -795,6 +811,7 @@ let add_class_decl info =
   | Some _ -> type_error ("type class " ^ Type.display_of info.ci_name ^ " が二重に宣言されています")
   | None ->
       Hashtbl.add classes info.ci_name info;
+      note_class_rank info.ci_name;
       mark "class" info.ci_name
 
 (* ## 6.9 インスタンス表とコヒーレンス
@@ -1131,6 +1148,7 @@ let register_builtins () =
         ci_builtin = true;
         ci_methods = methods a;
       };
+    note_class_rank cls;
     List.iter (fun con -> add_instance ~cls ~con:(intern con) []) insts
   in
   let arrow2 a ret = Type.TArrow (Type.TRecord (closed_args_row [ a; a ]), ret, Type.TRowEmpty) in
@@ -1223,6 +1241,8 @@ let reset () =
   Hashtbl.reset con_kinds;
   Hashtbl.reset aliases;
   Hashtbl.reset classes;
+  Hashtbl.reset class_ranks;
+  class_count := 0;
   Hashtbl.reset instances;
   Hashtbl.reset datas;
   Hashtbl.reset ctor_owner;

@@ -548,7 +548,8 @@ and select_method ~cls d meth own =
 
 and eq_with d x y = Builtin.as_bool (apply (select_method ~cls:(Type.intern "Eq") d "eq" []) (VRecord [ (Type.l_item, x); (Type.l_item, y) ]))
 
-(* 閉じたレコード型の構造的な Eq。型の行の順にラベルを取り、両辺から最も左の同名のフィールドを
+(* 閉じたレコード型の構造的な Eq。証拠のラベルの順(綴りの昇順)にラベルを取り、
+   両辺から最も左の同名のフィールドを
    取り出して、そのフィールドの辞書で比べる。異なるラベルの間の物理的な順序は値によって違いうる *)
 and record_eq fs a b =
   match fs with

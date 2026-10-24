@@ -1217,8 +1217,15 @@ let subst_params level args t =
    辞書は位置で渡すので、定義の側(束縛の辞書パラメータ)と使う側(具体化で作る穴)が、
    同じ順序で制約を並べなければならない。
    `constraints_of` は、スキーマの型を左から右へたどり、`Generic` 変数が最初に現れた順に、
-   その変数の `vcls` の順で制約を並べる。
+   その変数の制約を並べる。
+   レコードとヴァリアントの行は、フィールドをラベルの綴りのバイト列の昇順にたどり、
+   同じラベルのフィールドは外側のものを先にする。
+   1 つの変数の制約は、第6章のクラスの宣言の順位の昇順に並べる。
    予約述語(`Integral` / `Fractional`)は除く。
+   行の中のフィールドの順と `vcls` の順は、単一化がソースのどの部分を先に処理したかで変わる。
+   そのため、どちらの順も正準順に使わない。
+   正準順は KIR の辞書の引数の順でもあり、
+   別の処理系が型だけから同じ列を作れなければならないからである。
    これを正準順と呼び、`dkeys_of` はその鍵の列である。
    `instantiate_ev` は、`map_generics_with` のメモから各 `Generic` の置き換え先を引いて穴を作るので、
    置き換えの関数が呼ばれる順には依存しない。
@@ -1236,7 +1243,7 @@ let subst_params level args t =
    | `Rigid` で鍵が `params` にある | `EvParam` |
    | `Rigid` で鍵が `params` に無いもの、`Unbound` | 新しい穴 |
    | `TCon` | `EvInst`。前提の証拠は `ii_premises` の順 |
-   | 構造的導出を持つクラスの `TRecord` / `TVariant` | `EvRecord` / `EvVariant`。閉じた行の各フィールドの証拠 |
+   | 構造的導出を持つクラスの `TRecord` / `TVariant` | `EvRecord` / `EvVariant`。閉じた行の各フィールドの証拠を、正準順と同じくラベルの昇順に並べたもの |
 
    インスタンスの有無と行が閉じていることは確かめない。
    制約の付いた変数が具体型に束縛された時点で、
@@ -1258,6 +1265,14 @@ let new_hole ~loc c t =
   note_hole h;
   h
 
+(* 行の先頭から拡張をたどり、(ラベル, フィールドの型) の列と尾部を返す。尾部は repr 済みである *)
+let row_spine t =
+  let rec go acc t = match repr t with TRowExtend (l, f, rest) -> go ((l, f) :: acc) rest | t' -> (List.rev acc, t') in
+  go [] t
+
+(* ラベルの綴りのバイト列の昇順に並べる。同じラベルのフィールドは外側のものを先に保つ *)
+let sort_row_fields fields = List.stable_sort (fun (l1, _) (l2, _) -> String.compare (Type.name_of l1) (Type.name_of l2)) fields
+
 let constraints_of t =
   let seen = Hashtbl.create 8 in
   let acc = ref [] in
@@ -1267,7 +1282,9 @@ let constraints_of t =
         match !v with
         | Generic i when not (Hashtbl.mem seen i.vid) ->
             Hashtbl.add seen i.vid ();
-            List.iter (fun c -> if not (is_predicate c) then acc := (i, c) :: !acc) i.vcls
+            let cs = List.filter (fun c -> not (is_predicate c)) i.vcls in
+            let cs = List.stable_sort (fun a b -> compare (Decls.class_rank a) (Decls.class_rank b)) cs in
+            List.iter (fun c -> acc := (i, c) :: !acc) cs
         | _ -> ())
     | TCon (_, args) -> List.iter go args
     | TApp (f, a) ->
@@ -1279,8 +1296,9 @@ let constraints_of t =
         go e
     | TRecord row | TVariant row -> go row
     | TRowEmpty -> ()
-    | TRowExtend (_, f, rest) ->
-        go f;
+    | TRowExtend _ ->
+        let fields, rest = row_spine t in
+        List.iter (fun (_, f) -> go f) (sort_row_fields fields);
         go rest
   in
   go t;
@@ -1313,7 +1331,7 @@ let rec evidence_of ~loc ~params ~(origin : TT.hole) c t =
   | (TRecord row | TVariant row) as t' ->
       let structural = match Decls.find_class c with Some ci -> ci.Decls.ci_derive_structural | None -> false in
       if not structural then bug ("証拠: 構造的導出の無いクラスの構造的な型です: " ^ display_of c);
-      let fields, _ = row_fields row in
+      let fields = sort_row_fields (fst (row_fields row)) in
       let evs = List.map (fun (l, f) -> (l, evidence_of ~loc ~params ~origin c f)) fields in
       (match t' with TRecord _ -> TT.EvRecord evs | _ -> TT.EvVariant evs)
   | _ -> bug ("証拠: 解けない型 " ^ show t)
@@ -1341,8 +1359,8 @@ let rec display_evidence c t =
       match Decls.find_instance ~cls:c ~con:n with
       | Some { ii_premises; _ } -> TT.EvInst (c, n, List.map (fun (i, c2) -> display_evidence c2 (List.nth args i)) ii_premises)
       | None -> bug "display_evidence: インスタンスがありません")
-  | TRecord row -> TT.EvRecord (List.map (fun (l, f) -> (l, display_evidence c f)) (fst (row_fields row)))
-  | TVariant row -> TT.EvVariant (List.map (fun (l, f) -> (l, display_evidence c f)) (fst (row_fields row)))
+  | TRecord row -> TT.EvRecord (List.map (fun (l, f) -> (l, display_evidence c f)) (sort_row_fields (fst (row_fields row))))
+  | TVariant row -> TT.EvVariant (List.map (fun (l, f) -> (l, display_evidence c f)) (sort_row_fields (fst (row_fields row))))
   | _ ->
       TT.EvHole
         { TT.h_id = new_oid (); h_cls = c; h_ty = t; h_loc = { Location.start = Lexing.dummy_pos; finish = Lexing.dummy_pos }; h_sol = None }
