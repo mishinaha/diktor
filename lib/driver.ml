@@ -1013,9 +1013,10 @@ let ir_program options =
   let srcs = List.map2 (fun (k, ps) ds -> { Ir_write.us_key = k; us_paths = ps; us_decls = ds }) metas units in
   Ir_write.program srcs
 
-(* 出力先に書けない誤りは、標準出力に書けない誤りと同じく 74 にする。文面は出力先を名指す *)
-let write_ir_file what file data =
-  match Out_channel.with_open_bin file (fun oc -> Out_channel.output_string oc data) with
+(* 出力先に書けない誤りは、標準出力に書けない誤りと同じく 74 にする。文面は出力先を名指す。
+   with_open_bin は最後の flush の誤りを捨てるので、書き終えたら自分で flush する *)
+let write_ir_file what file write =
+  match Out_channel.with_open_bin file (fun oc -> write oc; Out_channel.flush oc) with
   | () -> ()
   | exception Sys_error msg ->
       (try Printf.eprintf "diktor: KIR の%sを書き出せません: %s\n" what msg with Sys_error _ -> ());
@@ -1081,8 +1082,8 @@ let encode_ir prog =
 let emit_ir options =
   let prog = ir_program options in
   let data = encode_ir prog in
-  Option.iter (fun file -> write_ir_file "テキスト" file (Ir_text.to_string prog)) options.o_emit_ir_text;
-  Option.iter (fun file -> write_ir_file "バイナリ" file data) options.o_emit_ir
+  Option.iter (fun file -> write_ir_file "テキスト" file (fun oc -> Ir_text.output oc prog)) options.o_emit_ir_text;
+  Option.iter (fun file -> write_ir_file "バイナリ" file (fun oc -> Out_channel.output_string oc data)) options.o_emit_ir
 
 (* 読み込みか検証が拒んだときの報告。標準出力を先に flush する(§16.8 の出力先の規約) *)
 let reject_ir what msg =

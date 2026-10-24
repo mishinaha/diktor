@@ -97,10 +97,17 @@ let add_atom buf = function
    子が 1 つも無いノードも、この規則で 1 行になる。
    ほかの場合は、1 行目にキーワードと原子を書き、各子を改行して桁 `c+2` から書く。
    閉じ括弧は最後の子の閉じ括弧のすぐ後ろに置く。
-   最上位のノードは桁 0 から書き、それぞれを改行で終える。 *)
+   最上位のノードは桁 0 から書き、それぞれを改行で終える。
+
+   字下げの空白は入れ子の深さに比例するので、テキストの大きさは入れ子の深さの 2 乗に比例する。
+   深さ `d` の入れ子は、およそ `2·d²` バイトになる。
+   ノードの深さの上限(IRSpec 13.9 節)に近いプログラムでは数十 GB になり、
+   全体を 1 つのバッファに作るとメモリが足りない。
+   そこで `add_node` は行を書くたびに `spill` を呼び、
+   ファイルへ書くときは、たまった分をそこでチャネルへ書き出して空にする。 *)
 let is_leaf n = n.kids = []
 
-let rec add_node buf col n =
+let rec add_node buf spill col n =
   Buffer.add_char buf '(';
   Buffer.add_string buf n.kw;
   List.iter
@@ -112,14 +119,15 @@ let rec add_node buf col n =
     List.iter
       (fun k ->
         Buffer.add_char buf ' ';
-        add_node buf col k)
+        add_node buf spill col k)
       n.kids
   else
     List.iter
       (fun k ->
         Buffer.add_char buf '\n';
+        spill buf;
         Buffer.add_string buf (String.make (col + 2) ' ');
-        add_node buf (col + 2) k)
+        add_node buf spill (col + 2) k)
       n.kids;
   Buffer.add_char buf ')'
 
@@ -287,11 +295,28 @@ let program_nodes (p : program) =
   let inits = List.map (fun u -> node "init" ~atoms:[ str u.u_key ] ~kids:(List.map step_node u.u_init)) p.units in
   (header :: units) @ types @ effects @ classes @ instances @ globals @ fns @ inits
 
-let to_string p =
-  let buf = Buffer.create 65536 in
+let add_program buf spill p =
   List.iter
     (fun n ->
-      add_node buf 0 n;
-      Buffer.add_char buf '\n')
-    (program_nodes p);
+      add_node buf spill 0 n;
+      Buffer.add_char buf '\n';
+      spill buf)
+    (program_nodes p)
+
+let to_string p =
+  let buf = Buffer.create 65536 in
+  add_program buf ignore p;
   Buffer.contents buf
+
+(* チャネルへ書く。バッファが 64 KiB を超えるたびに書き出すので、
+   使うメモリはテキストの大きさによらない *)
+let output oc p =
+  let buf = Buffer.create 65536 in
+  let spill b =
+    if Buffer.length b >= 65536 then begin
+      Buffer.output_buffer oc b;
+      Buffer.clear b
+    end
+  in
+  add_program buf spill p;
+  Buffer.output_buffer oc buf
