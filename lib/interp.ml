@@ -275,6 +275,8 @@ let number_value node (n : number) =
    - `Resume` は、継続を消費する前に引数を評価する。
      `resume(f())` の `f` が例外で脱出すれば、resume は未消費のまま節の例外の経路
      (§14.9 の discontinue)に乗る。
+     ただし、引数の中の入れ子の resume が継続を再開した後なら、節の例外の経路は
+     例外をそのまま送り出し、継続を捨てない。
      順序を入れ替えると、消費済みの継続を捨てることになる。
      この分岐に来るのは、節本体の末尾の背骨の外にある `resume` だけである。
      背骨の上の `resume` は §14.9 の `eval_clause_tail` が処理し、その経路も `take_resume` で
@@ -786,11 +788,11 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
    節本体が構文上 `Resume` そのものである節は、さらに短い経路を通る。
    `case op(x) => resume(…)` の形の節は多く、プレリュードのハンドラ(`with_stdout`)もこの形である。
-   この経路は `r_used` を引数の評価より先に `true` にするので、
-   引数の中の入れ子の `resume` は、継続を再開する前にアフィン性の検査で落ちる。
-   背骨をたどる経路では、引数の中の入れ子の `resume` は継続を再開し、
+   この経路も `take_resume` と同じく、引数を評価した後で `r_alive` と `r_used` を調べる。
+   そのため、引数の中の入れ子の `resume` は継続を再開し、
    その後で外側の `resume` がアフィン性の検査で落ちる。
-   どちらも実行時エラーで終わるが、エラーの前に継続の出力が見えるかどうかが異なる。
+   これは背骨をたどる経路と同じ振る舞いで、どちらの経路でも、エラーの前に継続の出力が見える。
+   `test/resume_guard.t` が、短い経路でこの順序を確かめる。
    `test/eval.t` の perf.kel(10 万回の println)が短い経路の回帰テストで、
    `test/tail_calls.t` が、小さいスタック上限の下で両方の経路が空間を使わないことを確かめる。
 
@@ -875,8 +877,9 @@ and eval_rec_bindings env (bs : T.let_binding list) =
 
 (* resume の引数を評価し、アフィン性と second-class の検査を済ませて、継続を消費済みにする。
    継続の再開は呼び出し側が行う。
-   引数を先に評価するので、引数の評価中に起きた例外では、resume は未消費のまま
-   節の例外の経路(discontinue)に乗る。
+   引数を先に評価するので、引数の評価中に起きた例外では、引数の中の入れ子の resume が
+   継続を再開していなければ、resume は未消費のまま節の例外の経路(discontinue)に乗る。
+   再開済みなら、呼び出し側は例外をそのまま送り出す。
    順序を入れ替えると、消費済みの継続を捨てることになる *)
 and take_resume env arg =
   match env.resume with
@@ -1056,24 +1059,34 @@ and eval_handle env body clauses =
                           | T.Resume arg -> (
                               (* 節本体が resume そのものの短い経路(§14.9)。exception 節が覆うのは
                                  引数の評価だけで、continue は値の枝(例外の捕捉を抜けた後)に
-                                 あるので、末尾での発行が保たれる。引数が例外で脱出したときは、
-                                 通常の経路と同じく discontinue して、捨てた継続の cancel 節を
-                                 走らせる。r_used を先に true にしてあるので、引数の中の入れ子の
-                                 resume はアフィン性の検査で先に落ちる。例外が起きた時点で k は
-                                 未消費なので、discontinue は常に安全である *)
-                              let r = { r_k = k; r_used = true; r_alive = true } in
+                                 あるので、末尾での発行が保たれる。検査の順序は take_resume と
+                                 同じで、引数を評価した後で r_alive と r_used を調べ、それから
+                                 r_used を true にする。引数の中の入れ子の resume は継続を再開し、
+                                 その後で外側の resume がアフィン性の検査で落ちる。引数が例外で
+                                 脱出したときは、背骨をたどる経路と同じく、resume していなければ
+                                 discontinue して、捨てた継続の cancel 節を走らせる。引数の中の
+                                 resume が k を消費済みなら、例外をそのまま送り出す *)
+                              let r = { r_k = k; r_used = false; r_alive = true } in
                               match arg with
                               | None ->
+                                  r.r_used <- true;
                                   r.r_alive <- false;
                                   Effect.Deep.continue k unit
                               | Some e -> (
-                                  match eval { env with locals; resume = Some r } e with
+                                  match
+                                    let v = eval { env with locals; resume = Some r } e in
+                                    if not r.r_alive then runtime_error "resume を節の外で呼び出しました(second-class)"
+                                    else if r.r_used then runtime_error "resume は高々1回しか呼べません(アフィン)"
+                                    else (
+                                      r.r_used <- true;
+                                      v)
+                                  with
                                   | v ->
                                       r.r_alive <- false;
                                       Effect.Deep.continue k v
                                   | exception ex ->
                                       r.r_alive <- false;
-                                      Effect.Deep.discontinue k ex))
+                                      if r.r_used then raise ex else Effect.Deep.discontinue k ex))
                           | _ when not tail -> (
                               (* 背骨に resume の無い節は、背骨をたどらずに評価する *)
                               let r = { r_k = k; r_used = false; r_alive = true } in
