@@ -73,3 +73,34 @@
   > KEL
   $ diktor guardhandle.kel
   true
+
+節本体が resume そのものの節でも、resume は引数を先に評価する。引数の中の
+resume が継続を再開し、継続の出力が見えた後で、外側の resume が実行時
+エラーになる:
+
+  $ cat > nestresume.kel <<'KEL'
+  > effect Ask = { ask: (Int32) => Int32 }
+  > let r = ({ let a = perform ask(1); echoln("cont saw " + show(a)); a }) handle {
+  >   case ask(n) => resume(resume(n))
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor nestresume.kel
+  cont saw 1
+  実行時エラー: resume は高々1回しか呼べません(アフィン)
+  [3]
+
+引数の中の resume が継続を再開した後で、引数の評価が例外で脱出したときは、
+その例外がそのまま出る:
+
+  $ cat > nestresumediv.kel <<'KEL'
+  > effect Ask = { ask: () => Int32 }
+  > let r = ({ let a = perform ask(); echoln("cont saw " + show(a)); a }) handle {
+  >   case ask() => resume({ let x = resume(1); x / 0 })
+  > }
+  > echoln(show(r))
+  > KEL
+  $ diktor nestresumediv.kel
+  cont saw 1
+  実行時エラー: ゼロ除算です
+  [3]
