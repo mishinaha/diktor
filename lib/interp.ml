@@ -294,6 +294,11 @@ let number_value node (n : number) =
    継続はまだ再開しておらず、再開は呼び出し側が例外の捕捉を抜けてから行う *)
 type clause_end = Clause_value of Value.t | Clause_resume of Value.t
 
+(* 初期化の前の大域を読んだときの診断に書く名前。参照を書いた綴りではなく、
+   module の修飾を含み、単位の印を外した名前にする。
+   KIR の読み手も大域の記号から同じ名前を作れるようにするためである *)
+let global_display = function Tree.GDecl (_, x) -> Type.display x | Tree.GBuiltin x -> x | Tree.GMethod q -> Type.display q
+
 let rec eval env ((_, e) as node : T.exp) : Value.t =
   match e with
   | T.Bool b -> VBool b
@@ -309,7 +314,7 @@ let rec eval env ((_, e) as node : T.exp) : Value.t =
           | Some (Tree.RVar g) -> (
               match Hashtbl.find_opt env.globals g with
               | Some v -> with_evidence env node v
-              | None -> runtime_error ("未束縛の変数: " ^ name))
+              | None -> runtime_error ("未束縛の変数: " ^ global_display g))
           (* 裸の引数なしコンストラクタ *)
           | Some (Tree.RCtor (_, c, _)) -> VData { d_ctor = c; d_fields = [||] }
           | _ -> bug ("Ident が解決されていません: " ^ name)))
