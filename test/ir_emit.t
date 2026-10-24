@@ -31,7 +31,7 @@
 
   $ printf 'let x = 1\n' > one.kel
   $ diktor --no-prelude --emit-ir-text one.kirt one.kel && cat one.kirt
-  (kir 0 2 0)
+  (kir 0 3 0)
   (unit "builtin" (paths))
   (unit "prelude" (paths))
   (unit "main" (paths "one.kel"))
