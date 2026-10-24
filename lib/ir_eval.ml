@@ -7,7 +7,7 @@
    第14章の評価器が精緻化木を歩くのに対し、本章は KIR の木を歩く。
    意味の規範は親リポジトリの `doc/IRSpec.md` で、
    本章はその 5 節(評価順序)、6 節(関数と捕獲)、7 節(辞書)、8 節(パターン)、
-   10 節(初期化)、11 節(論理的な深さ)を、そのまま OCaml に写したものである。
+   9 節(エフェクト)、10 節(初期化)、11 節(論理的な深さ)を、そのまま OCaml に写したものである。
 
    本章の評価器は、第14章の評価器と同じ出力と同じ終了状態を出すことを目標にする。
    KIR を書き出して読み戻し、本章で評価した結果が第14章の結果と一致すれば、
@@ -24,7 +24,7 @@
    | 標準出力 | `Builtin.with_runtime` が `Console.write` を `sink` へ送る | 同じ |
    | プリミティブ | 第13章の表 | 同じ表を、値を写して呼ぶ |
    | 再帰の限度 | OCaml のスタック | 論理的な深さ(IRSpec 11 節) |
-   | ハンドラ式 | `Effect.Deep` に写す | 評価に届いたら未実装として終える |
+   | ハンドラ式 | `Effect.Deep` に写す | 同じ写し方で、深さの規則を足す(22.14 節) |
 
    値を第12章と別にするのは、第12章のクロージャが精緻化木の本体と環境を持つからである。
    KIR のクロージャは、関数の表の項目と捕獲の列の組である。
@@ -44,12 +44,12 @@
 
    ## ハンドラ式の扱い
 
-   本章は、ハンドラ式(`handle`)をまだ評価しない。
-   評価が `handle` のノードに届いたら、`Aux.NotImplemented` を投げて終了状態 4 で終える。
-   `handle` を含むだけのプログラムは拒まない。
-   評価が届かなければ、ほかの部分は最後まで走る。
-   `resume` と、実行時が処理しない操作の `perform` も、同じく未実装として終える。
-   型検査を通ったプログラムでは、この 2 つは `handle` を評価しない限り届かない。
+   ハンドラ式は、第14章 §14.9 と同じく、1 つの `Effect.Deep.match_with` に写す。
+   節の選び方、巻き戻しの順序、`cancel` 節の打ち切り、`resume` の検査の順序は、
+   第14章の写し方をそのまま使う。
+   そうすれば、第14章が固定している振る舞いと同じ結果になる。
+   第14章に無いのは、深さの数え方(IRSpec 11 節)である。
+   深さは OCaml のスタックからは得られないので、本章はフレームと起動に明示の数を持たせる(22.6 節)。
 
    ## API
 
@@ -60,7 +60,6 @@
    | 例外 | 意味 | 受け皿の終了状態 |
    |---|---|---|
    | `Value.Runtime_error msg` | 実行時エラー(論理的な深さの限度を含む) | 3 |
-   | `Aux.NotImplemented feat` | ハンドラ式などの、本章が評価しない構文に届いた | 4 |
    | `Sys_error msg` | 標準出力に書けない | 74 |
    | `Aux.Panic msg` | 処理系の誤り(KIR が型の付かない形をしている) | 3 |
 
@@ -113,9 +112,10 @@ type v =
   | VDict of dv
 
 (* 関数の表の項目。スロットの数を前もって数え、写した本体を持つ。
-   本体は、表のすべての項目を作ってから写して書き込む。
+   操作節の関数は、写したガードも持つ。
+   本体とガードは、表のすべての項目を作ってから写して書き込む。
    本体は別の関数の項目を指すので、項目が先にそろっていなければならない *)
-and rfn = { fn : Ir.fn; nparams : int; nslots : int; mutable body : cexp }
+and rfn = { fn : Ir.fn; nparams : int; nslots : int; mutable body : cexp; mutable guard : cexp option }
 
 (* メソッドの値は、クラス、メソッドの名前、クラスの位置の辞書、メソッド自身の辞書を持つ *)
 and meth = { m_cls : string; m_name : string; m_dict : dv; m_own : dv list }
@@ -160,7 +160,8 @@ and builtin =
    | `construct` | コンストラクタの名前とフィールドの数 |
    | `closure`、`dictabs` | 関数の表の項目 `rfn` |
    | 辞書の `dinst`、`dbuiltin` | インスタンスの表の項目と、組み込みの実装の表 |
-   | `perform` | 実行時が処理する操作かどうかの区別 |
+   | `perform` | 実行時が処理する操作かどうかの区別と、診断に書く操作の名前 |
+   | `handle` | 本体と各節の関数の表の項目 |
    | 引数の列 | 配列 |
 
    大域の欄は、初期化済みの印を `g_val` が `Some` であることで表す(IRSpec 10.3 節)。
@@ -195,12 +196,22 @@ and cexp =
   | CRec_restrict of string * cexp
   | CRec_update of string * cexp * cexp
   | CPerform_runtime of cexp array
-  | CPerform_user of string * cexp array
-  | CHandle
-  | CResume of cexp
+  | CPerform_user of string * string * string * cexp array
+  | CHandle of chandle
+  | CResume of bool * cexp
   | CHole
 
 and cclause = { cc_pat : Ir.pat; cc_guard : cexp option; cc_body : cexp }
+
+(* ハンドラ式。各部分は、関数の表の項目と、ハンドラ式を評価したフレームから読む捕獲の列である。
+   操作節の項目は、操作の短い名前、分類、部分の順に並べる *)
+and chandle = {
+  ch_eff : string;
+  ch_body : rfn * Ir.var array;
+  ch_ops : (string * Ir.clause_class * rfn * Ir.var array) list;
+  ch_ret : (rfn * Ir.var array) option;
+  ch_cancel : (rfn * Ir.var array) option;
+}
 
 and cdict = CDInst of inst * cdict list | CDParam of int | CDEnv of int | CDRecord of (string * cdict) list | CDVariant of (string * cdict) list | CDBuiltin of bi
 
@@ -321,27 +332,77 @@ let call_prim f args = of_value (f (Value.VRecord (Array.to_list (Array.map (fun
 (* ## 22.6 論理的な深さ
 
    深さは IRSpec 11 節の規則で数える。
-   各フレームが自分の深さを持ち、末尾でない呼び出しは呼ばれた側を 1 つ深くする。
-   末尾の呼び出しは呼び出し元の深さを引き継ぐ。
-   深さをフレームの欄に置くので、呼び出しから戻れば呼び出し元の深さに戻り、
-   例外で抜けたときも数を戻す処理が要らない。
+   末尾でない呼び出しは呼ばれた側を 1 つ深くし、末尾の呼び出しは呼び出し元の深さを引き継ぐ。
+   ハンドラ式と操作節の深さの規則は、22.14 節で扱う。
 
    限度の検査は、深さが増える境目に入る前に行う。
    新しい深さが限度を超えたら、実行時エラーにする。
    その誤りが伝播している間は、限度を予備 `R = max(1024, L / 64)` だけ広げる。
    予備は、巻き戻しの途中で走る `cancel` 節のためのものである。
-   本章はまだ `cancel` 節を走らせないが、限度の状態は同じ形で持っておく。
+   予備の中でさらに限度を超えると、同じ文面の実行時エラーになり、
+   それを起こした `cancel` 節の打ち切り(22.14 節)が記録する。
+   限度の誤りを捕まえるのは、この打ち切りだけである。
+   `cancel` 節は、走る前の限度を覚えておき、節を出るときにその値へ戻す。
+   外で伝播している誤りが限度の誤りなら、覚えた値はすでに予備の分だけ広く、
+   入れ子の `cancel` 節も予備の中で走る。
+   外の誤りがほかの誤りなら、節の中で限度を超えて打ち切られた後、限度は `L` に戻る。
+   限度の誤りが最上位に届いたときは、プログラムが終わる。
 
-   深さはフレームの欄であって、OCaml のスタックの深さとは別である。
+   ### 錨からの差
+
+   継続を深さ `c` で再開すると、継続の中の文脈の深さと、
+   継続の中で始まったハンドラの起動の深さが、どれも `c − h` だけずれる(IRSpec 11.4 節)。
+   `h` は、その継続を取り出したハンドラの起動の深さである。
+   中断した計算は OCaml のファイバーの中にあり、
+   その中のフレームを外からたどって書き換えることはできない。
+   そこで、深さを絶対の値でなく、錨(`anchor`)からの差で持つ。
+   錨は、プログラムの根の錨か、ハンドラの起動ごとに 1 つ作る錨である。
+   根の錨の深さは 0 である。
+   起動の錨は、親の錨と差を持ち、その深さは親の錨の深さに差を足したもので、起動の深さ `h` にあたる。
+   フレームも錨と差を持ち、フレームの深さは錨の深さに差を足したものである。
+
+   継続を再開するときは、その継続を取り出した起動の錨の親と差を、
+   `resume` を評価したフレームの錨と差に付け替える。
+   継続の中のフレームとハンドラの起動は、どれもこの起動の錨を経由して深さが決まる(22.14 節)。
+   そのため、付け替え 1 回で、ずらすべきものがすべてずれる。
+
+   錨の深さは、親をたどって差を足せば求まる。
+   毎回たどると、ハンドラの入れ子が深いほど呼び出しが遅くなるので、求めた値を錨に覚えておく。
+   付け替えのたびに世代の番号を進め、覚えた値は、覚えたときと同じ世代の間だけ使う。
+
+   ### OCaml のスタック
+
    末尾の呼び出しは OCaml の末尾呼び出しに保つ(第14章の冒頭の規約 1 と同じ)。
    そのため、末尾呼び出しのループは深さも OCaml のスタックも増やさない。
-   末尾でない呼び出しは OCaml のスタックも使う。
-   1 段あたりの量は、呼ばれた関数の中で次の呼び出しを囲む式の入れ子の深さに比例して増える。
-   第16章の `eval_ir` は、評価の前に OCaml のスタックの上限を上げる。
-   それでも、各段の中の入れ子が極端に深いプログラムでは、
-   論理的な深さが限度に届く前に OCaml のスタックが尽きうる。
-   そのときはスタックオーバーフローの実行時エラーになり、`depth_limit` とは文面が違う。
-   これは本章の評価器の処理系の限度であり、IRSpec 11.5 節がそう定める。 *)
+   末尾でない呼び出しは OCaml のスタックも使い、
+   1 段あたりの量は、呼ばれた関数の中で次の呼び出しを囲む式の入れ子が深いほど増える。
+   1 本のスタックの上で再帰すると、入れ子の深いプログラムでは、
+   論理的な深さが限度に届く前に OCaml のスタックの上限に届く。
+
+   OCaml 5 のスタックの上限は、ファイバーのスタックごとに掛かる。
+   そこで、末尾でない呼び出しの呼ばれた側の深さが 4096 の倍数になるたびに、
+   その呼び出しを新しいファイバーの中で走らせる。
+   このファイバーのハンドラは、値も例外もエフェクトもそのまま外へ通すので、意味には効かない。
+   1 本のスタックが持つのは、末尾でない呼び出しの高々 4096 段の分である。
+   各段の中の式の入れ子は、KIR のノードの深さの上限(IRSpec 13.9 節)の下にある。
+   こうして、スタックの上限は 1 本のスタックの量にだけ掛かり、段の数には掛からなくなる。
+   それでも、限度に届く前に評価が止まる場合が 3 つ残る。
+   1 つ目は、4096 段の分のスタックが 1 本のスタックの上限を超える場合である。
+   OCAMLRUNPARAM の `l` で上限を絞ったときや、各段の中の入れ子が極端に深いときに起こり、
+   スタックオーバーフローの実行時エラーになる。
+   これに届くかどうかは、段の数でなく、4096 段の中の入れ子の深さで決まる。
+   2 つ目は、生きている継続が長い鎖をなす場合である。
+   OCaml 5 の GC は継続の鎖を C のスタックの上で再帰してたどるので、
+   システムのスタックが尽きて SIGSEGV で落ちることがある。
+   落ちるかどうかは GC の時機とシステムのスタックの大きさで決まり、木の評価器にも同じ弱さがある。
+   3 つ目は、機械のメモリが尽きる場合である。
+   全体で使う領域は、段の数と各段の入れ子の深さに比例して増える。
+
+   間隔を短くすると、1 本のスタックの量は減るが、ファイバーの数が増える。
+   `perform` から宛先のハンドラまでの間にあるファイバーは、どれもエフェクトを外へ送り直すので、
+   深い再帰の底で操作を繰り返し起こすプログラムは、ファイバーの数に比例して遅くなる。
+   4096 は、OCAMLRUNPARAM でスタックの上限を 1M 語に絞っても、
+   8 重のブロックで囲んだ再帰の 1 本のスタックが上限に届かない間隔である。 *)
 let default_max_depth = 1 lsl 20
 
 let reserve_of l = max 1024 (l / 64)
@@ -349,27 +410,102 @@ let reserve_of l = max 1024 (l / 64)
 (* 限度を超えたときの文面。受け皿は先頭に「実行時エラー: 」を付けて標準エラーに書く *)
 let depth_limit_message l = Printf.sprintf "論理的な深さが限度 %d を超えました" l
 
-type ctx = { c_max : int; mutable c_limit : int }
+(* 錨。根の錨は親を持たず、差が 0 である。
+   `an_memo` は、世代 `an_gen` のときに求めた錨の深さである *)
+type anchor = { mutable an_parent : anchor option; mutable an_off : int; mutable an_memo : int; mutable an_gen : int }
 
-(* 深さ `d` の文脈から 1 段深い境目に入る。新しい深さが限度を超えたら、入る前に誤りにする *)
-let enter_depth ctx d =
-  let d' = d + 1 in
-  if d' > ctx.c_limit then (
-    ctx.c_limit <- ctx.c_max + reserve_of ctx.c_max;
-    runtime_error (depth_limit_message ctx.c_max))
-  else d'
+(* 評価の全体で 1 つの状態。限度、根の錨、錨の世代の番号、ハンドラの起動の番号を持つ *)
+type ctx = { c_max : int; mutable c_limit : int; c_root : anchor; mutable c_gen : int; mutable c_inst : int }
+
+let root_anchor () = { an_parent = None; an_off = 0; an_memo = 0; an_gen = -1 }
+
+(* 錨の深さ。覚えた値が今の世代のものでない錨を根の側へたどって集め、
+   根に近いものから順に値を決めて覚える。
+   たどる部分を末尾再帰で書くので、起動の入れ子が深くても OCaml のスタックを使わない *)
+let anchor_depth ctx a =
+  match a.an_parent with
+  | None -> a.an_off
+  | Some _ when a.an_gen = ctx.c_gen -> a.an_memo
+  | Some _ ->
+      let rec up a pending =
+        match a.an_parent with
+        | None -> (a.an_off, pending)
+        | Some p -> if a.an_gen = ctx.c_gen then (a.an_memo, pending) else up p (a :: pending)
+      in
+      let base, pending = up a [] in
+      List.fold_left
+        (fun d x ->
+          let d = d + x.an_off in
+          x.an_memo <- d;
+          x.an_gen <- ctx.c_gen;
+          d)
+        base pending
+
+let depth_error ctx =
+  ctx.c_limit <- ctx.c_max + reserve_of ctx.c_max;
+  runtime_error (depth_limit_message ctx.c_max)
+
+(* 錨 `a` と差 `off` の文脈から 1 段深い境目に入る。
+   新しい深さを返し、限度を超えるなら入る前に誤りにする *)
+let enter_depth ctx a off =
+  let d = anchor_depth ctx a + off + 1 in
+  if d > ctx.c_limit then depth_error ctx else d
+
+(* 新しいファイバーで走らせる深さの間隔 4096 から 1 を引いた値 *)
+let chunk_mask = 4095
+
+(* 値も例外もエフェクトもそのまま外へ通すファイバーの中で `f` を走らせる *)
+let in_fiber (f : unit -> 'a) : 'a =
+  Effect.Deep.match_with f () { retc = Fun.id; exnc = raise; effc = (fun (type b) (_ : b Effect.t) -> None) }
 
 (* ## 22.7 フレーム
 
    関数を 1 回呼ぶたびに、フレームを 1 つ作る。
-   フレームは、スロットの配列、捕獲の配列、辞書の引数の配列、深さを持つ。
+   フレームは、スロットの配列、捕獲の配列、辞書の引数の配列、深さの錨と差、`resume` の宛先を持つ。
    スロットは引数が先で、局所が続く(IRSpec 6.4 節)。
    1 つのスロットを束縛する箇所はちょうど 1 つなので、
    パターンの照合はスロットに直接書き込み、失敗しても書いたものを戻さない。
-   失敗した節のスロットは、その節の中からしか読まれないからである。 *)
-type frame = { slots : v array; caps : v array; dicts : dv array; depth : int }
+   失敗した節のスロットは、その節の中からしか読まれないからである。
+
+   `resume` の宛先(22.14 節の `resumption`)を持つのは、T と G の操作節の本体のフレームと、
+   その中で評価したハンドラ式の本体のフレームである。
+   ハンドラ式の本体の中の `resume` は、
+   そのハンドラ式を囲む操作節の継続を再開するので(IRSpec 9.2 節)、
+   本体のフレームは、ハンドラ式を評価したフレームの宛先を受け継ぐ。
+   ほかのフレームは宛先を持たない。 *)
+type frame = { slots : v array; caps : v array; dicts : dv array; anchor : anchor; off : int; res : resumption option }
+
+(* 継続を再開する権利。継続、ハンドラの起動の番号と錨、
+   継続の深さの差 `Δ = p − h`、使ったかどうかの印、節の中にいるかどうかの印を持つ *)
+and resumption = {
+  rs_inst : int;
+  rs_k : (v, v) Effect.Deep.continuation;
+  rs_anchor : anchor;
+  rs_delta : int;
+  mutable rs_used : bool;
+  mutable rs_alive : bool;
+}
 
 let new_slots r = if r.nslots = 0 then [||] else Array.make r.nslots unit_v
+
+let frame_depth ctx fr = anchor_depth ctx fr.anchor + fr.off
+
+(* 起動の錨の親。起動の錨は必ず親を持つ *)
+let anchor_parent x = match x.an_parent with Some a -> a | None -> bug "ハンドラの起動の錨に親がありません"
+
+(* 利用者の操作の `perform` が送るエフェクト。
+   エフェクトの記号、操作の短い名前、診断に書く名前、引数、`perform` のフレームの錨と差を持つ *)
+type request = { q_eff : string; q_op : string; q_name : string; q_args : v array; q_anchor : anchor; q_off : int }
+
+type _ Effect.t += Perform : request -> v Effect.t
+
+(* 巻き戻しの通知(22.14 節)。第14章の `Unwind` と同じ規約で、値が本章の `v` である *)
+type unwind = UValue of v | UClause of (unit -> v)
+
+exception Unwind of int * unwind
+
+(* 末尾の `resume` が、継続を再開せずに節の包みまで値を運ぶための例外(22.14 節) *)
+exception Tail_resume of int * v
 
 (* ## 22.8 パターン
 
@@ -407,6 +543,9 @@ let rec match_pat slots (p : Ir.pat) v =
       | VData (c', fs) when String.equal c c' -> List.for_all (fun (i, p) -> match_pat slots p fs.(i)) fields
       | _ -> false)
   | Ir.PVariant (l, p) -> ( match v with VVariant (l', x) when String.equal l l' -> match_pat slots p x | _ -> false)
+
+(* 操作節の引数のパターンを、`i` 番から先の引数のスロットと順に照合する *)
+let rec match_params slots i = function [] -> true | p :: ps -> match_pat slots p slots.(i) && match_params slots (i + 1) ps
 
 (* ## 22.9 KIR の木を写す
 
@@ -507,10 +646,24 @@ let rec link t p (e : Ir.exp) : cexp =
   | Ir.Perform (eff, op, es) -> (
       match Hashtbl.find_opt t.t_ops (eff, op) with
       | Some o when o.Ir.o_runtime -> CPerform_runtime (args es)
-      | Some _ -> CPerform_user (display_of_symbol eff ^ "." ^ op, args es)
+      | Some _ -> CPerform_user (eff, op, display_of_symbol eff ^ "." ^ op, args es)
       | None -> bug ("操作がありません: " ^ eff ^ "." ^ op))
-  | Ir.Handle _ -> CHandle
-  | Ir.Resume (_, e) -> CResume (link e)
+  | Ir.Handle h ->
+      let part (q : Ir.part) = (find_fn t q.p_fn, Array.of_list q.p_caps) in
+      CHandle
+        {
+          ch_eff = h.h_effect;
+          ch_body = part h.h_body;
+          ch_ops =
+            List.map
+              (fun (o, cls, q) ->
+                let r, cs = part q in
+                (o, cls, r, cs))
+              h.h_ops;
+          ch_ret = Option.map part h.h_return;
+          ch_cancel = Option.map part h.h_cancel;
+        }
+  | Ir.Resume (tail, e) -> CResume (tail, link e)
   | Ir.Hole -> CHole
 
 (* ## 22.10 評価
@@ -545,10 +698,11 @@ let rec eval ctx fr (e : cexp) : v =
   | CCall (tail, f, args) ->
       let f = eval ctx fr f in
       let args = match args with [| a |] -> [| eval ctx fr a |] | _ -> eval_args ctx fr args in
-      if tail then apply ctx fr.depth f args
+      if tail then apply ctx fr.anchor fr.off f args
       else
-        let d = enter_depth ctx fr.depth in
-        apply ctx d f args
+        let d = enter_depth ctx fr.anchor fr.off in
+        if d land chunk_mask <> 0 then apply ctx fr.anchor (fr.off + 1) f args
+        else in_fiber (fun () -> apply ctx fr.anchor (fr.off + 1) f args)
   | CMethod (cls, m, d, own) ->
       let dd = eval_dict fr d in
       let own = List.map (eval_dict fr) own in
@@ -564,8 +718,9 @@ let rec eval ctx fr (e : cexp) : v =
             [| x; y |]
         | _ -> eval_args ctx fr args
       in
-      let depth = enter_depth ctx fr.depth in
-      call_method ctx depth cls m dd [] args
+      let d = enter_depth ctx fr.anchor fr.off in
+      if d land chunk_mask <> 0 then call_method ctx fr.anchor (fr.off + 1) cls m dd [] args
+      else in_fiber (fun () -> call_method ctx fr.anchor (fr.off + 1) cls m dd [] args)
   | CNot e -> VBool (not (as_bool (eval ctx fr e)))
   | CAnd (a, b) -> if as_bool (eval ctx fr a) then eval ctx fr b else VBool false
   | COr (a, b) -> if as_bool (eval ctx fr a) then VBool true else eval ctx fr b
@@ -574,8 +729,9 @@ let rec eval ctx fr (e : cexp) : v =
   | CDictapp (e, ds) ->
       let f = eval ctx fr e in
       let ds = Array.map (eval_dict fr) ds in
-      let depth = enter_depth ctx fr.depth in
-      dictapp ctx depth f ds
+      let d = enter_depth ctx fr.anchor fr.off in
+      if d land chunk_mask <> 0 then dictapp ctx fr.anchor (fr.off + 1) f ds
+      else in_fiber (fun () -> dictapp ctx fr.anchor (fr.off + 1) f ds)
   | CLet (n, e1, e2) ->
       let x = eval ctx fr e1 in
       fr.slots.(n) <- x;
@@ -634,11 +790,15 @@ let rec eval ctx fr (e : cexp) : v =
       let args = eval_args ctx fr args in
       let a = Value.VRecord (Array.to_list (Array.map (fun a -> (Type.l_item, to_value a)) args)) in
       of_value (Effect.perform (Value.Op (Builtin.op_console_write, a)))
-  | CPerform_user (name, args) ->
-      let _ = eval_args ctx fr args in
-      noimpl ("KIR の評価器は利用者の操作の perform をまだ評価できません: " ^ name)
-  | CHandle -> noimpl "KIR の評価器はハンドラ式をまだ評価できません"
-  | CResume _ -> noimpl "KIR の評価器は resume をまだ評価できません"
+  | CPerform_user (eff, op, name, args) -> (
+      let args = eval_args ctx fr args in
+      let q = { q_eff = eff; q_op = op; q_name = name; q_args = args; q_anchor = fr.anchor; q_off = fr.off } in
+      (* どのハンドラも受け取らなければ、第14章と同じ形の例外にして、第16章の受け皿に操作の名前を渡す *)
+      match Effect.perform (Perform q) with
+      | x -> x
+      | exception Effect.Unhandled (Perform _) -> raise (Effect.Unhandled (Value.Op (Type.intern name, Value.unit))))
+  | CHandle h -> eval_handle ctx fr h
+  | CResume (tail, e) -> eval_resume ctx fr tail e
   | CHole -> runtime_error "??? に到達しました"
 
 and eval_args ctx fr args =
@@ -663,21 +823,21 @@ and eval_dict fr (d : cdict) : dv =
 
 (* ## 22.11 呼び出し
 
-   `apply ctx depth f args` は、値 `f` を引数の配列とともに、深さ `depth` で呼ぶ。
-   `depth` は呼ばれた側の深さで、呼び出し元が末尾かどうかで決めて渡す。
+   `apply ctx a off f args` は、値 `f` を引数の配列とともに、錨 `a` と差 `off` の深さで呼ぶ。
+   この深さは呼ばれた側の深さで、呼び出し元が末尾かどうかで決めて渡す。
    クロージャは、新しいフレームを作って本体を OCaml の末尾で評価する。
    種類 `lambda` の仮引数は、変数ならスロットそのもの、ほかのパターンなら本体の `letpat` なので、
    引数をスロットの先頭に並べるだけでよい(IRSpec 6.3 節)。 *)
-and apply ctx depth f args =
+and apply ctx a off f args =
   match f with
   | VClo (r, caps) ->
       if Array.length args <> r.nparams then bug ("引数の個数が一致しません: " ^ r.fn.Ir.f_sym);
       let slots = new_slots r in
       Array.blit args 0 slots 0 r.nparams;
-      eval ctx { slots; caps; dicts = [||]; depth } r.body
-  | VMeth m -> call_method ctx depth m.m_cls m.m_name m.m_dict m.m_own args
+      eval ctx { slots; caps; dicts = [||]; anchor = a; off; res = None } r.body
+  | VMeth m -> call_method ctx a off m.m_cls m.m_name m.m_dict m.m_own args
   | VExtern x -> call_extern x args
-  | VBuiltin b -> call_builtin ctx depth b args
+  | VBuiltin b -> call_builtin ctx a off b args
   | v -> bug ("関数ではない値を呼びました: " ^ show v)
 
 and call_extern x args =
@@ -689,11 +849,11 @@ and call_extern x args =
 
 (* 辞書の適用(IRSpec 7.5 節)。`dictabs` の値は、辞書を受け取って本体を評価する。
    辞書を受け取る `extern` は、辞書を捨てて自分を返す *)
-and dictapp ctx depth f ds =
+and dictapp ctx a off f ds =
   match f with
   | VDabs (r, caps) ->
       if Array.length ds <> r.fn.Ir.f_dicts then bug ("辞書の個数が一致しません: " ^ r.fn.Ir.f_sym);
-      eval ctx { slots = new_slots r; caps; dicts = ds; depth } r.body
+      eval ctx { slots = new_slots r; caps; dicts = ds; anchor = a; off; res = None } r.body
   | VExtern _ -> f
   | v -> bug ("辞書を受け取らない値に辞書を渡しました: " ^ show v)
 
@@ -704,11 +864,11 @@ and dictapp ctx depth f ds =
    実装の関数の辞書の数が 0 なら、`def_instance` が評価した値を使う。
    ほかは、前提の辞書とメソッド自身の辞書を渡して実装の関数の本体を評価し、得た値を呼ぶ。
    どちらも、メソッドの値を 1 回呼ぶことを、選んだ実装を 1 回呼ぶことと数える。
-   実装の本体の評価も、得た値の呼び出しも、呼ばれた側の深さ `depth` で行う。
+   実装の本体の評価も、得た値の呼び出しも、呼ばれた側の深さで行う。
 
    構造的な `Eq` の辞書は、項目の順にフィールドを取り出して比べる(IRSpec 7.6 節)。
    比べるたびに、フィールドの辞書のメソッドを末尾でない呼び出しとして呼ぶ。 *)
-and call_method ctx depth cls m d own args =
+and call_method ctx a off cls m d own args =
   match d with
   | DInst (i, ps) ->
       if not i.i_ready then
@@ -720,50 +880,52 @@ and call_method ctx depth cls m d own args =
         | Some f -> f
         | None -> (
             match assoc_first m i.i_impls with
-            | Some r -> dictapp ctx depth (VDabs (r, [||])) (Array.of_list (ps @ own))
+            | Some r -> dictapp ctx a off (VDabs (r, [||])) (Array.of_list (ps @ own))
             | None -> bug ("メソッドがありません: " ^ i.ins.Ir.i_sym ^ "." ^ m))
       in
-      apply ctx depth f args
+      apply ctx a off f args
   | DBuiltin b -> (
       match assoc_first m b.bi_methods with Some f -> call_prim f args | None -> bug ("組み込みのメソッドがありません: " ^ cls ^ "." ^ m))
   | DRecord fs ->
       if cls <> "builtin/Eq" then bug "構造的な辞書を Eq 以外に使いました";
-      let a, b = arg2 args in
-      VBool (record_eq ctx depth fs (record_fields a) (record_fields b))
+      let x, y = arg2 args in
+      VBool (record_eq ctx a off fs (record_fields x) (record_fields y))
   | DVariant fs -> (
       if cls <> "builtin/Eq" then bug "構造的な辞書を Eq 以外に使いました";
-      let a, b = arg2 args in
-      match (a, b) with
+      match arg2 args with
       | VVariant (l1, p1), VVariant (l2, p2) ->
           VBool
             (String.equal l1 l2
-            && match assoc_first l1 fs with Some d -> eq_with ctx depth d p1 p2 | None -> bug ("ヴァリアントの辞書にラベルがありません: " ^ l1))
+            && match assoc_first l1 fs with Some d -> eq_with ctx a off d p1 p2 | None -> bug ("ヴァリアントの辞書にラベルがありません: " ^ l1))
       | _ -> bug "ヴァリアントではない値を比べました")
 
 and arg2 args = if Array.length args = 2 then (args.(0), args.(1)) else bug "引数が 2 個ではありません"
 
-and eq_with ctx depth d x y =
-  let depth = enter_depth ctx depth in
-  as_bool (call_method ctx depth "builtin/Eq" "eq" d [] [| x; y |])
+and eq_with ctx a off d x y =
+  let n = enter_depth ctx a off in
+  as_bool
+    (if n land chunk_mask <> 0 then call_method ctx a (off + 1) "builtin/Eq" "eq" d [] [| x; y |]
+     else in_fiber (fun () -> call_method ctx a (off + 1) "builtin/Eq" "eq" d [] [| x; y |]))
 
-and record_eq ctx depth fs a b =
+and record_eq ctx a off fs xs ys =
   match fs with
-  | [] -> a = [] && b = []
+  | [] -> xs = [] && ys = []
   | (l, d) :: rest -> (
-      match (record_take a l, record_take b l) with
-      | Some (x, a'), Some (y, b') -> eq_with ctx depth d x y && record_eq ctx depth rest a' b'
+      match (record_take xs l, record_take ys l) with
+      | Some (x, xs'), Some (y, ys') -> eq_with ctx a off d x y && record_eq ctx a off rest xs' ys'
       | _ -> bug ("構造的な比較でラベルがありません: " ^ l))
 
 (* ## 22.13 組み込みの値
 
    組み込みの値(IRSpec 付録 A.4)の振る舞いと誤りの文面は、第14章 §14.10 と同じである。
    利用者の関数を呼ぶ `Array.each` と `pinned` は、その呼び出しを末尾でない呼び出しとして数える。
-   組み込み自身は呼び出しの深さ `depth` で走るので、利用者の関数は `depth + 1` で走る。
+   組み込み自身はそれを呼んだ呼び出しの呼ばれた側の深さで走るので、
+   利用者の関数はそれより 1 つ深く走る。
    組み込みを末尾でない呼び出しで呼んだときは、呼び出しの位置の深さ + 2 になる。 *)
-and call_builtin ctx depth b args =
+and call_builtin ctx a off b args =
   let callback f xs =
-    let d = enter_depth ctx depth in
-    apply ctx d f xs
+    let d = enter_depth ctx a off in
+    if d land chunk_mask <> 0 then apply ctx a (off + 1) f xs else in_fiber (fun () -> apply ctx a (off + 1) f xs)
   in
   let index a i =
     let i = Int32.to_int i in
@@ -791,7 +953,211 @@ and call_builtin ctx depth b args =
   | BPinned, [| f |] -> callback f [||]
   | _ -> bug ("組み込みの値の呼び出しが不正です: " ^ builtin_name b)
 
-(* ## 22.14 表を作る
+(* ## 22.14 ハンドラ式
+
+   ハンドラ式は、第14章 §14.9 と同じく、評価するたびに 1 つの `Effect.Deep.match_with` になる。
+   起動ごとの番号、`Unwind` の規約、3 つの経路、再開しない操作の節を `exnc` の末尾で評価すること、
+   `cancel` 節の打ち切り、`resume` の検査の順序は、どれも第14章 §14.9 の説明のとおりである。
+   本節は、第14章と違うところと、深さの規則(IRSpec 11.2 節)の当てはめ方を書く。
+
+   ### 第14章と違うところ
+
+   第14章は節の振り分けを精緻化木の印から決めるが、本章は KIR の分類(N、T、G)を読む。
+   操作節の引数のパターンとガードは、`opclause` の関数の `pats` とガードの欄にある。
+   パターンを引数のスロットと照合し、一致したらガードを評価する。
+
+   第14章は節の本体の末尾の背骨をたどって末尾の `resume` を見つけるが、
+   本章は `resume` の `tail` の印を読む。
+   末尾の `resume` は、検査を済ませて使った印を立てた後、値を例外 `Tail_resume` に載せて投げる。
+   節の本体の末尾位置は OCaml の末尾位置なので、
+   この例外は途中に捕まえる箇所の無いまま節の包みに届く。
+   包みは例外の場合の枝で `continue` を発行する。
+   この枝は例外を捕まえる範囲(trap)を抜けた後にあるので、`continue` は末尾での発行になり、
+   T の節で再開を繰り返すループは一定の領域で走る(第14章の「末尾 resume」と同じ理由)。
+   例外は起動の番号を持ち、包みは自分の番号のものだけを受け取る。
+
+   利用者の操作の `perform` は、本章のエフェクト `Perform` を送る。
+   `effc` は、エフェクトの記号が自分のものと同じなら、その操作の節を持たなくても受け取る。
+   どの節にも一致しなければ実行時の誤りであり、外側のハンドラへ送り直さない(IRSpec 9.4 節)。
+   プレリュードの `Console.write` は第12章の `Op` のままなので、どのハンドラも受け取らずに、
+   第13章の `with_runtime` へ届く。
+
+   ### 深さ
+
+   起動の錨(22.6 節)は、ハンドラ式を評価したフレームの錨と差を親と差に持つ。
+   そのため起動の深さ `h` は、ハンドラ式を評価した文脈の深さになる。
+   各部分のフレームの錨と差は次のとおりである。
+
+   | 部分 | 錨 | 差 | 深さ |
+   |---|---|---|---|
+   | 本体 | 起動の錨 | 1 | `h + 1` |
+   | 節の選択(パターンとガード)と T の節の本体 | `perform` のフレームの錨 | `perform` のフレームの差 + 1 | `p + 1` |
+   | G の節の本体 | 起動の錨の親 | 起動の錨の差 + 1 | `h + 1` |
+   | N の節の本体、`return` 節、`cancel` 節 | 起動の錨の親 | 起動の錨の差 | `h` |
+
+   本体の深さは、ハンドラを連鎖に入れる前に限度と比べる。
+   節の選択の深さは、節を試す前に限度と比べる。
+   G の節の本体の深さは、節の包みの中で限度と比べる。
+   どちらで限度を超えても、継続はまだ使っていないので、継続を捨てて巻き戻す。
+   T の節の本体は節の選択と同じ深さなので、比べ直さない。
+
+   G の節の本体を起動の錨そのものからの差にしないのは、
+   末尾でない `resume` が起動の錨を付け替えても、節の本体の深さは変わらないからである。
+   N の節の本体、`return` 節、`cancel` 節は、走るときに起動の錨の親と差を読む。
+   再開した計算の中で走る `return` 節は、付け替えた後の深さ、つまり `resume` を評価した深さで走る。
+   これは、その値が `resume` の値になること(IRSpec 9.5 節)と合う。
+
+   末尾でない `resume` は、深さ `c` で評価したとき、再開した `perform` が深さ `c + Δ` になる。
+   `Δ = p − h` は、`perform` を受け取ったときに求めて `resumption` に置く。
+   継続の中のものはまとめてずれるので、`Δ` は継続が中断している間は変わらない。
+   `c + Δ` は、使った印を立てる前に限度と比べる。
+   超えたら、継続をまだ使っていないので、節が `resume` の前に脱出したときと同じく、
+   継続を捨てて巻き戻す。
+   超えなければ、使った印を立て、
+   起動の錨を `resume` を評価したフレームの錨と差に付け替えてから再開する。
+
+   T の節(とガード)を評価している間は、そのハンドラと、
+   `perform` の位置からそのハンドラまでのハンドラが連鎖から外れる。
+   その節から外側のハンドラの G の操作を起こすと、
+   外れていたハンドラは外側の継続の中の文脈からだけ届く。
+   これらのハンドラの錨も、T の節の本体のフレームの錨も、
+   `perform` のフレームの錨を経由して外側の起動の錨に届く。
+   そのため、外側の継続を再開して付け替えると、これらの深さもずれる(IRSpec 11.4 節)。
+
+   末尾の `resume` は錨を付け替えない。
+   T の節の末尾の `resume` は節の選択の前の状態に戻すだけで、継続は取り出したときの深さのまま続く。
+   G の節の末尾の `resume` も、節の本体を捨てて継続をハンドラ式の位置に付け直すので、
+   再開した計算は取り出したときの深さのまま続く。 *)
+and eval_handle ctx fr h =
+  ignore (enter_depth ctx fr.anchor fr.off);
+  ctx.c_inst <- ctx.c_inst + 1;
+  let inst = ctx.c_inst in
+  let x = { an_parent = Some fr.anchor; an_off = fr.off; an_memo = 0; an_gen = -1 } in
+  let part (r, cs) = (r, Array.map (read_var fr) cs) in
+  let body_r, body_caps = part h.ch_body in
+  let ops = List.map (fun (o, cls, r, cs) -> (o, cls, r, Array.map (read_var fr) cs)) h.ch_ops in
+  let ret = Option.map part h.ch_ret in
+  let cancel = Option.map part h.ch_cancel in
+  let run_cancel () =
+    match cancel with
+    | None -> ()
+    | Some (r, caps) ->
+        (* cancel 節の中の例外は抑制してログに記録する(第14章 §14.9 の「cancel 節の実行文脈」)。
+           節の中で限度を超えて予備に広げた限度は、節を出るときに節の前の値へ戻す *)
+        let saved = ctx.c_limit in
+        (try ignore (eval ctx { slots = new_slots r; caps; dicts = [||]; anchor = anchor_parent x; off = x.an_off; res = None } r.body)
+         with
+         | Value.Runtime_error msg -> !Interp.cancel_log msg
+         | Unwind _ -> !Interp.cancel_log "cancel 節から操作の巻き戻しで脱出しようとしました"
+         | Sys_error msg -> !Interp.cancel_log ("標準出力に書き出せません: " ^ msg)
+         | ex -> !Interp.cancel_log (Printexc.to_string ex));
+        ctx.c_limit <- saved
+  in
+  Effect.Deep.match_with
+    (fun () -> eval ctx { slots = new_slots body_r; caps = body_caps; dicts = [||]; anchor = x; off = 1; res = fr.res } body_r.body)
+    ()
+    {
+      retc =
+        (fun v ->
+          match ret with
+          | None -> v
+          | Some (r, caps) ->
+              let slots = new_slots r in
+              slots.(0) <- v;
+              eval ctx { slots; caps; dicts = [||]; anchor = anchor_parent x; off = x.an_off; res = None } r.body);
+      exnc =
+        (fun ex ->
+          match ex with
+          | Unwind (id, UValue v) when id = inst -> v
+          | Unwind (id, UClause f) when id = inst -> f ()
+          | ex ->
+              run_cancel ();
+              raise ex);
+      effc =
+        (fun (type a) (eff : a Effect.t) ->
+          match eff with
+          | Perform q when String.equal q.q_eff h.ch_eff -> (
+              let cands = List.filter (fun (o, _, _, _) -> String.equal o q.q_op) ops in
+              Some (fun (k : (a, v) Effect.Deep.continuation) -> handle_op ctx inst x q cands k))
+          | _ -> None);
+    }
+
+(* 起動 `inst`(錨 `x`)が操作 `q` を受け取った。
+   節を選び、分類に従って節を評価する。
+   包みの 3 つの経路は第14章 §14.9 と同じである *)
+and handle_op ctx inst x q cands (k : (v, v) Effect.Deep.continuation) =
+  let p = anchor_depth ctx q.q_anchor + q.q_off in
+  let delta = p - anchor_depth ctx x in
+  let select () =
+    ignore (enter_depth ctx q.q_anchor q.q_off);
+    let rec go = function
+      | [] -> None
+      | (_, cls, r, caps) :: rest -> (
+          let slots = new_slots r in
+          Array.blit q.q_args 0 slots 0 r.nparams;
+          if not (match_params slots 0 r.fn.Ir.f_pats) then go rest
+          else
+            let gfr = { slots; caps; dicts = [||]; anchor = q.q_anchor; off = q.q_off + 1; res = None } in
+            match r.guard with
+            | None -> Some (cls, r, gfr)
+            | Some g -> if as_bool (eval ctx gfr g) then Some (cls, r, gfr) else go rest)
+    in
+    go cands
+  in
+  match select () with
+  | exception ex -> Effect.Deep.discontinue k ex
+  | None ->
+      let args = VRec (Array.to_list (Array.map (fun a -> ("_item", a)) q.q_args)) in
+      Effect.Deep.discontinue k (Value.Runtime_error ("handle のどの節にも一致しません: " ^ q.q_name ^ show args))
+  | Some (Ir.N, r, gfr) ->
+      Effect.Deep.discontinue k
+        (Unwind (inst, UClause (fun () -> eval ctx { gfr with anchor = anchor_parent x; off = x.an_off } r.body)))
+  | Some (cls, r, gfr) -> (
+      let rs = { rs_inst = inst; rs_k = k; rs_anchor = x; rs_delta = delta; rs_used = false; rs_alive = true } in
+      match
+        let bfr =
+          match cls with
+          | Ir.G ->
+              let a = anchor_parent x in
+              ignore (enter_depth ctx a x.an_off);
+              { gfr with anchor = a; off = x.an_off + 1; res = Some rs }
+          | Ir.T | Ir.N -> { gfr with res = Some rs }
+        in
+        eval ctx bfr r.body
+      with
+      | v ->
+          rs.rs_alive <- false;
+          if rs.rs_used then v else Effect.Deep.discontinue k (Unwind (inst, UValue v))
+      | exception Tail_resume (id, v) when id = inst ->
+          rs.rs_alive <- false;
+          Effect.Deep.continue k v
+      | exception ex ->
+          rs.rs_alive <- false;
+          if rs.rs_used then raise ex else Effect.Deep.discontinue k ex)
+
+(* `resume`。検査の順序は第14章の `take_resume` と同じで、引数を評価した後で、
+   節の中にいるか、まだ使っていないかを調べる。
+   末尾でない `resume` は、さらに再開した `perform` の深さを限度と比べてから使った印を立てる *)
+and eval_resume ctx fr tail e =
+  match fr.res with
+  | None -> runtime_error "resume は操作節の中でのみ使えます"
+  | Some rs ->
+      let v = eval ctx fr e in
+      if not rs.rs_alive then runtime_error "resume を節の外で呼び出しました(second-class)"
+      else if rs.rs_used then runtime_error "resume は高々1回しか呼べません(アフィン)"
+      else if tail then (
+        rs.rs_used <- true;
+        raise (Tail_resume (rs.rs_inst, v)))
+      else (
+        if frame_depth ctx fr + rs.rs_delta > ctx.c_limit then depth_error ctx;
+        rs.rs_used <- true;
+        let x = rs.rs_anchor in
+        x.an_parent <- Some fr.anchor;
+        x.an_off <- fr.off;
+        ctx.c_gen <- ctx.c_gen + 1;
+        Effect.Deep.continue rs.rs_k v)
+
+(* ## 22.15 表を作る
 
    関数の表の項目を先にすべて作り、続けて大域とインスタンスの表を作り、最後に本体を写す。
    組み込みの値は、プログラムの開始の時点で初期化済みである(IRSpec 10.3 節)。 *)
@@ -810,7 +1176,7 @@ let build_tables (p : Ir.program) =
   List.iter
     (fun (f : Ir.fn) ->
       let nparams = List.length f.f_params in
-      Hashtbl.replace t.t_fns f.f_sym { fn = f; nparams; nslots = nparams + List.length f.f_locals; body = CHole })
+      Hashtbl.replace t.t_fns f.f_sym { fn = f; nparams; nslots = nparams + List.length f.f_locals; body = CHole; guard = None })
     p.functions;
   List.iter
     (fun (g : Ir.global) ->
@@ -832,10 +1198,14 @@ let build_tables (p : Ir.program) =
     p.instances;
   List.iter (fun (ty : Ir.ty) -> List.iter (fun (c : Ir.ctor) -> Hashtbl.replace t.t_arity (ty.t_sym, c.ct_name) c.ct_arity) ty.t_ctors) p.types;
   List.iter (fun (e : Ir.eff) -> List.iter (fun (o : Ir.op) -> Hashtbl.replace t.t_ops (e.e_sym, o.o_name) o) e.e_ops) p.effects;
-  Hashtbl.iter (fun _ r -> r.body <- link t p r.fn.Ir.f_body) t.t_fns;
+  Hashtbl.iter
+    (fun _ r ->
+      r.body <- link t p r.fn.Ir.f_body;
+      r.guard <- Option.map (link t p) r.fn.Ir.f_guard)
+    t.t_fns;
   t
 
-(* ## 22.15 初期化
+(* ## 22.16 初期化
 
    単位を並んだ順に、各単位の手順を書いた順に実行する(IRSpec 10.1 節)。
    最上位の手順は深さ 0 で走る。
@@ -843,7 +1213,7 @@ let build_tables (p : Ir.program) =
    `def_instance` の実装の関数の評価も同じである。 *)
 let eval_thunk t ctx f =
   let r = find_fn t f in
-  eval ctx { slots = new_slots r; caps = [||]; dicts = [||]; depth = 0 } r.body
+  eval ctx { slots = new_slots r; caps = [||]; dicts = [||]; anchor = ctx.c_root; off = 0; res = None } r.body
 
 let define t g v = (find Fun.id t.t_globals "大域" g).g_val <- Some v
 
@@ -881,13 +1251,13 @@ let exec_step t ctx (s : Ir.step) =
       x.i_ready <- true
   | Ir.Run_exp f -> ignore (eval_thunk t ctx f)
 
-(* ## 22.16 入口
+(* ## 22.17 入口
 
    全体を第13章の `Builtin.with_runtime` の中で走らせる。
    `Console.write` の書き込みと、書き込みが失敗したときの扱いは、第14章とまったく同じになる。 *)
 let run ?(max_depth = default_max_depth) ~sink (p : Ir.program) =
   let t = build_tables p in
-  let ctx = { c_max = max_depth; c_limit = max_depth } in
+  let ctx = { c_max = max_depth; c_limit = max_depth; c_root = root_anchor (); c_gen = 0; c_inst = 0 } in
   ignore
     (Builtin.with_runtime ~sink (fun () ->
          List.iter (fun (u : Ir.unit_) -> List.iter (exec_step t ctx) u.u_init) p.units;
