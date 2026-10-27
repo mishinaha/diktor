@@ -6379,7 +6379,8 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?
     decls;
   (* 対話的な実行では、前の入力の名前とも突き合わせる。このプログラムのトップレベルの値が、
      前の入力の module の中の値と同名でないかを確かめ、前の入力のトップレベルの値の名前を
-     toplevel_vals に足して、この入力の module の中の値と突き合わせる *)
+     toplevel_vals に足して、この入力の module の中の値と突き合わせる。同名の値を持つ前の入力の
+     module が複数あれば、表をたどる順に依らないよう、名前の最も小さい module を報告する *)
   (* import した値と型の名前も、module の中の値やコンパニオン型と同名にできない(§15.3 の範囲はファイル) *)
   List.iter (fun x -> Hashtbl.replace toplevel_vals x ()) imported_vals;
   List.iter (fun x -> Hashtbl.replace toplevel_types x ()) imported_types;
@@ -6393,7 +6394,9 @@ let flatten_modules ?session_vals ?(imported_vals = []) ?(imported_types = []) ?
             (fun x ->
               match
                 Hashtbl.fold
-                  (fun (m, y) _ acc -> if acc = None && Type.name_of y = x then Some m else acc)
+                  (fun (m, y) _ acc ->
+                    if Type.name_of y <> x then acc
+                    else match acc with Some m' when String.compare m' m <= 0 -> acc | _ -> Some m)
                   Decls.module_val_synonyms None
               with
               | Some m ->
