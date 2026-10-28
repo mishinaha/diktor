@@ -169,8 +169,8 @@
   $ cp prog.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=1 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   diktor: KIR を読み込めません: 位置 0: マジックが KIR のものではありません
   exit: 65
-  $ cp prog.kir m.kir && printf '\002' | dd of=m.kir bs=1 seek=6 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 8: 版 0.2 は読めません(読めるのは 0.3 だけです)
+  $ cp prog.kir m.kir && printf '\002' | dd of=m.kir bs=1 seek=4 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
+  diktor: KIR を読み込めません: 位置 8: 版 2.0 は読めません(読めるのは主版 1 の版だけです)
   exit: 65
   $ cp prog.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=8 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   diktor: KIR を読み込めません: 位置 12: 必要な機能のビット 0x00000001 を処理できません
