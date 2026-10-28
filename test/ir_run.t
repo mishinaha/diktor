@@ -112,7 +112,7 @@
 --emit-ir と --emit-ir-text を併せると、両方の形を書く。
 
   $ diktor --emit-ir both.kir --emit-ir-text both.kirt prog.kel && cmp prog.kir both.kir && head -1 both.kirt
-  (kir 0 3 0)
+  (kir 1 0 0)
 
 型検査の誤りは今までどおり 1 で終わり、FILE を作らない。
 旗の引数を省くと使い方の誤り(64)で、FILE に書けなければ出力の誤り(74)である。
