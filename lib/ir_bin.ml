@@ -1255,6 +1255,8 @@ let check_sorted r what arr =
    読み込みは 3 段で進む。
 
    1. 見出しを検査し、節を切り出す。
+      版は主版だけを比べ、副版は問わない。
+      必要な機能のビットは 1 つも定義していないので、0 でなければ拒否する。
       節の id は厳密に昇順で、必須の 11 個の節がすべて揃っていなければならない。
       id が 0x0C から 0x7F の節は定義されていないので拒否し、0x80 以上の節は読み飛ばす。
       最後の節の後ろにバイトが残っていてはならない。
@@ -1278,8 +1280,8 @@ let decode_exn ~max_nest:lim src =
   in
   let major = u16 () in
   let minor = u16 () in
-  if (major, minor) <> Ir.version then
-    fail r (Printf.sprintf "版 %d.%d は読めません(読めるのは %d.%d だけです)" major minor (fst Ir.version) (snd Ir.version));
+  if major <> fst Ir.version then
+    fail r (Printf.sprintf "版 %d.%d は読めません(読めるのは主版 %d の版だけです)" major minor (fst Ir.version));
   let features = u32 () in
   if features <> 0 then fail r (Printf.sprintf "必要な機能のビット 0x%08x を処理できません" features);
   let nsec = u32 () in

@@ -265,7 +265,7 @@ let step_node = function
    初期化の順である。
    各表の中の並びは書き出しの段(第18章)が決めて `Ir.program` に入れてあるので、
    本章は表をその順のまま印字する。
-   見出しの第 3 の数は必要な機能のビットで、0.y の版では常に 0 である。 *)
+   見出しの第 3 の数は必要な機能のビットで、1.0 では常に 0 である。 *)
 let program_nodes (p : program) =
   let major, minor = p.version in
   let header = node "kir" ~atoms:[ int major; int minor; int 0 ] in
