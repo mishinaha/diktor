@@ -259,7 +259,8 @@ let with_input f = try f () with Sys_error msg -> raise (Input_error msg)
    safe_exit は、呼び出し側が決めた終了コードを受け取り、フォーマッタを無効にし、
    チャネルをできる範囲で flush してから、その終了コードで exit する。
    フォーマッタを無効にするのは行儀のよい手ではない。
-   しかし Unix._exit を使うには依存に unix を足す必要があり、§16.2 の依存の方針に反する *)
+   Unix._exit を使えば do_at_exit を通らずに終われる(unix は §16.3b のとおり依存の方針の対象外である)。
+   ここでは終了の道を exit に揃え、失敗しうるフォーマッタの flush だけを止める *)
 let null_formatter_out =
   {
     Format.out_string = (fun _ _ _ -> ());
@@ -1642,6 +1643,13 @@ let main () =
      (128 + 13 = 141)、終了コードの規約の外に出る。無視すれば、書き込みが EPIPE で失敗して
      Sys_error を投げ、出力エラーの 74 で終わる *)
   (try Sys.set_signal Sys.sigpipe Sys.Signal_ignore with Invalid_argument _ -> ());
+  (* 標準出力の O_NONBLOCK を外す。親が非ブロッキングのパイプを渡すと、
+     読み手が遅れてパイプが満ちたときに書き込みが Sys_blocked_io を投げ、
+     出力が途中で切れて、終了コードの規約の外の 2 で終わる。
+     旗を外せば、満ちたパイプへの書き込みは読み手を待つ。
+     ファイルの記述は親と共有なので、親の側の旗も外れる。
+     標準出力が閉じているときの失敗は無視し、後の書き込みの誤り(74)に任せる *)
+  (try Unix.clear_nonblock Unix.stdout with Unix.Unix_error _ -> ());
   match parse_args (Array.to_list Sys.argv |> List.tl) with
   | Error msg ->
       Printf.eprintf "diktor: %s\n%s" msg usage;
