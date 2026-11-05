@@ -1223,7 +1223,15 @@ let dump_ir_tables () =
    プロンプトは、標準入力が端末のときだけ出す(`In_channel.isatty` は Stdlib にあり、
    `unix` を要さない)。
    入力の終わりか `:quit` で終了コード 0 で終わり、
-   型エラーや実行時エラーではセッションを終えない。 *)
+   型エラーや実行時エラーではセッションを終えない。
+   標準入力を読めないとき(閉じている、ディレクトリである、
+   O_NONBLOCK の付いた空のパイプであるなど)は、
+   `diktor: 標準入力を読めません: 理由` を stderr に出し、終了コード 74 で終わる。
+   空の非ブロックのパイプでは `Sys_blocked_io` が投げられるので、
+   理由には EAGAIN の説明を書く。
+   どちらの例外も読んだその場で受ける。
+   受け皿に届いた裸の `Sys_error` は、出力に書き出せない誤りとして報告され(§16.3)、
+   `Sys_blocked_io` は内部エラーとして報告されるからである。 *)
 
 type parse_result = Complete of Tree.Tree.decl list | Incomplete | Failed of string
 
@@ -1432,6 +1440,12 @@ let repl options =
       print_string (if Buffer.length buf = 0 then "> " else ". ");
       flush_stdout_or_die ());
     match In_channel.input_line stdin with
+    | exception Sys_error msg ->
+        Printf.eprintf "diktor: 標準入力を読めません: %s\n" msg;
+        safe_exit 74
+    | exception Sys_blocked_io ->
+        Printf.eprintf "diktor: 標準入力を読めません: %s\n" (Unix.error_message Unix.EAGAIN);
+        safe_exit 74
     | None ->
         if Buffer.length buf > 0 then (
           if interactive then print_newline ();
@@ -1543,7 +1557,7 @@ let run_with options =
    | 4 | 未実装(Diktor が実装していない機能) | `Aux.NotImplemented`(module の入れ子、cancel(reason) など) |
    | 64 | 使い方の誤り | 引数解析の失敗、入力ファイルや import 先を開けない、UTF-8 でない名前を KIR に書けない |
    | 65 | 不正な KIR | `--run-ir` と `--via-ir` の読み込みと検証が拒んだ(§16.6c) |
-   | 74 | 出力に書き出せない | 標準出力への flush の失敗 |
+   | 74 | 入出力の誤り | 標準出力への flush の失敗、対話的な実行で標準入力を読めない |
 
    言語に無い数値の接尾辞(`1u8`)と、宣言の無い言語に無い数値型の名前(`Int8`)は、
    未実装ではなく第11章の型エラーであり、1 に数える。
@@ -1555,7 +1569,7 @@ let run_with options =
    64 は BSD の sysexits の EX_USAGE、65 は EX_DATAERR、74 は EX_IOERR である。
    独自の番号を選ぶより、既にある慣習に従うほうがシェルスクリプトから扱いやすい。
    74 をプログラムの誤り(3)と分けているのは、
-   出力先の故障がプログラムの責任ではないからである。
+   標準入出力の故障がプログラムの責任ではないからである。
 
    ### すべての例外を受ける理由
 
