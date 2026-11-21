@@ -3,36 +3,35 @@
 
 (* # 第18章 精緻化木から KIR への書き出し
 
-   本章は、型検査を済ませた単位の列(第16章の `type_check_files` の結果)を、
-   第17章の `Ir.program` に写す。
-   規範は親リポジトリの `doc/IRSpec.md` である。
-   KIR は別の処理系(RustKeleut)も読み、その処理系のフロントエンドも同じ KIR を書くので、
-   本章の写し方は Diktor の都合で決めてよいものではない。
-   名前の振り方、スロットと捕獲の番号、表の並びは、どれも IRSpec が定める規則に従う。
+   本章は、型検査を済ませた単位の並び(第16章の `type_check_files` の結果)を、
+   第17章の `Ir.program` に変換する。
+   仕様は親リポジトリの `doc/IRSpec.md` が定める。
+   KIR は別の処理系(RustKeleut)も読み、その処理系のフロントエンドも同じ KIR を書く。
+   そのため、本章の変換規則を Diktor の都合で決めることはできない。
+   名前の付け方、スロットとキャプチャの番号、表の順序は、どれも IRSpec が定める規則に従う。
 
-   第14章の評価器は、木を歩きながら次のものをその場で決める。
-   本章は、同じものを書き出しの時点で決め、KIR に書く。
+   第14章の評価器は、木をたどりながら次のものをその場で決める。
+   本章は、同じものを書き出す時点で決め、KIR に書く。
 
-   | 評価器がその場で決めるもの | KIR での形 |
+   | 評価器がその場で決めるもの | KIR での書き方 |
    |---|---|
-   | 局所の名前を引く表 | 関数ごとのスロットの番号 |
-   | 閉包が捕まえる環境の全体 | 関数ごとの捕獲の列 |
-   | 末尾位置と、操作節の背骨 | `call`、`handle`、`resume` の印と、操作節の分類 |
-   | インスタンスの頭、メソッドの辞書の位置 | 辞書の式とインスタンスの表 |
+   | ローカルの名前を引く表 | 関数ごとのスロットの番号 |
+   | クロージャがキャプチャする環境の全体 | 関数ごとのキャプチャの並び |
+   | 末尾位置と、操作節の背骨(§18.5) | `call`、`handle`、`resume` の印と、操作節の分類 |
+   | インスタンスの対象の型、メソッドの辞書の位置 | 辞書の式とインスタンス表 |
    | 数値リテラルの値 | 値を確定させたリテラルか、範囲外のリテラル |
-   | トップレベルの実体の鍵 | 単位の鍵と修飾名からなる記号 |
+   | トップレベルの宣言を指すキー | 単位のキーと修飾名からなるシンボル |
 
-   書き出しは 2 段で行う。
-   1 段目(§18.3)は、すべての単位の宣言をたどって、型、エフェクト、クラス、インスタンス、
-   大域の記号を決め、
-   単位ごとの初期化の手順を組む。
-   2 段目(§18.5 以降)は、手順ごとに根の関数の本体を書き出す。
-   段を分けるのは、本体がまだ宣言していない大域やインスタンスを参照しうるからである。
-   前方参照とインスタンスの宣言の前の使用は、型検査を通る。
+   書き出しは 2 段階で行う。
+   第 1 段階は、すべての単位の宣言をたどって、型、エフェクト、クラス、インスタンス、
+   グローバルのシンボルを決め、単位ごとの初期化手順を作る(表は §18.3、処理は §18.12)。
+   第 2 段階は、初期化手順ごとにルート関数の本体を書き出す(§18.5 から §18.11)。
+   段階を分けるのは、本体が、まだ宣言していないグローバルやインスタンスを参照することがあるからである。
+   前方参照も、インスタンスを宣言より前で使うことも、型検査に通る。
 
    書き出しは決定的でなければならない。
-   本章は、ハッシュ表を鍵で引くことにだけ使い、表の走査の順を出力に使わない。
-   表の並びはどれも、宣言の順か IRSpec が定める固定の順である。 *)
+   本章は、ハッシュ表をキーで引くことにだけ使い、ハッシュ表を走査する順を出力に使わない。
+   表の項目の順序はどれも、宣言の順か、IRSpec が定める固定の順である。 *)
 open Aux
 open Syntax
 module T = Tree.Tree
@@ -41,18 +40,19 @@ module SMap = Map.Make (String)
 
 (* ## 18.1 入力
 
-   書き出しが受け取るのは、単位ごとの鍵、元のファイルの綴りの列、
-   平坦化と型検査を済ませた宣言の列である。
-   列はプレリュード、import した単位(初期化の順)、起点の順に並べる。
-   鍵と綴りは第16章が import の文から決める(IRSpec 2.2 節)。
-   組み込みの単位はここに含めず、本章が付け足す。 *)
+   書き出しが受け取るのは、単位ごとのキー、元のファイルのパスの並び(IRSpec 2.3 節の `paths`)、
+   平坦化と型検査を済ませた宣言の並びである。
+   単位は、プレリュード、import した単位(初期化の順)、起点の順に並べる。
+   import した単位のキーと表示用のパスは、第16章が import の文から決める(IRSpec 2.2 節、2.3 節)。
+   プレリュードと起点のキーは固定で、パスはコマンド行から決まる。
+   組み込みの単位はここに含めず、本章が追加する。 *)
 type unit_src = { us_key : string; us_paths : string list; us_decls : T.decl list }
 
 (* ## 18.2 組み込みの表
 
    組み込みの型、クラス、値は、プログラムによらず同じ表を同じ順で書く(IRSpec 付録 A)。
    組み込みのクラスのメソッドは、どれもメソッド自身の辞書を持たない。
-   予約述語(`Integral` と `Fractional`)は辞書の引数にならないので、クラスの表に書かない。 *)
+   予約述語(`Integral` と `Fractional`)は辞書の引数にならないので、クラス表に書かない。 *)
 let builtin_types = [ "Boolean"; "Int32"; "Int64"; "Float64"; "String"; "Never"; "Ref"; "Array"; "MutableArray" ]
 
 let builtin_classes =
@@ -84,20 +84,22 @@ let builtin_values =
     "pinned";
   ]
 
-(* ## 18.3 記号の表
+(* ## 18.3 シンボルの表
 
-   記号は `単位の鍵/修飾名` の形である(IRSpec 3 節)。
-   第6章は、起点でない単位の型やエフェクトの名前に `%N.` の印を付けて綴る。
-   印は Diktor のプロセスの中の単位の番号なので、記号には書かない。
-   修飾名は `Type.display` で印を外した綴りである。
+   シンボルは `単位の鍵/修飾名` の形式である(IRSpec 3 節)。
+   `単位の鍵` は IRSpec と診断メッセージの表記で、単位のキーを指す。
+   第6章は、起点でない単位の型やエフェクトの名前を、接頭辞 `%N.` を付けた内部名で持つ。
+   `N` は Diktor のプロセスの中での単位の番号なので、シンボルには書かない。
+   修飾名には、`Type.display` で内部名から接頭辞を取り除いた名前を使う。
 
-   型とエフェクトとクラスの記号は、名前の oid から引く。
-   oid は第1章のインターン表の番号で、同じ綴りなら同じ oid になる。
-   印を付けた綴りは単位ごとに別なので、oid から単位が決まる。
-   ただし、印の無い綴りはプレリュードのものか起点のものかを綴りから決められない。
-   そこで、印から単位を推測せず、宣言をたどって表を作る。
+   型、エフェクト、クラスのシンボルは、名前の oid から引く。
+   oid は第1章のインターン表の番号で、同じ名前なら同じ oid になる。
+   接頭辞を付けた内部名は単位ごとに異なるので、その oid からは単位が決まる。
+   しかし、接頭辞のない名前は、プレリュードのものか起点のものかを名前からは決められない。
+   そこで、接頭辞から単位を推測することはせず、宣言をたどって表を作る。
 
-   大域は、第5章の実体の鍵(束縛ノードの oid と束縛した名前の組)から引く。
+   グローバルのシンボルは、第5章の木が参照先の宣言を表すのに使うキー
+   (束縛ノードの oid と束縛した名前の組)から引く。
    同じ単位で同じ修飾名を再び束縛したときは、2 つ目から `#1`、`#2` を付ける。 *)
 type tables = {
   types : (oid, string) Hashtbl.t;
@@ -124,11 +126,11 @@ let effect_sym tb e = find_sym ("エフェクト " ^ Type.name_of e) tb.effects 
 
 let class_sym tb c = find_sym ("クラス " ^ Type.name_of c) tb.classes c
 
-(* 記号の名前の部分。記号の最後の `/` より後ろである *)
+(* シンボルの名前の部分を返す。シンボルの最後の `/` より後ろである *)
 let sym_name s = match String.rindex_opt s '/' with Some i -> String.sub s (i + 1) (String.length s - i - 1) | None -> s
 
-(* 綴りを最後の `.` で 2 つに分ける。`Cls.m` のメソッドと `Eff.op` の操作の名前は `.` を含まないので、
-   頭の側にだけ module の修飾と単位の印が残る *)
+(* 名前を最後の `.` で 2 つに分ける。`Cls.m` のメソッドと `Eff.op` の操作の名前は `.` を含まないので、
+   module の修飾と単位の接頭辞は前の部分にだけ残る *)
 let split_last_dot s =
   match String.rindex_opt s '.' with
   | Some i -> (String.sub s 0 i, String.sub s (i + 1) (String.length s - i - 1))
@@ -136,15 +138,18 @@ let split_last_dot s =
 
 (* ## 18.4 Rep と yield の印
 
-   Rep は、型の束縛の鎖をたどった頭が引数の無い組み込みの 5 つの型のどれかならその Rep で、
-   ほかは `any` である(IRSpec 4 節)。
+   Rep は型から決める(IRSpec 4 節)。
+   `Type.repr` で `Link` の連鎖をたどった結果が、引数のない組み込みの 5 つの型
+   (`Boolean`、`Int32`、`Int64`、`Float64`、`String`)のどれかならその型の Rep で、
+   それ以外は `any` である。
    ノードに型が書かれていない場合(型検査が型を書かない種類のノード)も `any` にする。
 
-   `noyield` の型は、エフェクト行が閉じていて、行のラベルがすべてプレリュードの `Console`、
-   組み込みの `Heap`、組み込みの `Blocking` のどれかである関数の型である。
+   `noyield` を付けるのは、エフェクト行が次の条件を満たす関数の型である。
+   行が閉じていて、行のラベルがすべて、プレリュードの `Console`、組み込みの `Heap`、
+   組み込みの `Blocking` のどれかである。
    型変数で終わる行は開いているので `yield` になる。
-   ラベルは oid で比べる。
-   `--no-prelude` で起点が宣言した `Console` は利用者が処理できるので、ここに含めない。 *)
+   ラベルは oid で比較する。
+   `--no-prelude` のときに起点が宣言した `Console` はユーザが処理できるので、ここに含めない。 *)
 let rep_of_ty t =
   match Type.repr t with
   | Type.TCon (c, []) -> (
@@ -161,8 +166,8 @@ let ty_opt (d, _) = d.Tree.ElabData.ty_field
 
 let rep_of_node n = match ty_opt n with Some t -> rep_of_ty t | None -> I.RAny
 
-(* 束縛の名前のパターンの Rep。トップレベルの値束縛の名前のパターンには型検査が型を書かないので、
-   そのときは束縛のノードの型を使う *)
+(* 束縛が名前として持つパターンの Rep を返す。
+   トップレベルの値束縛では、型検査がこのパターンに型を書かないので、束縛のノードの型を使う *)
 let rep_of_name name (bnode : T.let_binding) = match ty_opt name with Some t -> rep_of_ty t | None -> rep_of_node bnode
 
 let noyield tb t =
@@ -172,34 +177,43 @@ let noyield tb t =
 
 let yield_of_node tb n = match ty_opt n with Some t -> not (noyield tb t) | None -> true
 
-(* 辞書パラメータの鍵。第14章の `dict_params_of` と同じく、インスタンスのメソッドの束縛では、
+(* 辞書パラメータのキーを返す。第14章の `dict_params_of` と同じく、
+   インスタンスのメソッドの束縛では、
    実装の型の辞書パラメータ(`DMethod` の 1 つ目)を使う *)
 let dict_params_of node = match Tree.get_dict node with Tree.DAbs ks | Tree.DMethod (ks, _, _) -> ks | _ -> []
 
 let rec strip_annot ((_, p) as node : T.pat) = match p with T.PAnnot (q, _) -> strip_annot q | _ -> node
 
-(* ## 18.5 関数の枠、スロット、捕獲
+(* ## 18.5 書き出し中の関数、スロット、キャプチャ
 
-   書き出しの途中の関数を**枠**と呼ぶ。
-   枠は、スロットの数と Rep、捕獲の列、持ち主の枠を持つ。
-   スロットは、引数に 0 から振り、続けて束縛する箇所に着いた順に振る(IRSpec 6.4 節)。
-   本章は木を正準のテキストの順にたどるので、着いた順に振れば規則どおりの番号になる。
+   書き出している途中の関数を `frame` で表し、以下では**書き出し中の関数**と呼ぶ。
+   書き出し中の関数は、スロットの個数と Rep、キャプチャの並び、親の関数を持つ。
+   親の関数は、その関数の生成箇所(§18.10)を本体に持つ関数である。
+   スロットの番号は、まず引数に 0 から振り、続けて、
+   束縛する箇所にたどり着いた順に振る(IRSpec 6.4 節)。
+   本章は木を正準なテキストの順にたどるので、たどり着いた順に振れば規則どおりの番号になる。
    そのため、式の子を書き出す順は、テキストに子が現れる順と一致させる。
-   OCaml の組やレコードの構成子の引数の評価の順は規定されていないので、
-   子を 2 つ以上書き出すところでは `let` で順を固定する。
+   OCaml は、組やレコードの要素とコンストラクタの引数を評価する順を規定していないので、
+   子を 2 つ以上書き出す箇所では `let` で順を固定する。
 
-   名前の環境は、名前から(枠, その枠での読み方)の組を引く。
-   今の枠と違う枠の名前を読むときは、間の枠をたどって 1 段ずつ捕獲を足す(`access`)。
-   内側の閉包が外側の外側の変数を読むと、間の閉包もその変数を捕獲する。
-   捕獲の列の並びは、外側の関数での読み方の順(辞書の引数、捕獲、スロットの順に、
-   それぞれ番号の昇順)である。
-   ところが外側の関数の捕獲の番号は、外側の関数の捕獲の列が決まるまで決まらない。
-   そこで、書き出しの間は捕獲を仮の番号(枠をまたいで一意の整数)で表しておき、
-   根の関数を書き終えてから、外側の枠から順に並びを決めて番号を付け替える(§18.11)。
+   名前の環境は、名前から、その名前を束縛した関数と、その関数での読み方の組を引く。
+   読み方は、スロット、キャプチャ、辞書の引数のどれを何番で読むかを表す(`Ir.var`)。
+   現在の関数より外側の関数が束縛した名前を読むときは、
+   間にある関数を 1 つずつたどってキャプチャを追加する(`access`)。
+   たとえば、内側のクロージャが 2 つ外側の関数の変数を読むと、
+   間のクロージャもその変数をキャプチャする。
+   キャプチャの並びは、親の関数での読み方の順である。
+   辞書の引数、キャプチャ、スロットの順に並べ、それぞれの中では番号の昇順にする。
+   ところが、親の関数でのキャプチャの番号は、親の関数のキャプチャの並びが決まるまで決まらない。
+   そこで、書き出している間はキャプチャを仮の番号(関数をまたいで一意な整数)で表しておく。
+   ルート関数を書き終えてから、外側の関数から順に並びを決め、
+   仮の番号を確定した番号に置き換える(§18.11)。
 
-   操作節の枠は、自分の継続を指す `resume` の数を数える。
-   ハンドラの本体の枠の中の `resume` は、その本体を囲む操作節の継続を指すので、
-   本体の枠は囲む枠の `resume` の持ち主をそのまま受け継ぐ。 *)
+   操作節の関数は、自分の継続を再開する `resume` のうち、背骨の外にあるものの個数を数える。
+   背骨は、操作節の本体から末尾位置だけをたどった経路である。
+   ハンドラの本体の関数の中の `resume` は、その本体を囲む操作節の継続を再開する。
+   そのため、本体の関数は、囲んでいる関数から `resume` の持ち主をそのまま引き継ぐ。
+   持ち主は、その `resume` が再開する継続を受け取る操作節である。 *)
 type frame = {
   fr_root : root;
   fr_parent : frame option;
@@ -207,16 +221,16 @@ type frame = {
   fr_kind : I.fn_kind;
   fr_params : I.rep list;
   mutable fr_nslots : int;
-  mutable fr_locals : I.rep list; (* 逆順 *)
-  mutable fr_caps : (int * I.var) list; (* 仮の番号と、持ち主の枠での読み方。足した順 *)
-  mutable fr_owner : frame option; (* resume が指す操作節の枠 *)
+  mutable fr_locals : I.rep list; (* 引数より後のスロットの Rep。振った順の逆に並ぶ *)
+  mutable fr_caps : (int * I.var) list; (* 仮の番号と、親の関数での読み方。追加した順 *)
+  mutable fr_owner : frame option; (* resume の持ち主である操作節の関数 *)
   mutable fr_ntail_resumes : int;
-  mutable fr_subst : (int * int) list; (* 仮の番号から捕獲の番号へ *)
+  mutable fr_subst : (int * int) list; (* 仮の番号から、確定したキャプチャの番号への対応 *)
   mutable fr_final_caps : I.var list;
   mutable fr_cap_reps : I.rep list;
 }
 
-(* 根の関数ごとの状態。場所の番号、作った枠(作った順の逆)、書き終えた関数を持つ *)
+(* ルート関数ごとの状態。生成箇所に次に振る番号、作った frame(作った順の逆)、書き終えた関数を持つ *)
 and root = {
   r_sym : string;
   mutable r_sites : int;
@@ -239,8 +253,8 @@ type genv = {
   fr : frame;
   names : binding SMap.t;
   dkeys : binding DK.t;
-  tail : bool; (* 末尾位置か *)
-  spine : bool; (* 操作節の背骨の上か *)
+  tail : bool; (* 末尾位置にあれば真 *)
+  spine : bool; (* 操作節の背骨の上にあれば真 *)
 }
 
 let provisional = ref 0
@@ -272,7 +286,8 @@ let new_slot fr rep =
   fr.fr_locals <- rep :: fr.fr_locals;
   i
 
-(* 枠 fr から束縛 b を読む方法。b の枠が fr の外にあれば、間の枠に捕獲を足す *)
+(* 関数 fr から束縛 b を読む方法を返す。b の関数が fr の外側にあれば、
+   間にある関数にキャプチャを追加する *)
 let rec access fr b =
   if fr == b.b_frame then b.b_var
   else
@@ -292,10 +307,10 @@ let bind_name env x var = { env with names = SMap.add x { b_frame = env.fr; b_va
 
 let bind_dkeys env ks first = { env with dkeys = snd (List.fold_left (fun (i, m) k -> (i + 1, DK.add k { b_frame = env.fr; b_var = I.VDParam i } m)) (first, env.dkeys) ks) }
 
-(* 末尾位置になく、背骨の外にある子の環境。末尾位置を受け継ぐ子には env をそのまま渡す *)
+(* 末尾位置になく、背骨の外にある子の環境を返す。末尾位置を引き継ぐ子には env をそのまま渡す *)
 let nt env = { env with tail = false; spine = false }
 
-(* 場所に番号を振る。番号は根の関数ごとに 0 から数える *)
+(* 生成箇所に番号を振る。番号はルート関数ごとに 0 から数える *)
 let next_site env =
   let r = env.fr.fr_root in
   let n = r.r_sites in
@@ -306,15 +321,17 @@ let finish fr ~order pd = fr.fr_root.r_fns <- (order, fr, pd) :: fr.fr_root.r_fn
 
 (* ## 18.6 リテラル
 
-   数値リテラルは、ノードの型の頭で読み、値を確定させる。
-   読む関数は第14章の `number_value` と同じ(`Int32.of_string`、`Int64.of_string`、
+   数値リテラルは、ノードの型の先頭の型構成子(`Int32`、`Int64`、`Float64`)に合わせて読み、
+   値を確定させる。
+   読むのに使う関数は第14章の `number_value` と同じ(`Int32.of_string`、`Int64.of_string`、
    `float_of_string`)である。
    読めなければ範囲外のリテラルにする。
-   範囲外のリテラルは評価したときに初めて実行時エラーになるので、型検査の段の誤りにしてはならない。
-   字面は第2章の `show_number` の綴りで、診断に使う。
+   範囲外のリテラルは評価したときに初めて実行時エラーになるので、
+   型検査の段階でエラーにしてはならない。
+   範囲外のリテラルには、第2章の `show_number` が返す表記を持たせ、診断に使う。
 
-   パターンの数値は、照合する列の型で読む。
-   型検査が範囲を確かめているので、パターンでは読めないことが無い。 *)
+   パターンの数値は、パターンのノードの型に合わせて読む。
+   型検査が範囲を検査しているので、パターンの数値が読めないことはない。 *)
 let number_head n = match ty_opt n with Some t -> ( match Type.repr t with Type.TCon (c, _) -> Type.name_of c | _ -> "") | None -> ""
 
 let number_lit node (num : number) =
@@ -332,16 +349,17 @@ let pattern_number node (num : number) =
 
 (* ## 18.7 パターン
 
-   パターンは 6 種に写す。
-   型注釈は外す。
-   レコードのパターンの尾部は、`None`(タプル)を `closed`、`Some _`(ワイルドカード)を `open`、
-   ほかを `rest` にする。
+   パターンは 6 種に変換する。
+   型注釈は取り除く。
+   レコードのパターンの末尾は、`None`(タプル)を `closed`、`Some _`(ワイルドカード)を `open`、
+   それ以外を `rest` にする。
    コンストラクタのパターンは、パターンを書いたフィールドだけを、フィールドの位置の昇順に並べる。
    第14章の照合も同じ順にフィールドをたどる。
 
-   変数のパターンに着いたら、`bind` の引数を受け取って番号を決める。
-   関数の中のパターンではスロットを振り、`def_pattern` のパターンでは大域の列の番号を振る。
-   同じたどり方を 1 つの関数で共有するので、2 つの番号の振り方がずれない。 *)
+   変数のパターンにたどり着いたら、引数 `bind` の関数を呼んで番号を決める。
+   関数の中のパターンではスロットを振り、
+   `def_pattern` のパターンではグローバルの並びの中の番号を振る。
+   パターンをたどる処理を 1 つの関数で共有するので、2 つの番号の振り方が食い違わない。 *)
 let rec pat ~bind tb ((_, p) as node : T.pat) : I.pat =
   match p with
   | T.PWildcard -> I.PWild
@@ -372,7 +390,7 @@ let rec pat ~bind tb ((_, p) as node : T.pat) : I.pat =
           I.PCtor (type_sym tb data, Type.display (Type.name_of ctor), fields)
       | _ -> bug "KIR の書き出し: PCtor が解決されていません")
 
-(* 関数の中のパターン。変数ごとにスロットを振り、名前を環境に足す *)
+(* 関数の中のパターン。変数ごとにスロットを振り、名前を環境に追加する *)
 let local_pat env p =
   let binds = ref [] in
   let ip =
@@ -385,14 +403,16 @@ let local_pat env p =
 
 (* ## 18.8 辞書
 
-   辞書の式は、第5章の証拠を平坦にしたものである。
-   穴は解(`h_sol`)をたどり終えてから書く。
+   辞書の式は、第5章の証拠(evidence。どのインスタンスの辞書を使うかを表す項)の穴を、
+   その解に置き換えたものである。
+   穴は、解(`h_sol`)をたどり終えてから書く。
    未解決の穴は対話的な実行の表示にだけ現れ、ファイルの書き出しには現れない。
 
-   `EvInst` は、利用者が宣言したインスタンスなら `dinst`、
-   ほかは組み込みのインスタンス `dbuiltin` にする。
-   第14章の `select_method` も、利用者のインスタンスの表を先に引き、無ければ組み込みの表を引く。
-   組み込みと同じ組の利用者の宣言は型検査が拒否するので、2 つの表は重ならない。 *)
+   `EvInst` は、ユーザが宣言したインスタンスなら `dinst` に、
+   それ以外は組み込みのインスタンス `dbuiltin` に変換する。
+   第14章の `select_method` も、ユーザのインスタンス表を先に引き、なければ組み込みの表を引く。
+   組み込みと同じクラスと型構成子の組に対するユーザの宣言は型検査が拒否するので、
+   2 つの表は重ならない。 *)
 let rec dict env (ev : Tree.evidence) : I.dict =
   match ev with
   | Tree.EvParam k -> (
@@ -414,9 +434,10 @@ let with_dicts env node e = match use_dicts env node with [] -> e | ds -> I.Dict
 
 let op_dict env node = match Tree.get_dict node with Tree.DUse [ h ] -> dict env (Tree.EvHole h) | _ -> bug "KIR の書き出し: 演算子に証拠がありません"
 
-(* クラスのメソッドの参照。使う位置の辞書の列のうち、クラスの引数の制約の位置にある辞書を `d` にし、
+(* クラスのメソッドの参照。使う位置の辞書の並びのうち、
+   クラスパラメータの制約の位置にある辞書を `d` にし、
    残りを順に `o…` にする。位置は第14章の `method_selector` と同じく、
-   スキーマの制約の正準順の中で求める *)
+   型スキームの制約を正準順に並べた中で求める *)
 let method_ref env node q =
   let cls_name, m = split_last_dot q in
   let ci = match Decls.find_class (Type.intern cls_name) with Some ci -> ci | None -> bug ("KIR の書き出し: クラスがありません: " ^ cls_name) in
@@ -433,7 +454,8 @@ let method_ref env node q =
   let own = List.filteri (fun j _ -> j <> idx) ds in
   I.Method (class_sym env.tb ci.Decls.ci_name, m, d, own)
 
-(* 呼び出しと perform の引数。引数は `_item` のレコードの式で、外側の要素が先頭の引数である *)
+(* 呼び出しと perform の引数を返す。引数は `_item` のレコードの式で、
+   最も外側の要素が先頭の引数である *)
 let rec args_of ((_, e) : T.exp) =
   match e with
   | T.RecordExtend (rest, _, v) -> v :: args_of rest
@@ -442,16 +464,19 @@ let rec args_of ((_, e) : T.exp) =
 
 (* ## 18.9 式
 
-   式の写し方は IRSpec 5.5 節の表のとおりである。
+   式の変換規則は IRSpec 5.5 節の表のとおりである。
    ここでは、表に現れない 3 つの点を述べる。
 
-   - 名前は、局所の環境、トップレベルの実体(`RVar`)、引数の無いコンストラクタ(`RCtor`)の順に引く。
+   - 名前は、ローカルの環境、トップレベルの宣言(`RVar`)、
+     引数のないコンストラクタ(`RCtor`)の順に引く。
      第14章の `Ident` と同じ順である。
-   - 末尾位置と背骨は、環境の `tail` と `spine` で運ぶ。
-     `let` の続き、`seq` の最後、`match` の節の本体、`&&` と `||` の右辺だけが親の印を受け継ぎ、
-     ほかの子はどちらも偽になる(IRSpec 5.3 節)。
-   - 背骨の外の `resume` を書いたら、その継続の持ち主の操作節の枠に数を足す。
-     操作節の分類(§18.10)は、この数が 0 かどうかで T と G を分ける。 *)
+   - 末尾位置と背骨は、環境の `tail` と `spine` で子に伝える。
+     `let`、`letpat`、`letrec` の本体の式、`seq` の最後の式、`match` の節の本体、
+     `&&` と `||` の右辺だけが親の値を引き継ぎ、
+     それ以外の子ではどちらも偽になる(IRSpec 5.3 節)。
+     木の `Run` は KIR のノードを作らないので、その本体には環境をそのまま渡す。
+   - 背骨の外の `resume` を書いたら、その `resume` の持ち主である操作節の関数のカウンタに 1 を足す。
+     操作節の分類(§18.10)は、このカウンタが 0 かどうかで T と G を区別する。 *)
 let rec exp env ((_, e) as node : T.exp) : I.exp =
   match e with
   | T.Bool b -> I.Lit (I.LBool b)
@@ -553,8 +578,9 @@ let rec exp env ((_, e) as node : T.exp) : I.exp =
       I.Resume (env.spine, v)
   | T.Run (_, b) -> exp env b
 
-(* 束縛の値。辞書を受け取る束縛は `dictabs` の場所にし、その本体を関数の定義の閉包か初期化式にする。
-   関数の定義は `closure` の場所にする。値の束縛はその場で初期化式を書く *)
+(* 束縛の値を書く。辞書を受け取る束縛は `dictabs` の生成箇所にし、
+   その本体を関数の定義のクロージャか初期化式にする。
+   関数の定義は `closure` の生成箇所にする。値の束縛は、その場に初期化式を書く *)
 and binding_value env ((_, b) as bnode : T.let_binding) =
   let plain env =
     match b.T.lb_params with
@@ -584,9 +610,9 @@ and let_exp env ((_, b) as bnode : T.let_binding) rest =
       let body = exp env2 rest in
       I.Letpat (p, v, body)
 
-(* let rec の群。群の名前にスロットを先に振ってから、各項目を書く。
-   項目の式はどれも別の関数の場所なので、今の枠のスロットを振らない。
-   そのため、名前のスロットを先にまとめて振っても、テキストの順の番号と一致する *)
+(* let rec のグループ。グループの名前に先にスロットを振ってから、各項目を書く。
+   項目の式はどれも別の関数の生成箇所なので、現在の関数のスロットを振らない。
+   そのため、名前のスロットを先にまとめて振っても、テキストの順に振った番号と一致する *)
 and rec_group env (bs : T.let_binding list) =
   let names =
     List.map
@@ -614,17 +640,20 @@ and rec_group env (bs : T.let_binding list) =
   in
   (env', items)
 
-(* ## 18.10 持ち上げた関数の場所
+(* ## 18.10 持ち上げた関数の生成箇所
 
-   `closure`、`dictabs`、`handle` の 3 種の式が、持ち上げた関数を作る場所である。
-   場所に着いたら番号を振り、作る関数の中身をすぐに書き出す。
-   書き出しは正準のテキストの順にたどるので、番号は前順になる(IRSpec 3.4 節)。
+   持ち上げた関数(ラムダリフティングで取り出した関数)を作る式は、
+   `closure`、`dictabs`、`handle` の 3 種である。
+   この 3 種の式を生成箇所と呼ぶ。
+   生成箇所にたどり着いたら番号を振り、作る関数の内容をすぐに書き出す。
+   書き出しは木を正準なテキストの順にたどるので、番号は前順になる(IRSpec 3.4 節)。
 
-   ラムダの関数は `lambda` の種類で、仮引数を 0 から始まるスロットにする。
-   変数の仮引数はそのスロットそのもの、`_` は何もせず、ほかのパターンは本体を `letpat` で包む。
-   包みは最初の仮引数を最も外側にする。
+   `closure` の生成箇所が作る関数は種類が `lambda` で、仮引数を 0 から始まるスロットで受け取る。
+   変数の仮引数はそのスロットをそのまま使い、`_` は何もせず、
+   それ以外のパターンは本体を `letpat` で囲む。
+   `letpat` は、最初の仮引数のものが最も外側になるように重ねる。
    パターンのスロットを本体より先に振るので、番号はテキストの順と一致する。
-   ラムダの本体は末尾位置で、背骨の外にある。 *)
+   この関数の本体は末尾位置にあり、背骨の外にある。 *)
 and lambda_site env ~params ~body ~fn_node =
   let n = next_site env in
   let sym = env.fr.fr_root.r_sym ^ "$" ^ string_of_int n in
@@ -634,7 +663,7 @@ and lambda_site env ~params ~body ~fn_node =
   finish fr ~order:(n, 0) { pd_yield = yield_of_node env.tb fn_node; pd_dicts = 0; pd_result = rep_of_node body; pd_pats = []; pd_guard = None; pd_body = b };
   I.Closure (sym, [])
 
-(* 仮引数のパターンを写し、本体を書く。lambda と retclause が共有する *)
+(* 仮引数のパターンを変換し、本体を書く。lambda と retclause の関数が共有する *)
 and lambda_body env params body =
   let env, wraps =
     List.fold_left
@@ -652,7 +681,7 @@ and lambda_body env params body =
   let b = exp env body in
   List.fold_left (fun inner (ip, j) -> I.Letpat (ip, I.Local j, inner)) b wraps
 
-(* 辞書を受け取る関数の場所。本体は末尾位置になく、背骨の外にある *)
+(* 辞書を受け取る関数の生成箇所。本体は末尾位置になく、背骨の外にある *)
 and dictabs_site env ks ~result mk_body =
   let n = next_site env in
   let sym = env.fr.fr_root.r_sym ^ "$" ^ string_of_int n in
@@ -662,14 +691,15 @@ and dictabs_site env ks ~result mk_body =
   finish fr ~order:(n, 0) { pd_yield = true; pd_dicts = List.length ks; pd_result = result; pd_pats = []; pd_guard = None; pd_body = b };
   I.Dictabs (sym, [])
 
-(* ハンドラ式の場所。本体、操作節(書いた順)、return 節、cancel 節の順に関数を作る。
+(* ハンドラ式の生成箇所。本体、操作節(書いた順)、return 節、cancel 節の順に関数を作る。
 
    操作節の関数は、操作の引数をスロット 0 から受け取る。
-   引数のパターンは `pats` の欄に書き、変数のパターンはスロットそのものとして `(wild)` と書く。
-   節の分類は、返り値の型が `Never` の操作(`RNeverOp`)なら N、
-   本体を書き終えて背骨の外の `resume` が 0 個なら T、ほかは G である(IRSpec 9.2 節)。
+   引数のパターンは `pats` のフィールドに書く。
+   変数のパターンは、引数のスロットをそのまま使うので `(wild)` と書く。
+   節の分類は、返り値の型が `Never` の操作(`RNeverOp`)の節なら N、
+   本体を書き終えた時点で背骨の外の `resume` が 0 個なら T、それ以外は G である(IRSpec 9.2 節)。
    N の節と return 節の本体は、ハンドラ式が末尾位置にあるときだけ末尾位置にある(IRSpec 5.3 節)。
-   T と G の節の本体は末尾位置になく、背骨の根にある。
+   T と G の節の本体は末尾位置になく、背骨はこの本体から始まる。
    ガードは背骨の外にある。 *)
 and handle_site env body clauses =
   let n = next_site env in
@@ -755,15 +785,17 @@ and handle_site env body clauses =
   in
   I.Handle { I.h_tail = env.tail; h_effect = effect; h_body = body_part; h_ops = op_parts; h_return = ret_part; h_cancel = cancel_part }
 
-(* ## 18.11 捕獲の番号の確定
+(* ## 18.11 キャプチャの番号の確定
 
-   根の関数を書き終えたら、作った枠を作った順(持ち主が先)にたどり、捕獲の並びを決める。
-   持ち主の枠の番号の付け替えが済んでいるので、
-   捕獲の列を持ち主の枠での読み方に直してから並べられる。
-   並びは、辞書の引数、捕獲、スロットの順に、それぞれ番号の昇順である(IRSpec 6.5 節)。
+   ルート関数を書き終えたら、書き出した関数を作った順(親が先)にたどり、キャプチャの並びを決める。
+   親の関数の番号はすでに確定しているので、
+   キャプチャの並びを親の関数での読み方に直してから並べられる。
+   並べる順は、辞書の引数、キャプチャ、スロットの順で、
+   それぞれの中では番号の昇順である(IRSpec 6.5 節)。
 
-   その後で、各枠の本体の仮の番号を付け替え、場所の式に捕獲の列を書き込む。
-   場所の式は、作った関数の記号で枠を引く。 *)
+   その後で、各関数の本体の仮の番号を確定した番号に置き換え、
+   生成箇所の式にキャプチャの並びを書き込む。
+   生成箇所の式が作る関数は、その関数のシンボルで引く。 *)
 let var_key = function I.VDParam i -> (0, i) | I.VEnv i -> (1, i) | I.VLocal i -> (2, i)
 
 let slot_rep fr i =
@@ -831,9 +863,9 @@ let rewrite (sites : (string, frame) Hashtbl.t) fr body =
   in
   e body
 
-(* 根の関数を 1 つ書き出す。返り値は、根の関数に続けて、
-   持ち上げた関数を場所の番号の順に並べた列である。
-   ハンドラ式の場所の関数は、本体、操作節、return 節、cancel 節の順に並ぶ *)
+(* ルート関数を 1 つ書き出す。返り値は、ルート関数に続けて、
+   持ち上げた関数を生成箇所の番号の順に並べたリストである。
+   ハンドラ式の生成箇所が作る関数は、本体、操作節、return 節、cancel 節の順に並ぶ *)
 let root_fn tb ~sym ~kind ~params ~dicts ~dkeys ~tail ~yield ~result mk_body =
   let r = { r_sym = sym; r_sites = 0; r_frames = []; r_fns = [] } in
   let fr = new_frame ~root:r ~sym ~kind ~params ~owner:None () in
@@ -862,42 +894,44 @@ let root_fn tb ~sym ~kind ~params ~dicts ~dkeys ~tail ~yield ~result mk_body =
   let lifted = List.stable_sort (fun (a, _, _) (b, _, _) -> compare a b) (List.rev r.r_fns) in
   root :: List.map (fun (_, f, pd) -> mk f pd) lifted
 
-(* 種類が lambda の根の関数(関数の定義と let rec の項目) *)
+(* 種類が lambda のルート関数(関数の定義と let rec の項目)を書き出す *)
 let root_lambda tb ~sym ~params ~body ~fn_node =
   root_fn tb ~sym ~kind:I.Lambda ~params:(List.map rep_of_node params) ~dicts:0 ~dkeys:[] ~tail:true ~yield:(yield_of_node tb fn_node)
     ~result:(rep_of_node body) (fun env -> lambda_body env params body)
 
-(* 種類が thunk の根の関数(初期化式と式文) *)
+(* 種類が thunk のルート関数(初期化式と式文)を書き出す *)
 let root_thunk tb ~sym ~result mk_body = root_fn tb ~sym ~kind:I.Thunk ~params:[] ~dicts:0 ~dkeys:[] ~tail:false ~yield:true ~result mk_body
 
-(* 種類が dictabs の根の関数 *)
+(* 種類が dictabs のルート関数を書き出す *)
 let root_dictabs tb ~sym ~dkeys ~result mk_body =
   root_fn tb ~sym ~kind:I.Dictabs_fn ~params:[] ~dicts:(List.length dkeys) ~dkeys ~tail:false ~yield:true ~result mk_body
 
-(* ## 18.12 宣言の写し方
+(* ## 18.12 宣言の変換規則
 
-   各単位のトップレベルの宣言を、書いた順に初期化の手順と大域に写す(IRSpec 10.2 節)。
+   各単位のトップレベルの宣言を、書いた順に初期化手順とグローバルに変換する(IRSpec 10.2 節)。
 
-   | 宣言 | 手順 | 大域の種類 |
+   | 宣言 | 初期化手順 | グローバルの種類 |
    |---|---|---|
    | 関数の定義の `let` | `def_fns` | 辞書を受け取らなければ `fn`、受け取れば `dictabs` |
    | 値の `let`(名前が変数) | 辞書を受け取らなければ `def_value`、受け取れば `def_dictabs` | `value` か `dictabs` |
-   | 値の `let`(名前がほかのパターン) | `def_pattern` | 束縛する変数ごとに `value` |
-   | `let rec` | 群で 1 つの `def_fns` | 項目ごとに `fn` か `dictabs` |
+   | 値の `let`(名前が変数以外のパターン) | `def_pattern` | 束縛する変数ごとに `value` |
+   | `let rec` | グループ全体で 1 つの `def_fns` | 項目ごとに `fn` か `dictabs` |
    | `extern` | `def_fns` | `extern` |
    | `type instance` | `def_instance` | なし |
    | 式文 | 辞書を受け取らなければ `run_exp`、受け取れば何も書かない | なし |
 
-   `def_pattern` と `run_exp` の関数の記号は `単位の鍵/$init<k>` で、`k` はその手順の、
-   単位の中の手順の列での番号である。
-   何も書かない式文は手順を作らないので、番号を使わない。
+   `def_pattern` と `run_exp` の関数のシンボルは `単位の鍵/$init<k>` である。
+   `k` は、その初期化手順が単位の初期化手順の並びの中で何番目かを表す、0 始まりの番号である。
+   何も書かない式文は初期化手順を作らないので、番号を使わない。
 
-   辞書を受け取る値束縛を名前でないパターンに束縛すると、
-   第14章は辞書を受け取る値をそのパターンと照合して失敗する
-   (`_` だけは照合に成功し、何も束縛しない)。
-   本章も、初期化式を `dictabs` の場所にした値をパターンと照合する形に写し、同じ結果にする。
+   辞書を受け取る値束縛の名前が変数以外のパターンのとき、
+   第14章は辞書を受け取る値をそのパターンと照合するので、照合に失敗する。
+   `_` だけは照合に成功し、何も束縛しない。
+   本章も、初期化式を `dictabs` の生成箇所にして得た値をパターンと照合する KIR を書き、
+   同じ結果にする。
 
-   インスタンスの頭は、第14章の `exec_decl` と同じく、宣言の出身の module と単位を立てて
+   インスタンスの対象の型は、第14章の `exec_decl` と同じ方法で求める。
+   宣言が属する module と単位を現在の module と単位に設定してから、
    クラスと型構成子の名前を解決する。 *)
 let instance_head node (i : T.instance_decl') =
   Decls.with_decl_scope (Tree.oid_of node) @@ fun () ->
@@ -910,8 +944,10 @@ let instance_head node (i : T.instance_decl') =
   in
   (cls, con)
 
-(* 単位の型、エフェクト、クラスの表を作る(1 段目の前半)。
-   インスタンスの頭と大域の Rep がこれらの記号を引くので、すべての単位について先に済ませる *)
+(* 単位の型、エフェクト、クラスの表を作る(第 1 段階の前半)。
+   第 1 段階の後半は、インスタンスのクラスと対象の型、
+   `def_pattern` のパターンに現れるコンストラクタの型を、この表でシンボルに直す。
+   そのため、すべての単位の表を先に作っておく *)
 let collect_types tb (u : unit_src) =
   let key = u.us_key in
   let sym name = key ^ "/" ^ Type.display name in
@@ -959,8 +995,9 @@ let collect_types tb (u : unit_src) =
       | _ -> [])
     u.us_decls
 
-(* 単位の大域、インスタンス、手順を決める(1 段目の後半)。
-   根の関数は 2 段目で書くので、書き出す関数を閉包にして手順の順に返す *)
+(* 単位のグローバル、インスタンス、初期化手順を決める(第 1 段階の後半)。
+   ルート関数は第 2 段階で書くので、ルート関数を書き出す処理をクロージャにして、
+   初期化手順の順に返す *)
 let collect_unit tb (u : unit_src) =
   let key = u.us_key in
   let counts = Hashtbl.create 32 in
@@ -1101,8 +1138,9 @@ let collect_unit tb (u : unit_src) =
 (* ## 18.13 プログラム
 
    単位は、組み込み、プレリュード、import した単位、起点の順に並べる。
-   型とクラスと大域の表は、組み込みの項目(IRSpec 付録 A の順)を先頭に置き、単位の順に続ける。
-   関数の表は、単位の順、手順の順に根の関数を並べ、各根の関数の後にその持ち上げた関数を置く。 *)
+   型、クラス、グローバルの表は、組み込みの項目(IRSpec 付録 A の順)を先頭に置き、単位の順に続ける。
+   関数表は、単位の順、初期化手順の順にルート関数を並べ、
+   各ルート関数の後に、そのルート関数から持ち上げた関数を置く。 *)
 let program (units : unit_src list) : I.program =
   provisional := 0;
   let tb = new_tables () in
