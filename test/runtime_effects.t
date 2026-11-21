@@ -11,7 +11,7 @@ Console を挙げている)。ハンドルできると、出力を黙って捨�
   >   }
   > KEL
   $ diktor --type-check quiet.kel
-  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ置き換えます)
   [1]
 
 操作名を修飾しても、同じエラーになる:
@@ -24,7 +24,7 @@ Console を挙げている)。ハンドルできると、出力を黙って捨�
   >   }
   > KEL
   $ diktor --type-check quietq.kel
-  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
+  ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ置き換えます)
   [1]
 
 Async は標準環境にない。ユーザが宣言した Async は通常のエフェクトで、ハンドルできる:

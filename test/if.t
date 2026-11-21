@@ -183,7 +183,7 @@ if で始まる行は新しい文を始める:
   > echoln(show(f(false)))
   > KEL
   $ diktor exhaust.kel
-  ⚠ match が非網羅的です。例えば false が漏れています
+  ⚠ match が非網羅的です。たとえば false が漏れています
   2
 
 then と else は予約語で、変数、引数、レコードのラベルに使えない:

@@ -243,7 +243,7 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   [1]
   $ printf 'from "C:/x" import x\n' > col.kel
   $ diktor col.kel
-  ! col.kel:1:1: import エラー: import のパスにコロンは書けません("kel:" などの前置は予約されています): C:/x
+  ! col.kel:1:1: import エラー: import のパスにコロンは書けません("kel:" などの接頭辞は予約されています): C:/x
   [1]
   $ printf 'from "/etc/x" import x\n' > abs.kel
   $ diktor abs.kel
@@ -261,7 +261,7 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   [1]
   $ printf 'from "./a/../b" import x\n' > comp.kel
   $ diktor comp.kel
-  ! comp.kel:1:1: import エラー: import のパスの成分が不正です: ./a/../b
+  ! comp.kel:1:1: import エラー: import のパスの要素が不正です: ./a/../b
   [1]
   $ printf 'from "./../b" import x\n' > mix.kel
   $ diktor mix.kel
@@ -514,13 +514,13 @@ import したファイルの警告には、先頭にファイル名を付ける:
   > with_stdout { run_log { perform log("logged"); 0 } }
   > KEL
   $ (cd kind && diktor main.kel)
-  ⚠ lib/k.kel: match が非網羅的です。例えば None が漏れています
+  ⚠ lib/k.kel: match が非網羅的です。たとえば None が漏れています
   21
   box mine
   4
   logged
   $ (cd kind && diktor --type-check main.kel)
-  ⚠ lib/k.kel: match が非網羅的です。例えば None が漏れています
+  ⚠ lib/k.kel: match が非網羅的です。たとえば None が漏れています
   p : (Int32, Int32)
   _ : {}
   _ : {}

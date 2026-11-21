@@ -457,7 +457,7 @@ aliasunit4 の C26[{}] は型検査に通り、aliasunit4b の C26[Int32] は、
   v : Int32
   $ printf 'type C26[R] = A26[{extends R}]\ntype A26[E] = Int32\nlet w: C26[Int32] = 1\n' > aliasunit4b.kel
   $ diktor --type-check --no-prelude aliasunit4b.kel
-  ! aliasunit4b.kel:3:12: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  ! aliasunit4b.kel:3:12: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が必要です)
   [1]
 
 newtype のフィールドから、前で宣言したエイリアスに具体的な行({Print})を渡す場合(N22)である。
@@ -504,7 +504,7 @@ effect でない型の名前(aliaslab2 の Q24)は、エイリアスの本体の
   > type A24[E] = (Int32) => Unit @ {Q24 extends E}
   > EOF
   $ diktor --type-check --no-prelude aliaslab2.kel
-  ! aliaslab2.kel:4:33: 型エラー: 型 Q24 はエフェクトではありません(ここにはエフェクト行が要ります)
+  ! aliaslab2.kel:4:33: 型エラー: 型 Q24 はエフェクトではありません(ここにはエフェクト行が必要です)
   [1]
   $ cat > aliaslab3.kel <<'EOF'
   > type Unit = {}
@@ -529,7 +529,7 @@ module の中の newtype も同じように扱う(パス 1b の後の処理は�
   g : (Cb.Callback[{Print}]) => Int32
 
 行カインドのパラメータを持つ型は、Functor のインスタンスにできない。
-インスタンスの対象の型(診断では `インスタンス頭`)のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と合わないからである。
+インスタンスの対象の型のカインドが EffectRow -> Type になり、クラスが要求する Type -> Type と合わないからである。
 sample.kel §8 は、構造的導出を持つ Eq のカインドの規則を述べている(sample.kel:398-400)。
 それに続けて、同じ規則の帰結として、このことを書いている(sample.kel:401-403):
 
@@ -544,7 +544,7 @@ sample.kel §8 は、構造的導出を持つ Eq のカインドの規則を述�
   > }
   > EOF
   $ diktor --type-check --no-prelude nofunctor.kel
-  ! nofunctor.kel:6:1: 型エラー: インスタンス頭 Callback のカインドがクラス Functor のパラメータと一致しません
+  ! nofunctor.kel:6:1: 型エラー: インスタンスの対象の型 Callback のカインドがクラス Functor のパラメータと一致しません
   [1]
 
 型クラスのパラメータは、EffectRow のカインドにできない(sample.kel §8、sample.kel:359-361)。
@@ -718,7 +718,7 @@ newtype の本体の試行がエイリアスを読んで、パラメータのカ
 
   $ printf 'type Unit = {}\nnewtype Callback[E] = Callback(() => Unit @ E)\ntype Cb[E] = Callback[E]\nlet f(c: Cb[Int32]): Int32 = 0\n' > aliaskind.kel
   $ diktor --type-check --no-prelude aliaskind.kel
-  ! aliaskind.kel:4:13: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  ! aliaskind.kel:4:13: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が必要です)
   [1]
 
 パラメータを持つ EffectRow エイリアスは、行の要素の位置にも書ける。
@@ -769,7 +769,7 @@ Int32 は宣言されている名前で、未知ではないからである:
   > let f(c: Callback[Int32]): Int32 = 0
   > EOF
   $ diktor --type-check --no-prelude kinderr2.kel
-  ! kinderr2.kel:3:19: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が要ります)
+  ! kinderr2.kel:3:19: 型エラー: 型 Int32 はエフェクトではありません(ここにはエフェクト行が必要です)
   [1]
 
 宣言のない名前は `未知のエフェクト` と報告する:
@@ -813,7 +813,7 @@ F[_] の定義域は Type なので、F[E] が E のカインドを Type に決�
   g : (List[Int32]) => List[Int32]
 
 値の型の位置では、読んだ型のカインドが Type でなければならない。
-値の型の位置とは、矢印の引数と返り値、レコードのフィールド、タプルの要素、ヴァリアントのペイロード(診断では `積載`)である。
+値の型の位置とは、矢印の引数と返り値、レコードのフィールド、タプルの要素、ヴァリアントのペイロードである。
 EffectRow エイリアスを書くと、その位置でエラーになる:
 
   $ cat > valkind.kel <<'EOF'
@@ -849,7 +849,7 @@ EffectRow エイリアスを書くと、その位置でエラーになる:
   > let f(x: #T(P)): Int32 = 0
   > EOF
   $ diktor --type-check valkind5.kel
-  ! valkind5.kel:2:13: 型エラー: ヴァリアント #T の積載の型のカインドが Type ではありません: {Print} :: Row
+  ! valkind5.kel:2:13: 型エラー: ヴァリアント #T のペイロードの型のカインドが Type ではありません: {Print} :: Row
   [1]
   $ cat > valkind6.kel <<'EOF'
   > type P: EffectRow = {Print}
@@ -867,7 +867,7 @@ EffectRow エイリアスを書くと、その位置でエラーになる:
   > let f(x: #U(Int32) | #T(P)): Int32 = 0
   > EOF
   $ diktor --type-check sumkind.kel
-  ! sumkind.kel:2:25: 型エラー: ヴァリアント #T の積載の型のカインドが Type ではありません: {Print} :: Row
+  ! sumkind.kel:2:25: 型エラー: ヴァリアント #T のペイロードの型のカインドが Type ではありません: {Print} :: Row
   [1]
 
 型注釈の位置も、値の型の位置である。
@@ -1027,7 +1027,7 @@ newtype の本体に書いた場合と、EffectRow エイリアスの型引数�
   ! hktrow3.kel:2:32: 型エラー: 型エイリアス W の型引数のカインドが一致しません: Row を期待しましたが ς1[ς2] は行になりません
   [1]
 
-レコードの行の extends の右と、ヴァリアント型の末尾(診断では `ヴァリアント和の末尾`)も、同じ規則で照合する。
+レコードの行の extends の右と、ヴァリアント型の末尾も、同じ規則で照合する。
 ここで G のカインドが先に決まると、後ろの Callback[G[Int32]] の照合にも通ってしまう。
 そのため、この 2 か所でも、宣言の位置でエラーにする:
 
@@ -1042,7 +1042,7 @@ newtype の本体に書いた場合と、EffectRow エイリアスの型引数�
   > let f[G](v: #A(Int32) | G[Int32]): Int32 = 0
   > EOF
   $ diktor --type-check hktrow7.kel
-  ! hktrow7.kel:1:13: 型エラー: ヴァリアント和の末尾の型のカインドが Row ではありません: ς1[Int32]
+  ! hktrow7.kel:1:13: 型エラー: ヴァリアント型の末尾の型のカインドが Row ではありません: ς1[Int32]
   [1]
 
 Type エイリアスの本体に書いた場合は、エイリアスの宣言でエラーになる。

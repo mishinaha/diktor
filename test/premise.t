@@ -58,14 +58,14 @@
   ! pr3.kel:11:65: 型エラー: Opaque は Eq のインスタンスではありません。List[Opaque] が Eq であるための前提として要求されました
   [1]
 
-束縛子(インスタンスの型パラメータ)を書かないと、インスタンスの対象の型(診断では「頭」)のカインドが、クラス Eq のパラメータのカインド Type と一致しない:
+束縛子(インスタンスの型パラメータ)を書かないと、インスタンスの対象の型のカインドが、クラス Eq のパラメータのカインド Type と一致しない:
 
   $ cat > pr4.kel <<'EOF'
   > newtype List[A] = Cons(A, tail: List[A]) | Nil
   > type instance Eq[List[_]] { let rec eq(xs, ys) = true }
   > EOF
   $ diktor --type-check --no-prelude pr4.kel
-  ! pr4.kel:2:1: 型エラー: インスタンス頭 List のカインドがクラス Eq のパラメータと一致しません
+  ! pr4.kel:2:1: 型エラー: インスタンスの対象の型 List のカインドがクラス Eq のパラメータと一致しません
   [1]
 
 対象の型に書く `_` の個数は、型構成子が取る型引数の個数と一致しなければならない:
@@ -78,7 +78,7 @@
   > }
   > EOF
   $ diktor --type-check --no-prelude pr5a.kel
-  ! pr5a.kel:3:1: 型エラー: インスタンス頭 List は型引数を 1 個取りますが、_ が 3 個書かれています
+  ! pr5a.kel:3:1: 型エラー: インスタンスの対象の型 List は型引数を 1 個取りますが、_ が 3 個書かれています
   [1]
 
 `_` が型構成子の取る型引数より少ない場合も、同じ形の診断でエラーになる(上の pr5a は
@@ -89,7 +89,7 @@
   > type instance[A: Eq] Eq[Pair[_]] { let eq(p, q) = true }
   > EOF
   $ diktor --type-check --no-prelude pr5b.kel
-  ! pr5b.kel:2:1: 型エラー: インスタンス頭 Pair は型引数を 2 個取りますが、_ が 1 個書かれています
+  ! pr5b.kel:2:1: 型エラー: インスタンスの対象の型 Pair は型引数を 2 個取りますが、_ が 1 個書かれています
   [1]
 
 束縛子は `_` より多く書けない。束縛子のカインドは、対応する `_` の位置の型引数のカインドと一致しなければならない:
@@ -99,14 +99,14 @@
   > type instance[A: Eq, B: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }
   > EOF
   $ diktor --type-check --no-prelude pr5.kel
-  ! pr5.kel:2:1: 型エラー: インスタンスの型パラメータが 2 個ありますが、頭 List の _ は 1 個です
+  ! pr5.kel:2:1: 型エラー: インスタンスの型パラメータが 2 個ありますが、対象の型 List の _ は 1 個です
   [1]
   $ cat > pr6.kel <<'EOF'
   > newtype List[A] = Cons(A, tail: List[A]) | Nil
   > type instance[F[_]: Eq] Eq[List[_]] { let rec eq(xs, ys) = true }
   > EOF
   $ diktor --type-check --no-prelude pr6.kel
-  ! pr6.kel:2:1: 型エラー: インスタンスの型パラメータ F のカインドが頭 List の引数と一致しません
+  ! pr6.kel:2:1: 型エラー: インスタンスの型パラメータ F のカインドが対象の型 List の引数と一致しません
   [1]
 
 `_` が 0 個の対象の型には、束縛子を付けられない(「束縛子は `_` より多く書けない」規則の、`_` が
@@ -117,7 +117,7 @@
   > type instance[A: Eq] Eq[Opaque] { let eq(a, b) = true }
   > EOF
   $ diktor --type-check --no-prelude pr20.kel
-  ! pr20.kel:2:1: 型エラー: インスタンスの型パラメータが 1 個ありますが、頭 Opaque の _ は 0 個です
+  ! pr20.kel:2:1: 型エラー: インスタンスの型パラメータが 1 個ありますが、対象の型 Opaque の _ は 0 個です
   [1]
 
 制約を書かない束縛子では、本体の `==` が型検査に通らない。本体が要求する制約の辞書は

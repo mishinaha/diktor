@@ -111,10 +111,10 @@ import のエラーも 1 で終了する:
   zero
   exit: 0
   $ diktor warnrun.kel > /dev/null; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば 1 が漏れています
+  ⚠ match が非網羅的です。たとえば 1 が漏れています
   exit: 0
   $ diktor warnrun.kel 2>&1; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば 1 が漏れています
+  ⚠ match が非網羅的です。たとえば 1 が漏れています
   before
   zero
   exit: 0
@@ -124,7 +124,7 @@ import のエラーも 1 で終了する:
   $ diktor --strict-exhaustive warnrun.kel 2> /dev/null; echo "exit: $?"
   exit: 1
   $ diktor --strict-exhaustive warnrun.kel 2>&1; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば 1 が漏れています
+  ⚠ match が非網羅的です。たとえば 1 が漏れています
   exit: 1
 
 初期化前の呼び出し(§6.4)。完全なシグネチャを持つ、後ろで定義した関数は型検査に通るが、

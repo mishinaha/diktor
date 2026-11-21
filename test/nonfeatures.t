@@ -27,7 +27,7 @@ or パターンは導入しない(sample.kel の §7)。パターンの文法に
   patannot.kel:2:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
-レコード更新の更新元(診断では「基底」)は、小文字で始まる識別子 1 個に限る(sample.kel の §3)。
+レコード更新の更新元は、小文字で始まる識別子 1 個に限る(sample.kel の §3)。
 sample.kel の §0 の `{` の判別は IDENT の直後の with だけを見るので、更新元に式は書けない。
 大文字で始まる識別子は `{` の判別を通過するので、
 構文解析の意味動作が構文エラーにする。更新元に式を使いたいときは、let で束縛
@@ -45,7 +45,7 @@ sample.kel の §0 の `{` の判別は IDENT の直後の with だけを見る�
 
   $ printf 'let p = {x = 1}\nlet q = {P with x = 3}\n' > updbase3.kel
   $ diktor --type-check updbase3.kel
-  updbase3.kel:2:10: 構文エラー: レコード更新の基底は小文字始まりの識別子 1 個です
+  updbase3.kel:2:10: 構文エラー: 更新元のレコードは小文字始まりの識別子 1 個です
   [2]
 
 (小文字で始まる更新元を受理することは、test/typecheck.t、test/eval.t、test/ast.t、

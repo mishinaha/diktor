@@ -827,7 +827,7 @@ import した単位のキーは、import を書いたファイルのキーのデ
   $ printf 'from "../x" import q2\npub let y: Int32 = q2\n' > k2/elsewhere/dir/y.kel
   $ printf 'from "./x" import q\nfrom "./sub/y" import y\nlet m = q + y\n' > k2/proj/main.kel
   $ diktor --no-prelude --emit-ir-text k2.kirt k2/proj/main.kel; echo "exit: $?"; test -e k2.kirt || echo "no file"
-  diktor: KIR の単位の鍵が重なります: x.kel(k2/proj/x.kel と k2/proj/sub/../x.kel)
+  diktor: KIR の単位のキーが重なります: x.kel(k2/proj/x.kel と k2/proj/sub/../x.kel)
   exit: 64
   no file
 

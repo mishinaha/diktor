@@ -60,19 +60,19 @@
   > echoln("not reached")
   > EOF
   $ DIKTOR_VIA_IR=0 diktor err.kel; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば B が漏れています
+  ⚠ match が非網羅的です。たとえば B が漏れています
   1
   実行時エラー: ゼロ除算です
   exit: 3
   $ diktor --emit-ir err.kir err.kel; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば B が漏れています
+  ⚠ match が非網羅的です。たとえば B が漏れています
   exit: 0
   $ diktor --run-ir err.kir; echo "exit: $?"
   1
   実行時エラー: ゼロ除算です
   exit: 3
   $ diktor --via-ir err.kel; echo "exit: $?"
-  ⚠ match が非網羅的です。例えば B が漏れています
+  ⚠ match が非網羅的です。たとえば B が漏れています
   1
   実行時エラー: ゼロ除算です
   exit: 3
@@ -167,33 +167,33 @@ FILE を開けても書き込みに失敗すれば、出力が小さくても終
 何も実行しないので、標準出力は空である。
 
   $ cp prog.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=1 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 0: マジックが KIR のものではありません
+  diktor: KIR を読み込めません: 位置 0: マジックナンバーが KIR のものではありません
   exit: 65
   $ cp prog.kir m.kir && printf '\002' | dd of=m.kir bs=1 seek=4 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 8: 版 2.0 は読めません(読めるのは主版 1 の版だけです)
+  diktor: KIR を読み込めません: 位置 8: バージョン 2.0 は読めません(読めるのはメジャーバージョン 1 のバージョンだけです)
   exit: 65
   $ cp prog.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=8 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 12: 必要な機能のビット 0x00000001 を処理できません
+  diktor: KIR を読み込めません: 位置 12: 必須機能ビット 0x00000001 を処理できません
   exit: 65
   $ head -c 10 prog.kir > m.kir && diktor --run-ir m.kir; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 0: 見出しの 16 バイトがありません
+  diktor: KIR を読み込めません: 位置 0: ヘッダの 16 バイトがありません
   exit: 65
   $ head -c -1 prog.kir > m.kir && diktor --run-ir m.kir 2>&1 | sed 's/位置 [0-9]*/位置 N/'
-  diktor: KIR を読み込めません: 位置 N: 節 0x0b の大きさがファイルの残りを超えます
+  diktor: KIR を読み込めません: 位置 N: セクション 0x0b のサイズがファイルの残りを超えます
   $ head -c -1 prog.kir > m.kir && diktor --run-ir m.kir > /dev/null 2>&1; echo "exit: $?"
   exit: 65
   $ cp prog.kir m.kir && printf '\000' >> m.kir && diktor --run-ir m.kir 2>&1 | sed 's/位置 [0-9]*/位置 N/'
-  diktor: KIR を読み込めません: 位置 N: 節 0x00 は定義されていません
+  diktor: KIR を読み込めません: 位置 N: セクション 0x00 は定義されていません
   $ diktor --emit-ir-text prog.kirt prog.kel && diktor --run-ir prog.kirt; echo "exit: $?"
-  diktor: KIR を読み込めません: 位置 0: マジックが KIR のものではありません
+  diktor: KIR を読み込めません: 位置 0: マジックナンバーが KIR のものではありません
   exit: 65
 
 次は、読み込みには通るが、検証で拒否する例である。
-単位のキー main を書き換えると、単位の並び(診断では `単位の列`)の形式の検査でエラーになる。
+単位のキー main を書き換えると、単位の並びの形式の検査でエラーになる。
 
   $ printf 'let f(n: Int32): Int32 = n * 2\nlet x: Int32 = 1\n' > small.kel
   $ diktor --no-prelude --emit-ir small.kir small.kel && printf '\164' | dd of=small.kir bs=1 seek=26 conv=notrunc 2> /dev/null && diktor --run-ir small.kir; echo "exit: $?"
-  diktor: KIR の検証に失敗しました: 単位の列が builtin、prelude で始まり main で終わる形になっていません
+  diktor: KIR の検証に失敗しました: 単位の並びが builtin、prelude で始まり main で終わる形になっていません
   exit: 65
 
 次は、検証器が名前と個数から検査する規則の例である。
@@ -222,11 +222,11 @@ FILE を開けても書き込みに失敗すれば、出力が小さくても終
   exit: 0
   $ patch_kir() { cp "$1" m.kir && printf "$3" | dd of=m.kir bs=1 seek="$2" conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"; }
 
-組み込みの値は、付録 A.4 のシンボル(診断では `記号`)を付録 A.4 の順に並べたものに限る。
+組み込みの値は、付録 A.4 のシンボルを付録 A.4 の順に並べたものに限る。
 builtin/Array.each を builtin/Array.fach に書き換えると、文字列の表の順序は保たれるので読み込みには通り、検証器が拒否する。
 
   $ o=$(grep -boa 'Array\.each' vrules.kir | cut -d: -f1) && patch_kir vrules.kir $((o + 6)) '\146'
-  diktor: KIR の検証に失敗しました: 大域の表の先頭が、付録 A の組み込みの値の並びと合いません
+  diktor: KIR の検証に失敗しました: グローバルの表の先頭が、付録 A の組み込みの値の並びと合いません
   exit: 65
 
 runtime の印は、プレリュードの Console の write にだけ付く。
@@ -236,15 +236,15 @@ runtime の印は、プレリュードの Console の write にだけ付く。
   diktor: KIR の検証に失敗しました: エフェクト main/Out の操作 write の runtime の印が規則と合いません
   exit: 65
 
-スロットは、束縛のスコープ(診断では `有効範囲`)の中でだけ読める。
+スロットは、束縛のスコープの中でだけ読める。
 1 つ目は、let の初期化式が、後の let で束縛するスロットを読む場合である。
 2 つ目は、match の 2 つ目の節が、1 つ目の節のパターンで束縛したスロットを読む場合である。
 
   $ patch_kir vrules.kir 1233 '\002'
-  diktor: KIR の検証に失敗しました: 関数 main/f: スロット 2 を束縛の有効範囲の外で読みます
+  diktor: KIR の検証に失敗しました: 関数 main/f: スロット 2 を束縛のスコープの外で読みます
   exit: 65
   $ patch_kir vrules.kir 1397 '\001'
-  diktor: KIR の検証に失敗しました: 関数 main/m: スロット 1 を束縛の有効範囲の外で読みます
+  diktor: KIR の検証に失敗しました: 関数 main/m: スロット 1 を束縛のスコープの外で読みます
   exit: 65
 
 method と opcall に渡す辞書は、そのクラスの辞書でなければならない。
@@ -274,14 +274,14 @@ C1 のインスタンスのクラスを、メソッドが 2 つある C2 に書�
   diktor: KIR の検証に失敗しました: インスタンス main/instance:C1[T] がクラス main/C2 のメソッド c を実装しません
   exit: 65
 
-dictapp が適用する値がグローバル(診断では `大域`)なら、渡す辞書の数は、そのグローバルが受け取る辞書の数と同じでなければならない。
+dictapp が適用する値がグローバルなら、渡す辞書の数は、そのグローバルが受け取る辞書の数と同じでなければならない。
 1 つ目は extern のグローバルが受け取る辞書の数を 1 から 2 に書き換え、2 つ目は適用する値を種類 fn のグローバルに書き換える。
 
   $ patch_kir vrules.kir 1083 '\002'
   diktor: KIR の検証に失敗しました: 関数 main/r: main/__int32_neg に渡す辞書の数 1 が、受け取る数 2 と違います
   exit: 65
   $ patch_kir vrules.kir 1336 '\016'
-  diktor: KIR の検証に失敗しました: 関数 main/r: 辞書を受け取らない大域 main/f に辞書を渡します
+  diktor: KIR の検証に失敗しました: 関数 main/r: 辞書を受け取らないグローバル main/f に辞書を渡します
   exit: 65
 
 シンボルは `単位の鍵/名前` の形式で、その単位のキーは単位の表になければならない。
@@ -292,15 +292,15 @@ dictapp が適用する値がグローバル(診断では `大域`)なら、渡�
   $ printf 'newtype W = W(Int32)\nlet z = W(5)\n' > w.kel && diktor --no-prelude --emit-ir w.kir w.kel && diktor --run-ir w.kir; echo "exit: $?"
   exit: 0
   $ o=$(grep -boa 'main/z' w.kir | cut -d: -f1) && patch_kir w.kir $((o + 4)) '0'
-  diktor: KIR の検証に失敗しました: 大域の記号 main0z が 単位の鍵/名前 の形ではありません
+  diktor: KIR の検証に失敗しました: グローバルのシンボル main0z が 単位の鍵/名前 の形式ではありません
   exit: 65
   $ printf 'newtype W = W(Int32)\n' > t.kel && diktor --no-prelude --emit-ir t.kir t.kel && diktor --run-ir t.kir; echo "exit: $?"
   exit: 0
   $ o=$(grep -boa 'main/W' t.kir | cut -d: -f1) && patch_kir t.kir $((o + 4)) '0'
-  diktor: KIR の検証に失敗しました: 型の記号 main0W が 単位の鍵/名前 の形ではありません
+  diktor: KIR の検証に失敗しました: 型のシンボル main0W が 単位の鍵/名前 の形式ではありません
   exit: 65
   $ o=$(grep -boa 'main/W' t.kir | cut -d: -f1) && patch_kir t.kir $((o + 3)) 'o'
-  diktor: KIR の検証に失敗しました: 型の記号 maio/W の単位の鍵 maio が単位の表にありません
+  diktor: KIR の検証に失敗しました: 型のシンボル maio/W の単位のキー maio が単位の表にありません
   exit: 65
 
 コンストラクタのフィールド数には任意の u32 を書けるが、construct が書くフィールド数と違えば検証器が拒否する。

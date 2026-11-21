@@ -85,7 +85,7 @@ let のパターン束縛(bt はタプル、bc はコンストラクタ)、節�
   > KEL
   $ diktor --type-check --no-prelude keep.kel
   k1 : (Opt2[Empt]) => Int32
-  ⚠ match が非網羅的です。例えば Nn が漏れています
+  ⚠ match が非網羅的です。たとえば Nn が漏れています
   ⚠ このパターンには一致する値がありません
   k2 : (Never) => Int32
   ⚠ 第 1 節は到達不能です(冗長)
@@ -93,7 +93,7 @@ let のパターン束縛(bt はタプル、bc はコンストラクタ)、節�
   k3 : (#Ok(Int32) | #Err(Never)) => Int32
   ⚠ 第 2 節は到達不能です(冗長)
   k4 : (Absurd) => A
-  ⚠ match が非網羅的です。例えば MkA(_) が漏れています
+  ⚠ match が非網羅的です。たとえば MkA(_) が漏れています
 
 再帰するデータ型。処理系は、型をたどる途中で同じデータ型の名前に戻ると、型引数が
 違っていても値を持つとみなし、そこから先をたどらない。r1 の M[Never] は、S の引数 M[Int32] で M に戻るので
@@ -114,12 +114,12 @@ M2 で、M2[Never] は値を作れないが、S2 の引数で M2 に戻るので
   > KEL
   $ diktor --type-check --no-prelude rec.kel
   r1 : (M[Never]) => Int32
-  ⚠ match が非網羅的です。例えば S(_) が漏れています
+  ⚠ match が非網羅的です。たとえば S(_) が漏れています
   ⚠ このパターンには一致する値がありません
   r2 : (L) => Int32
-  ⚠ match が非網羅的です。例えば D(_) が漏れています
+  ⚠ match が非網羅的です。たとえば D(_) が漏れています
   r3 : (M2[Never]) => Int32
-  ⚠ match が非網羅的です。例えば S2(_) が漏れています
+  ⚠ match が非網羅的です。たとえば S2(_) が漏れています
   ⚠ このパターンには一致する値がありません
 
 W[A] = Wr(A, Boolean) の A に置く型によって、値を持つとみなすかどうかが分かれる。a1 の関数型、
@@ -140,16 +140,16 @@ a2 の組み込みの不透明な型 Array[Never]、a3 の型パラメータ、a
   > KEL
   $ diktor --type-check valued.kel
   a1 : (W[(Int32) => Never @ {}]) => Int32
-  ⚠ match が非網羅的です。例えば Wr(_, false) が漏れています
+  ⚠ match が非網羅的です。たとえば Wr(_, false) が漏れています
   a2 : (W[Array[Never]]) => Int32
-  ⚠ match が非網羅的です。例えば Wr(_, false) が漏れています
+  ⚠ match が非網羅的です。たとえば Wr(_, false) が漏れています
   a3 : (W[A]) => Int32
-  ⚠ match が非網羅的です。例えば Wr(_, false) が漏れています
+  ⚠ match が非網羅的です。たとえば Wr(_, false) が漏れています
   a4 : (W[String]) => Int32
-  ⚠ match が非網羅的です。例えば Wr(_, false) が漏れています
+  ⚠ match が非網羅的です。たとえば Wr(_, false) が漏れています
   a5 : (W[Never]) => Int32
   a6 : (W[#A(Never) | R1]) => Int32
-  ⚠ match が非網羅的です。例えば Wr(_, false) が漏れています
+  ⚠ match が非網羅的です。たとえば Wr(_, false) が漏れています
   a7 : (W[#A(Never)]) => Int32
 
 値を持つかどうかを調べ終えたデータ型は、1 回の判定の中で結果を記録し、たどり直さない。deep.kel の

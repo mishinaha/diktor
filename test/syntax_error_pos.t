@@ -83,7 +83,7 @@ pub を付けた type instance、大文字で始まるラベル、ヴァリア�
   [2]
   $ printf 'let r = {a = 1}\nlet s = {Foo with a = 2}\n\nlet b = 2\n' > upd.kel
   $ diktor upd.kel
-  upd.kel:2:10: 構文エラー: レコード更新の基底は小文字始まりの識別子 1 個です
+  upd.kel:2:10: 構文エラー: 更新元のレコードは小文字始まりの識別子 1 個です
   [2]
 
 ## 文法に合わないトークン

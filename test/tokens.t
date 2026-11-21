@@ -612,22 +612,22 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、先に Uchar.is_va
 
   $ printf 'let a = 0b102\n' > glued1.kel
   $ diktor --type-check glued1.kel
-  glued1.kel:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  glued1.kel:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの表記を確認してください)
   [2]
   $ printf 'let a = 0x\n' > glued2.kel
   $ diktor --type-check glued2.kel
-  glued2.kel:1:9: 構文エラー: 数値リテラル 0 の直後に x が続いています(数値リテラルの綴りを確認してください)
+  glued2.kel:1:9: 構文エラー: 数値リテラル 0 の直後に x が続いています(数値リテラルの表記を確認してください)
   [2]
   $ printf 'let a = 1u\n' > glued3.kel
   $ diktor --type-check glued3.kel
-  glued3.kel:1:9: 構文エラー: 数値リテラル 1 の直後に u が続いています(数値リテラルの綴りを確認してください)
+  glued3.kel:1:9: 構文エラー: 数値リテラル 1 の直後に u が続いています(数値リテラルの表記を確認してください)
   [2]
   $ printf 'let a = 1.2.3\n' > glued4.kel
   $ diktor --type-check glued4.kel
-  glued4.kel:1:9: 構文エラー: 数値リテラル 1.2 の直後に .3 が続いています(数値リテラルの綴りを確認してください)
+  glued4.kel:1:9: 構文エラー: 数値リテラル 1.2 の直後に .3 が続いています(数値リテラルの表記を確認してください)
   [2]
   $ diktor --type-check projnum.kel
-  projnum.kel:1:9: 構文エラー: 数値リテラル 1. の直後に _0 が続いています(数値リテラルの綴りを確認してください)
+  projnum.kel:1:9: 構文エラー: 数値リテラル 1. の直後に _0 が続いています(数値リテラルの表記を確認してください)
   [2]
 
 進めなくなる位置が式の途中でもパターンでも、負の数値リテラルでも同じである。REPL は同じメッセージを出して、セッションを続ける:
@@ -637,7 +637,7 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、先に Uchar.is_va
   > let a = g(1, 2x)
   > KEL
   $ diktor --type-check gluedpos.kel
-  gluedpos.kel:2:14: 構文エラー: 数値リテラル 2 の直後に x が続いています(数値リテラルの綴りを確認してください)
+  gluedpos.kel:2:14: 構文エラー: 数値リテラル 2 の直後に x が続いています(数値リテラルの表記を確認してください)
   [2]
   $ cat > gluedpat.kel <<'KEL'
   > let f(x: Int32): Int32 = x match {
@@ -646,14 +646,14 @@ Uchar.of_int 0xD800 は Invalid_argument を投げるので、先に Uchar.is_va
   > }
   > KEL
   $ diktor --type-check gluedpat.kel
-  gluedpat.kel:2:8: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  gluedpat.kel:2:8: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの表記を確認してください)
   [2]
   $ printf 'let a = -0b102\n' > gluedneg.kel
   $ diktor --type-check gluedneg.kel
-  gluedneg.kel:1:10: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  gluedneg.kel:1:10: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの表記を確認してください)
   [2]
   $ printf 'let a = 0b102\n1 + 1\n' | diktor --repl
-  <stdin>:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの綴りを確認してください)
+  <stdin>:1:9: 構文エラー: 数値リテラル 0b10 の直後に 2 が続いています(数値リテラルの表記を確認してください)
   _ : Int32 = 2
 
 数値と後ろのトークンの間に空白がある形と、後ろのトークンが英数字でも _ でも . でも始まらない形は、

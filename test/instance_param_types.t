@@ -108,10 +108,10 @@ l の型がシグネチャの #Lo | #Hi に決まるので、case #Lo だけの 
   > echo(lv(1, #Lo))
   > KEL
   $ diktor insvariant.kel
-  ⚠ match が非網羅的です。例えば #Hi(_) が漏れています
+  ⚠ match が非網羅的です。たとえば #Hi(_) が漏れています
   lo
   $ diktor --strict-exhaustive insvariant.kel
-  ⚠ match が非網羅的です。例えば #Hi(_) が漏れています
+  ⚠ match が非網羅的です。たとえば #Hi(_) が漏れています
   [1]
 
 n の型がシグネチャの Int32 に決まるので、__string_concat(n, "x") の型の不一致は、本体の n の位置(2:67)で報告する。

@@ -50,11 +50,11 @@ newtype の宣言と構築(sample.kel §6)、let rec とデータ型の宣言:
   > EOF
   $ diktor --type-check --no-prelude exh.kel
   partial : (Option[A]) => A
-  ⚠ match が非網羅的です。例えば None が漏れています
+  ⚠ match が非網羅的です。たとえば None が漏れています
   deep : (Option[Option[Int32]]) => Int32
-  ⚠ match が非網羅的です。例えば Some(None) が漏れています
+  ⚠ match が非網羅的です。たとえば Some(None) が漏れています
   bools : (Boolean, Boolean) => Int32
-  ⚠ match が非網羅的です。例えば (false, false) が漏れています
+  ⚠ match が非網羅的です。たとえば (false, false) が漏れています
   redundant : (Boolean, Boolean) => Int32
   ⚠ 第 4 節は到達不能です(冗長)
 
@@ -127,7 +127,7 @@ let のパターン束縛の網羅性の警告と、名前付きのフィール�
   > EOF
   $ diktor --type-check --no-prelude patlet.kel
   f : (List[A]) => A
-  ⚠ match が非網羅的です。例えば Nil が漏れています
+  ⚠ match が非網羅的です。たとえば Nil が漏れています
   g : (List[A]) => List[A]
 
 コンストラクタの引数の個数のエラー:
@@ -156,7 +156,7 @@ let のパターン束縛の網羅性の警告と、名前付きのフィール�
   > echoln(show(f((false,))))
   > KEL
   $ diktor tup1.kel
-  ⚠ match が非網羅的です。例えば (false,) が漏れています
+  ⚠ match が非網羅的です。たとえば (false,) が漏れています
   実行時エラー: match のどの節にも一致しません: (false,)
   [3]
 
@@ -169,10 +169,10 @@ let のパターン束縛の網羅性の警告と、名前付きのフィール�
   > echoln(show(f(())))
   > KEL
   $ diktor tup0.kel
-  ⚠ match が非網羅的です。例えば () が漏れています
+  ⚠ match が非網羅的です。たとえば () が漏れています
   実行時エラー: match のどの節にも一致しません: ()
   [3]
   $ diktor --type-check tup0.kel
   f : ({}) => Int32
-  ⚠ match が非網羅的です。例えば () が漏れています
+  ⚠ match が非網羅的です。たとえば () が漏れています
   _ : {}

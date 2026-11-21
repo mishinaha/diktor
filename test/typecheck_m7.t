@@ -286,11 +286,11 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check --no-prelude warnorder.kel
   a : (Boolean) => Int32
-  ⚠ match が非網羅的です。例えば false が漏れています
+  ⚠ match が非網羅的です。たとえば false が漏れています
   b : ((Boolean, Boolean)) => Int32
-  ⚠ match が非網羅的です。例えば (true, false) が漏れています
+  ⚠ match が非網羅的です。たとえば (true, false) が漏れています
   c : (Int32) => Int32
-  ⚠ match が非網羅的です。例えば 2 が漏れています
+  ⚠ match が非網羅的です。たとえば 2 が漏れています
   d : (Boolean) => Int32
   ⚠ 第 3 節は到達不能です(冗長)
 
@@ -307,7 +307,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check --no-prelude rebuild.kel
   f : (Shape) => Int32
-  ⚠ match が非網羅的です。例えば Seg(false, true) が漏れています
+  ⚠ match が非網羅的です。たとえば Seg(false, true) が漏れています
 
 関数の引数と return 節に書いた、一致しない値のあるパターンも網羅性検査に掛ける。
 検査しないと、型検査に通ったプログラムが実行時に
@@ -319,9 +319,9 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check --no-prelude v10.kel
   g : (Boolean) => Int32
-  ⚠ match が非網羅的です。例えば false が漏れています
+  ⚠ match が非網羅的です。たとえば false が漏れています
   h : (Int32) => Int32
-  ⚠ match が非網羅的です。例えば 1 が漏れています
+  ⚠ match が非網羅的です。たとえば 1 が漏れています
 
   $ cat > v10b.kel <<'KEL'
   > newtype Pair = P(Boolean, Boolean)
@@ -329,7 +329,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check --no-prelude v10b.kel
   f : (Pair) => Boolean
-  ⚠ match が非網羅的です。例えば P(false, true) が漏れています
+  ⚠ match が非網羅的です。たとえば P(false, true) が漏れています
 
   $ cat > v10c.kel <<'KEL'
   > effect E1 = { op1: () => Boolean }
@@ -340,7 +340,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check v10c.kel
   f : () => Int32 @ {}
-  ⚠ match が非網羅的です。例えば false が漏れています
+  ⚠ match が非網羅的です。たとえば false が漏れています
 
 検査モードで検査する無名関数(注釈のある高階関数の引数の位置に書いたもの)の
 引数のパターンも、推論モードのときと同じく
@@ -353,7 +353,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   $ diktor --type-check v10d.kel
   apply2 : ((Boolean) => Int32 @ {}, Boolean) => Int32
   r : Int32
-  ⚠ match が非網羅的です。例えば false が漏れています
+  ⚠ match が非網羅的です。たとえば false が漏れています
 
 引数と return 節のパターンの検査は、本体の推論より後に検査キューに入れる。
 先に入れると、本体の中の let がキューを処理するときにこの検査も実行されて、行が早く閉じ、
@@ -368,7 +368,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   g : (#A | #B | #C) => Int32
   f : (#A | #B | #C) => Int32
   h : (#A | #B | #C) => Int32
-  ⚠ match が非網羅的です。例えば #B(_) が漏れています
+  ⚠ match が非網羅的です。たとえば #B(_) が漏れています
 
   $ cat > v10f.kel <<'KEL'
   > effect Nop = { nop: () => Int32 }
@@ -381,7 +381,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   $ diktor --type-check --no-prelude v10f.kel
   g : (#A | #B | #C) => Int32
   f : (#A | #B | #C) => Int32
-  ⚠ match が非網羅的です。例えば #B(_) が漏れています
+  ⚠ match が非網羅的です。たとえば #B(_) が漏れています
 
 パターンが 1 つだけの位置には節がないので、警告に節の番号を出さない:
 
@@ -392,7 +392,7 @@ module の値の非修飾名が曖昧なときは、修飾名を示す。
   > KEL
   $ diktor --type-check --no-prelude v10g.kel
   f : (Opt2[Empt]) => Int32
-  ⚠ match が非網羅的です。例えば Nn が漏れています
+  ⚠ match が非網羅的です。たとえば Nn が漏れています
   ⚠ このパターンには一致する値がありません
 
 関数の引数と無名関数の引数に書いたコンストラクタパターンは、
@@ -419,6 +419,6 @@ MkP(Nn) の漏れを警告する。この警告から、検査に掛けている
   > KEL
   $ diktor --type-check --no-prelude v10hp.kel
   f : (P) => Int32
-  ⚠ match が非網羅的です。例えば MkP(Nn) が漏れています
+  ⚠ match が非網羅的です。たとえば MkP(Nn) が漏れています
   g : (P) => Int32
-  ⚠ match が非網羅的です。例えば MkP(Nn) が漏れています
+  ⚠ match が非網羅的です。たとえば MkP(Nn) が漏れています

@@ -190,7 +190,7 @@ rigid は、ユーザが明示した型パラメータ A の値 x を、ロー�
   > echoln("ok")
   > EOF
   $ diktor rigid.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。たとえば _ が漏れています
   ok
   $ cat > numvar.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -198,7 +198,7 @@ rigid は、ユーザが明示した型パラメータ A の値 x を、ロー�
   > echoln("ok")
   > EOF
   $ diktor numvar.kel
-  ⚠ match が非網羅的です。例えば _ が漏れています
+  ⚠ match が非網羅的です。たとえば _ が漏れています
   ok
   $ cat > nocmp.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
