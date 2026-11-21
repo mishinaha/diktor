@@ -69,7 +69,8 @@ def split_point(line, width, hard):
             comma_hard = i + 1
         elif c == " " and not in_code and quote == 0 and line[:i].strip():
             space = i
-    # 行頭に近すぎる位置で折ると短い行が残るので、幅の 3 分の 1 より後ろを選ぶ
+    # 行頭に近い位置で折り返すと短い行が残るので、行頭からの表示幅が width の 3 分の 1 以上になる位置を選ぶ。
+    # その条件に合う位置がなく、行が hard を超えるときだけ、3 分の 1 より手前でも折り返す。
     third = width // 3
     if comma is not None and display_width(line[:comma]) >= third:
         return comma
@@ -158,7 +159,7 @@ def process(path, width, hard, check):
                 over.append((ln, "表・見出し・コード", whole))
             out.append(whole)
             continue
-        # 記事ブロックの 1 行目は "(* " で始まるので、続きの行は空白 3 個にする
+        # 説明のブロックの 1 行目は "(* " で始まるので、折り返してできる継続行は空白 3 個で始める
         cont = "   " if prefix == "(* " else prefix
         wrapped = wrap(cont, body + closing, width, hard)
         wrapped[0] = prefix + wrapped[0][len(cont):]
