@@ -389,7 +389,7 @@ let with_splice sloc pat call k_body =
 let trailing_param = "%arg"
 
 let trailing_record pos =
-  raise (Syntax_error_at (pos, "末尾ブロックの中身にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)"))
+  raise (Syntax_error_at (pos, "末尾ブロックの内容にレコードの形は書けません(空の {} もレコードです。何もしない関数は { () } と書きます)"))
 
 (* 末尾ブロックの位置に書かれたが末尾ブロックにならない波括弧の、3 つの形を表す。 *)
 type trailing_other = Tb_record | Tb_params of Lexing.position | Tb_annot of Lexing.position
@@ -401,7 +401,7 @@ let trailing_other pos = function
         "末尾ブロックの引数は小文字の識別子 1 個です(2 個以上の引数を取る関数は fn(x, y) => 式 と書いて括弧の中に渡します)"))
   | Tb_annot pos ->
       raise (Syntax_error_at (pos,
-        "末尾ブロックの引数に型注釈は書けません(型注釈の要る関数は fn(x: T) => 式 と書いて括弧の中に渡します)"))
+        "末尾ブロックの引数に型注釈は書けません(型注釈の必要な関数は fn(x: T) => 式 と書いて括弧の中に渡します)"))
 
 let trailing_misplaced pos =
   raise (Syntax_error_at (pos, "コンストラクタと構造的ヴァリアントには末尾ブロックを付けられません"))
@@ -1216,7 +1216,7 @@ record_exp:
            大文字で始まる識別子も来るので、レコードでないものはここで構文エラーにする *)
         (match $2 with
         | _, Ident (LongId [ x ]) when not (is_upper x) -> ()
-        | _ -> syntax_error_at $startpos($2) "レコード更新の基底は小文字始まりの識別子 1 個です");
+        | _ -> syntax_error_at $startpos($2) "更新元のレコードは小文字始まりの識別子 1 個です");
         List.fold_left (fun acc (l, v) -> mk $sloc (RecordUpdate (acc, l, v))) $2 $4 }
 field_list:
   | field                  { [ $1 ] }
@@ -1361,7 +1361,7 @@ pp_items:
    括弧で囲まない矢印は、ヴァリアント型の要素にも型適用の先頭にもならないので、
    `(A) => B | C` は返り値が `B | C` の矢印になる。
    カンマのない括弧の型はグループ化なので(§3.20)、`((A) => B)[C]` は矢印を先頭に置いた型適用になり、
-   第11章が `型適用の頭は型名でなければなりません` と診断する。
+   第11章が `型適用の先頭は型名でなければなりません` と診断する。
    `@` は**直前(最も内側)の矢印に結合する**。
    `(A) => (B) => C @ E` の `@ E` は、内側の矢印 `(B) => C` に付く。
    `arrow_ret` の規則のうち、返り値が矢印の規則にだけ `@` がないのはそのためである。

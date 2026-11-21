@@ -1032,7 +1032,7 @@ let rec show_ipat = function
    `Integral` や `Fractional` の制約を持つ変数は宣言の終わりに数値型へ既定化されるので、
    型が決まらないとは言えない。
    スコーレム定数(`Rigid`)を型とする値の照合は、型が決まっているので、
-   反例を示す通常のメッセージ(`match が非網羅的です。例えば` で始まるもの)を出す。
+   反例を示す通常のメッセージ(`match が非網羅的です。たとえば` で始まるもの)を出す。
    ガード付きの節だけを持つ `match` も、原因はガードにあるので、通常のメッセージを出す。 *)
 
 type entry = { qe_rows : (T.pat * bool (* ガード付きなら真 *)) list; qe_ty : ty }
@@ -1145,7 +1145,7 @@ let check_entry { qe_rows; qe_ty } =
     (* ガード付きの節は必ず一致する節として数えない(sample.kel:323-324)ので、網羅性の判定から除く *)
     (match missing unguarded tys with
     | Some _ when qe_rows = [] && undetermined qe_ty -> out := !out @ [ undetermined_msg ]
-    | Some w -> out := !out @ [ "match が非網羅的です。例えば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
+    | Some w -> out := !out @ [ "match が非網羅的です。たとえば " ^ String.concat ", " (List.map show_ipat w) ^ " が漏れています" ]
     | None -> ());
     (* 到達不能の判定では、先行するガードのない節だけを、覆う側の行として数える *)
     List.iteri

@@ -929,7 +929,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                   type_error (Printf.sprintf "型構成子 %s の引数は %d 個必要です(%d 個与えられました)" n expected (List.length args))
                 else TCon (oid, elab_con_args env level ~expanding n k args))
               else type_error (unknown_type n oid)))
-  | T.EApply _ -> type_error "型適用の頭は型名でなければなりません"
+  | T.EApply _ -> type_error "型適用の先頭は型名でなければなりません"
 (* ## 11.4 矢印、レコード行、ヴァリアント型
 
    矢印 `(A, B) => R @ E` は `TArrow (引数レコード, 返り値, エフェクト行)` になる。
@@ -990,7 +990,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    |---|---|---|
    | 矢印 `(A, B) => R @ E` | 引数 `A` `B` と返り値 `R` | `@` の右の行 `E` |
    | レコード行 `{a: A}` | 各フィールドの型(`_item` ラベルはタプルの要素) | `extends` の右 |
-   | ヴァリアント `#Tag(T)` | ペイロード `T`(診断では「積載」) | 縦棒で並べた要素そのもの(行かヴァリアント) |
+   | ヴァリアント `#Tag(T)` | ペイロード `T` | 縦棒で並べた要素そのもの(行かヴァリアント) |
 
    エラーになる位置は、読む順で決まる。
    レコードとタプルの要素は `List.fold_right` で右から読むので、
@@ -1003,7 +1003,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    読む順はそろえていない。
    どちらも左から読むようにするには、行を組み立てる順序を変える必要がある。
 
-   `|` で並べたヴァリアント型 `#Even | #Odd | R`(診断では「ヴァリアント和」と呼ぶ)は、
+   `|` で並べたヴァリアント型 `#Even | #Odd | R` は、
    各要素を行に変換して `row_append` で連結する。
    開いていてよいのは、末尾の要素だけである。
    途中に開いた行があると、連結後にどのラベルがどの行の末尾に属するのかが決まらない。
@@ -1011,7 +1011,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
    閉じたヴァリアント型は、網羅性検査(第10章)が `case _` なしで網羅と判定できる。
    たとえば `report`(sample.kel:222-227)がそうである。
 
-   `EHole`(`_`)は、インスタンスの対象の型(診断では「インスタンス頭」)の `List[_]` にだけ書ける。
+   `EHole`(`_`)は、インスタンスの対象の型の `List[_]` にだけ書ける。
    型の式の一般の位置に穴を許すと部分適用と同じ問題が起きるので、ここで拒否する。 *)
 
   | T.EArrow (params, ret, eff_opt) ->
@@ -1057,7 +1057,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
       TRecord row
   | T.EVariantCase (s, payload) ->
       let pty =
-        match payload with None -> t_unit | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
+        match payload with None -> t_unit | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " のペイロードの型") t
       in
       TVariant (TRowExtend (intern s, pty, TRowEmpty))
   | T.EUnion ts ->
@@ -1072,7 +1072,7 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                 let pty =
                   match payload with
                   | None -> t_unit
-                  | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " の積載の型") t
+                  | Some t -> elab_value_type env level ~expanding ("ヴァリアント #" ^ s ^ " のペイロードの型") t
                 in
                 TRowExtend (intern s, pty, TRowEmpty)
             | _ -> (
@@ -1080,20 +1080,20 @@ let rec elab_type env level ~expanding ?(outer = false) (((_, te) as t) : T.type
                 match repr tt with
                 | TVariant row ->
                     let _, tail = row_fields row in
-                    if (not is_last) && repr tail <> TRowEmpty then type_error "ヴァリアント和の途中の要素は閉じていなければなりません"
+                    if (not is_last) && repr tail <> TRowEmpty then type_error "ヴァリアント型の途中の要素は閉じていなければなりません"
                     else row
                 | TApp _ as t' when unresolved_kind t' ->
                     (* 型変数への適用 F[E] は、extends の右と同じく構造の一致で調べる *)
-                    kind_error "ヴァリアント和の末尾の型" ~expected:"Row" t'
+                    kind_error "ヴァリアント型の末尾の型" ~expected:"Row" t'
                 | t' ->
                     if same_kind (Unify.kind_of t') KRow then
-                      if is_last then t' else type_error "ヴァリアント和の途中に行変数は置けません"
-                    else type_error ("ヴァリアント和の要素になれない型です: " ^ Show.show t')))
+                      if is_last then t' else type_error "ヴァリアント型の途中に行変数は置けません"
+                    else type_error ("ヴァリアント型の要素になれない型です: " ^ Show.show t')))
           ts
       in
       let rec fold = function [] -> TRowEmpty | [ r ] -> r | r :: rest -> row_append r (fold rest) in
       TVariant (fold rows)
-  | T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)"
+  | T.EHole -> type_error "_ はこの位置では使えません(インスタンスの対象の型の List[_] 専用)"
 
 (* ## 11.5 型エイリアスの展開
 
@@ -1257,7 +1257,7 @@ and arg_kind_mismatch pk t =
   ^ match k with KVar _ -> " は行になりません" | _ -> " は " ^ show_kind k ^ " です"
 
 and check_no_hole ((_, te) as t : T.type_exp) =
-  match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンス頭の List[_] 専用)" | _ -> t
+  match te with T.EHole -> type_error "_ はこの位置では使えません(インスタンスの対象の型の List[_] 専用)" | _ -> t
 
 (* エフェクト位置に書いた名前 n を、EffectRow エイリアスとして引く。
    次の 2 か所を、この順に探す。
@@ -1323,7 +1323,7 @@ and find_alias n =
    修飾した後に個数が合わなければ expand_alias が報告する *)
 and unknown_effect n =
   if Hashtbl.mem Decls.con_kinds (Decls.resolve_con (intern n)) then
-    "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が要ります)"
+    "型 " ^ n ^ " はエフェクトではありません(ここにはエフェクト行が必要です)"
   else
     let pub_row_alias q =
       (match Hashtbl.find_opt Decls.con_visibility q with Some v -> v.Decls.vis_pub | None -> true)
@@ -2113,7 +2113,7 @@ and elab_exp' env level eff node e =
               (* 別名が指すのは module の中のトップレベルの値で、ローカルの束縛ではない *)
               (match Option.bind scoped (fun q -> SMap.find_opt (name_of q) env.tops) with
               | Some g -> Tree.set_resolved node (Tree.RVar g)
-              | None -> bug ("同義語の先が実体を持ちません: " ^ name));
+              | None -> bug ("別名の参照先の宣言がありません: " ^ name));
               let t, hs = Unify.instantiate_ev ~loc:(Tree.loc_of node) level sch in
               if hs <> [] then Tree.set_dict node (Tree.DUse hs);
               (* module の中では、再帰群の pre も非修飾名でこの経路から引くので、
@@ -2247,7 +2247,7 @@ and elab_exp' env level eff node e =
          else if callee_arrow && row_failure msg && repr eff = TRowEmpty then
            type_error
              (msg
-            ^ "(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
+            ^ "(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を伝えるなら行変数を型パラメータに取ってください。§9)")
          else type_error msg);
       check_call_arity "呼び出す関数は" arg pvar;
       elab_check env level eff arg pvar;
@@ -2466,7 +2466,7 @@ and elab_exp' env level eff node e =
       let args_row, op_ret =
         match repr (Unify.instantiate level scheme) with
         | TArrow (a, r, _) -> (a, r)
-        | _ -> bug "操作スキーマが矢印型ではありません"
+        | _ -> bug "操作の型スキームが矢印型ではありません"
       in
       check_call_arity ("操作 " ^ display_of op ^ " は") arg args_row;
       elab_check ~row_note:(op_row_note ("操作 " ^ display_of op ^ " の引数の型")) env level eff arg args_row;
@@ -2480,7 +2480,7 @@ and elab_exp' env level eff node e =
          else if repr eff = TRowEmpty then
            type_error
              ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg
-            ^ ")(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)")
+            ^ ")(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を伝えるなら行変数を型パラメータに取ってください。§9)")
          else type_error ("エフェクト " ^ display_of eff_name ^ " をここでは実行できません(" ^ msg ^ ")"));
       (* 再開しない操作(返り値の型が Never)の perform の式は、穴と同じく、周囲が要求する型になる *)
       if is_never op_ret then new_var level else op_ret
@@ -2702,7 +2702,7 @@ and elab_construct env level node cname ?eff args =
             with Type_error msg when row_failure msg && has_closed_arrow f.Decls.fi_ty ->
               type_error
                 (msg ^ "(コンストラクタ " ^ cname
-               ^ " のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)"))
+               ^ " のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を伝えるなら行変数を型パラメータに取ってください。§9)"))
           args;
         TCon (dname, List.map snd subst)
 
@@ -3160,7 +3160,7 @@ and elab_handle env level eff clauses body =
   let runtime_msg e =
     match name_of e with
     | "Console" ->
-        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)"
+        "エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ置き換えます)"
     | n -> "エフェクト " ^ n ^ " はランタイムが提供するため、ユーザはハンドルできません"
   in
   let target =
@@ -3232,7 +3232,7 @@ and elab_handle env level eff clauses body =
         let args_row, op_ret =
           match repr (Unify.instantiate level scheme) with
           | TArrow (a, r, _) -> (a, r)
-          | _ -> bug "操作スキーマが矢印型ではありません"
+          | _ -> bug "操作の型スキームが矢印型ではありません"
         in
         let full = intern (name_of target ^ "." ^ name_of op) in
         Tree.set_resolved cnode (if is_never op_ret then Tree.RNeverOp full else Tree.ROp full);
@@ -3275,7 +3275,7 @@ and elab_handle env level eff clauses body =
         let arity = match mine with ((_, _, args, _), _, _, _) :: _ -> List.length args | [] -> 0 in
         type_error
           ("操作 " ^ display_of op
-         ^ " には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case "
+         ^ " には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードのない case "
          ^ display_of op ^ "(" ^ String.concat ", " (List.init arity (fun _ -> "_")) ^ ") を最後に置いてください")
       end)
     target_info.Decls.ef_ops;
@@ -3289,7 +3289,7 @@ and elab_handle env level eff clauses body =
     | [] -> ()
     | ((o, _, _, _), _, _, total) :: rest ->
         if List.mem o seen_total then
-          warn ("操作 " ^ display_of o ^ " の節は到達しません(前の節が既に取りこぼしません)");
+          warn ("操作 " ^ display_of o ^ " の節は到達できません(前の節が既に何も漏らしません)");
         dead_scan (if total && not (List.mem o seen_total) then o :: seen_total else seen_total) rest
   in
   dead_scan [] op_clauses;
@@ -4310,7 +4310,7 @@ and elab_rec_bindings ?(top = false) ?(expected_params = fun _ -> None) env leve
           List.filter_map
             (fun (tp, _, r) ->
               if pre_y != pre && List.memq r clashed && mentions r pre then
-                Some (Printf.sprintf "%s の型パラメータ %s が %s の型に入り込んでいます" y tp x)
+                Some (Printf.sprintf "%s の型パラメータ %s が %s の型に現れるようになっています" y tp x)
               else None)
             rigids)
         members
@@ -4425,7 +4425,7 @@ and finish_group_dicts bs names tps g member_marks =
           (Type_error_at
              ( h.Tree.h_loc,
                "曖昧な制約: " ^ display_of h.Tree.h_cls
-               ^ " の辞書を、この式を含む再帰群の束縛の型から決められません(群のほかの束縛の型にだけ現れる型変数に制約が付いています。注釈で型を決めてください)"
+               ^ " の辞書を、この式を含む再帰群の束縛の型から決められません(再帰群のほかの束縛の型にだけ現れる型変数に制約が付いています。注釈で型を決めてください)"
              )))
     marks ends;
   List.iter
@@ -4443,7 +4443,7 @@ and finish_group_dicts bs names tps g member_marks =
                     raise
                       (Type_error_at
                          ( Tree.loc_of node,
-                           "曖昧な制約: 再帰群の中のこの参照が要る辞書を、呼ぶ側の束縛の型から決められません(注釈で型を決めてください)" ));
+                           "曖昧な制約: 再帰群の中のこの参照が必要とする辞書を、呼び出し元の束縛の型から決められません(注釈で型を決めてください)" ));
                   { Tree.h_id = new_oid (); h_cls = c; h_ty = t_unit; h_loc = Tree.loc_of node; h_sol = Some (Tree.EvParam k) })
             need
         in
@@ -5038,7 +5038,7 @@ let register_class env (c : T.class_decl') =
   let param_kind = if param.tp_arity > 0 then k_arrow param.tp_arity else KStar in
   (if param.tp_classes <> [] then
      type_error
-       "クラスパラメータに制約は書けません(スーパークラスは入れない裁定です。両方が要るときは [A: Eq + Ord] のように並べて書いてください)");
+       "クラスパラメータに制約は書けません(スーパークラスは入れないという設計上の決定です。両方が必要なときは [A: Eq + Ord] のように並べて書いてください)");
   let pinfo = { vid = new_oid (); vlevel = 0; vkind = param_kind; vcls = [ cls ] } in
   let pvar = TVar (ref (Generic pinfo)) in
   let methods =
@@ -5160,8 +5160,7 @@ let register_class env (c : T.class_decl') =
 
 (* ## 11.34 インスタンスの対象の型
 
-   インスタンスの対象の型(診断では「インスタンス頭」)に書けるのは、
-   `Int32` か `List[_]` の形だけである。
+   インスタンスの対象の型に書けるのは、`Int32` か `List[_]` の形だけである。
    `List[Int32]` のように引数を具体的な型にした形は書けない。
    `_` は型引数の位置を表す。
    前提付きインスタンス(sample.kel §8)の束縛子は、この位置に左から順に対応する(sample.kel:413-414)。
@@ -5224,9 +5223,9 @@ let instance_head (i : T.instance_decl') =
     match snd head with
     | T.EIdent (LongId comps) -> (Decls.resolve_con (intern (String.concat "." comps)), 0)
     | T.EApply ((_, T.EIdent (LongId comps)), args) ->
-        List.iter (fun (a : T.type_exp) -> match snd a with T.EHole -> () | _ -> type_error "インスタンス頭の型引数は _ だけです(List[_] の形)") args;
+        List.iter (fun (a : T.type_exp) -> match snd a with T.EHole -> () | _ -> type_error "インスタンスの対象の型の型引数は _ だけです(List[_] の形)") args;
         (Decls.resolve_con (intern (String.concat "." comps)), List.length args)
-    | _ -> type_error "インスタンス頭は 型構成子 か 型構成子[_, ...] の形で書いてください"
+    | _ -> type_error "インスタンスの対象の型は 型構成子 か 型構成子[_, ...] の形で書いてください"
   in
   Decls.check_con_visible con;
   (* 対象の型に書いた _ の個数は、型構成子が取る型引数の個数と一致していなければならない。
@@ -5235,14 +5234,14 @@ let instance_head (i : T.instance_decl') =
   let arity = kind_arity (Decls.con_kind con holes) in
   if holes <> arity then
     type_error
-      ("インスタンス頭 " ^ display_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
+      ("インスタンスの対象の型 " ^ display_of con ^ " は型引数を " ^ string_of_int arity ^ " 個取りますが、_ が "
      ^ string_of_int holes ^ " 個書かれています");
   (* 前提の束縛子は、対象の型の _ に左から順に対応する。対応しなかった _ は未適用のまま残り、
      カインドの矢印になる(Functor[List[_]] は、束縛子が 0 個でこの形になる) *)
   let np = List.length i.T.ins_tparams in
   if np > holes then
     type_error
-      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、頭 " ^ display_of con ^ " の _ は "
+      ("インスタンスの型パラメータが " ^ string_of_int np ^ " 個ありますが、対象の型 " ^ display_of con ^ " の _ は "
      ^ string_of_int holes ^ " 個です");
   (cls, con, holes)
 
@@ -5298,13 +5297,13 @@ let register_instance (i : T.instance_decl') =
             let kb = if tp.tp_arity > 0 then k_arrow tp.tp_arity else new_kind_var () in
             if not (same_kind a kb) then
               type_error
-                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが頭 " ^ display_of con ^ " の引数と一致しません");
+                ("インスタンスの型パラメータ " ^ tp.tp_name ^ " のカインドが対象の型 " ^ display_of con ^ " の引数と一致しません");
             head_kind r rest
-        | _ -> bug "instance: 束縛子が頭のアリティを超えています(D96 の検査が先に落とすはず)")
+        | _ -> bug "instance: 束縛子が対象の型のアリティを超えています(D96 の検査が先にエラーにするはず)")
   in
   if not (same_kind ci.Decls.ci_param_kind (head_kind (Decls.con_kind con holes) i.T.ins_tparams)) then
     type_error
-      ("インスタンス頭 " ^ display_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
+      ("インスタンスの対象の型 " ^ display_of con ^ " のカインドがクラス " ^ i.T.ins_class ^ " のパラメータと一致しません");
   (* 前提は(引数位置, クラス)の組である。束縛子 i は対象の型の引数位置 i に対応するので、
      束縛子の番号をそのまま引数位置に使う。class_names_of が未知のクラスと予約述語を
      拒否するので、束縛子に書いた制約にも同じ検査が適用される *)
@@ -5588,7 +5587,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    最も外側の行の単一化で失敗したときは、診断に純粋性の規則を明記する。
 
    ```
-   型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。
+   型エラー: 型クラスのメソッドの実装は純粋でなければなりません(宣言の最も外側の行にラベルがありません — 仕様 §9)。
    インスタンスメソッド size の本体がエフェクトを起こしています。元の報告: (単一化の報告)
    ```
 
@@ -5636,7 +5635,7 @@ let signature_of_binding env (b : T.let_binding') : ty option =
    値束縛が最も外側の `@` を書いていなければ、実装の行は初期化式の値の型で決まる。
    `let size = sizeP` のように、`@ Print` と注釈した関数を名前で渡すだけでも行は空でなくなるが、
    このとき本体は何も起こしていない。
-   そこで、この形は `初期化式の値の型の最外の行が空ではありません` と述べる(clsvalrow)。
+   そこで、この形は `初期化式の値の型の最も外側の行が空ではありません` と述べる(clsvalrow)。
 
    純粋性の規則を明記できない形もある。
    メソッドが `(T, () => Unit @ E) => Unit @ E` のように関数を引数に取り、
@@ -5727,7 +5726,7 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
         let memo = Hashtbl.create 8 in
         Hashtbl.add memo ci.Decls.ci_param.vid head_ty;
         Unify.map_generics_with memo (fun info -> TVar (ref (Generic info))) scheme
-    | None -> bug "instance: メソッドスキーマ未登録"
+    | None -> bug "instance: メソッドの型スキーム未登録"
   in
   (* 宣言の引数の型から、仮引数の推論に渡す型を作る。
      メソッドの型パラメータと行変数は制約のない新しい変数に置き換え、
@@ -5757,7 +5756,7 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
     let mk =
       List.map
         (fun ((gi : var_info), c) ->
-          match repr (Hashtbl.find smemo gi.vid) with TVar r -> ((Unify.var_info_of r).vid, c) | _ -> bug "instance: 剛定数ではありません")
+          match repr (Hashtbl.find smemo gi.vid) with TVar r -> ((Unify.var_info_of r).vid, c) | _ -> bug "instance: スコーレム定数ではありません")
         (Unify.constraints_of expected)
     in
     let amark = Unify.hole_mark () in
@@ -5817,13 +5816,13 @@ let check_instance_bodies env eff0 inode (i : T.instance_decl') =
             else
               match b.T.lb_params with
               | Some _ -> " の本体がエフェクトを起こしています。元の報告: "
-              | None -> " の初期化式の値の型の最外の行が空ではありません。元の報告: "
+              | None -> " の初期化式の値の型の最も外側の行が空ではありません。元の報告: "
           in
           (try Unify.unify ie se
            with Type_error msg ->
              if bare && row_failure msg then
                type_error
-                 ("型クラスのメソッドの実装は純粋でなければなりません(宣言の最外の行にラベルがありません — 仕様 §9)。インスタンスメソッド " ^ mname
+                 ("型クラスのメソッドの実装は純粋でなければなりません(宣言の最も外側の行にラベルがありません — 仕様 §9)。インスタンスメソッド " ^ mname
                 ^ culprit ^ msg)
              else type_error ("インスタンスメソッド " ^ mname ^ " がクラス宣言の型を満たしません(" ^ msg ^ ")")));
         finish_adapter ()
@@ -6070,7 +6069,7 @@ let no_param_constraints what (tparams : type_param list) =
    どちらも同じ注釈から作るので一致するはずだが、ここでも検査する *)
 let check_signature_dicts node fn_ty sg =
   let a = List.map snd (Unify.dkeys_of fn_ty) and b = List.map snd (Unify.dkeys_of sg) in
-  if a <> b then at_node node (fun () -> bug "署名と本体の辞書パラメータが一致しません")
+  if a <> b then at_node node (fun () -> bug "シグネチャと本体の辞書パラメータが一致しません")
 
 let process_decls ?(toplevel_extra = []) env ~emit decls =
   let eff0 = toplevel_eff ~extra:toplevel_extra () in
@@ -7251,7 +7250,7 @@ let resolve_import_names (tbl : unit_table) (im : Syntax.import_decl) =
               if List.mem m tbl.t_all then fail (src ^ " の " ^ m ^ " は公開されていません")
               else fail (src ^ " に " ^ m ^ " という公開の宣言はありません")
           | Some (ms, all) -> pick x ms all (m ^ "." ^ x))
-      | _ -> bug "import の名前は 2 段まで")
+      | _ -> bug "import の名前に含まれる . は 1 個まで")
     im.Syntax.im_names
 
 type import_kind = KValue | KType | KCtor | KClass | KModule

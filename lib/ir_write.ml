@@ -118,7 +118,7 @@ let new_tables () =
     globals = Hashtbl.create 256;
   }
 
-let find_sym what tbl k = match Hashtbl.find_opt tbl k with Some s -> s | None -> bug ("KIR の書き出し: 記号がありません: " ^ what)
+let find_sym what tbl k = match Hashtbl.find_opt tbl k with Some s -> s | None -> bug ("KIR の書き出し: シンボルがありません: " ^ what)
 
 let type_sym tb c = find_sym ("型 " ^ Type.name_of c) tb.types c
 
@@ -292,7 +292,7 @@ let rec access fr b =
   if fr == b.b_frame then b.b_var
   else
     match fr.fr_parent with
-    | None -> bug ("KIR の書き出し: 根の関数の外の変数を読もうとしました: " ^ fr.fr_sym)
+    | None -> bug ("KIR の書き出し: ルート関数の外の変数を読もうとしました: " ^ fr.fr_sym)
     | Some p -> (
         let pv = access p b in
         match List.find_opt (fun (_, v) -> v = pv) fr.fr_caps with
@@ -491,7 +491,7 @@ let rec exp env ((_, e) as node : T.exp) : I.exp =
           with_dicts env node v
       | None -> (
           match Tree.get_resolved node with
-          | Some (Tree.RVar (Tree.GDecl (oid, x))) -> with_dicts env node (I.Global (find_sym ("大域 " ^ x) env.tb.globals (oid, x)))
+          | Some (Tree.RVar (Tree.GDecl (oid, x))) -> with_dicts env node (I.Global (find_sym ("グローバル " ^ x) env.tb.globals (oid, x)))
           | Some (Tree.RVar (Tree.GBuiltin x)) -> with_dicts env node (I.Global ("builtin/" ^ x))
           | Some (Tree.RVar (Tree.GMethod q)) -> method_ref env node q
           | Some (Tree.RCtor (data, c, _)) -> I.Construct (type_sym env.tb data, Type.display (Type.name_of c), [])
@@ -716,7 +716,7 @@ and handle_site env body clauses =
   let effect =
     match ops with
     | (_, (op, _)) :: _ -> effect_sym env.tb (Type.intern (fst (split_last_dot (Type.name_of op))))
-    | [] -> bug "KIR の書き出し: 操作節の無い handle です"
+    | [] -> bug "KIR の書き出し: 操作節のない handle です"
   in
   let arg_pats (c : T.clause') = match snd c.T.cl_pat with T.PCtor (_, aps) -> List.map (fun (ap : T.ctor_arg_pat) -> ap.T.cap_pat) aps | _ -> [] in
   (* 本体 *)
@@ -800,11 +800,11 @@ let var_key = function I.VDParam i -> (0, i) | I.VEnv i -> (1, i) | I.VLocal i -
 
 let slot_rep fr i =
   let all = fr.fr_params @ List.rev fr.fr_locals in
-  match List.nth_opt all i with Some r -> r | None -> bug "KIR の書き出し: スロットの番号が範囲の外です"
+  match List.nth_opt all i with Some r -> r | None -> bug "KIR の書き出し: スロットの番号が範囲外です"
 
 let fix_caps fr =
   match fr.fr_parent with
-  | None -> if fr.fr_caps <> [] then bug "KIR の書き出し: 根の関数が捕獲を持っています"
+  | None -> if fr.fr_caps <> [] then bug "KIR の書き出し: ルート関数がキャプチャを持っています"
   | Some p ->
       let resolve = function I.VEnv t -> I.VEnv (List.assoc t p.fr_subst) | v -> v in
       let resolved = List.map (fun (id, v) -> (id, resolve v)) fr.fr_caps in
@@ -815,9 +815,9 @@ let fix_caps fr =
         List.map (function I.VLocal i -> slot_rep p i | I.VDParam _ -> I.RAny | I.VEnv j -> List.nth p.fr_cap_reps j) fr.fr_final_caps
 
 let rewrite (sites : (string, frame) Hashtbl.t) fr body =
-  let sub t = match List.assoc_opt t fr.fr_subst with Some i -> i | None -> bug "KIR の書き出し: 捕獲の仮の番号がありません" in
+  let sub t = match List.assoc_opt t fr.fr_subst with Some i -> i | None -> bug "KIR の書き出し: キャプチャの仮の番号がありません" in
   let var = function I.VEnv t -> I.VEnv (sub t) | v -> v in
-  let caps_of sym = match Hashtbl.find_opt sites sym with Some f -> f.fr_final_caps | None -> bug ("KIR の書き出し: 場所の関数がありません: " ^ sym) in
+  let caps_of sym = match Hashtbl.find_opt sites sym with Some f -> f.fr_final_caps | None -> bug ("KIR の書き出し: 生成箇所の関数がありません: " ^ sym) in
   let part p = { p with I.p_caps = caps_of p.I.p_fn } in
   let rec d = function
     | I.DInst (i, ps) -> I.DInst (i, List.map d ps)
@@ -940,7 +940,7 @@ let instance_head node (i : T.instance_decl') =
     match i.T.ins_args with
     | [ (_, T.EIdent (LongId comps)) ] | [ (_, T.EApply ((_, T.EIdent (LongId comps)), _)) ] ->
         Decls.resolve_con (Type.intern (String.concat "." comps))
-    | _ -> bug "KIR の書き出し: インスタンスの頭を解決できません"
+    | _ -> bug "KIR の書き出し: インスタンスの対象の型を解決できません"
   in
   (cls, con)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""文芸化された Diktor のソースのコメントを検査する。
+"""文芸的プログラミングの形式で書いた Diktor のソースのコメントを検査する。
 
   python3 tools/litcheck.py [--base REV | --old FILE] [--quiet] [FILE...]
 
@@ -278,7 +278,7 @@ def check_file(path, base, old_file, quiet):
         new = f.read()
     old = old_source(path, base, old_file)
     if old is None:
-        print("[%s] %s に同じファイルが無い" % (name, base))
+        print("[%s] %s に同じファイルがない" % (name, base))
         return False
     lex = lex_kel if path.endswith(".kel") else lex_ocaml
     old_code, _, _ = lex(old)
@@ -326,11 +326,11 @@ def check_file(path, base, old_file, quiet):
 
 
 def main():
-    p = argparse.ArgumentParser(description="文芸化された Diktor のソースのコメントを検査する")
+    p = argparse.ArgumentParser(description="文芸的プログラミングの形式で書いた Diktor のソースのコメントを検査する")
     p.add_argument("files", nargs="*", help="検査するファイル(省くと lib と bin の全ソース)")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--base", default="HEAD", help="コードを比べる版(既定は HEAD)")
-    g.add_argument("--old", help="コードを比べる元のファイル(1 ファイルの検査で使う)")
+    g.add_argument("--base", default="HEAD", help="コードを比較する版(既定は HEAD)")
+    g.add_argument("--old", help="コードを比較する元のファイル(1 ファイルの検査で使う)")
     p.add_argument("--quiet", action="store_true", help="marker の個々の報告を省く")
     a = p.parse_args()
     files = a.files or [f for pat in DEFAULT_FILES for f in sorted(glob.glob(os.path.join(ROOT, pat)))]

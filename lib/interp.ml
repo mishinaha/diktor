@@ -1428,7 +1428,7 @@ let exec_decl env ((_, d) as node : T.decl) =
         match i.T.ins_args with
         | [ (_, T.EIdent (LongId comps)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
         | [ (_, T.EApply ((_, T.EIdent (LongId comps)), _)) ] -> Decls.resolve_con (Type.intern (String.concat "." comps))
-        | _ -> bug "インスタンス頭が解決できません"
+        | _ -> bug "インスタンスの対象の型が解決できません"
       in
       (* 各メソッドは、前提の辞書とメソッド自身の辞書の並びを受け取って実装を返す関数にする。
          前提のキーとメソッドのキーに、受け取った辞書を対応づけた環境で、メソッドの束縛を評価する。

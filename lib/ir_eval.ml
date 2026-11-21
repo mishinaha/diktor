@@ -335,7 +335,7 @@ let of_value = function
   | Value.VFloat64 f -> VF64 f
   | Value.VText s -> VStr s
   | Value.VRecord [] -> unit_v
-  | v -> bug ("プリミティブが返した値を写せません: " ^ Value.show v)
+  | v -> bug ("プリミティブが返した値を変換できません: " ^ Value.show v)
 
 let call_prim f args = of_value (f (Value.VRecord (Array.to_list (Array.map (fun a -> (Type.l_item, to_value a)) args))))
 
@@ -513,7 +513,7 @@ let new_slots r = if r.nslots = 0 then [||] else Array.make r.nslots unit_v
 let frame_depth ctx fr = anchor_depth ctx fr.anchor + fr.off
 
 (* 起動の基準点の親を返す。起動の基準点は必ず親を持つ *)
-let anchor_parent x = match x.an_parent with Some a -> a | None -> bug "ハンドラの起動の錨に親がありません"
+let anchor_parent x = match x.an_parent with Some a -> a | None -> bug "ハンドラの起動の基準点に親がありません"
 
 (* ユーザの操作の `perform` が送るエフェクト。
    エフェクトのシンボル、操作の修飾しない名前、診断に書く名前、引数、
@@ -638,7 +638,7 @@ let rec link t p (e : Ir.exp) : cexp =
   | Ir.Lit_error (Ir.Lit_range, text) -> CLit_error text
   | Ir.Local i -> CLocal i
   | Ir.Env i -> CEnv i
-  | Ir.Global g -> CGlobal (find Fun.id t.t_globals "大域" g)
+  | Ir.Global g -> CGlobal (find Fun.id t.t_globals "グローバル" g)
   | Ir.Construct (ty, c, fs) ->
       CConstruct (c, find (fun (ty, c) -> ty ^ " " ^ c) t.t_arity "コンストラクタ" (ty, c), List.map (fun (i, e) -> (i, link e)) fs)
   | Ir.Variant (l, e) -> CVariant (l, link e)
@@ -843,7 +843,7 @@ and eval_dict fr (d : cdict) : dv =
   match d with
   | CDInst (i, ps) -> DInst (i, List.map (eval_dict fr) ps)
   | CDParam i -> fr.dicts.(i)
-  | CDEnv i -> ( match fr.caps.(i) with VDict d -> d | v -> bug ("辞書ではない捕獲: " ^ show v))
+  | CDEnv i -> ( match fr.caps.(i) with VDict d -> d | v -> bug ("辞書ではないキャプチャ: " ^ show v))
   | CDRecord fs -> DRecord (List.map (fun (l, d) -> (l, eval_dict fr d)) fs)
   | CDVariant fs -> DVariant (List.map (fun (l, d) -> (l, eval_dict fr d)) fs)
   | CDBuiltin b -> DBuiltin b
@@ -926,7 +926,7 @@ and call_method ctx a off cls m d own args =
           VBool
             (String.equal l1 l2
             && match assoc_first l1 fs with Some d -> eq_with ctx a off d p1 p2 | None -> bug ("ヴァリアントの辞書にラベルがありません: " ^ l1))
-      | _ -> bug "ヴァリアントではない値を比べました")
+      | _ -> bug "ヴァリアントではない値を比較しました")
 
 and arg2 args = if Array.length args = 2 then (args.(0), args.(1)) else bug "引数が 2 個ではありません"
 
@@ -1258,7 +1258,7 @@ let eval_thunk t ctx f =
   let r = find_fn t f in
   eval ctx { slots = new_slots r; caps = [||]; dicts = [||]; anchor = ctx.c_root; off = 0; res = None } r.body
 
-let define t g v = (find Fun.id t.t_globals "大域" g).g_val <- Some v
+let define t g v = (find Fun.id t.t_globals "グローバル" g).g_val <- Some v
 
 (* 種類が `fn`、`dictabs`、`extern` のグローバルを、評価せずに初期化済みにする *)
 let define_fn t g =
@@ -1268,8 +1268,8 @@ let define_fn t g =
   | Some (Ir.GExtern { abi; impl; _ }) ->
       let abi = match abi with Ir.Prim -> "prim" | Ir.C -> "C" in
       define t g (VExtern { x_display = display_of_symbol g; x_impl = impl; x_fn = Builtin.find_extern ~abi impl })
-  | Some _ -> bug ("def_fns に関数でない大域があります: " ^ g)
-  | None -> bug ("大域がありません: " ^ g)
+  | Some _ -> bug ("def_fns に関数でないグローバルがあります: " ^ g)
+  | None -> bug ("グローバルがありません: " ^ g)
 
 let exec_step t ctx (s : Ir.step) =
   match s with

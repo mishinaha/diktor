@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""文芸化された Diktor のソースの記事ブロックで、長い行を読点の直後で折り返す。
+"""文芸的プログラミングの形式で書いた Diktor のソースの説明のブロックで、長い行を読点の直後で折り返す。
 
   python3 tools/litwrap.py [--width N] [--hard N] [--check] FILE...
 
-記事ブロックは、.ml / .mly では列 0 から始まる (* … *)、.kel では行頭の // 行である。
-記事は一文ごとに改行して書き、このスクリプトで長い文だけを折り返す。
+説明のブロックは、.ml / .mly では列 0 から始まる (* … *)、.kel では行頭の // 行である。
+説明文は一文ごとに改行して書き、このスクリプトで長い文だけを折り返す。
 
 - 表示幅が --width(既定 100 桁、全角 1 字を 2 桁と数える)を超える行は、
   幅に収まる最後の読点の直後で折り返す。
@@ -179,7 +179,7 @@ def process(path, width, hard, check):
 
 
 def main():
-    p = argparse.ArgumentParser(description="記事ブロックの長い行を読点の直後で折り返す")
+    p = argparse.ArgumentParser(description="説明のブロックの長い行を読点の直後で折り返す")
     p.add_argument("files", nargs="+", help="折り返すファイル")
     p.add_argument("--width", type=int, default=100, help="読点で折り返し始める表示幅(既定 100)")
     p.add_argument("--hard", type=int, default=120, help="空白でも折り返す表示幅(既定 120)")

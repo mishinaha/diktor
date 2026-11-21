@@ -30,8 +30,8 @@ dune の cram は、.t のファイルを単位にしか除外できず、規則
 終了状態は、差が無ければ 0、差があれば 1、使い方の誤りなら 2 である。
 
 本スクリプトを手で走らせるときは、diktor/_build/default/test を作業ディレクトリにする。
---tree は DIKTOR_VIA_IR=0 で走らせ、本スクリプトが dune の cram と同じ結果を出すことを確かめる。
---list は、差のあるコマンドを「ファイル名:行番号」と出力で 1 行ずつ印字する(除外の一覧を作るときに使う)。
+--tree は DIKTOR_VIA_IR=0 で実行し、本スクリプトが dune の cram と同じ結果を出すことを確かめる。
+--list は、差分のあるコマンドを「ファイル名:行番号」と実際の出力で 1 行ずつ出力する(除外の一覧を作るときに使う)。
 """
 
 import argparse
@@ -297,16 +297,16 @@ def run_one(name, src_dir, bin_dir, excluded_lines, via_ir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--diktor", required=True, help="diktor の実行形")
+    ap.add_argument("--diktor", required=True, help="diktor の実行ファイル")
     ap.add_argument("--exclude", required=True, help="除外の一覧")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
-    ap.add_argument("--tree", action="store_true", help="DIKTOR_VIA_IR=0 で走らせる(本スクリプト自身の検査)")
-    ap.add_argument("--list", action="store_true", help="差のあるコマンドを「ファイル名:行番号」で 1 行ずつ印字する")
-    ap.add_argument("tests", nargs="*", help="試験のファイル。省くと作業ディレクトリの *.t のすべて")
+    ap.add_argument("--tree", action="store_true", help="DIKTOR_VIA_IR=0 で実行する(本スクリプト自身の検査)")
+    ap.add_argument("--list", action="store_true", help="差分のあるコマンドを「ファイル名:行番号」で 1 行ずつ出力する")
+    ap.add_argument("tests", nargs="*", help="テストのファイル。省くと作業ディレクトリの *.t のすべて")
     args = ap.parse_args()
     bin_dir = os.path.dirname(os.path.abspath(args.diktor))
     if os.path.basename(args.diktor) != "diktor":
-        sys.exit("--diktor には diktor という名前の実行形を渡してください")
+        sys.exit("--diktor には diktor という名前の実行ファイルを渡してください")
     tests = args.tests or sorted(e for e in os.listdir(".") if e.endswith(".t") and not e.startswith(".") and os.path.isfile(e))
     src_dir = os.path.dirname(os.path.abspath(tests[0]))
     names = sorted(os.path.basename(t) for t in tests)

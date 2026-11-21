@@ -54,7 +54,6 @@ open Aux
 (* ## 16.1 オプションとモード
 
    オプションは 14 個、モードは 6 つある。
-   `usage` の文字列は、オプションを「旗」と書いている。
 
    | オプション | 設定先 | 動作 |
    |---|---|---|
@@ -107,14 +106,14 @@ let usage =
    \  --repl               対話的に実行する(FILE は不要)\n\
    \  --no-prelude / --prelude PATH\n\
    \  --strict-exhaustive  網羅性・到達不能警告をエラー化\n\
-   \  --import-path DIR    import の検索パスに DIR を足す(繰り返せる)\n\
-   \  --emit-ir-text FILE  型検査の後、実行せずに KIR の正準のテキストを FILE に書く\n\
+   \  --import-path DIR    import の検索パスに DIR を追加する(繰り返せる)\n\
+   \  --emit-ir-text FILE  型検査の後、実行せずに KIR の正準なテキストを FILE に書く\n\
    \  --emit-ir FILE       型検査の後、実行せずに KIR のバイナリを FILE に書く\n\
    \  --run-ir FILE        KIR のバイナリを読み、検証してから実行する(入力の .kel とは併用できない)\n\
    \  --via-ir             KIR を書き出して読み戻し、検証してから KIR の評価器で実行する\n\
-   \  --max-depth N        KIR の評価器の論理的な深さの限度(既定は 1048576)\n\
+   \  --max-depth N        KIR の評価器の論理的な深さの上限(既定は 1048576)\n\
    \  --dump-ir-tables     KIR の組み込みの表を出力\n\
-   \  環境変数 DIKTOR_VIA_IR=1 は、旗の無い実行を --via-ir にする\n"
+   \  環境変数 DIKTOR_VIA_IR=1 は、オプションのない実行を --via-ir にする\n"
 
 type mode = Run | TypeCheck | DumpTokens | DumpAst | Repl | DumpIrTables
 
@@ -486,7 +485,7 @@ let read_limit_message file = function
 let parse_error_message lx =
   match Lexer'.glued_number lx with
   | Some (n, sp, next) ->
-      Printf.sprintf "%s: 構文エラー: 数値リテラル %s の直後に %s が続いています(数値リテラルの綴りを確認してください)"
+      Printf.sprintf "%s: 構文エラー: 数値リテラル %s の直後に %s が続いています(数値リテラルの表記を確認してください)"
         (show_pos sp) (Lexer.show_number n) next
   | None -> (
       match Lexer'.error_positions lx with
@@ -590,7 +589,7 @@ let normalize_display p =
 let split_import_path loc src =
   if src = "" then import_error loc "import のパスが空です";
   if String.contains src ':' then
-    import_error loc ("import のパスにコロンは書けません(\"kel:\" などの前置は予約されています): " ^ src);
+    import_error loc ("import のパスにコロンは書けません(\"kel:\" などの接頭辞は予約されています): " ^ src);
   if String.contains src '\\' then import_error loc ("import のパスの区切りは / です: " ^ src);
   if src.[0] = '/' then import_error loc ("import のパスに絶対パスは書けません: " ^ src);
   if Filename.check_suffix src ".kel" then import_error loc ("import のパスに拡張子 .kel は書きません: " ^ src);
@@ -605,7 +604,7 @@ let split_import_path loc src =
     | _ -> (None, comps)
   in
   if rest = [] then import_error loc ("import のパスにファイル名がありません: " ^ src);
-  List.iter (fun c -> if c = "" || c = "." || c = ".." then import_error loc ("import のパスの成分が不正です: " ^ src)) rest;
+  List.iter (fun c -> if c = "" || c = "." || c = ".." then import_error loc ("import のパスの要素が不正です: " ^ src)) rest;
   (rel, rest)
 
 let realpath p = with_input (fun () -> try Unix.realpath p with Unix.Unix_error (e, _, _) -> raise (Sys_error (p ^ ": " ^ Unix.error_message e)))
@@ -957,7 +956,7 @@ let type_check_files ?quiet options =
 
    `--emit-ir-text`、`--emit-ir`、`--via-ir` は、型検査を済ませた単位の並びを第18章に渡し、
    KIR のプログラムを作る。
-   単位のキー(診断では「鍵」)は、コマンド行と import 文から決める(IRSpec 2.2 節)。
+   単位のキーは、コマンド行と import 文から決める(IRSpec 2.2 節)。
    キーは基準のディレクトリからの相対パスなので、作業ディレクトリや絶対パスの表記はキーに現れない。
 
    - 基準のディレクトリ `B` は、コマンド行の最初のファイルの `dirname` に、
@@ -987,7 +986,7 @@ let type_check_files ?quiet options =
    シンボリックリンクの下の `..` は、パスの文字列から取り除いた結果と OS が解決した結果とで、
    指すファイルが違うことがあるからである。
    キーが重なると、KIR のシンボルが参照先の宣言を一意に指せない。
-   そのときは KIR を書き出さず、`diktor: KIR の単位の鍵が重なります` で始まる行を標準エラーに出力して、
+   そのときは KIR を書き出さず、`diktor: KIR の単位のキーが重なります` で始まる行を標準エラーに出力して、
    終了コード 64 で終了する。 *)
 let is_search_mark c =
   String.length c > 1 && c.[0] = '@' && String.for_all (fun ch -> ch >= '0' && ch <= '9') (String.sub c 1 (String.length c - 1))
@@ -1031,7 +1030,7 @@ let unit_keys options deps roots =
       | None -> (
           match relative_components (key_components (realpath base_dir)) (key_components (realpath dir)) with
           | Some cs -> cs
-          | None -> bug ("KIR の単位の鍵: 起点のディレクトリの相対パスを決められません: " ^ f))
+          | None -> bug ("KIR の単位のキー: 起点のディレクトリの相対パスを決められません: " ^ f))
     in
     String.concat "/" comps
   in
@@ -1045,7 +1044,7 @@ let unit_keys options deps roots =
     | None, comps ->
         let file = String.concat "/" comps ^ ".kel" in
         let rec find i = function
-          | [] -> bug ("KIR の単位の鍵: 検索パスに見つかりません: " ^ src)
+          | [] -> bug ("KIR の単位のキー: 検索パスに見つかりません: " ^ src)
           | d :: rest ->
               let path = Filename.concat d file in
               if Sys.file_exists path && realpath path = id then "@" ^ string_of_int i ^ "/" ^ src ^ ".kel" else find (i + 1) rest
@@ -1069,7 +1068,7 @@ let unit_keys options deps roots =
     (fun (k, d) ->
       match Hashtbl.find_opt owner k with
       | Some d0 ->
-          (try Printf.eprintf "diktor: KIR の単位の鍵が重なります: %s(%s と %s)\n" k d0 d with Sys_error _ -> ());
+          (try Printf.eprintf "diktor: KIR の単位のキーが重なります: %s(%s と %s)\n" k d0 d with Sys_error _ -> ());
           safe_exit 64
       | None -> Hashtbl.replace owner k d)
     result;

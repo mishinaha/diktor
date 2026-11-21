@@ -57,7 +57,7 @@ let table what key items =
   List.iter
     (fun x ->
       let k = key x in
-      if Hashtbl.mem h k then fail "%sの記号が重なります: %s" what k;
+      if Hashtbl.mem h k then fail "%sのシンボルが重なります: %s" what k;
       Hashtbl.replace h k x)
     items;
   h
@@ -72,10 +72,10 @@ let unique what owner names =
 
 let symbol_form units what sym =
   match String.rindex_opt sym '/' with
-  | None -> fail "%sの記号 %s が 単位の鍵/名前 の形ではありません" what sym
+  | None -> fail "%sのシンボル %s が 単位の鍵/名前 の形式ではありません" what sym
   | Some i ->
-      if i = String.length sym - 1 then fail "%sの記号 %s の名前の部分が空です" what sym;
-      if not (Hashtbl.mem units (String.sub sym 0 i)) then fail "%sの記号 %s の単位の鍵 %s が単位の表にありません" what sym (String.sub sym 0 i)
+      if i = String.length sym - 1 then fail "%sのシンボル %s の名前の部分が空です" what sym;
+      if not (Hashtbl.mem units (String.sub sym 0 i)) then fail "%sのシンボル %s の単位のキー %s が単位の表にありません" what sym (String.sub sym 0 i)
 
 let get what h k = match Hashtbl.find_opt h k with Some x -> x | None -> fail "%sが表にありません: %s" what k
 
@@ -175,8 +175,8 @@ let origins (p : program) env =
   let h = Hashtbl.create 256 in
   let add (f, kind, o) =
     let fn = get "関数" env.fns f in
-    if Hashtbl.mem h f then fail "関数 %s を作る場所が 2 つ以上あります" f;
-    if fn.f_kind <> kind then fail "関数 %s の種類 %s が、作る場所の求める %s と違います" f (kind_label fn.f_kind) (kind_label kind);
+    if Hashtbl.mem h f then fail "関数 %s の生成箇所が 2 つ以上あります" f;
+    if fn.f_kind <> kind then fail "関数 %s の種類 %s が、生成箇所の求める %s と違います" f (kind_label fn.f_kind) (kind_label kind);
     Hashtbl.replace h f o
   in
   List.iter
@@ -198,7 +198,7 @@ let origins (p : program) env =
       sites_of_exp f.f_sym acc f.f_body;
       List.iter add (List.rev !acc))
     p.functions;
-  List.iter (fun f -> if not (Hashtbl.mem h f.f_sym) then fail "関数 %s を作る場所がありません" f.f_sym) p.functions;
+  List.iter (fun f -> if not (Hashtbl.mem h f.f_sym) then fail "関数 %s の生成箇所がありません" f.f_sym) p.functions;
   h
 
 (* ## 21.3 関数のフィールド
@@ -215,7 +215,7 @@ let origins (p : program) env =
 let check_shape env origin f =
   let np = List.length f.f_params in
   let need what ok = if not ok then fail "関数 %s(%s)の%sが規則と合いません" f.f_sym (kind_label f.f_kind) what in
-  (match origin with Root -> need "捕獲の数" (f.f_caps = []) | Site _ -> ());
+  (match origin with Root -> need "キャプチャの数" (f.f_caps = []) | Site _ -> ());
   if f.f_kind <> Dictabs_fn then need "辞書の引数の数" (f.f_dicts = 0);
   if f.f_kind <> Opclause then need "パターンとガード" (f.f_pats = [] && f.f_guard = None);
   match f.f_kind with
@@ -226,7 +226,7 @@ let check_shape env origin f =
       need "パターンの数" (List.length f.f_pats = np);
       match origin with
       | Site { h_op = Some (e, o, _); _ } -> need "引数の数" (np = (op_of env e o).o_arity)
-      | _ -> need "作る場所" false)
+      | _ -> need "生成箇所" false)
 
 (* ## 21.4 本体
 
@@ -266,8 +266,8 @@ let nest env d = if d > env.max_nest then fail "処理系の限度: KIR の検�
 let var_ok st = function
   | VLocal i ->
       if i >= Array.length st.slots then fail "関数 %s: スロット %d が範囲外です" st.fn.f_sym i;
-      if not st.scope.(i) then fail "関数 %s: スロット %d を束縛の有効範囲の外で読みます" st.fn.f_sym i
-  | VEnv i -> if i >= List.length st.fn.f_caps then fail "関数 %s: 捕獲 %d が範囲外です" st.fn.f_sym i
+      if not st.scope.(i) then fail "関数 %s: スロット %d を束縛のスコープの外で読みます" st.fn.f_sym i
+  | VEnv i -> if i >= List.length st.fn.f_caps then fail "関数 %s: キャプチャ %d が範囲外です" st.fn.f_sym i
   | VDParam i -> if i >= st.fn.f_dicts then fail "関数 %s: 辞書の引数 %d が範囲外です" st.fn.f_sym i
 
 let var_rep st = function VLocal i -> st.slots.(i) | VEnv i -> List.nth st.fn.f_caps i | VDParam _ -> RAny
@@ -359,11 +359,11 @@ let rec check_pat env st d p =
 let check_part env st kind p =
   let g = get "関数" env.fns p.p_fn in
   if g.f_kind <> kind then fail "関数 %s: %s の種類が違います" st.fn.f_sym p.p_fn;
-  if List.length p.p_caps <> List.length g.f_caps then fail "関数 %s: %s の捕獲の数が違います" st.fn.f_sym p.p_fn;
+  if List.length p.p_caps <> List.length g.f_caps then fail "関数 %s: %s のキャプチャの数が違います" st.fn.f_sym p.p_fn;
   List.iter2
     (fun v r ->
       var_ok st v;
-      if var_rep st v <> r then fail "関数 %s: %s の捕獲の Rep が違います" st.fn.f_sym p.p_fn)
+      if var_rep st v <> r then fail "関数 %s: %s のキャプチャの Rep が違います" st.fn.f_sym p.p_fn)
     p.p_caps g.f_caps
 
 let mark st what want got = if want <> got then fail "関数 %s: %s の末尾の印が、再計算した結果と違います" st.fn.f_sym what
@@ -377,7 +377,7 @@ let rec check_exp env st d ~tail ~spine e =
   | Lit _ | Lit_error _ | Rec_empty | Hole -> ()
   | Local i -> var_ok st (VLocal i)
   | Env i -> var_ok st (VEnv i)
-  | Global g -> ignore (get "大域" env.globals g)
+  | Global g -> ignore (get "グローバル" env.globals g)
   | Construct (t, c, fs) ->
       let ct = ctor_of env t c in
       (* コンストラクタのフィールドの個数はファイルに書いてある任意の u32 なので、その長さの配列は作らない。
@@ -413,12 +413,12 @@ let rec check_exp env st d ~tail ~spine e =
       let count what want = if n <> want then fail "関数 %s: %s に渡す辞書の数 %d が、受け取る数 %d と違います" st.fn.f_sym what n want in
       (match x with
        | Global g -> (
-           match (get "大域" env.globals g).g_kind with
+           match (get "グローバル" env.globals g).g_kind with
            | GExtern { dicts; _ } ->
-               if dicts = 0 then fail "関数 %s: 辞書を受け取らない extern の大域 %s に辞書を渡します" st.fn.f_sym g;
+               if dicts = 0 then fail "関数 %s: 辞書を受け取らない extern のグローバル %s に辞書を渡します" st.fn.f_sym g;
                count g dicts
            | GDictabs f -> count g (get "関数" env.fns f).f_dicts
-           | GFn _ | GValue _ | GBuiltin -> fail "関数 %s: 辞書を受け取らない大域 %s に辞書を渡します" st.fn.f_sym g)
+           | GFn _ | GValue _ | GBuiltin -> fail "関数 %s: 辞書を受け取らないグローバル %s に辞書を渡します" st.fn.f_sym g)
        | Dictabs (f, _) -> count f (get "関数" env.fns f).f_dicts
        | _ -> ());
       sub x;
@@ -619,17 +619,17 @@ let unit_table (p : program) =
   let h = table "単位" Fun.id keys in
   (match keys with
    | "builtin" :: "prelude" :: rest when rest <> [] && List.nth rest (List.length rest - 1) = "main" -> ()
-   | _ -> fail "単位の列が builtin、prelude で始まり main で終わる形になっていません");
+   | _ -> fail "単位の並びが builtin、prelude で始まり main で終わる形になっていません");
   h
 
 let check_units env (p : program) =
-  (match p.units with u :: _ when u.u_init <> [] -> fail "builtin の単位が初期化の手順を持ちます" | _ -> ());
+  (match p.units with u :: _ when u.u_init <> [] -> fail "builtin の単位が初期化手順を持ちます" | _ -> ());
   let defined = Hashtbl.create 256 in
   let define u g ok what =
-    let gl = get "大域" env.globals g in
-    if not (ok gl.g_kind) then fail "大域 %s の種類が %s の手順と合いません" g what;
-    if unit_of_symbol g <> u.u_key then fail "大域 %s を単位 %s の手順が定義します" g u.u_key;
-    if Hashtbl.mem defined g then fail "大域 %s を 2 回定義します" g;
+    let gl = get "グローバル" env.globals g in
+    if not (ok gl.g_kind) then fail "グローバル %s の種類が %s の初期化手順と合いません" g what;
+    if unit_of_symbol g <> u.u_key then fail "グローバル %s を単位 %s の初期化手順が定義します" g u.u_key;
+    if Hashtbl.mem defined g then fail "グローバル %s を 2 回定義します" g;
     Hashtbl.replace defined g ()
   in
   let thunk f = get "関数" env.fns f in
@@ -640,8 +640,8 @@ let check_units env (p : program) =
         (function
           | Def_value (g, f) ->
               define u g (function GValue _ -> true | _ -> false) "def_value";
-              (match (get "大域" env.globals g).g_kind with
-               | GValue r -> if (thunk f).f_result <> r then fail "大域 %s の Rep が初期化の関数の結果の Rep と違います" g
+              (match (get "グローバル" env.globals g).g_kind with
+               | GValue r -> if (thunk f).f_result <> r then fail "グローバル %s の Rep が初期化関数の結果の Rep と違います" g
                | _ -> ())
           | Def_pattern (_, gs, pat) ->
               List.iter (fun g -> define u g (function GValue _ -> true | _ -> false) "def_pattern") gs;
@@ -649,7 +649,7 @@ let check_units env (p : program) =
               let rec go = function
                 | PWild | PLit _ -> ()
                 | PBind i ->
-                    if i <> !next then fail "def_pattern のパターンの bind %d が大域の列の順と合いません" i;
+                    if i <> !next then fail "def_pattern のパターンの bind %d がグローバルの並びの順と合いません" i;
                     incr next
                 | PRecord (fs, tl) -> (
                     List.iter (fun (_, p) -> go p) fs;
@@ -661,14 +661,14 @@ let check_units env (p : program) =
                 | PVariant (_, p) -> go p
               in
               go pat;
-              if !next <> List.length gs then fail "def_pattern のパターンが大域の列のすべてを束縛しません"
+              if !next <> List.length gs then fail "def_pattern のパターンがグローバルの並びのすべてを束縛しません"
           | Def_fns gs ->
-              if gs = [] then fail "def_fns の大域がありません";
+              if gs = [] then fail "def_fns のグローバルがありません";
               List.iter (fun g -> define u g (function GFn _ | GDictabs _ | GExtern _ -> true | _ -> false) "def_fns") gs
           | Def_dictabs g -> define u g (function GDictabs _ -> true | _ -> false) "def_dictabs"
           | Def_instance i ->
               ignore (get "インスタンス" env.instances i);
-              if unit_of_symbol i <> u.u_key then fail "インスタンス %s を単位 %s の手順が定義します" i u.u_key;
+              if unit_of_symbol i <> u.u_key then fail "インスタンス %s を単位 %s の初期化手順が定義します" i u.u_key;
               if Hashtbl.mem inst_defined i then fail "インスタンス %s を 2 回定義します" i;
               Hashtbl.replace inst_defined i ()
           | Run_exp _ -> ())
@@ -677,10 +677,10 @@ let check_units env (p : program) =
   List.iter
     (fun g ->
       match g.g_kind with
-      | GBuiltin -> if Hashtbl.mem defined g.g_sym then fail "組み込みの大域 %s を手順が定義します" g.g_sym
-      | _ -> if not (Hashtbl.mem defined g.g_sym) then fail "大域 %s を定義する手順がありません" g.g_sym)
+      | GBuiltin -> if Hashtbl.mem defined g.g_sym then fail "組み込みのグローバル %s を初期化手順が定義します" g.g_sym
+      | _ -> if not (Hashtbl.mem defined g.g_sym) then fail "グローバル %s を定義する初期化手順がありません" g.g_sym)
     p.globals;
-  List.iter (fun i -> if not (Hashtbl.mem inst_defined i.i_sym) then fail "インスタンス %s を定義する手順がありません" i.i_sym) p.instances
+  List.iter (fun i -> if not (Hashtbl.mem inst_defined i.i_sym) then fail "インスタンス %s を定義する初期化手順がありません" i.i_sym) p.instances
 
 let check_instances env (p : program) =
   List.iter
@@ -736,7 +736,7 @@ let check_builtins (p : program) =
     prefix ("クラス", "クラス") (fun (w, ms) c -> c.c_sym = "builtin/" ^ w && c.c_methods = List.map (fun m -> (m, 0)) ms) Ir_write.builtin_classes p.classes
   in
   List.iter (fun c -> if is_builtin c.c_sym then fail "組み込みでない位置に組み込みのクラス %s があります" c.c_sym) rest_classes;
-  let rest_globals = prefix ("大域", "値") (fun w g -> g.g_sym = "builtin/" ^ w && g.g_kind = GBuiltin) Ir_write.builtin_values p.globals in
+  let rest_globals = prefix ("グローバル", "値") (fun w g -> g.g_sym = "builtin/" ^ w && g.g_kind = GBuiltin) Ir_write.builtin_values p.globals in
   List.iter
     (fun g -> if is_builtin g.g_sym || g.g_kind = GBuiltin then fail "組み込みでない位置に組み込みの値 %s があります" g.g_sym)
     rest_globals;
@@ -766,7 +766,7 @@ let check_exn ~max_nest (p : program) =
       effects = table "エフェクト" (fun e -> e.e_sym) p.effects;
       classes = table "クラス" (fun c -> c.c_sym) p.classes;
       instances = table "インスタンス" (fun i -> i.i_sym) p.instances;
-      globals = table "大域" (fun g -> g.g_sym) p.globals;
+      globals = table "グローバル" (fun g -> g.g_sym) p.globals;
       fns = table "関数" (fun f -> f.f_sym) p.functions;
       max_nest;
     }
@@ -777,7 +777,7 @@ let check_exn ~max_nest (p : program) =
   form "エフェクト" (List.map (fun e -> e.e_sym) p.effects);
   form "クラス" (List.map (fun c -> c.c_sym) p.classes);
   form "インスタンス" (List.map (fun i -> i.i_sym) p.instances);
-  form "大域" (List.map (fun g -> g.g_sym) p.globals);
+  form "グローバル" (List.map (fun g -> g.g_sym) p.globals);
   form "関数" (List.map (fun f -> f.f_sym) p.functions);
   List.iter (fun t -> unique "型" t.t_sym (List.map (fun c -> c.ct_name) t.t_ctors)) p.types;
   List.iter (fun e -> unique "エフェクト" e.e_sym (List.map (fun o -> o.o_name) e.e_ops)) p.effects;
@@ -794,4 +794,4 @@ let check ?(max_nest = Ir_bin.max_nest) p =
   match check_exn ~max_nest p with
   | () -> Ok ()
   | exception Invalid msg -> Error msg
-  | exception Stack_overflow -> Error "処理系の限度: KIR の検証でスタックが尽きました"
+  | exception Stack_overflow -> Error "処理系の限度: KIR の検証でスタックオーバーフローになりました"

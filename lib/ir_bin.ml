@@ -437,7 +437,7 @@ let rec put_exp e x =
       put_uleb b i
   | Global g ->
       put_u8 b 0x04;
-      put_uleb b (find "大域" e.glob g)
+      put_uleb b (find "グローバル" e.glob g)
   | Construct (t, c, fs) ->
       put_u8 b 0x05;
       put_uleb b (find "型" e.ty t);
@@ -596,19 +596,19 @@ let rec put_exp e x =
 let put_step e = function
   | Def_value (g, f) ->
       put_u8 e.b 0;
-      put_uleb e.b (find "大域" e.glob g);
+      put_uleb e.b (find "グローバル" e.glob g);
       put_uleb e.b (find "関数" e.fn f)
   | Def_pattern (f, gs, p) ->
       put_u8 e.b 1;
       put_uleb e.b (find "関数" e.fn f);
-      put_vec e.b (fun g -> put_uleb e.b (find "大域" e.glob g)) gs;
+      put_vec e.b (fun g -> put_uleb e.b (find "グローバル" e.glob g)) gs;
       put_pat e p
   | Def_fns gs ->
       put_u8 e.b 2;
-      put_vec e.b (fun g -> put_uleb e.b (find "大域" e.glob g)) gs
+      put_vec e.b (fun g -> put_uleb e.b (find "グローバル" e.glob g)) gs
   | Def_dictabs g ->
       put_u8 e.b 3;
-      put_uleb e.b (find "大域" e.glob g)
+      put_uleb e.b (find "グローバル" e.glob g)
   | Def_instance i ->
       put_u8 e.b 4;
       put_uleb e.b (find "インスタンス" e.inst i)
@@ -872,7 +872,7 @@ type rd = { src : string; mutable pos : int; mutable stop : int }
 let fail r msg = raise (Malformed (r.pos, msg))
 
 let get_u8 r =
-  if r.pos >= r.stop then fail r "節の終わりを越えて読もうとしました";
+  if r.pos >= r.stop then fail r "セクションの終わりを越えて読もうとしました";
   let c = Char.code r.src.[r.pos] in
   r.pos <- r.pos + 1;
   c
@@ -918,7 +918,7 @@ let get_f64 r =
 
 let get_bytes r =
   let n = get_uleb r in
-  if n > r.stop - r.pos then fail r "バイト列の長さが節の残りを超えます";
+  if n > r.stop - r.pos then fail r "バイト列の長さがセクションの残りを超えます";
   let s = String.sub r.src r.pos n in
   r.pos <- r.pos + n;
   s
@@ -928,7 +928,7 @@ let get_bytes r =
    先に検査しておくと、壊れた個数に従って大きな配列を作ろうとすることがない。 *)
 let get_count r =
   let n = get_uleb r in
-  if n > r.stop - r.pos then fail r "個数が節の残りのバイト数を超えます";
+  if n > r.stop - r.pos then fail r "個数がセクションの残りのバイト数を超えます";
   n
 
 (* 項目は先頭から順に読む。
@@ -975,7 +975,7 @@ type tables = {
   mutable t_fns : string array;
 }
 
-let idx r what n i = if i >= n then fail r (Printf.sprintf "%sの添字 %d が範囲外です(表の大きさは %d)" what i n) else i
+let idx r what n i = if i >= n then fail r (Printf.sprintf "%sの添字 %d が範囲外です(表のサイズは %d)" what i n) else i
 
 let get_str r t =
   let i = idx r "strings" (Array.length t.strs) (get_uleb r) in
@@ -1003,7 +1003,7 @@ let get_meth r c = fst (get_ref r "メソッド" (Array.of_list c.c_methods))
 
 let get_fn r t = get_ref r "関数" t.t_fns
 
-let get_glob r t = get_ref r "大域" t.t_globals
+let get_glob r t = get_ref r "グローバル" t.t_globals
 
 let get_inst r t = get_ref r "インスタンス" t.t_instances
 
@@ -1030,7 +1030,7 @@ let get_var r =
   | 0 -> VLocal (get_uleb r)
   | 1 -> VEnv (get_uleb r)
   | 2 -> VDParam (get_uleb r)
-  | c -> fail r (Printf.sprintf "捕獲の種類 %d は定義されていません" c)
+  | c -> fail r (Printf.sprintf "キャプチャの種類 %d は定義されていません" c)
 
 let rec get_dict r t lim d =
   nest r lim d;
@@ -1063,7 +1063,7 @@ let rec get_pat r t lim d =
   | 2 -> PLit (get_lit r t)
   | 3 ->
       let tail = get_u8 r in
-      if tail > 2 then fail r (Printf.sprintf "レコードのパターンの尾部の種類 %d は定義されていません" tail);
+      if tail > 2 then fail r (Printf.sprintf "レコードのパターンの末尾の種類 %d は定義されていません" tail);
       let fs =
         get_list r (fun () ->
             let l = get_str r t in
@@ -1251,12 +1251,12 @@ let get_step r t lim =
       Def_pattern (f, gs, get_pat r t lim 1)
   | 2 ->
       let gs = globs () in
-      if gs = [] then fail r "def_fns の大域がありません";
+      if gs = [] then fail r "def_fns のグローバルがありません";
       Def_fns gs
   | 3 -> Def_dictabs (get_glob r t)
   | 4 -> Def_instance (get_inst r t)
   | 5 -> Run_exp (get_fn r t)
-  | c -> fail r (Printf.sprintf "初期化の手順の番号 %d は定義されていません" c)
+  | c -> fail r (Printf.sprintf "初期化手順の番号 %d は定義されていません" c)
 
 (* 表の項目が厳密な昇順に並んでいることを検査する。重複もエラーである *)
 let check_sorted r what arr =
@@ -1284,8 +1284,8 @@ let check_sorted r what arr =
 let decode_exn ~max_nest:lim src =
   let len = String.length src in
   let r = { src; pos = 0; stop = len } in
-  if len < 16 then fail r "見出しの 16 バイトがありません";
-  if String.sub src 0 4 <> magic then fail r "マジックが KIR のものではありません";
+  if len < 16 then fail r "ヘッダの 16 バイトがありません";
+  if String.sub src 0 4 <> magic then fail r "マジックナンバーが KIR のものではありません";
   r.pos <- 4;
   let u16 () =
     let a = get_u8 r in
@@ -1298,33 +1298,33 @@ let decode_exn ~max_nest:lim src =
   let major = u16 () in
   let minor = u16 () in
   if major <> fst Ir.version then
-    fail r (Printf.sprintf "版 %d.%d は読めません(読めるのは主版 %d の版だけです)" major minor (fst Ir.version));
+    fail r (Printf.sprintf "バージョン %d.%d は読めません(読めるのはメジャーバージョン %d のバージョンだけです)" major minor (fst Ir.version));
   let features = u32 () in
-  if features <> 0 then fail r (Printf.sprintf "必要な機能のビット 0x%08x を処理できません" features);
+  if features <> 0 then fail r (Printf.sprintf "必須機能ビット 0x%08x を処理できません" features);
   let nsec = u32 () in
   let secs = Hashtbl.create 16 in
   let seen = ref 0 and last = ref 0 in
   while r.pos < len do
     let id = get_u8 r in
-    if id = 0 || (id > sec_init && id < 0x80) then fail r (Printf.sprintf "節 0x%02x は定義されていません" id);
-    if id <= !last then fail r (Printf.sprintf "節 0x%02x が id の昇順に並んでいません" id);
+    if id = 0 || (id > sec_init && id < 0x80) then fail r (Printf.sprintf "セクション 0x%02x は定義されていません" id);
+    if id <= !last then fail r (Printf.sprintf "セクション 0x%02x が id の昇順に並んでいません" id);
     last := id;
     let size = get_uleb r in
-    if size > len - r.pos then fail r (Printf.sprintf "節 0x%02x の大きさがファイルの残りを超えます" id);
+    if size > len - r.pos then fail r (Printf.sprintf "セクション 0x%02x のサイズがファイルの残りを超えます" id);
     Hashtbl.replace secs id (r.pos, r.pos + size);
     r.pos <- r.pos + size;
     incr seen
   done;
-  if !seen <> nsec then fail r (Printf.sprintf "節の数が見出し(%d)と違います(%d)" nsec !seen);
+  if !seen <> nsec then fail r (Printf.sprintf "セクションの数がヘッダ(%d)と違います(%d)" nsec !seen);
   for id = sec_strings to sec_init do
-    if not (Hashtbl.mem secs id) then fail r (Printf.sprintf "必須の節 0x%02x がありません" id)
+    if not (Hashtbl.mem secs id) then fail r (Printf.sprintf "必須のセクション 0x%02x がありません" id)
   done;
   let enter id =
     let a, b = Hashtbl.find secs id in
     r.pos <- a;
     r.stop <- b
   in
-  let leave id = if r.pos <> r.stop then fail r (Printf.sprintf "節 0x%02x の中身の後ろにバイトが残っています" id) in
+  let leave id = if r.pos <> r.stop then fail r (Printf.sprintf "セクション 0x%02x の内容の後ろにバイトが残っています" id) in
   let in_section id f =
     enter id;
     let v = f () in
@@ -1448,18 +1448,18 @@ let decode_exn ~max_nest:lim src =
               | 2 -> GFn (get_fn r t)
               | 3 -> GDictabs (get_fn r t)
               | 4 -> GValue (get_rep r)
-              | c -> fail r (Printf.sprintf "大域の種類 %d は定義されていません" c)
+              | c -> fail r (Printf.sprintf "グローバルの種類 %d は定義されていません" c)
             in
             { g_sym = s; g_kind = kind }))
   in
-  Array.iteri (fun i u -> if not u then fail r (Printf.sprintf "prims の項目 %d を参照する extern の大域がありません" i)) !(t.prim_used);
+  Array.iteri (fun i u -> if not u then fail r (Printf.sprintf "prims の項目 %d を参照する extern のグローバルがありません" i)) !(t.prim_used);
   t.t_globals <- Array.of_list (List.map (fun g -> g.g_sym) globals);
   enter sec_functions;
   r.pos <- fn_items_pos;
   let functions = Array.to_list (Array.map (fun sym -> get_fn_entry r t lim sym) t.t_fns) in
   leave sec_functions;
   let inits = in_section sec_init (fun () -> get_list r (fun () -> get_list r (fun () -> get_step r t lim))) in
-  if List.length inits <> List.length units then fail r "init の節の単位の数が units の節と違います";
+  if List.length inits <> List.length units then fail r "init のセクションの単位の数が units のセクションと違います";
   Array.iteri (fun i u -> if not u then fail r (Printf.sprintf "strings の項目 %d がどこからも使われていません" i)) t.str_used;
   Array.iteri (fun i u -> if not u then fail r (Printf.sprintf "blobs の項目 %d がどこからも使われていません" i)) t.blob_used;
   let units = List.map2 (fun (k, ps) steps -> { u_key = k; u_paths = ps; u_init = steps }) units inits in
@@ -1473,6 +1473,6 @@ let decode ?(max_nest = max_nest) src =
   match decode_exn ~max_nest src with
   | p -> Ok p
   | exception Malformed (pos, msg) -> Error (Printf.sprintf "位置 %d: %s" pos msg)
-  | exception Stack_overflow -> Error "処理系の限度: KIR の読み込みでスタックが尽きました"
+  | exception Stack_overflow -> Error "処理系の限度: KIR の読み込みでスタックオーバーフローになりました"
   | exception Out_of_memory -> Error "KIR の読み込みでメモリが不足しました"
   | exception (Invalid_argument _ | Not_found) -> Error "KIR の読み込みで表の参照を解決できません"

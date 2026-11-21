@@ -193,7 +193,7 @@ let escape_message v (i : var_info) =
   | None -> base
   | Some n ->
       base ^ "(" ^ name ^ " は型パラメータ " ^ n ^ " です。" ^ n
-      ^ " のスコープの外の型と共有された、型の決まっていない変数(注釈の無い引数の型や、一般化されない束縛の型など)に "
+      ^ " のスコープの外の型と共有された、型の決まっていない変数(注釈のない引数の型や、一般化されない束縛の型など)に "
       ^ n ^ " を入れようとしています)"
 
 let rec occurs_adjust tv lvl t =
@@ -474,7 +474,7 @@ let rec add_class ?via t c =
       | _ ->
           fail ~ty:t (fun s ->
               "行変数を含む型 " ^ s ^ " に " ^ display_of c ^ " の構造的導出は適用できません(行が閉じていません)"))
-  | TApp _ -> fail ~ty:t (fun s -> "制約 " ^ display_of c ^ " を " ^ s ^ " に付けられません(頭が型変数の適用には制約を貼れません)")
+  | TApp _ -> fail ~ty:t (fun s -> "制約 " ^ display_of c ^ " を " ^ s ^ " に付けられません(先頭が型変数の適用には制約を貼れません)")
   | other -> fail ~ty:other (fun s -> s ^ " は " ^ display_of c ^ " のインスタンスではありません")
 
 (* ## 8.5 代入の 4 つの手順
@@ -622,7 +622,7 @@ let rec rewrite_row row label =
              診断と同じ方針である *)
           type_error
             ("行 " ^ show (TVar v) ^ " は注釈で固定された行変数なので、ラベル " ^ display_of label
-           ^ " を足せません(注釈側に " ^ display_of label ^ " を(必要なら引数つきで)書き足してください)")
+           ^ " を追加できません(注釈側に " ^ display_of label ^ " を(必要なら引数つきで)書き足してください)")
       | _ -> type_error ("行型ではありません: " ^ show (TVar v)))
   | t -> type_error ("行型ではありません: " ^ show t)
 
@@ -1400,7 +1400,7 @@ let rec evidence_of ~loc ~params ~(origin : TT.hole) c t =
       | None -> bug ("証拠: インスタンスがありません: " ^ display_of c ^ "[" ^ display_of n ^ "]"))
   | (TRecord row | TVariant row) as t' ->
       let structural = match Decls.find_class c with Some ci -> ci.Decls.ci_derive_structural | None -> false in
-      if not structural then bug ("証拠: 構造的導出の無いクラスの構造的な型です: " ^ display_of c);
+      if not structural then bug ("証拠: 構造的導出のないクラスの構造的な型です: " ^ display_of c);
       let fields = sort_row_fields (fst (row_fields row)) in
       let evs = List.map (fun (l, f) -> (l, evidence_of ~loc ~params ~origin c f)) fields in
       (match t' with TRecord _ -> TT.EvRecord evs | _ -> TT.EvVariant evs)
