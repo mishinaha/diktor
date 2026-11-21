@@ -1,10 +1,10 @@
 (* Copyright (C) 2019 Takezoe,Tomoaki <tomoaki3478@res.ac>
    SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception *)
 
-(* ## 1.18 通し番号と例外の語彙(aux.ml)
+(* ## 1.18 通し番号と例外の定義(aux.ml)
 
    aux.ml は第1章を補うファイルである。
-   実装の多くのファイルが `open` するので、置くものを通し番号と例外の語彙の 2 つに絞っている。
+   実装の多くのファイルが `open` するので、置くものを通し番号と例外の定義の 2 つに絞っている。
 
    ### oid
 

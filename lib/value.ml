@@ -100,7 +100,8 @@ type t =
    メソッドの実装は辞書に入れず、メソッドを呼び出す時点でインスタンス表から引く(第14章 §14.6)。
    DInst の最後の引数は、選んだメソッドのキャッシュである。
    DRecord と DVariant は構造的な Eq の辞書で、ラベルごとに値の型の辞書を持つ。
-   DPending は型の決まっていない制約の辞書で、対話的な実行が結果を表示するときにだけ現れる *)
+   DPending は型の決まっていない制約の辞書で、対話的な実行が結果を表示するときにだけ作られる。
+   通常の実行では、型の決まらない制約を型検査が単位の終わりに曖昧性エラーにするので、作られない *)
 and dict =
   | DInst of oid * oid * t list * (string * t) list ref
   | DRecord of (oid * t) list
@@ -418,7 +419,7 @@ let unit = VRecord []
    指数表記の指数部には、`+` と先頭の `0` を書かない。
    たとえば `1e+16` ではなく `1e16`、`1e-05` ではなく `1e-5` と書く。
    `%g` は C の慣習に従って `e+16` の形で書く。
-   これに対して仕様 §2 は、有効数字を 1 桁ずつ増やして最初に読み戻せた表記を使い、
+   これに対して sample.kel §2 は、有効数字を 1 桁ずつ増やして最初に読み戻せた表記を使い、
    そのとき指数部の `+` と先頭の `0` を書かないと定めている(sample.kel:109-110)。
 
    仕様の「最短」は有効数字の桁数についての規則で、
@@ -453,7 +454,7 @@ let unit = VRecord []
    要素が 1 つのときは、`(x,)` のように末尾にカンマを付ける(sample.kel:182)。
    `(x)` は式でもパターンでもグループ化なので、末尾のカンマがないと、
    実行時エラーに出た値をそのままソースに書いても 1 要素のタプルにならない(sample.kel:186)。
-   仕様 §4 は、`_item` だけからなる閉じた行をタプルの表記に戻して表示する対象を定めている(sample.kel:179-180)。
+   sample.kel §4 は、`_item` だけからなる閉じた行をタプルの表記に戻して表示する対象を定めている(sample.kel:179-180)。
    対象は「型の表示、型エラーのメッセージ、実行時エラーに出る値、
    網羅性警告の反例の 4 つすべて」である。
    最初の 2 つは第9章 §9.3 が、実行時エラーに出る値は本節が、
@@ -478,7 +479,7 @@ let float_repr f =
         if float_of_string s = f then s else go (p + 1)
     in
     let s = go 1 in
-    (* 指数部の + と先頭の 0 を取り除く(仕様 §2、sample.kel:110)。
+    (* 指数部の + と先頭の 0 を取り除く(sample.kel §2、sample.kel:110)。
        1e+16 は 1e16 に、1e-05 は 1e-5 になる。取り除いても同じ値に読み戻せる *)
     let s =
       match String.index_opt s 'e' with
@@ -509,7 +510,7 @@ let rec show ?(fn_name = true) v =
   | VRecord fs ->
       if fs = [] then "()"
       else if List.for_all (fun (l, _) -> l = Type.l_item) fs then
-        (* 1 要素は (x,) と表示する。(x) は式でもパターンでもグループ化なので、タプルとして書けない(仕様 §4) *)
+        (* 1 要素は (x,) と表示する。(x) は式でもパターンでもグループ化なので、タプルとして書けない(sample.kel §4) *)
         "(" ^ String.concat ", " (List.map (fun (_, x) -> show x) fs) ^ (match fs with [ _ ] -> ",)" | _ -> ")")
       else "{" ^ String.concat ", " (List.map (fun (l, x) -> Type.display_of l ^ " = " ^ show x) fs) ^ "}"
   | VVariant (l, VRecord []) -> "#" ^ Type.display_of l

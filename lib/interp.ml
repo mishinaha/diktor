@@ -618,7 +618,9 @@ and eval_binding_value_plain env ((_, b) : T.let_binding) =
   | None -> eval env b.T.lb_body
 
 (* 辞書パラメータを持つ束縛は、辞書を受け取って束縛の値を評価する VDictAbs にする。
-   値束縛の初期化式は、名前を使うたびに評価する(§14.6) *)
+   値束縛の初期化式は、名前を使うたびに評価する(§14.6)。
+   直前と同じ辞書の並びで使ったときは、
+   前の結果を返す(`apply_dicts` の `da_last`。IRSpec 7.5 節が許すメモ化である) *)
 and eval_binding_value env bnode =
   match dict_params_of bnode with
   | [] -> eval_binding_value_plain env bnode
@@ -1469,7 +1471,7 @@ let exec_decl env ((_, d) as node : T.decl) =
       env
   | T.DExtern ex ->
       let impl =
-        (* 宣言の ABI で実装の表を選ぶ。実装を引くキーは、修飾しない名前 ex_prim である。
+        (* 宣言の ABI で実装の表を選ぶ。実装を引くキーは、非修飾名 ex_prim である。
            globals に登録するキーは、宣言ノードの oid と修飾名 ex_name を持つ GDecl である *)
         match Builtin.find_extern ~abi:ex.T.ex_abi ex.T.ex_prim with
         | Some f -> f
@@ -1563,7 +1565,7 @@ let run ~sink decls = run_units ~sink [ decls ]
    どの節にも一致しなかった操作を外側のハンドラへ回す処理(re-perform)を実装していないことは、
    残している制限に数えない。
    仕様はその規則を持たず(sample.kel:515)、
-   第11章の検査(§11.23)が、どの節も選ばれないことのあるハンドラを型検査で拒否するからである。
+   第11章の検査(§11.24)が、どの節も選ばれないことのあるハンドラを型検査で拒否するからである。
    この検査は、各操作に、ガードがなく、引数のパターンが必ず一致する節を 1 つ以上要求する。
    同じハンドラの中では、選ばれなかった節から次の節へ進む。
    外側のハンドラへ回す機構と、それを実装しない理由(型付けができないこと)は、§14.9 に書いた。

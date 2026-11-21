@@ -751,7 +751,7 @@ extern のグローバルは実装名(修飾しない元の名前)を持ち、de
   (init "main" (def_fns "main/__int32_add") (def_fns "main/sin") (def_fns "main/M.__no_such") (def_instance "main/instance:Show[M.N]") (def_value "main/v" "main/v") (def_value "main/w" "main/w"))
 
 import した単位のキーは、import を書いたファイルのキーのディレクトリからの相対パスで、.kel を付けたままにする。
-検索パスで見つけた単位のキーは @i/ で始まる。
+検索パスで見つけた単位のキーは @i/ で始まる(i は --import-path に書いた順の番号で、1 から数える)。
 キーは作業ディレクトリによらず、paths(診断に使うパス)だけが変わる。
 
   $ mkdir -p a/lib vendor/u

@@ -202,7 +202,7 @@ let show_bin_op = function
    操作がないことが伝わらなくなる。
 
    `Blocking` は `toplevel_effects` には入っているので、`@ Blocking` の付いた関数は、
-   `pinned` を使わずにトップレベルから呼べる(仕様 §12、sample.kel:809)。
+   `pinned` を使わずにトップレベルから呼べる(sample.kel §12、sample.kel:809)。
    `Heap` はどちらの一覧にもない。
    その理由は仕様に書いてある(sample.kel:660-661)。
    `Heap[h]` はリージョン変数を引数に取るラベルで、トップレベルには渡せる `h` がない。

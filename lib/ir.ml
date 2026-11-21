@@ -195,7 +195,7 @@ and part = { p_fn : string; p_caps : var list }
    スロットの番号は引数が先で、`f_params` の後に `f_locals` が続く。
 
    操作節の関数だけが `f_pats` と `f_guard` を持つ。
-   `f_pats` は引数ごとのパターンで、i 番目のパターンを `Local i` と照合する。
+   `f_pats` は引数ごとのパターンで、0 始まりで i 番目のパターンを `Local i` と照合する。
    一致しなければ、その節を飛ばして次の節を試す。
    それ以外の種類の関数では、引数のパターンは本体の `Letpat` に書く。 *)
 type fn_kind = Lambda | Opclause | Retclause | Cancelclause | Handlebody | Thunk | Dictabs_fn
@@ -272,7 +272,7 @@ type global = { g_sym : string; g_kind : global_kind }
    単位は、キー、元のファイルを示す表示用のパスの並び、初期化手順の並びを持つ。
    `Def_pattern (f, gs, p)` は、`thunk` の関数 `f` の値をパターン `p` と照合し、
    グローバルの並び `gs` に格納する。
-   `p` の `PBind k` は、スロットではなく、`gs` の k 番目を指す。 *)
+   `p` の `PBind k` は、スロットではなく、`gs` の 0 始まりで k 番目の要素を指す。 *)
 type step =
   | Def_value of string * string
   | Def_pattern of string * string list * pat

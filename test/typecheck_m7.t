@@ -182,7 +182,7 @@ test/dictionary_passing.t の pure と pureamb にある):
   [1]
 
 module の中の let は、同じ module の let と自分自身を、修飾せずに参照できる
-(module の中では、修飾しない名前が値の別名として登録されている):
+(module の中では、非修飾名が値の別名として登録されている):
 
   $ cat > modref.kel <<'KEL'
   > module M {
@@ -214,7 +214,7 @@ module の中の名前がトップレベルの名前と同じなら、宣言の�
   ! modshadow.kel:3:3: 型エラー: module M の helper はトップレベルの helper と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
 
-2 つの module が同じ名前を公開すると、修飾しない名前は曖昧なのでエラーになる。修飾すれば使える:
+2 つの module が同じ名前を公開すると、非修飾名は曖昧なのでエラーになる。修飾すれば使える:
 
   $ cat > modclash.kel <<'KEL'
   > module A { pub newtype T = TA(Int32) }
@@ -250,7 +250,7 @@ module の中の名前がトップレベルの名前と同じなら、宣言の�
   ! v2alias.kel:1:1: 型エラー: 組み込み型 Float64 は型エイリアスで再宣言できません
   [1]
 
-module の値の修飾しない名前が曖昧なときは、修飾名を示す。
+module の値の非修飾名が曖昧なときは、修飾名を示す。
 型の診断「A.T か B.T と修飾してください」と同じ形式である:
 
   $ cat > vamb.kel <<'EOF2'

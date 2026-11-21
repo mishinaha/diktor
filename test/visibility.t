@@ -37,7 +37,7 @@ pub でない型を module の外から修飾名で参照すると拒否する:
   ! vis3.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
   [1]
 
-module の中の型は、外からは修飾しない名前では見えない。pub でない名前は修飾の候補としても
+module の中の型は、外からは非修飾名では見えない。pub でない名前は修飾の候補としても
 案内しない(案内に従っても可視性のエラーになるだけだからである):
 
   $ cat > vis4.kel <<'KEL'
@@ -105,7 +105,7 @@ pub でない newtype のコンストラクタは module の外から使えな�
   Big.mk : (Int32) => Big.Big @ {}
   v : () => Big.Big
 
-module の中では、pub でない名前を修飾名でも修飾しない名前でも参照できる(実行結果も一致する):
+module の中では、pub でない名前を修飾名でも非修飾名でも参照できる(実行結果も一致する):
 
   $ cat > vis7.kel <<'KEL'
   > module M {
@@ -247,7 +247,7 @@ M.W[Console] と修飾した形で、型検査に通る:
   $ diktor --type-check visrow4e.kel
   g : (Int32) => Int32 @ {Print, Console}
 
-型の位置では、module の中の修飾しない名前は、同名のトップレベルの宣言ではなく module の宣言を指す。
+型の位置では、module の中の非修飾名は、同名のトップレベルの宣言ではなく module の宣言を指す。
 エフェクト位置の EffectRow エイリアスも、型の位置の T と同じく module の W を指す。
 module の外では、W も T もトップレベルの宣言を指す:
 

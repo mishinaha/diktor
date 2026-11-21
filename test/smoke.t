@@ -27,7 +27,7 @@
   $ diktor t.kel; echo "exit: $?"
   exit: 0
 
-未実装の機能は終了コード 4 で終了する(第 16 章 §16.8)。
+未実装の機能は終了コード 4 で終了する(第16章 §16.8)。
 cr.kel の case cancel(e) は、LangSpec 付録 A.5 の clause ::= "case" pat の形として、構文上は読める。
 LangSpec の cancel 節は case cancel の形だけなので、Diktor は case cancel(e) の形を未実装として報告する:
 

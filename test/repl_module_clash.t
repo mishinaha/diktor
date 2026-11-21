@@ -1,5 +1,5 @@
 対話的な実行で、トップレベルの値と同名の値を持つ module が前の入力に複数あるときの診断(LangSpec §6.6)。
-診断は、宣言の順序や表をたどる順序によらず、名前の最も小さい module を挙げる。
+診断は、宣言の順序や表をたどる順序によらず、名前が辞書順(バイト列の比較)で最も小さい module を挙げる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 

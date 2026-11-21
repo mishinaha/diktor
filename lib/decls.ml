@@ -222,7 +222,7 @@ let c_known_signature name = List.assoc_opt name c_known_signatures
    Diktor は、カインド検査だけを行う走査のパスを持たない。
    カインドは、この表と、精緻化のときに行う型引数の照合で決まる(§8.1)。
 
-   `con_kind` は、表にない構成子のカインドを `k_arrow nargs` とみなす。
+   `con_kind` は、表にない型構成子のカインドを `k_arrow nargs` とみなす。
    これは、適用した引数の個数だけ `*` を取るカインドである。
    前方参照のときや、パス 1 の途中で表を引いたときに、
    カインドの不一致という誤ったエラーを出さないための、保守的な既定である。
@@ -236,7 +236,7 @@ let c_known_signature name = List.assoc_opt name c_known_signatures
 
 let con_kinds : (oid, Type.kind) Hashtbl.t = Hashtbl.create 64
 
-(* 表にない構成子は、適用した引数の個数だけ引数を取る構成子とみなす *)
+(* 表にない型構成子は、適用した引数の個数だけ引数を取る型構成子とみなす *)
 let con_kind c nargs = match Hashtbl.find_opt con_kinds c with Some k -> k | None -> Type.k_arrow nargs
 
 (* 組み込みスカラー型の名前の表。Boolean / Int32 などは con_kinds にはあるが datas にはない。
@@ -543,8 +543,9 @@ let check_ctor_visible ctor owner =
    引数を読むのはエイリアスを使う箇所で、そこでは行として読むか型として読むかを、
    パラメータのカインドで決めるしかない。
    本体を見てから引数を読み直すことはできないからである。
-   カインドは、第11章がパス 1b の前と後に、本体を試しに精緻化して推論する(§11.39)。
-   推論で決まらなかったパラメータのカインドは、パス 1b の後の処理が `Type` に決める。
+   カインドは、第11章が、パス 1a に続けて行う処理(1a′)と 1b の後処理で、
+   本体を試しに精緻化して推論する(§11.39)。
+   推論で決まらなかったパラメータのカインドは、1b の後処理が `Type` に決める。
    エイリアスの `al_kinds` は、newtype の `dd_params` が持つ `vkind` に相当する。
 
    エイリアスには 2 つの制限がある。
@@ -555,7 +556,7 @@ let check_ctor_visible ctor owner =
 type alias_info = {
   al_name : oid;
   al_params : type_param list;
-  al_kinds : Type.kind list; (* パラメータのカインド。パス 1a で作り、パス 1b の前と後に本体から推論する *)
+  al_kinds : Type.kind list; (* パラメータのカインド。パス 1a で作り、1a′ と 1b の後処理で本体から推論する *)
   al_kind : string option; (* : Type / : EffectRow *)
   al_body : T.type_exp;
   (* 本体は宣言のスコープで展開する。module 内のエイリアスが module の内部の型を
@@ -610,7 +611,7 @@ let add_alias info =
    `Some []` を完全とみなす。
    そのため、`Never` に対する節が 0 個の `match` は網羅的と判定される。
    先頭列にコンストラクタが現れることを完全性の条件に含めると、
-   この `match` を誤って非網羅的と判定してしまう。
+   この `match` を誤って網羅漏れ(診断では `非網羅的`)と判定してしまう。
 
    ### 予約型名
 
@@ -935,7 +936,7 @@ let find_instance ~cls ~con = Hashtbl.find_opt instances (cls, con)
    要点は 2 つある。
    1 つ目は、最も外側の矢印の行を閉じた空の行にすることである。
    仕様は、メソッドの最も外側の矢印で省略した `@` を `@ {}` と読み、
-   どのインスタンスの実装も純粋でなければならないと定めている(仕様 §9、sample.kel:437-438)。
+   どのインスタンスの実装も純粋でなければならないと定めている(sample.kel §9、sample.kel:437-438)。
    ユーザが宣言したクラスのメソッド(第11章 §11.33)と同じく、
    組み込みのメソッドもこの規則どおりの行を持つ。
    名前で参照するときと呼び出すときは、使用時に行を開く規則(第11章 §11.26)が行の末尾を開く。
@@ -985,7 +986,7 @@ let intern = Type.intern
 
    ### 不変の `Array[A]` と可変の `MutableArray[h, A]`
 
-   仕様 §10 は配列を 2 つに分ける。
+   sample.kel §10 は配列を 2 つに分ける。
    不変の `Array[A]` はリージョンを型に持たず、読む操作しか持たない。
    可変の `MutableArray[h, A]` は、`Ref[h, A]` と同じくリージョン変数 `h` を値の型に持ち、
    生成も読み出しも書き込みも `Heap[h]` を要求する。
@@ -1071,7 +1072,7 @@ let register_ref_array () =
    def "Ref.get" (arrow [ Type.TCon (ref_oid, [ h; a ]) ] a (heap_row h)));
   (let h = generic () and a = generic () in
    def "Ref.set" (arrow [ Type.TCon (ref_oid, [ h; a ]); a ] Type.t_unit (heap_row h)));
-  (* Array は不変(仕様 §10)。読み出しの行は閉じた空の行で、使うときに開く *)
+  (* Array は不変(sample.kel §10)。読み出しの行は閉じた空の行で、使うときに開く *)
   (let a = generic () in
    def "Array.length" (arrow [ Type.TCon (arr_oid, [ a ]) ] Type.t_int32 Type.TRowEmpty));
   (let a = generic () in
@@ -1079,7 +1080,7 @@ let register_ref_array () =
   (let a = generic () and e = generic ~kind:Type.KRow () in
    def "Array.each" (arrow [ Type.TCon (arr_oid, [ a ]); arrow [ a ] Type.t_unit e ] Type.t_unit e));
   (* MutableArray は h を型に持つ。すべての操作が Heap[h] を要求する。length が
-     要求するのも、仕様 §10 のシグネチャの一覧のとおりである *)
+     要求するのも、sample.kel §10 のシグネチャの一覧のとおりである *)
   (let h = generic () and a = generic () in
    def "MutableArray.new" (arrow [ Type.t_int32; a ] (Type.TCon (marr_oid, [ h; a ])) (heap_row h)));
   (let h = generic () and a = generic () in
@@ -1106,7 +1107,7 @@ let register_pinned () =
   (* pinned : [A, E] (() => A @ {Blocking extends E}) => A @ E。
      Blocking は操作を持たない組み込みのラベル(§6.11)なので、Blocking を行から
      取り除くのは型の上だけの操作である。run が実行時には本体を評価するだけなのと
-     同じである(§14.4)。@ Blocking の関数はトップレベルから直接呼べる(仕様 §9 / §12)。
+     同じである(§14.4)。@ Blocking の関数はトップレベルから直接呼べる(sample.kel §9、sample.kel §12)。
      pinned が必要なのは、注釈で行を閉じた内側の文脈で @ Blocking の関数を呼ぶときである *)
   (let a = generic () and e = generic ~kind:Type.KRow () in
    def "pinned" (arrow [ arrow [] a (Type.TRowExtend (Type.eff_blocking, Type.t_unit, e)) ] a e))
@@ -1334,6 +1335,9 @@ let () = register_builtins ()
    戻すときは、表を空にしてからコピーを書き戻す。
    `Hashtbl.fold` は同じキーの束縛を新しい順に渡すので、リストの先頭に追加していき、
    できたリストの順に `add` すれば、隠れた束縛の順序も元に戻る。
+   クラスの順位の表 `class_ranks` と `class_count` はコピーしない。
+   順位は宣言のたびに書き直し、順序の比較にだけ使うので、
+   受理しなかった入力の順位が残っても結果は変わらない。
 
    コピーは浅いコピーで足りる。
    表の値は不変で、値の中で書き換わるのは型変数とカインド変数のセルだけだからである。
