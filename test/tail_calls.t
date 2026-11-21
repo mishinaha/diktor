@@ -1,9 +1,9 @@
-真正末尾呼び出し(仕様 §5.7)。OCAMLRUNPARAM=l=100k でスタックの上限を
-102400 語に絞り、末尾位置の呼び出しと末尾の resume を 10 万回続けても
-Stack_overflow にならないことを確かめる。
+末尾呼び出し(LangSpec §5.7)。OCAMLRUNPARAM=l=100k で OCaml のスタックの上限を
+102400 ワードに絞り、末尾呼び出しと末尾 resume を 10 万回続けても
+スタックオーバーフローにならないことを確かめる。
 
-対照：末尾でない再帰は、同じ上限と同じ回数でスタックを使い尽くす。
-この上限が効いていることを、このブロックで確かめる:
+対照として、非末尾の再帰は、同じ上限と同じ回数でスタックを使い切る。
+この上限が有効であることを、このブロックで確かめる:
 
   $ cat > nontail.kel <<'KEL'
   > let rec sum(n: Int32): Int32 = (n == 0) match { case true => 0 case false => n + sum(n - 1) }
@@ -13,7 +13,7 @@ Stack_overflow にならないことを確かめる。
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
 
-match の腕からの自己再帰:
+match の節からの自己再帰:
 
   $ cat > self.kel <<'KEL'
   > let rec loop(n: Int32, acc: Int32): Int32 =
@@ -33,7 +33,7 @@ match の腕からの自己再帰:
   $ OCAMLRUNPARAM=l=100k diktor mutual.kel
   true
 
-ブロックの let の後の、ガード付きの腕:
+ブロックの let の後にある、ガード付きの節:
 
   $ cat > block.kel <<'KEL'
   > let rec loop(n: Int32): Unit = {
@@ -97,8 +97,8 @@ with が作る呼び出しと、無名関数の本体:
   $ OCAMLRUNPARAM=l=100k diktor retc.kel
   ok
 
-操作節の末尾の resume。節が resume だけの形、文の後の resume、
-match の腕の resume、run の本体の resume、&& の右辺の resume:
+操作節の末尾 resume。節が resume だけの形、文の後の resume、
+match の節の resume、run の本体の resume、&& の右辺の resume:
 
   $ cat > resume.kel <<'KEL'
   > effect Tick = { tick: () => Unit }
@@ -138,7 +138,7 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   $ OCAMLRUNPARAM=l=100k diktor stdout.kel
   ok
 
-末尾でない resume は保証の対象外で、この実装では resume のたびにスタックを使う:
+末尾位置にない resume は保証の対象外で、この実装では resume のたびにスタックを使う:
 
   $ cat > nontail_resume.kel <<'KEL'
   > effect Tick = { tick: () => Unit }
@@ -164,10 +164,10 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   100000
   true
 
-再開しない操作(返り値の型が Never。仕様 §13.1)の節の本体。処理系は継続を捨ててから
+再開しない操作(返り値の型が Never。LangSpec §13.1)の節の本体。処理系は継続を捨ててから
 本体をハンドラ式の末尾位置で評価する(§5.7、§13.6)ので、節から再帰で書いた再試行は、
-回数によって領域が増えない。同じ形を再開する操作で書くと、節の本体は末尾位置に無いので
-(§5.7)、この実装では小さい上限で落ちる(回数が少なければ通るので、落ちる原因は深さである):
+回数が増えてもメモリが増えない。同じ形を再開する操作で書くと、節の本体は末尾位置にないので
+(§5.7)、この実装では小さい上限でスタックオーバーフローになる(回数が少なければ通るので、原因は深さである):
 
   $ cat > retry.kel <<'KEL'
   > effect Fail = { throw: (String) => Never }
@@ -193,11 +193,11 @@ match の腕の resume、run の本体の resume、&& の右辺の resume:
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
 
-cancel 節から起こした再開しない操作による破棄が打ち切られた後に、ハンドラの本体の中で
-評価される節の本体も、末尾位置にある(§5.7、§13.6)。打ち切られるのが外側のハンドラ
-(retrycancel)でも、再開する操作の節から送出を受けるハンドラ(retrycancelvia)でも、
-破棄を進めている当のハンドラ(retrycancelsame)でも、再試行の回数によって領域が増えない。
-打ち切りのたびに同じ診断が 1 行記録される:
+cancel 節から起こした再開しない操作による破棄が抑制された後に、ハンドラの本体の中で
+評価される節の本体も、末尾位置にある(§5.7、§13.6)。外側のハンドラ宛ての、抑制される破棄を cancel 節が直接起こす形
+(retrycancel)でも、cancel 節が起こした再開する操作の節が起こす形(retrycancelvia)でも、
+破棄の宛先が、破棄を進めているそのハンドラ自身である形(retrycancelsame)でも、再試行の回数が増えてもメモリが増えない。
+抑制のたびに、同じ診断が 1 行記録される:
 
   $ cat > retrycancel.kel <<'KEL'
   > effect Fail = { throw: (String) => Never }
@@ -262,8 +262,8 @@ cancel 節から起こした再開しない操作による破棄が打ち切ら�
   $ sort err.txt | uniq -c | sed 's/^ *//'
   100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
 
-打ち切られた外側のハンドラの return 節も末尾位置にあり(§5.7)、return 節から再帰しても
-回数によって領域が増えない:
+破棄が抑制された外側のハンドラの return 節も末尾位置にあり(§5.7)、return 節から再帰しても、
+回数が増えてもメモリが増えない:
 
   $ cat > retcancelret.kel <<'KEL'
   > effect Fail = { throw: (String) => Never }
@@ -287,9 +287,9 @@ cancel 節から起こした再開しない操作による破棄が打ち切ら�
   $ sort err.txt | uniq -c | sed 's/^ *//'
   100000 cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
 
-再開しない操作の節の値が、同じハンドラの末尾でない resume の戻り値として届く形(§5.7 の
+再開しない操作の節の値が、同じハンドラの末尾位置にない resume の返り値になる形(§5.7 の
 但し書き)。節の値を受け取った resume(1) の後ろの計算が残るので、節の本体は末尾位置に
-ならず、この実装では小さい上限で落ちる:
+ならず、この実装では小さい上限でスタックオーバーフローになる:
 
   $ cat > retryresumepath.kel <<'KEL'
   > effect E = { throw: (String) => Never, ask: () => Int32 }

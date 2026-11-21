@@ -1,6 +1,6 @@
---emit-ir-text FILE は、型検査を通したプログラムを、実行せずに KIR の正準のテキスト(IRSpec 12 節)で FILE に書く。
-型検査の誤りは今までどおり 1 で終わり、FILE を作らない。
-旗の引数を省くと使い方の誤り(64)で、FILE に書けなければ出力の誤り(74)である。
+--emit-ir-text FILE は、型検査に通ったプログラムを、実行せずに KIR の正準なテキスト(IRSpec 12 節)として FILE に書き出す。
+型エラーのときは、このオプションがないときと同じく終了コード 1 で終了し、FILE を作らない。
+オプションの引数を省くと使い方のエラー(終了コード 64)になり、FILE に書けなければ出力エラー(終了コード 74)になる。
 
   $ printf 'let x: Int32 = true\n' > bad.kel
   $ diktor --emit-ir-text bad.kirt bad.kel; echo "exit: $?"; test -e bad.kirt || echo "no file"
@@ -15,7 +15,7 @@
   diktor: KIR のテキストを書き出せません: nodir/x.kirt: No such file or directory
   exit: 74
 
---emit-ir-text は実行のモードの旗なので、ほかのモードの旗と併せると使い方の誤り(64)で、FILE を作らない。
+--emit-ir-text は実行モードを選ぶオプションなので、ほかのモードのオプションと併用すると使い方のエラー(終了コード 64)になり、FILE を作らない。
 
   $ diktor --type-check --emit-ir-text tc.kirt ok.kel 2>&1 | head -1; diktor --type-check --emit-ir-text tc.kirt ok.kel > /dev/null 2>&1; echo "exit: $?"; test -e tc.kirt || echo "no file"
   diktor: --emit-ir-text cannot be combined with --type-check, --dump-tokens, --dump-ast or --repl
@@ -25,9 +25,9 @@
   exit: 64
   no file
 
-最小のプログラムのファイルの全体。
-見出し、単位、組み込みの型とクラスと値の表、関数、初期化の順に並ぶ。
-`--no-prelude` でも、手順の無い prelude の単位を書く。
+最小のプログラムを書き出したファイルの全体。
+ヘッダ、単位、組み込みの型とクラスと値の表、関数、初期化の順に並ぶ。
+`--no-prelude` を付けても、初期化手順のない prelude の単位を書き出す。
 
   $ printf 'let x = 1\n' > one.kel
   $ diktor --no-prelude --emit-ir-text one.kirt one.kel && cat one.kirt
@@ -71,11 +71,11 @@
   (init "prelude")
   (init "main" (def_value "main/x" "main/x"))
 
-以降のブロックは、組み込みの単位と表、空の prelude の単位を除いて示す。
+以降のブロックでは、組み込みの単位と表、空の prelude の単位を取り除いて示す。
 
   $ emit() { diktor --no-prelude --emit-ir-text "$1.kirt" "$1.kel" && grep -v '^(kir \|^(unit "builtin"\|^(unit "prelude"\|^(type "builtin/\|^(class "builtin/\|^(global "builtin/\|^(init "builtin")\|^(init "prelude")' "$1.kirt"; }
 
-リテラル。`f64` はビット列で、文字列は 0x20 から 0x7E の外のバイトを `\xHH` で書く。
+リテラル。`f64` はビット列で書き、文字列は 0x20 から 0x7E の範囲外のバイトを `\xHH` で書く。
 範囲外の数値リテラルは lit_error になり、評価したときに初めて実行時エラーになる。
 
   $ cat > lit.kel <<'EOF'
@@ -99,8 +99,8 @@
   (fn "main/k" thunk yield (params) (locals) (dicts 0) (caps) (result i32) (lit_error lit_range "4294967295"))
   (init "main" (def_value "main/a" "main/a") (def_value "main/b" "main/b") (def_value "main/c" "main/c") (def_value "main/d" "main/d") (def_value "main/k" "main/k"))
 
-クロージャと捕獲。捕獲の列は、外側の関数での読み方(dparam、env、local の順に番号の昇順)で並ぶ。
-持ち上げた関数は、根の関数の記号に $ と場所の番号を付けて名指す。
+クロージャとキャプチャ。キャプチャは、外側の関数での参照(dparam、env、local)として書き、この種類の順に、それぞれ番号の昇順で並べる。
+持ち上げた関数の名前は、ルート関数のシンボルに $ と生成箇所の番号を付けたものである。
 
   $ cat > clo.kel <<'EOF'
   > let adder(a: Int32, b: Int32): (Int32) => (Int32) => Int32 =
@@ -138,9 +138,9 @@
       (env 1)))
   (init "main" (def_fns "main/adder"))
 
-束縛。仮引数のパターンは本体を letpat で包み、値の let のパターンも letpat になる。
-let rec は letrec になり、群の名前のスロットを先に振る。
-スロットは引数の後に、束縛する箇所がテキストに現れる順に振る。
+束縛。仮引数のパターンは本体を letpat で囲む形になり、値を束縛する let のパターンも letpat になる。
+let rec は letrec になり、再帰群の名前のスロットを先に割り当てる。
+スロットは、引数の後に、束縛する箇所がテキストに現れる順で割り当てる。
 
   $ cat > bind.kel <<'EOF'
   > let f((a, b): (Int32, Int32), _: String, c: Int32): Int32 = {
@@ -210,7 +210,7 @@ let rec は letrec になり、群の名前のスロットを先に振る。
           (opcall "builtin/Sub" sub (dbuiltin "builtin/Sub" "builtin/Int32") (local 0) (lit i32 1))))))
   (init "main" (def_fns "main/f"))
 
-レコード。拡張は値を先に、更新は基底を先に書く(評価の順)。
+レコード。拡張は値を先に、更新は更新元のレコードを先に書く(評価の順)。
 タプルのパターンは closed、既定のレコードのパターンは open、...rest は rest である。
 
   $ cat > rec.kel <<'EOF'
@@ -294,7 +294,7 @@ let rec は letrec になり、群の名前のスロットを先に振る。
         (opcall "builtin/Add" add (dbuiltin "builtin/Add" "builtin/Int32") (local 1) (local 2)))))
   (init "main" (def_value "main/r" "main/r") (def_value "main/s" "main/s") (def_value "main/t" "main/t") (def_value "main/u" "main/u") (def_fns "main/get") (def_fns "main/tup"))
 
-辞書。前提を持つインスタンス、メソッド自身の辞書(both の B: Show)、辞書を受け取る関数の定義と値束縛、
+辞書。前提付きインスタンス、メソッド自身の辞書(both の B: Show)、辞書を受け取る関数の定義と値束縛、
 構造的な Eq の辞書、!= の not、前置の - を含む。
 
   $ cat > dict.kel <<'EOF'
@@ -459,7 +459,7 @@ let rec は letrec になり、群の名前のスロットを先に振る。
     (opcall "builtin/Neg" neg (dbuiltin "builtin/Neg" "builtin/Float64") (lit f64 0x4004000000000000)))
   (init "main" (def_instance "main/instance:Pretty[Box]") (def_fns "main/twice") (def_dictabs "main/dbl") (def_value "main/nine" "main/nine") (def_value "main/s" "main/s") (def_value "main/ne" "main/ne") (def_value "main/m" "main/m"))
 
-ハンドラ。返り値の型が Never の操作の節は N、背骨の外に resume の無い節は T、ほかは G である。
+ハンドラ。返り値の型が Never の操作の節は N、背骨の外に resume のない節は T、それ以外は G である。
 同じ操作の 2 つ目の節には #1 が付く。
 
   $ cat > hdl.kel <<'EOF'
@@ -562,7 +562,7 @@ let rec は letrec になり、群の名前のスロットを先に振る。
       (perform "main/St" quit (lit i32 7))))
   (init "main" (def_fns "main/st") (def_fns "main/prog"))
 
-内側のハンドラ式の本体に書いた resume は、囲む操作節の継続を指し、末尾にならない。
+内側のハンドラ式の本体に書いた resume は、それを囲む操作節の継続を指し、末尾 resume にならない。
 その節は G になる。
 
   $ cat > inner.kel <<'EOF'
@@ -619,9 +619,9 @@ let rec は letrec になり、群の名前のスロットを先に振る。
     (resume tail (rec_empty)))
   (init "main" (def_fns "main/f"))
 
-トップレベルの手順。同じ名前の再束縛は #1 を付けた別の大域になる。
-名前が変数でない値束縛は def_pattern、式文は run_exp で、関数の記号は $init と手順の番号である。
-辞書を受け取る式文(show)は手順を作らず、番号も使わない。
+トップレベルの初期化手順。同じ名前の再束縛は、#1 を付けた別のグローバルになる。
+名前が変数でない値束縛は def_pattern、式文は run_exp になり、関数のシンボルは $init に初期化手順の番号を付けたものである。
+辞書を受け取る式文(show)は初期化手順を作らず、番号も使わない。
 
   $ cat > top.kel <<'EOF'
   > newtype P = P(x: Int32, y: Int32)
@@ -692,7 +692,7 @@ let rec は letrec になり、群の名前のスロットを先に振る。
     (def_pattern "main/$init5" (globals) (wild)))
 
 extern、module の平坦化、module の中のインスタンス。
-extern の大域は実装名(修飾しない元の名前)を持ち、def_fns で初期化する。
+extern のグローバルは実装名(修飾しない元の名前)を持ち、def_fns で初期化する。
 
   $ cat > ext.kel <<'EOF'
   > extern "prim" let __int32_add(a: Int32, b: Int32): Int32
@@ -750,9 +750,9 @@ extern の大域は実装名(修飾しない元の名前)を持ち、def_fns で
         (field 0 (lit i32 1)))))
   (init "main" (def_fns "main/__int32_add") (def_fns "main/sin") (def_fns "main/M.__no_such") (def_instance "main/instance:Show[M.N]") (def_value "main/v" "main/v") (def_value "main/w" "main/w"))
 
-import した単位の鍵は、import を書いたファイルの鍵のディレクトリからの相対パスで、.kel を残す。
-検索パスで見つけた単位は @i/ で始まる。
-鍵は作業ディレクトリによらず、paths(診断のための綴り)だけが変わる。
+import した単位のキーは、import を書いたファイルのキーのディレクトリからの相対パスで、.kel を付けたままにする。
+検索パスで見つけた単位のキーは @i/ で始まる。
+キーは作業ディレクトリによらず、paths(診断に使うパス)だけが変わる。
 
   $ mkdir -p a/lib vendor/u
   $ printf 'from "./lib/x" import x_v\nfrom "u/util" import util_v\nlet main_v = x_v + util_v\n' > a/m.kel
@@ -791,9 +791,9 @@ import した単位の鍵は、import を書いたファイルの鍵のディレ
   [1]
 
 起点のファイルが基準のディレクトリ(最初のファイルのディレクトリ)の外にあれば、
-その起点のディレクトリは基準からの相対パス(.. を含む)になる。
-同じ名前の兄弟を import する 2 つの起点は、別の鍵を持つ。
-絶対パスで書いても鍵は変わらない。
+その起点のディレクトリは、基準のディレクトリからの相対パス(.. を含む)で表す。
+どちらも ./w を import する 2 つの起点では、import 先の単位が別々のキー(w.kel と ../w.kel)を持つ。
+起点を絶対パスで指定しても、キーは変わらない。
 
   $ mkdir -p k1/a
   $ printf 'let w: Int32 = 1\npub let q: Int32 = w\n' > k1/a/w.kel
@@ -816,9 +816,9 @@ import した単位の鍵は、import を書いたファイルの鍵のディレ
   (unit "w.kel"
   (unit "../w.kel"
 
-綴りの規則で、別のファイルが同じ鍵になることがある。
-シンボリックリンクの下の .. は、綴りの相殺と OS の解決で行き先が違う。
-鍵が重なると、書き出さずに 64 で終える。
+キーを決める規則では、別々のファイルが同じキーになることがある。
+シンボリックリンクの下にある .. は、パスの表記の上で取り除いた結果と、OS が解決した結果とで、指すファイルが違う。
+キーが重なると、何も書き出さずに終了コード 64 で終了する。
 
   $ mkdir -p k2/proj k2/elsewhere/dir
   $ ln -s ../elsewhere/dir k2/proj/sub
@@ -831,8 +831,8 @@ import した単位の鍵は、import を書いたファイルの鍵のディレ
   exit: 64
   no file
 
-`runtime` の印は、プレリュードの Console の write にだけ付ける。
-`--no-prelude` で起点が宣言した Console は、利用者のハンドラが処理するので `user` である。
+操作の印 `runtime` は、プレリュードの Console の write にだけ付ける。
+`--no-prelude` を付けて起点が宣言した Console は、ユーザのハンドラが処理するので `user` である。
 
   $ cat > con.kel <<'EOF'
   > effect Console = { write: (String) => {} }
@@ -842,9 +842,9 @@ import した単位の鍵は、import を書いたファイルの鍵のディレ
   $ emit con | grep '^(effect'
   (effect "main/Console" (op write 1 resume user))
 
-辞書の引数の順は、型の行をラベルの綴りの昇順にたどり、1 つの型変数の制約をクラスの表の順に並べて決める。
-読む順や注釈に書いた順を変えても、使う側の辞書の列は変わらない。
-構造的な Eq の辞書の項目も、ラベルの昇順に並ぶ。
+辞書の引数の順序は、型の行をラベル名の昇順にたどり、1 つの型変数の制約をクラス表の順に並べて決める。
+フィールドを参照する順序や注釈に書く順序を変えても、呼び出す側が渡す辞書の並びは変わらない。
+構造的な Eq の辞書の項目も、ラベル名の昇順に並ぶ。
 
   $ cat > dord.kel <<'EOF'
   > let f(r) = show(r.b) + show(r.a)
@@ -871,8 +871,8 @@ import した単位の鍵は、import を書いたファイルの鍵のディレ
         (field k (dbuiltin "builtin/Eq" "builtin/Int32"))
         (field v (dbuiltin "builtin/Eq" "builtin/Boolean")))
 
-初期化の前の大域を読んだときの実行時エラーは、module の修飾を含む名前を書く。
-KIR の大域の記号の修飾名と同じ名前である。
+初期化前のグローバルを参照したときの実行時エラーは、module の修飾を含む名前を表示する。
+この名前は、KIR のグローバルのシンボルに含まれる修飾名と同じである。
 
   $ cat > fwd.kel <<'EOF'
   > module M {
@@ -888,9 +888,9 @@ KIR の大域の記号の修飾名と同じ名前である。
   $ diktor --emit-ir-text fwd.kirt fwd.kel && grep -o '(global "main/M.h")' fwd.kirt
   (global "main/M.h")
 
-インスタンスの宣言は、辞書を受け取らない実装をメソッドの順に評価し終えてから、インスタンスを使える状態にする。
-評価の間にそのインスタンスからメソッドを選ぶと、実行時エラーになる。
-KIR では、この宣言は 1 つの def_instance の手順である。
+インスタンス宣言は、辞書を受け取らない実装をメソッドの順にすべて評価してから、インスタンスを使える状態にする。
+評価の途中でそのインスタンスのメソッドを選ぶと、実行時エラーになる。
+KIR では、この宣言は 1 つの def_instance の初期化手順になる。
 
   $ cat > inst0.kel <<'EOF'
   > type class Sz[A] { val sz: (A) => Int32; val k: (A) => Int32 }
@@ -907,15 +907,15 @@ KIR では、この宣言は 1 つの def_instance の手順である。
   $ diktor --emit-ir-text inst0.kirt inst0.kel && grep '^(init "main"' inst0.kirt
   (init "main" (def_instance "main/instance:Sz[B]") (run_exp "main/$init1"))
 
-書き出しは決定的で、同じ入力から同じバイト列を出す。
+書き出しは決定的で、同じ入力からは同じバイト列を出力する。
 
   $ diktor --emit-ir-text s1.kirt sample/stubs.kel sample/sample.kel
   $ diktor --emit-ir-text s2.kirt sample/stubs.kel sample/sample.kel
   $ cmp s1.kirt s2.kirt && echo same
   same
 
-レコードの構造的な Eq は、ラベルの順に項目を比べ、偽の項目で止まる。
-r ではフィールド a が等しくないので、Y の利用者のインスタンスを呼ばない。
+レコードの構造的な Eq は、ラベル名の昇順にフィールドを比較し、等しくないフィールドが見つかった時点で比較をやめる。
+r ではフィールド a が等しくないので、Y に対するユーザのインスタンスを呼ばない。
 r2 ではフィールド a が等しいので、Y のインスタンスを呼んで実行時エラーになる。
 
   $ cat > req.kel <<'EOF'
@@ -936,7 +936,7 @@ r2 ではフィールド a が等しいので、Y のインスタンスを呼ん
         (field b (dinst "main/instance:Eq[Y]")))
 
 操作節の本体の中の match のガードには resume を書ける。
-その resume は末尾でないので ntail であり、節は G になる。
+その resume は末尾位置にないので ntail になり、節は G になる。
 
   $ cat > grd.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }
@@ -970,7 +970,7 @@ r2 ではフィールド a が等しいので、Y のインスタンスを呼ん
         (lit i32 3))
       (clause (wild) (lit i32 4))))
 
-メソッド自身の辞書は、メソッドのスキーマの正準順に o に置く。
+メソッド自身の辞書は、メソッドの型スキームの正準順で、method ノードの o(クラスの辞書 d の後ろ)に並べる。
 [B: Show + Eq] の o は Eq、Show の順である。
 
   $ cat > mo.kel <<'EOF'

@@ -1,7 +1,7 @@
 型パラメータの行変数と空の行の衝突(LangSpec §13.2)。行変数は何が入るか決まって
 いないので、@ {} や入れ子の矢印で省略した @(どちらも空の行)とは一致しない。
-単一化の報告は原因だけを述べ、直し方を書かない。下のブロックは、落ちる形ごとに、
-報告の文言と、通るように書き換えた形を並べる。
+単一化の報告は原因だけを述べ、直し方を書かない。下のブロックは、エラーになる形ごとに、
+報告のメッセージと、通るように書き換えた形を並べる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -20,7 +20,7 @@
   $ diktor --type-check fnrigidok.kel
   h : (() => Int32) => () => Int32
 
-valrigid は、局所の値束縛の注釈の空の行が、外側の型パラメータの行変数とぶつかる形で、
+valrigid は、ローカルの値束縛の注釈の空の行が、外側の型パラメータの行変数と衝突する形で、
 報告は原因だけを述べる。valrigidomit は同じ束縛の注釈を省いた形で、通る:
 
   $ cat > valrigid.kel <<'KEL'
@@ -41,8 +41,8 @@ valrigid は、局所の値束縛の注釈の空の行が、外側の型パラ�
   $ diktor --type-check valrigidomit.kel
   f : (() => Int32) => Int32
 
-valinitrigid は、空の行が初期化式の関数 ap の仮引数の側にある形で、valrigid と同じ文言に
-なる。k の注釈には行変数 E が既に書かれている。valinitrigidok は ap に型パラメータ R を
+valinitrigid は、空の行が初期化式の関数 ap の仮引数の側にある形で、valrigid と同じメッセージに
+なる。k の注釈には行変数 E がすでに書かれている。valinitrigidok は ap に型パラメータ R を
 取らせて仮引数の行を R にした形で、k の注釈を変えずに通る:
 
   $ cat > valinitrigid.kel <<'KEL'

@@ -1,7 +1,7 @@
---type-check --no-prelude のゴールデン(M4: 推論コア)。
-変更時は dune promote で更新し、必ず目視レビューすること。
+--type-check --no-prelude で確かめる、型推論の中核のゴールデンテストである。
+期待出力を変えるときは、差分を目で確かめてから dune promote で更新する。
 
-sample.kel §1(型エイリアス)・§2(述語つきリテラル)・§3(レコード)・§4(タプル):
+sample.kel §1(型エイリアス)、§2(組み込みの制約を持つ数値リテラル)、§3(レコード)、§4(タプル):
 
   $ cat > basics.kel <<'EOF'
   > type MyInt = Int32
@@ -30,7 +30,7 @@ sample.kel §1(型エイリアス)・§2(述語つきリテラル)・§3(レコ�
   first : Int32
   second : String
 
-行多相・Scoped Labels・タプルの前置多相(sample.kel §3-§4):
+行多相、Scoped Labels、先頭の要素だけを指定したタプルの多相(sample.kel §3、§4):
 
   $ cat > rows.kel <<'EOF'
   > let getx = fn(r) => r.x + 1
@@ -50,7 +50,7 @@ sample.kel §1(型エイリアス)・§2(述語つきリテラル)・§3(レコ�
   swap : ((A, B)) => (B, A)
   update : ({x: A extends R1}) => {x: Float64 extends R1}
 
-演算子とクラス制約(sample.kel §8 の組み込み表。M4 は decls 直登録):
+演算子とクラス制約(sample.kel §8)。演算子のクラスは Decls が組み込みとして登録している:
 
   $ cat > ops.kel <<'EOF'
   > let fma[A: Add + Mul](x: A, y: A, z: A): A = x * y + z
@@ -64,7 +64,7 @@ sample.kel §1(型エイリアス)・§2(述語つきリテラル)・§3(レコ�
   ne : Boolean
   logic : Boolean
 
-MiniLang §16-1(HM 多相と let 一般化):
+let 多相と一般化。let で束縛した id は多相に使えるが、無名関数の引数 f は単相である:
 
   $ cat > ml1.kel <<'EOF'
   > let r = {
@@ -82,9 +82,9 @@ MiniLang §16-1(HM 多相と let 一般化):
   ! ml1b.kel:1:37: 型エラー: Boolean は Integral のインスタンスではありません
   [1]
 
-MiniLang §16-4(行多相レコードと Scoped Labels は rows.kel で対応済み)。
+行多相のレコードと Scoped Labels は、上の rows.kel で確かめている。
 
-MiniLang §16-8(値制限。runST の2例は M6 で追加):
+値制限。構文上の値でない初期化式の型は一般化しない(run を使う例は typecheck_m6.t の stvr.kel):
 
   $ cat > ml8.kel <<'EOF'
   > let idf = fn(x) => x
@@ -94,7 +94,7 @@ MiniLang §16-8(値制限。runST の2例は M6 で追加):
   idf : (A) => A
   weak : (_A) => _A
 
-MiniLang §16-5(型注釈と skolem 化):
+型注釈とスコーレム化。注釈の型パラメータは、本体の検査の間は固定した型として扱う:
 
   $ cat > ml5.kel <<'EOF'
   > let polyid[A](x: A): A = x
@@ -119,9 +119,9 @@ MiniLang §16-5(型注釈と skolem 化):
   ! ml5c.kel:2:7: 型エラー: 注釈された返り値型を満たしません(スコープ付きの型 ς1 がスコープの外に漏れています(ς1 は型パラメータ A です。A のスコープの外の型と共有された、型の決まっていない変数(注釈の無い引数の型や、一般化されない束縛の型など)に A を入れようとしています))
   [1]
 
-let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順に依存しない。§7.2 の2パス。
-@ を省略した関数は前方参照できない: 省略 @ の過剰一般化を避けるため注釈内の全ての
-矢印に @ が要る):
+let rec と前方参照。引数と返り値の型を注釈し、最も外側の矢印の @ も書いた関数は、
+宣言より前から参照できる(LangSpec §6.4)。最も外側の @ を省略した関数は、
+前方参照できない:
 
   $ cat > rec.kel <<'EOF'
   > let rec even(n) = n == 0 || odd(n - 1)
@@ -143,7 +143,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! fwdbad.kel:1:32: 型エラー: 未束縛の変数: helper
   [1]
 
-エフェクト行つき矢印型の注釈と純粋注釈:
+エフェクト行の付いた矢印型の注釈と、@ {} の注釈:
 
   $ cat > eff.kel <<'EOF'
   > let compose[A, B, C, E](f: (A) => B @ E, g: (B) => C @ E): (A) => C @ E =
@@ -154,7 +154,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   compose : ((A) => B, (B) => C) => (A) => C
   pure_fn : (Int32) => Int32 @ {}
 
-構造的 Eq の導出(閉じた行のみ。sample.kel:392-396):
+構造的な Eq の導出(sample.kel:392-396)。閉じた行の型にだけ適用できる:
 
   $ cat > eq.kel <<'EOF'
   > type Point = {x: Float64, y: Float64}
@@ -172,7 +172,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! eqbad.kel:1:74: 型エラー: 行変数を含む型 {x: Int32 extends ς1} に Eq の構造的導出は適用できません(行が閉じていません)
   [1]
 
-数値まわりのエラー(D8, D13):
+数値リテラルのエラー:
 
   $ cat > numbad.kel <<'EOF'
   > let bad = 0 + "x"
@@ -188,7 +188,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! numbad2.kel:1:11: 型エラー: 数値リテラル 1u8 の接尾辞 u8 はありません(接尾辞は i32、i64、f64 だけです)
   [1]
 
-型エイリアスの検査(非再帰・部分適用禁止):
+型エイリアスの検査。再帰と部分適用はエラーになる:
 
   $ cat > aliasbad.kel <<'EOF'
   > type X = X
@@ -205,7 +205,7 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! aliasbad2.kel:2:8: 型エラー: 型エイリアス Pair2 の引数は 2 個必要です(1 個与えられました。部分適用は禁止)
   [1]
 
-未実装は診断の流れに乗る(G6。それまでの型の行が消えない):
+未実装の構文も診断として報告し、それより前の宣言の型は表示する:
 
   $ cat > mix.kel <<'EOF2'
   > effect E = { op: () => Int32 }
@@ -217,8 +217,8 @@ let rec と前方参照(注釈が完全 — @ も明示 — な let は宣言順
   ! mix.kel:3:52: 未実装: cancel(reason)(v0 は case cancel のみ)
   [4]
 
-標準環境の名前は再宣言できない(LangSpec §16.1。newtype、型エイリアス、effect、
-type class の 4 種別で 1 つずつ。インスタンスは test/verify_fixes.t の coh):
+標準環境の名前は再宣言できない(LangSpec §16.1)。newtype、型エイリアス、effect、
+type class の 4 種別を 1 つずつ確かめる(インスタンスは test/verify_fixes.t の coh):
 
   $ printf 'newtype Option[A] = None(Int32) | Some\n' > d1.kel
   $ diktor --type-check d1.kel
@@ -240,16 +240,16 @@ type class の 4 種別で 1 つずつ。インスタンスは test/verify_fixes
   ! d8.kel:1:1: 型エラー: 標準環境の type class Add は再宣言できません
   [1]
 
-同じファイルを 2 回渡すと二重宣言(CLI 経路の連結処理の回帰。C11):
+同じファイルを 2 回渡すと、二重宣言のエラーになる:
 
   $ printf 'newtype Foo = Bar\n' > dup1.kel
   $ diktor --type-check dup1.kel dup1.kel
   ! dup1.kel:1:1: 型エラー: newtype Foo が二重に宣言されています
   [1]
 
-型名の名前空間は newtype / 型エイリアス / effect で 1 つ(M15 検証。
-かつて種別を替えた再宣言が種別ごとの検査をすり抜け、type List[A] =
-Int32 がプレリュードの List を黙って奪った):
+型名の名前空間は newtype、型エイリアス、effect で共通である。
+種別を変えた再宣言もエラーになるので、type List[A] = Int32 で
+プレリュードの List を置き換えることはできない:
 
   $ printf 'type List[A] = Int32\nlet main(): Int32 = 1\n' > ns1.kel
   $ diktor --type-check ns1.kel
@@ -268,7 +268,7 @@ Int32 がプレリュードの List を黙って奪った):
   ! ns4.kel:1:1: 型エラー: 組み込み型 Int32 は effect で再宣言できません
   [1]
 
-標準環境の名前を 2 回宣言しても、1 本目で落ちる:
+標準環境の名前を 2 回宣言しても、1 つ目の宣言でエラーになる:
 
   $ printf 'newtype List[A] = Nil | Cons(head: A, tail: List[A])\nnewtype List[A] = Nil | Cons(head: A, tail: List[A])\necholn("x")\n' > rd1.kel
   $ diktor --type-check rd1.kel
@@ -279,14 +279,14 @@ Int32 がプレリュードの List を黙って奪った):
   ! rd2.kel:1:1: 型エラー: 標準環境の type class Add は再宣言できません
   [1]
 
-ブレース無しの引数付きエフェクトラベル @ Heap[h] は @ {Heap[h]} の略記
-(M18 検証。文法は受けるのに elab に枝が無く「未知の型: Heap」だった):
+波括弧のない引数付きのエフェクトラベル @ Heap[h] は、@ {Heap[h]} の略記
+である:
 
   $ printf 'let g[h](r: Ref[h, Int32]): Int32 @ Heap[h] = Ref.get(r)\n' > effshort.kel
   $ diktor --type-check effshort.kel
   g : (Ref[h, Int32]) => Int32 @ {Heap[h]}
 
-組み込みクラスのメソッドスキーマ(arrow1 / arrow2 の 1 枚から出る):
+組み込みクラスのメソッドの型スキーム(Decls の arrow1 と arrow2 が組み立てる):
 
   $ cat > methods.kel <<'KEL'
   > let a = add(1, 2)
@@ -298,7 +298,7 @@ Int32 がプレリュードの List を黙って奪った):
   b : Boolean
   c : String
 
-剛定数の 3 つの生成点を 1 ファイルで(M19 / G5 の new_rigid_ref 集約):
+スコーレム定数を作る箇所のうち、注釈の型パラメータと run のリージョン変数を確かめる:
 
   $ cat > rigids.kel <<'KEL'
   > let ann[A: Add](x: A): A @ {} = x + x
@@ -309,8 +309,8 @@ Int32 がプレリュードの List を黙って奪った):
   ! rigids.kel:2:11: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
-入れ子レコードの採番は読み順(§9.4 の評価順。行尾を先に採番しない。
-M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順が出た):
+入れ子のレコードの型変数は、読む順に採番する(第9章 §9.4)。
+行の末尾の行変数を先に採番しないので、内側の行が R1、外側の行が R2 になる:
 
   $ cat > rowname.kel <<'KEL'
   > let g = fn(r) => r.x.y
@@ -320,8 +320,8 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   g : ({x: {y: A extends R1} extends R2}) => A
   h : ({x: {y: A extends R1}, p: {q: B extends R2} extends R3}) => (A, B)
 
-剛定数の制約は角括弧の前置に出さない(§9.2: ς はユーザが書ける名前では
-ない。M19 / G4c — かつては [ς1: Add] ς1 と出た):
+スコーレム定数の制約は、型の前の角括弧には表示しない(第9章 §9.2)。
+ς はユーザが書ける名前ではないので、[ς1: Add] ς1 のような表示にしない:
 
   $ cat > rigidcls.kel <<'KEL'
   > let cmp2[A: Add](x: A, y: A): Boolean = x < y
@@ -330,16 +330,16 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   ! rigidcls.kel:1:41: 型エラー: 型パラメータ ς1 は Ord のインスタンスではありません。[A: Ord] のように制約を書いてください
   [1]
 
-高階型変数の適用(TApp)の採番も読み順(M19 検証。頭が引数より後に
-採番されて F より A が若くなる逆順が出ていた…はずが、頭が先):
+高カインドの型変数の適用 F[A] の型変数も、読む順に採番する。
+先頭の型構成子 F を、引数 A より先に採番する:
 
   $ printf 'let idf2[F[_], A](x: F[A]): F[A] = x\nlet use3 = fn(w) => idf2(w)\n' > tapp.kel
   $ diktor --type-check --no-prelude tapp.kel
   idf2 : (F[A]) => F[A]
   use3 : (F[A]) => F[A]
 
-タプルの再糖衣化は 3 形(§4。2 要素以上は (A, B)、1 要素は (A,)、空行は {}。
-開いた行は戻さない):
+タプルの表記に戻す形は 3 つある(第9章 §9.3)。2 要素以上は (A, B)、1 要素は (A,)、
+空の行は {} と表示する。開いた行はタプルの形に戻さない:
 
   $ cat > resugar.kel <<'EOF'
   > let one = (1,)
@@ -353,7 +353,7 @@ M19 / G4b — かつては ^ の右辺が先に評価され R2 → R1 の逆順�
   empty : {}
   opened : ({_item: A extends R1}) => A
 
-エラーメッセージの表示にも同じ規則が及ぶ:
+エラーメッセージの表示にも同じ規則を適用する:
 
   $ printf 'let bad: (Int32,) = "x"\n' > resugar2.kel
   $ diktor --type-check --no-prelude resugar2.kel

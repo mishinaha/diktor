@@ -1,5 +1,5 @@
-ランタイム提供エフェクトのハンドル禁止(M20 / I4 / D63)。仕様 sample.kel:538 が
-Console を名指しで定める。かつては出力を黙って消す恒等ハンドラが書けた。
+ランタイムが提供するエフェクトは、ユーザがハンドルできない(sample.kel:538 が、そのエフェクトとして
+Console を挙げている)。ハンドルできると、出力を黙って捨てるハンドラが書けてしまうからである。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -14,7 +14,7 @@ Console を名指しで定める。かつては出力を黙って消す恒等ハ
   ! quiet.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
-修飾しても同じ:
+操作名を修飾しても、同じエラーになる:
 
   $ cat > quietq.kel <<'KEL'
   > let quiet[A, E](body: () => A @ {Console extends E}): A @ E =
@@ -27,7 +27,7 @@ Console を名指しで定める。かつては出力を黙って消す恒等ハ
   ! quietq.kel:2:3: 型エラー: エフェクト Console はランタイムが提供するため、ユーザはハンドルできません(仕様 sample.kel:466, :538)。出力先を変えたいときは Print をハンドルしてください(プレリュードの with_stdout が Print を Console へ翻訳します)
   [1]
 
-Async は標準環境に無い。利用者が宣言したものは普通のエフェクトで、ハンドルできる:
+Async は標準環境にない。ユーザが宣言した Async は通常のエフェクトで、ハンドルできる:
 
   $ cat > asyncuser.kel <<'KEL'
   > effect Async = { yield_: () => Unit, sleep: (Int64) => Unit }
@@ -41,15 +41,15 @@ Async は標準環境に無い。利用者が宣言したものは普通のエ�
   $ diktor asyncuser.kel
   1
 
-トップレベルには残せない:
+ユーザが宣言した Async も、トップレベルの行には残せない:
 
   $ printf 'effect Async = { yield_: () => Unit, sleep: (Int64) => Unit }\nperform yield_()\n' > asynctop.kel
   $ diktor --type-check asynctop.kel
   ! asynctop.kel:2:1: 型エラー: エフェクト Async をここでは実行できません(ラベル Async がありません(行は閉じています))
   [1]
 
---no-prelude で自前の effect Console を宣言した場合は禁止しない
-(禁止の判定は「ランタイム行に名前があり、かつプレリュード所有」):
+--no-prelude を付けて、ユーザが effect Console を宣言した場合は、ハンドルを禁止しない。
+禁止するのは、一覧 runtime_effects に名前があり、しかもプレリュードが宣言したエフェクトである:
 
   $ cat > ownconsole.kel <<'KEL'
   > effect Console = { write: (String) => {} }
@@ -62,8 +62,8 @@ Async は標準環境に無い。利用者が宣言したものは普通のエ�
   $ diktor --type-check --no-prelude ownconsole.kel
   quiet : (() => A @ {Console extends R1}) => A
 
-Console はハンドル候補からも外れるので、File のつもりの case write(s)
-1 本は Console に黙って解決されず、意図の取り違えが診断になる:
+Console は、節を修飾しない handle が対象のエフェクトを決めるときの候補からも外れる。そのため、
+File のつもりで case write(s) だけを書いた handle は Console に決まらず、File の read の節がないことを報告する型エラーになる:
 
   $ cat > filewrite.kel <<'KEL'
   > effect File = { read: (Int32) => String, write: (String) => Int32 }
@@ -77,19 +77,19 @@ Console はハンドル候補からも外れるので、File のつもりの cas
   ! filewrite.kel:3:3: 型エラー: ハンドラが操作を網羅していません: File の read が漏れています
   [1]
 
-perform は禁止しない(sample.kel:662 がトップレベルの perform write を
-書いており、プレリュードの echo / echoln も同じ):
+perform は禁止しない。sample.kel:662 がトップレベルに perform write を書いていて、
+プレリュードの echo と echoln も同じ操作を起こす:
 
   $ printf 'perform write("direct\\n")\n' > pw.kel
   $ diktor pw.kel
   direct
 
-ランタイム行に載るのは名簿 toplevel_effects(Console / Blocking)のうち
-プレリュード所有のものだけ(M20 検証。Blocking だけは組み込み登録なので
---no-prelude でも所有のまま — test/blocking_top.t の bnp。
-かつては名前だけで張られ、--no-prelude や差し替えプレリュードの世界で
-自前の effect Console を宣言すると、型はユーザの署名・実行はランタイムの
-実装という食い違いが起き、型検査を通ったプログラムが実行時に落ちた):
+トップレベルの行に入るのは、一覧 toplevel_effects(Console と Blocking)のうち、プレリュードか
+処理系の組み込みの登録が宣言したものだけである。Blocking は処理系が組み込みとして登録するので、--no-prelude でも
+行に残る(test/blocking_top.t の bnp)。Console はプレリュードが宣言するので、--no-prelude や、
+Console を宣言しないプレリュードに差し替えた環境では行に入らない。名前だけで行に入れると、ユーザが宣言した
+effect Console について、型はユーザのシグネチャ、実行はランタイムの実装になり、型検査に
+通ったプログラムが実行時にエラーになる。そこで、この perform は型エラーにする:
 
   $ cat > np3.kel <<'KEL'
   > effect Console = { write: (Int32) => Int32 }
@@ -103,7 +103,7 @@ perform は禁止しない(sample.kel:662 がトップレベルの perform write
   ! np3.kel:2:9: 型エラー: エフェクト Console をここでは実行できません(ラベル Console がありません(行は閉じています))
   [1]
 
-自前の Console を自前でハンドルする形は従来どおり通る:
+ユーザが宣言した Console をユーザがハンドルする形は、型検査に通る:
 
   $ cat > npok.kel <<'KEL'
   > effect Console = { write: (String) => {} }
@@ -118,7 +118,7 @@ perform は禁止しない(sample.kel:662 がトップレベルの perform write
   quiet : (() => A @ {Console extends R1}) => A
   n : Int32
 
-Fs はランタイムの名簿に無い普通の名前なので、操作つきで宣言して自前で
+Fs は処理系の一覧にない通常の名前なので、操作を持つエフェクトとして宣言し、ユーザが
 ハンドルできる:
 
   $ cat > ownfs.kel <<'KEL'

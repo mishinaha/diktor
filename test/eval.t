@@ -1,6 +1,6 @@
-M8(評価器)のゴールデン。変更時は dune promote で更新し、必ず目視レビューすること。
+評価器(第14章)のゴールデンテストである。期待出力を変えるときは、差分を目で確かめてから dune promote で更新する。
 
-基本の評価(リテラル既定化・レコード・タプル・newtype・run/MutableArray/freeze・構造的等価):
+基本の評価(リテラルの既定化、レコード、タプル、newtype、run と MutableArray と freeze、構造的な等値比較):
 
   $ cat > basics.kel <<'EOF'
   > echoln("hello, keleut")
@@ -46,8 +46,8 @@ M8(評価器)のゴールデン。変更時は dune promote で更新し、必�
   4.0
   3
 
-エフェクトの実行(sample.kel §9 相当: capture / try_ / with_stdout /
-cancel の LIFO 自動巻き戻し):
+エフェクトの実行。sample.kel §9 の capture と try_、標準環境の with_stdout を使い、
+巻き戻しのときに cancel 節を内側から外側の順に実行することを with_res で確かめる:
 
   $ cat > effects.kel <<'EOF'
   > let capture[A, E](body: () => A @ {Print extends E}): {value: A, output: String} @ E =
@@ -114,9 +114,9 @@ cancel の LIFO 自動巻き戻し):
   close n1
   ok 7
 
-cancel 節は自分のハンドラが外れた文脈で走る(§9 / D100。cancel 節からの
-perform は自分の節ではなく外側の同名ハンドラに届く。第11章 §11.24 が
-cancel 節を外側の行で推論するのと同じ事実の実行側):
+cancel 節は、自分のハンドラの外側で実行する(LangSpec §13.6)。cancel 節の中で起こした
+操作は、自分の操作節ではなく、外側にある同じエフェクトのハンドラが受け取る。型検査が
+cancel 節を外側の行で推論する(第11章 §11.24)のは、この動作に合わせるためである:
 
   $ cat > cancelouter.kel <<'EOF2'
   > effect Stop = { stop: () => {} }
@@ -141,8 +141,8 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
   MID:from-cancel
   99
 
-届いた先が resume せずに抜けても、その巻き戻しは抑制されてログに回るだけで
-外へは出ない(§9):
+その操作を受け取ったハンドラが resume せずに節を抜けても、その巻き戻しは cancel 節の中で抑制して
+ログに記録するだけで、外へは伝えない(LangSpec §13.6):
 
   $ cat > cancelnores.kel <<'EOF2'
   > effect Stop = { stop: () => {} }
@@ -168,9 +168,9 @@ cancel 節を外側の行で推論するのと同じ事実の実行側):
   cancel 節で例外が抑制されました: cancel 節から操作の巻き戻しで脱出しようとしました
   99
 
-cancel 節の中で例外が起きると、その cancel 節は打ち切る(後ろの文は実行しない)。
-脱出は外へ伝えずログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
-(仕様 sample.kel:585、LangSpec.md §13.6):
+cancel 節の中で例外が起きると、その cancel 節の実行はそこで終わり、後ろの文は実行しない。
+脱出は外へ伝えずに抑制してログに記録し、外側のハンドラの cancel 節と後続の文は続けて実行する
+(sample.kel:585、LangSpec §13.6):
 
   $ cat > cancelabort.kel <<'EOF2'
   > effect A = { a: () => Unit }
@@ -194,7 +194,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   outer cancel
   after
 
-深いハンドラと最内一致・resume の返り値 = handle 式全体の型:
+深いハンドラは再開した後の操作も受け取り、操作は最も内側のハンドラが受け取る。resume の返り値の型は handle 式全体の型である:
 
   $ cat > deep.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }
@@ -216,7 +216,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   2
   10
 
-ユーザ定義インスタンスのメソッドの呼び出し(D3):
+ユーザ定義のインスタンスのメソッドの呼び出し:
 
   $ cat > dispatch.kel <<'EOF'
   > newtype Meters(Int32)
@@ -235,8 +235,8 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   7
   7m
 
-実行時エラー(exit 3): ??? 到達、resume のアフィン違反、ゼロ除算。
-ハンドラ節内の ??? でも内側の cancel は走る(例外経路の discontinue、§8.4):
+実行時エラー(終了コード 3)。??? への到達、resume を 2 回呼ぶアフィン違反、ゼロ除算を確かめる。
+操作節の中の ??? でも、捨てた継続の中の cancel 節を実行する(第14章 §14.9 の、節が例外で脱出した経路):
 
   $ cat > hole.kel <<'EOF'
   > echoln("before")
@@ -293,7 +293,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   実行時エラー: ??? に到達しました
   [3]
 
-性能回帰: 10万回の println が、節本体が resume だけの短い経路で完走する(§8.4):
+性能の回帰テスト。10 万回の println を、節の本体が resume だけのときの短い経路で最後まで実行できる(第14章 §14.9):
 
   $ cat > perf.kel <<'EOF'
   > let rec loop(n: Int32): Unit @ Print =
@@ -306,7 +306,7 @@ cancel 節の中で例外が起きると、その cancel 節は打ち切る(後�
   $ diktor perf.kel | wc -l
   100000
 
-Run モードでも網羅性警告は stderr に出る:
+プログラムを実行するときも、網羅性の警告は標準エラーに出る:
 
   $ cat > warn.kel <<'EOF'
   > newtype Opt2[A] = None2 | Some2(A)
@@ -317,8 +317,8 @@ Run モードでも網羅性警告は stderr に出る:
   ⚠ match が非網羅的です。例えば None2 が漏れています
   ran
 
-節本体が resume だけの短い経路でも、引数の例外で discontinue が走る(B1 / §14.9。
-捨てた継続の cancel と自分の cancel の両方):
+節の本体が resume だけのときの短い経路でも、引数の評価で例外が起きれば継続を discontinue で捨てる(第14章 §14.9)。
+捨てた継続の中の cancel 節と、自分の cancel 節の両方を実行する:
 
   $ cat > tailresume.kel <<'EOF2'
   > effect Res = { use: (String) => Unit }
@@ -349,8 +349,8 @@ Run モードでも網羅性警告は stderr に出る:
   [3]
 
 再開する操作の節が resume を呼ぶ前に実行時エラーで脱出すると、継続はまだ生きているので、
-その節のハンドラ自身の cancel 節も走る(§13.6)。clauseerr では、捨てた継続の中にある
-Res のハンドラの cancel 節が先に、Ask のハンドラ自身の cancel 節が後に走る:
+その節のハンドラ自身の cancel 節も実行する(LangSpec §13.6)。clauseerr では、捨てた継続の中にある
+Res のハンドラの cancel 節を先に、Ask のハンドラ自身の cancel 節を後に実行する:
 
   $ cat > clauseerr.kel <<'EOF2'
   > effect Res = { use: () => Unit }
@@ -371,8 +371,8 @@ Res のハンドラの cancel 節が先に、Ask のハンドラ自身の cancel
   実行時エラー: ゼロ除算です
   [3]
 
-resume が戻った後の脱出では、継続は消費済みなので、ハンドラ自身の cancel 節は走らない。
-再開した計算の中のハンドラは return 節で正常に終わっている:
+resume が戻った後の脱出では、継続は消費済みなので、ハンドラ自身の cancel 節は実行しない。
+再開した計算の中のハンドラは、return 節で正常に終了している:
 
   $ cat > clauseresumed.kel <<'EOF2'
   > effect Res = { use: () => Unit }
@@ -395,8 +395,8 @@ resume が戻った後の脱出では、継続は消費済みなので、ハン�
 
 resumeinner は、ask(1) の節の resume で再開した計算の中で、同じハンドラの ask(0) の節が
 自分の resume から戻った後に v / n で失敗する形である。ask(1) の節から見れば再開した
-計算の中の誤りだが、評価中の ask(0) の節から見れば resume が戻った後なので、ハンドラ
-自身の cancel 節は走らない:
+計算の中のエラーだが、評価中の ask(0) の節から見れば resume が戻った後なので、ハンドラ
+自身の cancel 節は実行しない:
 
   $ cat > resumeinner.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -415,7 +415,7 @@ resumeinner は、ask(1) の節の resume で再開した計算の中で、同�
 
 resumeinnerdeep は、ask(1) と ask(0) の 2 つの節がどちらも自分の resume の中にいる間に、
 ハンドラの本体の 10 / 0 で失敗する形である。評価中の節はどれも自分の resume で再開した
-計算の中にいるので、再開した計算の中の誤りとして、ハンドラ自身の cancel 節が 1 回走る:
+計算の中にいるので、再開した計算の中のエラーとして、ハンドラ自身の cancel 節を 1 回実行する:
 
   $ cat > resumeinnerdeep.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -434,7 +434,7 @@ resumeinnerdeep は、ask(1) と ask(0) の 2 つの節がどちらも自分の 
 
 resumeinnerpre は resumeinner と同じ並びで、ask(0) の節が resume の引数 10 / n の評価中、
 つまり自分の resume を呼ぶ前に失敗する形である。評価中の ask(0) の節から見て継続は
-まだ生きているので、ハンドラ自身の cancel 節が 1 回走る:
+まだ生きているので、ハンドラ自身の cancel 節を 1 回実行する:
 
   $ cat > resumeinnerpre.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -452,7 +452,7 @@ resumeinnerpre は resumeinner と同じ並びで、ask(0) の節が resume の�
   [3]
 
 resumeret は、ask(1) の節の resume で再開した計算の中で、同じハンドラの return 節が
-x / 0 で失敗する形である。この場合もハンドラ自身の cancel 節は走らない:
+x / 0 で失敗する形である。この場合もハンドラ自身の cancel 節は実行しない:
 
   $ cat > resumeret.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -470,7 +470,7 @@ x / 0 で失敗する形である。この場合もハンドラ自身の cancel 
   [3]
 
 resumestop は、ask(1) の節の resume で再開した計算の中で、同じハンドラの再開しない操作
-stop の節の本体が失敗する形である。ハンドラ自身の cancel 節は走らない:
+stop の節の本体が失敗する形である。ハンドラ自身の cancel 節は実行しない:
 
   $ cat > resumestop.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32, stop: () => Never }
@@ -487,8 +487,8 @@ stop の節の本体が失敗する形である。ハンドラ自身の cancel �
   実行時エラー: ゼロ除算です
   [3]
 
-resumeguard は、ask(1) の節の resume で再開した計算の中で、ask(0) を選ぶときに同じ
-ハンドラの節のガード 10 / n > 0 が失敗する形である。ハンドラ自身の cancel 節が 1 回走る:
+resumeguard は、ask(1) の節の resume で再開した計算の中で、ask(0) の節を選ぶときに、同じ
+ハンドラの節のガード 10 / n > 0 が失敗する形である。ハンドラ自身の cancel 節を 1 回実行する:
 
   $ cat > resumeguard.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -506,8 +506,8 @@ resumeguard は、ask(1) の節の resume で再開した計算の中で、ask(0
   [3]
 
 resume を呼ぶ前に節の本体から操作を起こし、外側のハンドラが resume せずに継続を捨てた
-場合も、ハンドラ自身の cancel 節が走る。外側の節は再開する操作の節なので、破棄はその節の
-値が決まった後に起き、cancel 節はその後に走る:
+場合も、ハンドラ自身の cancel 節を実行する。外側の節は再開する操作の節なので、破棄はその節の
+値が決まった後に起き、cancel 節はその後で実行する:
 
   $ cat > clausestop.kel <<'EOF2'
   > effect Ask = { ask: () => Int32 }
@@ -526,7 +526,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   cancel ask
   7
 
-ガード付き操作節は同じハンドラの次の節へ落ちる(B2 / D28。match と同じ規則):
+ガードが成り立たない操作節は、match と同じ規則で、同じハンドラの次の節に進む:
 
   $ cat > guardop.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -540,7 +540,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   $ diktor guardop.kel
   120
 
-操作節の絞り込みパターンも次の節へ落ちる:
+絞り込みの節(一致しない引数があるパターンを書いた操作節)も、パターンが一致しなければ次の節に進む:
 
   $ cat > patop.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -554,7 +554,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   $ diktor patop.kel
   102
 
-総和的な節より後ろの同じ操作の節には到達不能警告(B8):
+ガードがなく、どんな引数にも一致する節より後ろにある、同じ操作の節には、到達不能の警告を出す:
 
   $ cat > deadop.kel <<'EOF2'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -570,7 +570,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   1
 
 コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの操作節は、
-取りこぼさない節に数える(sample.kel:516)。絞り込みの節 MkBox(0) が外れた値は、その節が受け取る:
+どんな引数にも一致する節に数える(sample.kel:516)。絞り込みの節 MkBox(0) に一致しなかった値は、変数だけの節 MkBox(n) が受け取る:
 
   $ cat > soleop.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -586,7 +586,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   105
 
 コンストラクタが 1 つしかない newtype を分解し、引数が変数だけの節より後ろにある、
-同じ操作の節には到達不能警告:
+同じ操作の節には、到達不能の警告を出す:
 
   $ cat > soledead.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -603,7 +603,7 @@ resume を呼ぶ前に節の本体から操作を起こし、外側のハンド�
   42
 
 Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Option を 1 つ持つ newtype の
-引数に Some(n) を書いた節は、取りこぼす節とみなす:
+引数に Some(n) を書いた節は、どんな引数にも一致する節には数えない:
 
   $ cat > solelit.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -630,8 +630,8 @@ Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Optio
   ! soleopt.kel:3:9: 型エラー: 操作 ask には、ガードがなく、どんな引数にも一致する節がありません(どの節にも一致しなかった操作を外側のハンドラへ回す規則はありません)。ガードの無い case ask(_) を最後に置いてください
   [1]
 
-ラベルが 1 つの閉じた構造的ヴァリアントを分解し、引数が変数だけの節も、取りこぼさない節に数える。
-ラベルが 2 つある型では、1 つを選ぶ節だけでは取りこぼす:
+ラベルが 1 つの閉じた構造的ヴァリアントを分解し、引数が変数だけの節も、どんな引数にも一致する節に数える。
+ラベルが 2 つある型では、1 つのラベルを選ぶ節だけでは、一致しない引数が残る:
 
   $ cat > solevar.kel <<'EOF2'
   > effect Ask = { ask: (#A(Int32)) => Int32 }
@@ -657,7 +657,7 @@ Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Optio
   [1]
 
 絞り込みの節を複数合わせると引数を網羅できる場合も、
-取りこぼさない節が 1 つも無ければ拒否する(sample.kel:516):
+どんな引数にも一致する節が 1 つもなければ拒否する(sample.kel:516):
 
   $ cat > opcover.kel <<'EOF2'
   > effect Ask = { ask: (Option[Int32]) => Int32 }
@@ -673,10 +673,10 @@ Int32 を 1 つ持つ newtype の引数にリテラルを書いた節と、Optio
   [1]
 
 拒否の診断が案内する節は、その操作の最初の節の引数の個数だけ `_` を並べた形である。
-opnone0 は引数の無い操作 ask にガードつきの節だけを書いた形で、case ask() を案内する。
-opnone2 は 2 引数の操作 pair に絞り込みの節だけを書いた形で、case pair(_, _) を案内する。
-opnone2ok は opnone2 の最後に、案内のとおりガードの無い case pair(_, _) を足した形で、
-型検査を通って 1 を出力する:
+opnone0 は、引数のない操作 ask にガード付きの節だけを書いた形で、診断は case ask() を案内する。
+opnone2 は、2 引数の操作 pair に絞り込みの節だけを書いた形で、診断は case pair(_, _) を案内する。
+opnone2ok は、opnone2 の最後に、案内のとおりガードのない case pair(_, _) を追加した形で、
+型検査に通って 1 を出力する:
 
   $ cat > opnone0.kel <<'EOF2'
   > effect Ask = { ask: () => Int32 }
@@ -713,8 +713,8 @@ opnone2ok は opnone2 の最後に、案内のとおりガードの無い case p
   $ diktor opnone2ok.kel
   1
 
-操作節の引数パターンの誤りは、取りこぼしより先に報告する。tell には絞り込みの節
-tell(0) しか無いが、報告するのは、その後ろにある ask の節の未知のコンストラクタである:
+操作節の引数パターンのエラーは、どんな引数にも一致する節がないエラーより先に報告する。tell には絞り込みの節
+tell(0) しかないが、報告するのは、その後ろにある ask の節の未知のコンストラクタである:
 
   $ cat > opunk.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -730,8 +730,8 @@ tell(0) しか無いが、報告するのは、その後ろにある ask の節�
   ! opunk.kel:5:12: 型エラー: 未知のコンストラクタ: Foo
   [1]
 
-操作節の引数パターンの誤りは、handle の本体の誤りより先に報告する。本体の + "x" より
-後ろの行にある、節のパターンのフィールドの個数の誤りを報告する:
+操作節の引数パターンのエラーは、handle の本体のエラーより先に報告する。本体の + "x" より
+後ろの行にある、節のパターンのフィールドの個数のエラーを報告する:
 
   $ cat > oporder.kel <<'EOF2'
   > newtype Box = MkBox(Int32)
@@ -746,8 +746,8 @@ tell(0) しか無いが、報告するのは、その後ろにある ask の節�
   ! oporder.kel:4:12: 型エラー: コンストラクタ MkBox のパターンは 1 個のフィールドを取ります(2 個与えられました)
   [1]
 
-操作節のガードで起きた例外も 3 径路の規約に乗る(260829-5 M13 検証修正。
-かつては素の raise で cancel が一切走らなかった):
+操作節のガードで起きた例外にも、3 つの経路の規約(第14章 §14.9)を適用する。継続を discontinue で
+捨てるので、捨てた継続の中の cancel 節と、ハンドラ自身の cancel 節を実行する:
 
   $ cat > gexc.kel <<'EOF2'
   > effect Res = { use: (String) => Unit }
@@ -778,7 +778,7 @@ tell(0) しか無いが、報告するのは、その後ろにある ask の節�
   実行時エラー: ??? に到達しました
   [3]
 
-ガードの perform で外側が継続を捨てても cancel が走る(Unwind の通過):
+ガードから起こした操作で外側のハンドラが継続を捨てた場合も、巻き戻しはガードを通過し、cancel 節を実行する(第14章 §14.9):
 
   $ cat > gdrop.kel <<'EOF2'
   > effect Res = { use: (String) => Unit }
@@ -819,9 +819,9 @@ tell(0) しか無いが、報告するのは、その後ろにある ask の節�
   cancel inner
   done
 
-sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じてバッファを
-溢れさせると、cancel 節の例外が抑制ログ = stderr に出る。ログが出た =
-例外が fiber へ配送された = discontinue が走った証拠):
+標準出力への書き込みが失敗したときも、継続を discontinue で捨てる(第13章 §13.6)。標準出力を閉じて
+バッファをいっぱいにすると、cancel 節の例外を抑制した記録が標準エラーに出る。この記録が出れば、
+書き込みの例外が継続に届いて、cancel 節を実行したと分かる:
 
   $ cat > sinkfail.kel <<'EOF2'
   > effect Res = { use: (String) => Unit }
@@ -847,9 +847,9 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   diktor: 標準出力に書き出せません: Bad file descriptor
   [74]
 
-トップレベルの再束縛は定義時点の実体を守る(V1。かつては評価器が
-呼び出し時に globals を引くため、先に定義した関数まで新しい実体を見て
-黙って別の値を返した):
+トップレベルで名前を再束縛しても、先に定義した関数は、定義した時点の束縛を参照し続ける。
+評価器は、名前を呼び出しの時点で探すのではなく、型検査が解決した参照先の宣言を使う
+(第14章 §14.4):
 
   $ cat > shadow.kel <<'EOF2'
   > let f(): String = show(42)
@@ -861,7 +861,7 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   42
   SHADOW
 
-前方参照(1c 署名)は途中に再束縛があっても新しい名前として届く:
+パス 1c が登録したシグネチャを使う前方参照は、参照元と宣言の間に別の名前の再束縛があっても、後ろの宣言を指す:
 
   $ cat > fwd5.kel <<'EOF2'
   > let f[E](): Int32 @ E = g(1)
@@ -872,10 +872,10 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   $ diktor fwd5.kel
   two
 
-組み込みクラスと同名の module がメソッド名と衝突する形は宣言時に拒否する
-(M16 検証。修飾名 Add.add が値環境でクラスメソッドと区別できず、かつては
-綴りの一致だけで可視性検査を免除していたため、同名クラスがあるだけで任意の
-非 pub 値が外から呼べた):
+組み込みのクラスと同じ名前の module が、そのクラスのメソッドと同じ名前の値を持つ形は、宣言の位置で
+拒否する。修飾名 Add.add が、値の環境でクラスのメソッドの修飾名と同じ名前になり、区別できないからである。
+受理するなら、クラスのメソッドの修飾名と同じ名前を可視性の検査から外す必要がある。外すと、同じ名前の
+クラスを宣言するだけで、module の pub でない値を外から呼び出せてしまう:
 
   $ cat > k3.kel <<'EOF2'
   > let f(): Int32 = Add.add(1, 2)
@@ -886,9 +886,9 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   ! k3.kel:2:14: 型エラー: module Add の add は型クラス Add のメソッド add と修飾名が衝突します(module か メソッドを改名してください)
   [1]
 
-前方参照と再束縛の合流点は先勝ちで整合する(M15 検証 V1 残穴の解消。
-かつて elab のパス 1c は後勝ちだったので、同名 let 2 本を前方参照する
-関数だけが型検査と別の実体を呼び、黙って別の型の値を返した):
+同じ名前の let が 2 つあるとき、前方参照は 1 つ目の束縛を指す(第11章 §11.36)。パス 1c は
+1 つ目のシグネチャだけを登録するので、型検査と実行は同じ束縛を使う。fwd6 では、f の g("s") を
+1 つ目の g の型で検査するので、型エラーになる:
 
   $ cat > fwd6.kel <<'EOF2'
   > let f[E](): String @ E = g("s")
@@ -900,8 +900,8 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   ! fwd6.kel:1:28: 型エラー: 型が一致しません: String と Int32
   [1]
 
-クラスメソッドと同名のトップレベル let の前方参照も先勝ち(elab は
-プレリュードの show の型で検査し、実行も組み込みラッパを呼ぶ):
+クラスのメソッドと同じ名前のトップレベルの let を前方参照するときも、先にあるメソッドを指す。型検査は
+プレリュードの show の型で検査し、実行でも同じ show を呼び出す:
 
   $ cat > fwd7.kel <<'EOF2'
   > let f(): String = show(42)
@@ -922,9 +922,9 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   ! fwd8.kel:1:5: 型エラー: 注釈された返り値型を満たしません(型が一致しません: Int32 と String)
   [1]
 
-プレリュード extern と同名のクラスメソッドも先勝ち(非修飾名は
-プレリュードの実体の型で検査され、実行と一致する。かつては elab が
-クラスメソッドを選び、実行だけが 3 引数のプリミティブを呼んだ):
+プレリュードの extern と同じ名前のクラスのメソッドを宣言したときも、修飾しない名前は、先にある
+プレリュードの束縛を指す。型検査はプレリュードの束縛の型で検査し、実行でも同じプリミティブを
+呼び出すので、型検査と実行が一致する:
 
   $ cat > fwd9.kel <<'EOF2'
   > type class W[A] { val __string_length: (A) => Int32 }
@@ -934,8 +934,8 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   $ diktor fwd9.kel
   8
 
-修飾した操作は、その完全名のハンドラにだけ届く。E2 のハンドラが内側に
-あっても、E1.op は素通りして外側の h1 に届く:
+修飾した操作は、その完全な名前のエフェクトのハンドラだけが受け取る。E2 のハンドラが内側に
+あっても、E1.op はそれを通り過ぎて、外側の h1 が受け取る:
 
   $ cat > leftmostrun.kel <<'EOF2'
   > effect E1 = { op: (String) => {} }
@@ -956,9 +956,9 @@ sink の故障でも discontinue が走る(B6 の観測点。stdout を閉じて
   $ diktor leftmostrun.kel
   E1:f
 
-評価は正格である(LangSpec §5.1)。関数を呼ぶ前にすべての引数を評価するので、
+評価は正格である(LangSpec §5.1)。関数を呼び出す前にすべての引数を評価するので、
 使わない引数も評価する。let の右辺とレコードのフィールドは束縛するときに評価し、
-fn の本体は呼ぶまで評価しない(使うたびに評価する値束縛は §6.4):
+fn の本体は呼び出すまで評価しない(使うたびに評価する値束縛は LangSpec §6.4):
 
   $ cat > strict.kel <<'KEL'
   > let ignore2(a: Int32, b: Int32): Int32 = a
@@ -977,8 +977,8 @@ fn の本体は呼ぶまで評価しない(使うたびに評価する値束縛�
   eval 5
   end 1
 
-with _ と with (_) は引数のない無名関数を、with _x は 1 引数の関数を渡す(LangSpec §6.5。
-この _ はほかの位置の _ と意味が異なる)。1 引数を要求する関数に with _ を使うと型エラー:
+with _ と with (_) は引数のない無名関数を、with _x は 1 引数の関数を渡す(LangSpec §6.5)。
+この _ は、ほかの位置の _ と意味が異なる。1 引数の関数を要求する関数に with _ を使うと、型エラーになる:
 
   $ cat > with1.kel <<'KEL'
   > let zero[A, E](body: () => A @ E): A @ E = body()

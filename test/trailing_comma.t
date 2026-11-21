@@ -1,5 +1,5 @@
-末尾カンマは例外なく全カンマ区切りリストで許す(M18 / F1 / D56。
-計画 §6.1 の字義、260829-3 課題 15)。
+末尾カンマは、カンマで区切るリストのどの種類でも、最後の要素の後ろに書ける(sample.kel §0)。
+型引数、型パラメータ、高カインドの型パラメータの穴のリスト:
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -13,7 +13,7 @@
   f : (A) => A
   m : (Int32) => Int32
 
-ty_args は instance の型引数とエフェクト行のラベル引数でも同じ規則:
+インスタンスの型引数とエフェクトのラベルの引数も型引数のリストなので、同じ規則に従う:
 
   $ cat > tc2.kel <<'KEL'
   > type class Sizeof[A] {
@@ -29,16 +29,16 @@ ty_args は instance の型引数とエフェクト行のラベル引数でも�
   n : Int32
   g : (Ref[h, Int32]) => Int32 @ {Heap[h]}
 
-末尾カンマが付くのは最後の**要素**の後だけ。...rest と extends T は
-要素ではなく終端子なので、その後には付けられない(検証で確定した境界):
+末尾カンマを書けるのは最後の**要素**の後ろだけである。...rest と extends T は
+要素ではなくリストを終える構文なので、その後ろには書けない:
 
   $ printf 'let f(t) = t match { case {x, ...r,} => x }\n' > term1.kel
   $ diktor --type-check term1.kel
   term1.kel:1:35: 構文エラー: 付近のトークンを確認してください
   [2]
 
-残る 8 種のリスト(引数・パラメータ・レコード・タプル・パターン・エフェクト行・
-effect の操作・コンストラクタのフィールド)。§0 の「どの種類でも」の残り半分:
+残りの 8 種類のリスト(引数、パラメータ、レコード、タプル、パターン、エフェクト行、
+effect の操作、コンストラクタのフィールド)にも末尾カンマを書ける:
 
   $ cat > tc3.kel <<'KEL'
   > effect Ev = {
@@ -63,8 +63,8 @@ effect の操作・コンストラクタのフィールド)。§0 の「どの�
   pt : ((Int32, Int32)) => Int32
   er : (() => {} @ {Ev, Console}) => Int32
 
-終端子 extends の後にもカンマは置けない(型・式の両方。既存の ...rest と
-同じ境界):
+リストを終える構文 extends の後ろにもカンマは書けない。型でも式でも、...rest と
+同じである:
 
   $ printf 'let f[R](p: {x: Int32 extends R,}): Int32 = p.x\n' > term2.kel
   $ diktor --type-check term2.kel
@@ -81,13 +81,13 @@ effect の操作・コンストラクタのフィールド)。§0 の「どの�
   term4.kel:1:35: 構文エラー: 付近のトークンを確認してください
   [2]
 
-終端子の**前**のカンマは要素の末尾カンマなので置ける:
+リストを終える構文の**前**のカンマは、最後の要素の末尾カンマなので書ける:
 
   $ printf 'let f[R](p: {x: Int32, extends R}): Int32 = p.x\n' > term5.kel
   $ diktor --type-check term5.kel
   f : ({x: Int32 extends R1}) => Int32
 
-D56 の帰結: 単一フィールドのパンニングが {x,} で書ける({x} はブロック):
+フィールドの省略記法(punning)で書いたフィールド 1 つのレコードは {x,} と書ける({x} はブロックになる):
 
   $ printf 'let x = 1\nlet a = {x,}\necholn(show(a.x))\n' > pan1.kel
   $ diktor pan1.kel

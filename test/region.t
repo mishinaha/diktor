@@ -1,9 +1,9 @@
-リージョンと配列(仕様 §10)。不変 Array[A] と可変 MutableArray[h, A]
-の分離が、脱出検査・par の決定性・pub の純粋性をどう守るかのゴールデン。
+リージョンと配列(sample.kel の §10、LangSpec §14)。配列を不変の Array[A] と可変の MutableArray[h, A] に分けたことで、
+脱出検査、並列処理の決定性、pub の純粋性が守られることを確かめるゴールデンテストである。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-不変配列の読みは純粋 — run も Heap も要らない:
+不変配列の読み取りは純粋である。run も Heap も必要ない:
 
   $ cat > read.kel <<'KEL'
   > let peek(a: Array[Int32]): Int32 = Array.get(a, 0)
@@ -17,8 +17,8 @@
   g : (Int32) => {} @ {}
   walk : (Array[Int32]) => {} @ {}
 
-可変配列は h を型に持つので、引数を破壊する関数は純粋として型付かない
-(仕様 §10「bump が書けない」):
+可変配列は h を型に持つので、引数を破壊的に更新する関数は、純粋な関数としては型検査に通らない
+(sample.kel:677):
 
   $ cat > bump.kel <<'KEL'
   > let bump[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 42) }
@@ -27,7 +27,7 @@
   ! bump.kel:1:74: 型エラー: ほかのリージョンの MutableArray を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
-書くと宣言したなら通る。行に Heap[h] が出る:
+書き込むと宣言すれば通る。エフェクト行に Heap[h] が現れる:
 
   $ cat > honest.kel <<'KEL'
   > let bump[h, E](a: MutableArray[h, Int32]): Unit @ {Heap[h] extends E} =
@@ -36,9 +36,9 @@
   $ diktor --type-check honest.kel
   bump : (MutableArray[h, Int32]) => {} @ {Heap[h] extends R1}
 
-MutableArray.length も Heap[h] を要求する(長さは変わらないが、可変配列に
-触れること自体が行に載る — 仕様 §10 の署名一覧と、その理由を書いた
-sample.kel:696 のとおり):
+MutableArray.length も Heap[h] を要求する。長さを変える操作はないが、可変配列に
+触れること自体をエフェクト行に記録するためである(sample.kel の §10 のシグネチャの一覧と、
+その理由を書いた sample.kel:696 のとおり):
 
   $ cat > mlen.kel <<'KEL'
   > let demo(): Int32 = run h {
@@ -50,9 +50,9 @@ sample.kel:696 のとおり):
   $ diktor mlen.kel
   4
 
-読むだけの操作(length / get)にも Heap[h] が載っていることは、pub の純粋性と
-@ {} のコールバックを受ける関数(入力の中で宣言した pmap)で観測する(署名から Heap を外しても上の mlen は
-通ってしまうので、この 3 ブロックが署名の回帰):
+読むだけの操作(length と get)にも Heap[h] が付いていることは、pub の純粋性と、
+@ {} のコールバックを受け取る関数(入力の中で宣言した pmap)で確かめる。シグネチャから Heap を外しても上の mlen は
+通るので、シグネチャの回帰はこの 3 ブロックで検出する:
 
   $ printf 'pub let mlen[h](a: MutableArray[h, Int32]): Int32 = MutableArray.length(a)\n' > publen.kel
   $ diktor --type-check publen.kel
@@ -72,7 +72,7 @@ sample.kel:696 のとおり):
   ! parget.kel:3:21: 型エラー: ラベル Heap がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-可変配列は run の外に出せない:
+可変配列は run の外に持ち出せない:
 
   $ cat > leak.kel <<'KEL'
   > let leak(): Array[Int32] = run h { MutableArray.new(3, 0) }
@@ -81,7 +81,7 @@ sample.kel:696 のとおり):
   ! leak.kel:1:28: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
-freeze で不変配列にすれば出せる(仕様 §10 の doubled):
+freeze で不変配列にすれば持ち出せる(sample.kel の §10 の doubled):
 
   $ cat > doubled.kel <<'KEL'
   > let doubled(xs: Array[Int32]): Array[Int32] = run h {
@@ -115,8 +115,8 @@ freeze で不変配列にすれば出せる(仕様 §10 の doubled):
   $ diktor doubled.kel
   12
 
-freeze の観測可能な契約: freeze 後に元の可変配列へ書いても、取り出した
-配列は変わらない(実装はコピー — D69):
+freeze の観測できる契約。freeze の後に元の可変配列へ書き込んでも、取り出した
+配列は変わらない(実装は内容をコピーする):
 
   $ cat > freeze.kel <<'KEL'
   > let demo(): Int32 = run h {
@@ -130,9 +130,9 @@ freeze の観測可能な契約: freeze 後に元の可変配列へ書いても�
   $ diktor freeze.kel
   100
 
-この契約は 1 段だけ成り立つ。要素そのものが可変配列なら、取り出した配列の
-要素は元と同じものを指す(仕様 §10、sample.kel:694。D137)。freeze の後に
-inner へ書いた 99 が、frozen 越しに読める:
+この契約は 1 段だけに適用される。要素そのものが可変配列なら、取り出した配列の
+要素は、元の可変配列の要素と同じものを指す(sample.kel:694)。freeze の後に
+inner へ書き込んだ 99 を、frozen を通して読める:
 
   $ cat > nested.kel <<'KEL'
   > let probe(): Int32 = run h {
@@ -147,9 +147,9 @@ inner へ書いた 99 が、frozen 越しに読める:
   $ diktor nested.kel
   99
 
-値は共有されるが、型の側は破れない。要素が可変配列だと、その h が結果の型に
-残るので脱出検査が run の外への持ち出しを拒む(sample.kel:695。D137)。要素が
-可変配列でなければ同じ形が通る:
+値は共有されるが、型の安全性は保たれる。要素が可変配列だと、その h が結果の型に
+残るので、脱出検査が run の外への持ち出しを拒否する(sample.kel:695)。要素が
+可変配列でなければ、同じ形のプログラムが通る:
 
   $ printf 'let leak(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(1, MutableArray.new(1, 0))) }\n' > nested2.kel
   $ diktor --type-check nested2.kel
@@ -159,22 +159,22 @@ inner へ書いた 99 が、frozen 越しに読める:
   $ diktor --type-check flat.kel
   flat : () => Array[Int32]
 
-MutableArray[h, A] は型注釈として書ける。仕様 §10 の署名一覧が断る「ここだけの
-表記」(sample.kel:679)はパラメータの並びの話であって、型式を禁じてはいない
-(sample.kel:697。D137)。印字では h と出る(名付け方は次の regionshow):
+MutableArray[h, A] は型注釈として書ける。sample.kel の §10 のシグネチャの一覧にある「ここだけの
+表記」(sample.kel:679)は型パラメータの並び [h, A] を指していて、MutableArray[h, A] を型の式として書くことは禁じていない
+(sample.kel:697)。型の表示では h になる(名前の付け方は次の regionshow で確かめる):
 
   $ printf 'let use[h, A](a: MutableArray[h, A], i: Int32): A @ Heap[h] = MutableArray.get(a, i)\n' > maannot.kel
   $ diktor --type-check maannot.kel
   use : (MutableArray[h, A], Int32) => A @ {Heap[h]}
 
-印字は型パラメータを付け直す。Ref と MutableArray の第 1 引数かエフェクトの
-Heap の引数に現れる変数は h、h1 の順に名付け、ほかの型の変数とは別に数える(two)。束縛子の
-綴り r、s は表示に残らない。同じ変数が値の型の位置にも現れるときも h と書く
-(both)。一般化されない変数には下線が付く(w)。利用者の newtype の型引数は
-リージョンの位置に数えないので、Box[k] の k は、同じ印字に Ref[k, Int32] が
-現れる unbox では h、現れない size では A と出る。regionshow2 は run の本体で
-Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置にある run の剛定数が h
-ではなく ς1 と出る:
+型の表示では、型パラメータの名前を付け直す。Ref と MutableArray の第 1 引数か、エフェクトの
+Heap の引数に現れる変数は h、h1 の順に名前を付け、それ以外の型変数とは別に数える(two)。束縛子に
+書いた名前 r、s は表示に残らない。同じ変数が値の型の位置にも現れるときも h と表示する
+(both)。一般化されない変数には下線が付く(w)。ユーザの newtype の型引数は
+リージョンの位置として数えないので、Box[k] の k は、同じ表示の中に Ref[k, Int32] が
+現れる unbox では h になり、現れない size では A になる。regionshow2 は、run の本体で、Int32 と注釈した変数に
+Ref の値を束縛する。Ref の第 1 引数の位置にあるスコーレム定数(run のリージョン変数を固定した定数)は、h
+ではなく ς1 と表示される:
 
   $ cat > regionshow.kel <<'KEL'
   > let two[r, s, A](x: Ref[r, A], y: MutableArray[s, Int32]): A @ {Heap[r], Heap[s]} = Ref.get(x)
@@ -198,8 +198,8 @@ Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置に�
   [1]
 
 構造的ヴァリアントのコンストラクタ #Heap のラベルは、エフェクトの Heap と同じ
-名前になる。印字は、ヴァリアントの行に現れる Heap の引数をリージョンの位置に
-数えない。vheap の v と u の型変数は A と出る:
+名前になる。型の表示では、ヴァリアントの行に現れる Heap の引数をリージョンの位置として
+数えない。vheap の v と u の型変数は A と表示される:
 
   $ cat > vheap.kel <<'KEL'
   > let v[A](x: A) = #Heap(x)
@@ -209,8 +209,8 @@ Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置に�
   v : (A) => #Heap(A) | R1
   u : (#Heap(A) | #Other(A)) => Int32
 
-単一化も同じ行を見分ける。vheapmis は #Heap の引数で String と Int32 が一致しない
-形で、ラベルだけを #Other に替えた votheremis と同じ文言で報告する:
+単一化も、ヴァリアントの行とエフェクト行を同じように区別する。vheapmis は #Heap の引数で String と Int32 が一致しない
+プログラムで、ラベルだけを #Other に替えた votheremis と同じメッセージで報告する:
 
   $ cat > vheapmis.kel <<'KEL'
   > let f(x: #Heap(Int32)): Int32 = 0
@@ -229,7 +229,7 @@ Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置に�
   ! votheremis.kel:2:18: 型エラー: 型が一致しません: String と Int32
   [1]
 
-添字が範囲外なら実行時エラー(不変・可変とも)。負の長さも実行時に弾く:
+添字が範囲外なら、不変配列でも可変配列でも実行時エラーになる。負の長さも実行時エラーになる:
 
   $ printf 'let mk(): Array[Int32] = run h { MutableArray.freeze(MutableArray.new(2, 1)) }\necholn(show(Array.get(mk(), 5)))\n' > oob1.kel
   $ diktor oob1.kel
@@ -244,8 +244,8 @@ Ref を Int32 の変数に束縛する形で、Ref の第 1 引数の位置に�
   実行時エラー: MutableArray.new: 長さが負です
   [3]
 
-@ {} のコールバックは可変配列に触れない(§11 の決定性。分離前は
-run で包めば書けた — M20 の動機 (a)):
+@ {} のコールバックは可変配列を操作できない(sample.kel の §11 の決定性)。
+run で囲んでも、外側のリージョンの可変配列には書き込めない:
 
   $ cat > pardet.kel <<'KEL'
   > let pmap[A, B](xs: Array[A], f: (A) => B @ {}): Array[B] = ???
@@ -271,7 +271,7 @@ run で包めば書けた — M20 の動機 (a)):
   f : (Array[Int32]) => Array[Int32]
   _ : {}
 
-pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 の動機 (b)):
+pub の「@ を省略した宣言は純粋」という規則も、同じ検査で守られる:
 
   $ cat > pubpure.kel <<'KEL'
   > pub let wipe[h](a: MutableArray[h, Int32]): Unit = run h2 { MutableArray.set(a, 0, 7) }
@@ -280,8 +280,8 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   ! pubpure.kel:1:78: 型エラー: ほかのリージョンの MutableArray を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
-最外の矢印に @ {} と書いた関数 g は、名前で参照するときに行の尾部を開くので、run の
-中の each に渡せる(LangSpec §13.2。旧 spec_gaps.t の eachclosed):
+最も外側の矢印に @ {} と書いた関数 g には、名前で参照するときに行を開く規則が適用されるので、run の
+中の each に渡せる(LangSpec §13.2):
 
   $ cat > eachclosed.kel <<'KEL'
   > let g(x: Int32): {} @ {} = {}
@@ -291,9 +291,9 @@ pub の「@ を省略した宣言は純粋」も同じ経路で守られる(M20 
   g : (Int32) => {} @ {}
   use : (Array[Int32]) => {}
 
-newtype のフィールドを経由して死んだリージョンの可変配列を書く形も、入れ子の
-矢印の省略 @ が @ {} になった(M26 / D75)ので閉じた — 分離(M24)だけでは
-残っていた V14 の形(M24 の時点では 42 を出して通った):
+newtype のフィールドを通して、終了したリージョンの可変配列に書き込むプログラムも拒否する。
+入れ子の矢印で @ を省略すると @ {} になるので、Box のフィールドの関数は Heap を起こせない。
+配列を不変と可変に分けるだけでは、この形を拒否できない:
 
   $ cat > adv5.kel <<'KEL'
   > newtype Box = Box(() => Int32)
@@ -308,7 +308,7 @@ newtype のフィールドを経由して死んだリージョンの可変配列
   ! adv5.kel:4:3: 型エラー: ラベル Heap がありません(行は閉じています)(コンストラクタ Box のフィールドの行です。newtype のフィールドの矢印は書いたとおりに読み、@ の省略は @ {} — 純粋 — です。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-不変配列に書く手段は無い:
+不変配列に書き込む手段はない:
 
   $ printf 'let bump(a: Array[Int32]): Unit = run h { Array.set(a, 0, 42) }\n' > noset.kel
   $ diktor --type-check noset.kel
@@ -319,8 +319,8 @@ newtype のフィールドを経由して死んだリージョンの可変配列
   ! nonew.kel:1:34: 型エラー: 未束縛の変数: Array.new
   [1]
 
-Ref の第 1 引数で 2 つの剛定数のリージョンが一致しないときは、ほかのリージョンの
-Ref を使おうとしたものとして報告する。regswap は run を含まず、@ Heap[h] の下で
+Ref の第 1 引数で 2 つのスコーレム定数のリージョンが一致しないときは、ほかのリージョンの
+Ref を使おうとしたものとして報告する。regswap は run を含まず、エフェクト行が Heap[h] の関数の中で、
 型パラメータ k のリージョンの参照を読む:
 
   $ cat > regswap.kel <<'KEL'
@@ -330,8 +330,8 @@ Ref を使おうとしたものとして報告する。regswap は run を含ま
   ! regswap.kel:1:89: 型エラー: ほかのリージョンの Ref を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2)
   [1]
 
-regannot は、内側の run の本体で、内側の参照を外側のリージョンの Ref と注釈する。
-注釈の検査の文言の内側に同じ言い換えが付く:
+regannot は、内側の run の本体で、内側の参照に外側のリージョンの Ref という注釈を付ける。
+注釈を検査したときのメッセージにも、括弧の中に同じ言い換えが入る:
 
   $ cat > regannot.kel <<'KEL'
   > let g(): Int32 = run h {
@@ -347,10 +347,10 @@ regannot は、内側の run の本体で、内側の参照を外側のリージ
   ! regannot.kel:5:9: 型エラー: 注釈された型を満たしません(ほかのリージョンの Ref を使おうとしています(スコープ付きの型が一致しません: ς1 と ς2))
   [1]
 
-片方のリージョンがまだ決まっていない型変数のときは、包まずに元の文言で
+片方のリージョンがまだ決まっていない型変数のときは、言い換えずに元のメッセージで
 報告する。次の 2 つでは、その型変数に run のリージョン変数を束縛すると
-スコープの外へ漏れる。regesc は Ref の第 1 引数、regheapesc は Heap の引数で
-脱出の文言になる:
+スコープの外へ漏れる。regesc は Ref の第 1 引数で、regheapesc は Heap の引数で、
+脱出のメッセージになる:
 
   $ cat > regesc.kel <<'KEL'
   > let mk[B](x: B): Ref[B, Int32] = ???
@@ -375,11 +375,11 @@ regannot は、内側の run の本体で、内側の参照を外側のリージ
   ! regheapesc.kel:3:45: 型エラー: スコープ付きの型 ς1 がスコープの外に漏れています
   [1]
 
-片方のリージョンがまだ決まっていない型変数で、相手が型変数でない型のときも、
-束縛の検査が失敗すればその文言で報告し、リージョンではないとは述べない。
-regoccurs は g の h を具体化した型変数に、その変数を含む Ref の型を束縛する
-occurs check、regescref は Ref の第 1 引数の型変数に、run の剛定数を含む
-Ref の型を束縛する脱出である:
+片方のリージョンがまだ決まっていない型変数で、もう片方が型変数でない型のときも、
+束縛の検査が失敗すればそのメッセージで報告し、リージョンではないとは報告しない。
+regoccurs は、g の h を具体化した型変数に、その変数を含む Ref の型を束縛しようとして
+occurs check に失敗する。regescref は、Ref の第 1 引数の型変数に、run のスコーレム定数を含む
+Ref の型を束縛しようとして、脱出のエラーになる:
 
   $ cat > regoccurs.kel <<'KEL'
   > let g[h](r: Ref[h, Int32], s: Ref[Ref[h, Int32], Int32]): Unit = ()

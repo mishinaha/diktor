@@ -1,8 +1,8 @@
---emit-ir FILE は、型検査を通したプログラムを、実行せずに KIR のバイナリ(IRSpec 13 節)で FILE に書く。
---run-ir FILE は、型検査をせずに FILE を読み、検証してから KIR の評価器で実行する。
---via-ir は、同じことを 1 つのプロセスの中で、ファイルを介さずに行う。
-どの経路でも、標準出力、標準エラー、終了状態は木の評価器と同じになる。
-木の評価器と比べるコマンドは、DIKTOR_VIA_IR=0 を付けて木の評価器で走らせる。
+--emit-ir FILE は、型検査に通ったプログラムを実行せずに、KIR のバイナリ(IRSpec 13 節)として FILE に書き出す。
+--run-ir FILE は、型検査をせずに FILE を読み込み、検証してから KIR の評価器で実行する。
+--via-ir は、KIR の書き出しから実行までを、ファイルを介さずに 1 つのプロセスの中で行う。
+どの経路でも、標準出力、標準エラー、終了コードは、構文木の評価器(構文木を直接たどって評価する。--run-ir も --via-ir も付けない実行)と同じになる。
+構文木の評価器と比較するコマンドには DIKTOR_VIA_IR=0 を付け、テスト全体を KIR の経路(DIKTOR_VIA_IR=1)で実行するときにも構文木の評価器で実行されるようにする。
 
   $ cat > prog.kel <<'EOF'
   > newtype Shape = Circle(Float64) | Rect(Float64, Float64)
@@ -48,8 +48,8 @@
   1.4142135623730951
   exit: 0
 
-実行時エラーは、それまでの出力の後に同じ文面を標準エラーに書き、3 で終わる。
-型検査の警告は --emit-ir のときに出し、--run-ir は型検査をしないので出さない。
+実行時エラーのときは、それまでの出力の後に、構文木の評価器と同じメッセージを標準エラーに書き、終了コード 3 で終了する。
+型検査の警告は --emit-ir が出力し、--run-ir は型検査をしないので出力しない。
 
   $ cat > err.kel <<'EOF'
   > newtype T = A | B
@@ -77,8 +77,8 @@
   実行時エラー: ゼロ除算です
   exit: 3
 
-ハンドラ式も、KIR の評価器が木の評価器と同じに評価する。
-評価が届かないハンドラ式は、何もしない。
+ハンドラ式も、KIR の評価器は構文木の評価器と同じように評価する。
+評価されないハンドラ式は、何もしない。
 
   $ cat > h.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }
@@ -94,9 +94,9 @@
   1
   exit: 0
 
-同じ入力から書いた .kir は、何度書いても同じバイト列である。
-起点のファイルを絶対パスで書いても、単位の鍵(IRSpec 2.2 節)は変わらない。
-変わるのは、単位の元のファイルの綴り(IRSpec 2.3 節)だけである。
+同じ入力から書き出した .kir は、何度書き出しても同じバイト列になる。
+起点のファイルを絶対パスで指定しても、単位のキー(診断では `単位の鍵`)は変わらない(IRSpec 2.2 節)。
+変わるのは、単位の元のファイルのパス(IRSpec 2.3 節)だけである。
 
   $ diktor --emit-ir prog2.kir prog.kel && cmp prog.kir prog2.kir && echo same
   same
@@ -109,13 +109,13 @@
   $ diktor --emit-ir s1.kir sample/stubs.kel sample/sample.kel && diktor --emit-ir s2.kir sample/stubs.kel sample/sample.kel && cmp s1.kir s2.kir && echo same
   same
 
---emit-ir と --emit-ir-text を併せると、両方の形を書く。
+--emit-ir と --emit-ir-text を両方指定すると、バイナリとテキストの両方の形式で書き出す。
 
   $ diktor --emit-ir both.kir --emit-ir-text both.kirt prog.kel && cmp prog.kir both.kir && head -1 both.kirt
   (kir 1 0 0)
 
-型検査の誤りは今までどおり 1 で終わり、FILE を作らない。
-旗の引数を省くと使い方の誤り(64)で、FILE に書けなければ出力の誤り(74)である。
+型エラーのときは、通常の実行と同じく終了コード 1 で終了し、FILE を作らない。
+オプションの引数を省くと使い方のエラー(終了コード 64)になり、FILE に書き込めなければ出力エラー(終了コード 74)になる。
 
   $ printf 'let x: Int32 = true\n' > bad.kel
   $ diktor --emit-ir bad.kir bad.kel; echo "exit: $?"; test -e bad.kir || echo "no file"
@@ -128,7 +128,7 @@
   diktor: KIR のバイナリを書き出せません: nodir/x.kir: No such file or directory
   exit: 74
 
-開けても書き込みに失敗すれば、出力が小さくても 74 である。
+FILE を開けても書き込みに失敗すれば、出力が小さくても終了コード 74 で終了する。
 
   $ diktor --emit-ir /dev/full prog.kel; echo "exit: $?"
   diktor: KIR のバイナリを書き出せません: No space left on device
@@ -137,8 +137,8 @@
   diktor: KIR のテキストを書き出せません: No space left on device
   exit: 74
 
---run-ir は入力の .kel を取らず、ほかのモードの旗やプレリュードの旗とも併せられない(64)。
-読めないファイルは、ほかの入力と同じく 64 である。
+--run-ir は入力の .kel を受け取らず、ほかのモードのオプションやプレリュードのオプションと同時には指定できない(終了コード 64)。
+読み込めないファイルを指定すると、ほかの入力ファイルの場合と同じく、終了コード 64 で終了する。
 
   $ diktor --run-ir prog.kir prog.kel 2>&1 | head -1; diktor --run-ir prog.kir prog.kel > /dev/null 2>&1; echo "exit: $?"
   diktor: --run-ir takes no input files
@@ -155,7 +155,7 @@
   diktor: ファイルを開けません: missing.kir: No such file or directory
   exit: 64
 
---via-ir も実行のモードの旗なので、ほかのモードの旗や KIR を書く旗と併せると 64 である。
+--via-ir も実行モードを選ぶオプションなので、ほかのモードのオプションや KIR を書き出すオプションと同時に指定すると、終了コード 64 になる。
 
   $ diktor --via-ir --type-check prog.kel > /dev/null 2>&1; echo "exit: $?"
   exit: 64
@@ -163,7 +163,7 @@
   exit: 64
   no file
 
-壊れた KIR は、読み込みか検証で拒み、65 で終える。
+壊れた KIR は、読み込みか検証で拒否し、終了コード 65 で終了する。
 何も実行しないので、標準出力は空である。
 
   $ cp prog.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=1 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
@@ -188,19 +188,19 @@
   diktor: KIR を読み込めません: 位置 0: マジックが KIR のものではありません
   exit: 65
 
-読み込みは通るが、検証で拒む例。
-単位の鍵の main を書き換えると、単位の列の形の検査に落ちる。
+次は、読み込みには通るが、検証で拒否する例である。
+単位のキー main を書き換えると、単位の並び(診断では `単位の列`)の形式の検査でエラーになる。
 
   $ printf 'let f(n: Int32): Int32 = n * 2\nlet x: Int32 = 1\n' > small.kel
   $ diktor --no-prelude --emit-ir small.kir small.kel && printf '\164' | dd of=small.kir bs=1 seek=26 conv=notrunc 2> /dev/null && diktor --run-ir small.kir; echo "exit: $?"
   diktor: KIR の検証に失敗しました: 単位の列が builtin、prelude で始まり main で終わる形になっていません
   exit: 65
 
-検証が名前と個数から確かめる規則の例。
-次の試験は、--no-prelude で書いた .kir の 1 バイトを書き換え、検証の拒否を確かめる。
-書き換える位置は、書き手の出す表と式の並びと、起点のファイルの名前の長さで決まる。
---no-prelude なので、位置はプレリュードの中身によらない。
-ファイルの名前を変えると、元のファイルの綴りの長さの分だけ位置が動く。
+次は、検証器が名前と個数から検査する規則の例である。
+以下のテストは、--no-prelude で書き出した .kir の 1 バイトを書き換え、検証で拒否されることを確かめる。
+書き換える位置は、ライタが書き出す表と式の順序と、起点のファイルの名前の長さで決まる。
+--no-prelude を付けているので、位置はプレリュードの内容によらない。
+ファイルの名前を変えると、元のファイルのパスの長さが変わった分だけ位置がずれる。
 
   $ cat > vrules.kel <<'EOF'
   > type class C1[A] { val a: (A) => Int32 }
@@ -222,23 +222,23 @@
   exit: 0
   $ patch_kir() { cp "$1" m.kir && printf "$3" | dd of=m.kir bs=1 seek="$2" conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"; }
 
-組み込みの値は、付録 A.4 の記号を付録 A.4 の順に並べたものだけである。
-builtin/Array.each を builtin/Array.fach に書き換えると、文字列の表の並びは保たれるので読み込みは通り、検証が拒む。
+組み込みの値は、付録 A.4 のシンボル(診断では `記号`)を付録 A.4 の順に並べたものに限る。
+builtin/Array.each を builtin/Array.fach に書き換えると、文字列の表の順序は保たれるので読み込みには通り、検証器が拒否する。
 
   $ o=$(grep -boa 'Array\.each' vrules.kir | cut -d: -f1) && patch_kir vrules.kir $((o + 6)) '\146'
   diktor: KIR の検証に失敗しました: 大域の表の先頭が、付録 A の組み込みの値の並びと合いません
   exit: 65
 
 runtime の印は、プレリュードの Console の write にだけ付く。
-利用者のエフェクト main/Out の write に印を付けると拒む。
+ユーザのエフェクト main/Out の write に印を付けると、検証器が拒否する。
 
   $ patch_kir vrules.kir 970 '\002'
   diktor: KIR の検証に失敗しました: エフェクト main/Out の操作 write の runtime の印が規則と合いません
   exit: 65
 
-スロットは、束縛の有効範囲の中でだけ読める。
-1 つ目は let の初期化式が、後の let で束縛するスロットを読む。
-2 つ目は match の 2 つ目の節が、1 つ目の節のパターンで束縛したスロットを読む。
+スロットは、束縛のスコープ(診断では `有効範囲`)の中でだけ読める。
+1 つ目は、let の初期化式が、後の let で束縛するスロットを読む場合である。
+2 つ目は、match の 2 つ目の節が、1 つ目の節のパターンで束縛したスロットを読む場合である。
 
   $ patch_kir vrules.kir 1233 '\002'
   diktor: KIR の検証に失敗しました: 関数 main/f: スロット 2 を束縛の有効範囲の外で読みます
@@ -247,9 +247,9 @@ runtime の印は、プレリュードの Console の write にだけ付く。
   diktor: KIR の検証に失敗しました: 関数 main/m: スロット 1 を束縛の有効範囲の外で読みます
   exit: 65
 
-method と opcall の辞書は、そのクラスの辞書である。
-構造的な辞書は builtin/Eq の辞書で、その項目も builtin/Eq の辞書である。
-組み込みのインスタンスは、付録 A.3 の組だけである。
+method と opcall に渡す辞書は、そのクラスの辞書でなければならない。
+構造的な辞書は builtin/Eq の辞書であり、その項目も builtin/Eq の辞書でなければならない。
+組み込みのインスタンスは、付録 A.3 にあるクラスと型の組に限る。
 
   $ patch_kir vrules.kir 1310 '\001'
   diktor: KIR の検証に失敗しました: 関数 main/r: クラス main/C1 の辞書の位置に、クラス main/C2 のインスタンスがあります
@@ -268,14 +268,14 @@ method と opcall の辞書は、そのクラスの辞書である。
   exit: 65
 
 インスタンスは、クラスの各メソッドをちょうど 1 回ずつ実装する。
-C1 のインスタンスのクラスを、メソッドが 2 つある C2 に書き換えると、C2 の c の実装が無い。
+C1 のインスタンスのクラスを、メソッドが 2 つある C2 に書き換えると、C2 の c の実装がなくなる。
 
   $ patch_kir vrules.kir 1030 '\012'
   diktor: KIR の検証に失敗しました: インスタンス main/instance:C1[T] がクラス main/C2 のメソッド c を実装しません
   exit: 65
 
-dictapp の頭が大域なら、渡す辞書の数は、その大域が受け取る数と同じである。
-1 つ目は extern の大域が受け取る数を 1 から 2 に、2 つ目は頭を種類 fn の大域に書き換える。
+dictapp が適用する値がグローバル(診断では `大域`)なら、渡す辞書の数は、そのグローバルが受け取る辞書の数と同じでなければならない。
+1 つ目は extern のグローバルが受け取る辞書の数を 1 から 2 に書き換え、2 つ目は適用する値を種類 fn のグローバルに書き換える。
 
   $ patch_kir vrules.kir 1083 '\002'
   diktor: KIR の検証に失敗しました: 関数 main/r: main/__int32_neg に渡す辞書の数 1 が、受け取る数 2 と違います
@@ -284,10 +284,10 @@ dictapp の頭が大域なら、渡す辞書の数は、その大域が受け取
   diktor: KIR の検証に失敗しました: 関数 main/r: 辞書を受け取らない大域 main/f に辞書を渡します
   exit: 65
 
-記号は 単位の鍵/名前 の形で、単位の鍵は単位の表にある。
-次の試験は、記号の 1 バイトを書き換える。
-文字列の表の並びが保たれる位置なので、読み込みは通り、検証が拒む。
-1 つ目は大域の記号 main/z の / を 0 に、2 つ目は型の記号 main/W の / を 0 に、3 つ目は main/W の単位の鍵を maio に書き換える。
+シンボルは `単位の鍵/名前` の形式で、その単位のキーは単位の表になければならない。
+以下のテストは、シンボルの 1 バイトを書き換える。
+文字列の表の順序が保たれる位置を選んでいるので、読み込みには通り、検証器が拒否する。
+1 つ目はグローバルのシンボル main/z の / を 0 に、2 つ目は型のシンボル main/W の / を 0 に、3 つ目は main/W の単位のキーを maio に書き換える。
 
   $ printf 'newtype W = W(Int32)\nlet z = W(5)\n' > w.kel && diktor --no-prelude --emit-ir w.kir w.kel && diktor --run-ir w.kir; echo "exit: $?"
   exit: 0
@@ -303,17 +303,17 @@ dictapp の頭が大域なら、渡す辞書の数は、その大域が受け取
   diktor: KIR の検証に失敗しました: 型の記号 maio/W の単位の鍵 maio が単位の表にありません
   exit: 65
 
-コンストラクタのフィールドの数は任意の u32 で書けるが、construct が書くフィールドの数と違えば拒む。
-w.kir の types の節の最後のバイトが W のフィールドの数である。
-そのバイトを 5 バイトの 2^32 - 1 に置き換え、節の大きさを 23 から 27 に直す。
-検証はフィールドの数の大きさの領域を確保しないので、メモリを使わずに拒む。
+コンストラクタのフィールド数には任意の u32 を書けるが、construct が書くフィールド数と違えば検証器が拒否する。
+w.kir の types セクションの最後のバイトが W のフィールド数である。
+そのバイトを、2^32 - 1 を表す 5 バイトに置き換え、セクションのサイズを 23 から 27 に書き換える。
+検証器はフィールド数に比例する大きさの領域を確保しないので、メモリを使わずに拒否する。
 
   $ { head -c 617 w.kir; printf '\033'; head -c 640 w.kir | tail -c +619; printf '\377\377\377\377\017'; tail -c +642 w.kir; } > m.kir && diktor --run-ir m.kir; echo "exit: $?"
   diktor: KIR の検証に失敗しました: 関数 main/z: コンストラクタ W のフィールドが足りません
   exit: 65
 
 runtime の印の付いた操作を持つエフェクトは、handle できない。
-Console だけを宣言するプレリュードに差し替え、利用者のエフェクト W の handle をプレリュードの Console の handle に書き換える。
+プレリュードを Console だけを宣言するファイルに差し替え、ユーザのエフェクト W の handle を、プレリュードの Console の handle に書き換える。
 
   $ printf 'pub effect Console = { write: (String) => Int32 }\n' > pconsole.kel
   $ cat > hw.kel <<'EOF'
@@ -326,10 +326,10 @@ Console だけを宣言するプレリュードに差し替え、利用者のエ
   diktor: KIR の検証に失敗しました: 関数 main/g: runtime の印の付いた操作を持つエフェクト prelude/Console を handle します
   exit: 65
 
-ハンドラ式は、エフェクトのすべての操作の節を持たなくても検証を通る。
-そのエフェクトの操作は、節の無い操作でも、内側からいちばん近いそのエフェクトのハンドラが受け取る。
-どの節にも一致しなければ実行時の誤り(3)であり、外側のハンドラへ送り直さない(IRSpec 9.4 節)。
-内側のハンドラの b の節の操作を a に書き換えると、内側のハンドラは a の節を 2 つ持ち、b の節を持たない。
+ハンドラ式は、エフェクトのすべての操作の節を持たなくても検証に通る。
+そのエフェクトの操作は、節のない操作でも、最も内側にあるそのエフェクトのハンドラが受け取る。
+どの節にも一致しなければ実行時エラー(終了コード 3)になり、外側のハンドラには渡さない(IRSpec 9.4 節)。
+内側のハンドラの b の節の操作を a に書き換えると、内側のハンドラは a の節を 2 つ持ち、b の節を持たなくなる。
 
   $ cat > two.kel <<'EOF'
   > effect Two = { a: () => Int32, b: () => Int32 }
@@ -343,9 +343,9 @@ Console だけを宣言するプレリュードに差し替え、利用者のエ
   実行時エラー: handle のどの節にも一致しません: Two.b()
   exit: 3
 
-UTF-8 でない名前を持つプログラムは KIR を持たず、テキストとバイナリのどちらを求めても、何も書かずに 64 で終える。
-2 つ目の起点のファイルを UTF-8 でない名前のディレクトリに置くと、そこから import した単位の鍵はディレクトリの綴りを含む(IRSpec 2.2 節)。
-木の評価器は、このプログラムをそのまま実行する。
+UTF-8 でない名前を含むプログラムは KIR で表せないので、テキストとバイナリのどちらを指定しても、何も書き出さずに終了コード 64 で終了する。
+2 つ目の起点のファイルを UTF-8 でない名前のディレクトリに置くと、そこから import したファイルの単位のキーは、ディレクトリの名前を含む(IRSpec 2.2 節)。
+構文木の評価器は、このプログラムをそのまま実行する。
 
   $ d=$(printf 'd\377') && mkdir "$d" && printf 'let a = 1\n' > ua.kel && printf 'from "./w" import { w }\nlet b = w\n' > "$d/b.kel" && printf 'pub let w: Int32 = 3\n' > "$d/w.kel"
   $ d=$(printf 'd\377'); DIKTOR_VIA_IR=0 diktor ua.kel "$d/b.kel"; echo "exit: $?"
@@ -362,12 +362,12 @@ UTF-8 でない名前を持つプログラムは KIR を持たず、テキスト
   diktor: KIR を符号化できません: UTF-8 でない名前があります: d\255/w.kel
   exit: 64
 
-ノードの深さが入れ子の限度 N_nest = 100,000(IRSpec 13.9 節)を超えるプログラムは KIR を持たない。
-書き手は、テキストもバイナリも書かずに 1 で終え、--via-ir も評価を始めずに 1 で終える。
+ノードの深さが入れ子の上限 N_nest = 100,000(IRSpec 13.9 節)を超えるプログラムは、KIR で表せない。
+ライタはテキストもバイナリも書き出さずに終了コード 1 で終了し、--via-ir も評価を始めずに終了コード 1 で終了する。
 n 段の `1 + (...)` の式は、深さ n + 1 のノードを持つ。
-99,999 段の式は限度ちょうどの深さで、書き出して実行できる。
-100,000 段の式は限度を超える。
-木の評価器は、どちらもそのまま実行する。
+99,999 段の式は深さが上限ちょうどで、書き出して実行できる。
+100,000 段の式は上限を超える。
+構文木の評価器は、どちらもそのまま実行する。
 
   $ awk 'BEGIN { s = "1"; for (i = 0; i < 99999; i++) s = "1 + (" s ")"; print "let x = " s; print "echoln(show(x))" }' > nest_max.kel
   $ awk 'BEGIN { s = "1"; for (i = 0; i < 100000; i++) s = "1 + (" s ")"; print "let x = " s; print "echoln(show(x))" }' > nest_over.kel
@@ -392,12 +392,12 @@ n 段の `1 + (...)` の式は、深さ n + 1 のノードを持つ。
   diktor: KIR を書き出せません: 処理系の限度: KIR の書き出しで入れ子が深すぎます
   exit: 1
 
-作る場所の鎖が輪になる `handlebody` の関数は持ち主を持たず、その中の `resume` は拒否する(IRSpec 13.8 節の 9)。
+生成箇所の連鎖が循環する `handlebody` の関数は持ち主(その `resume` が再開する継続を受け取る操作節)を持たないので、検証器はその中の `resume` を拒否する(IRSpec 13.8 節の 9)。
 cyc.kel の操作節 f$h0.op.ask は f$h1.body を作り、f$h1.body は f$h2.body を、f$h2.body は f$h3.body を作る。
 f$h2.body は `resume` を含み、その持ち主は操作節 f$h0.op.ask である。
-操作節が作る関数を f$h3.body に、f$h2.body が作る関数を f$h1.body に書き換えると、
-f$h1.body と f$h2.body は互いを作り、どちらの鎖も操作節に届かない。
-検証は輪をたどり続けずに、65 で終える。
+ここでは、操作節が作る関数を f$h3.body に、f$h2.body が作る関数を f$h1.body に書き換える。
+すると、f$h1.body と f$h2.body は互いを作り、どちらの連鎖も操作節に達しない。
+検証器は循環をたどり続けることなく拒否し、終了コード 65 で終了する。
 
   $ cat > cyc.kel <<'EOF'
   > effect Ask = { ask: () => Int32 }

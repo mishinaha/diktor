@@ -4,7 +4,7 @@ import 文と、ファイルの名前空間。
 
 ## 字句と構文
 
-import の直後の { は改行を区切りにしない括弧で、--dump-tokens では {rec と出る。
+import の直後の { は、中の改行を区切りにしない括弧であり、--dump-tokens では {rec と出力される。
 波括弧の中の改行は区切り(<NL>)にならない:
 
   $ cat > nl2.kel <<'KEL'
@@ -25,7 +25,7 @@ import の直後の { は改行を区切りにしない括弧で、--dump-tokens
      4  }
      5  <EOF>
 
---dump-ast は import 文を宣言の前に出す。import の後の ;; と、from と import の間の改行は通る:
+--dump-ast は import 文を宣言より前に出力する。import の後の ;; と、from と import の間の改行は受理する:
 
   $ printf 'from "./a" import base;; from "./b" import { C, d }\nlet y = 1\n' > semi.kel
   $ diktor --dump-ast semi.kel
@@ -38,8 +38,8 @@ import の直後の { は改行を区切りにしない括弧で、--dump-tokens
   $ diktor --dump-ast nl2.kel
   (import "./a" (A) (b))
 
-名前は 2 段まで。ファイルの途中、トップレベルの with の後ろの import、空の {}、波括弧の中の
-カンマの無い並びは、構文エラーになる:
+import する名前に書ける . は 1 個までで、D.E.f のように 2 個以上書くと構文エラーになる。
+ファイルの途中の import、トップレベルの with の後ろの import、空の {}、波括弧の中でカンマを省いた並びも構文エラーになる:
 
   $ printf 'from "./lib/leaf" import D.E.f\n' > deep.kel
   $ diktor deep.kel
@@ -81,8 +81,8 @@ from と import は予約語である:
 
 ## ブロックの中の pub
 
-ブロックの中の let と let rec に pub を付けると構文エラーになる。トップレベルの with より後ろの
-文もブロックなので、同じく拒否する。位置は拒否した宣言の始まり(pub の位置)を指す:
+ブロックの中の let と let rec に pub を付けると構文エラーになる。
+トップレベルの with より後ろの文もブロックなので、同じく拒否する。診断の位置は、拒否した宣言の先頭(pub の位置)である:
 
   $ printf 'let z = { pub let x: Int32 = 1; x }\n' > pb1.kel
   $ diktor pb1.kel
@@ -95,9 +95,9 @@ from と import は予約語である:
 
 ## インスタンスの本体の pub
 
-type instance の本体の let と let rec に付けた pub は構文エラーにする。位置は type instance の
-type の位置で、pub のメソッドの名前を文面に出す。pi1 は注釈が完全で本体が純粋な
-pub let の形で、これも拒否する:
+type instance の本体の let と let rec に pub を付けると構文エラーになる。
+診断の位置は type instance の type の位置で、メッセージには pub を付けたメソッドの名前が入る。
+pi1 は、注釈がすべてそろい、本体がエフェクトを起こさない pub let であり、これも拒否する:
 
   $ cat > pi1.kel <<'KEL'
   > type class Describe[A] {
@@ -112,12 +112,12 @@ pub let の形で、これも拒否する:
   pi1.kel:4:1: 構文エラー: type instance の本体の let には pub を付けられません(メソッドはクラスを import して使います): describe
   [2]
 
-pi2 は module の中のインスタンスの pub let rec で、位置は module の中の type(3:3)である。
-pi3 は 2 つのメソッドの 2 つ目にだけ pub を付けた形で、名前 second を挙げる。pi5 は
-2 つのメソッドの両方に pub を付けた形で、最初の pub のメソッドの名前 first を挙げる。
-pi6 は本体に pub の無い pub type instance で、インスタンスの pub の診断を出す。pi4 は
-pub type instance の本体に pub を付けた形で、pi6 の診断ではなく本体の pub の診断を出す
-(位置は type の 2:5):
+pi2 は module の中のインスタンスに pub let rec を書いた形で、診断の位置は module の中の type(3:3)である。
+pi3 は 2 つのメソッドのうち 2 つ目にだけ pub を付けた形で、診断は名前 second を挙げる。
+pi5 は 2 つのメソッドの両方に pub を付けた形で、診断は最初に pub を付けたメソッドの名前 first を挙げる。
+pi6 は本体に pub のない pub type instance で、インスタンスに付けた pub の診断が出る。
+pi4 は pub type instance の本体にも pub を付けた形で、pi6 の診断ではなく、本体の pub の診断が出る。
+pi4 の診断の位置は type の位置(2:5)である:
 
   $ cat > pi2.kel <<'KEL'
   > pub newtype Box(Int32)
@@ -171,9 +171,9 @@ pub type instance の本体に pub を付けた形で、pi6 の診断ではな�
   pi6.kel:2:1: 構文エラー: type instance に pub は付けられません
   [2]
 
-pi/lib.kel のインスタンスは pub を持たない。pi/main.kel はクラス Describe を import し、
-メソッドを名前 describe で使える。pi/main2.kel のように describe を import に並べると、
-公開の宣言が無いと報告する:
+pi/lib.kel のインスタンスには pub を付けていない。
+pi/main.kel はクラス Describe を import するだけで、メソッドを describe という名前で使える。
+pi/main2.kel のように describe も import に並べると、その名前の公開の宣言がないというエラーになる:
 
   $ mkdir -p pi
   $ cat > pi/lib.kel <<'KEL'
@@ -201,7 +201,7 @@ pi/lib.kel のインスタンスは pub を持たない。pi/main.kel はクラ�
 
 ## 読み込み
 
-import の循環は、循環を閉じた import 文の位置で報告し、循環に入っているファイルだけを並べる。
+import の循環は、循環を閉じた import 文の位置で報告し、循環に含まれるファイルだけを並べる。
 自分自身の import も循環である:
 
   $ cat > cyc_a.kel <<'KEL'
@@ -228,8 +228,8 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   ! self.kel:1:1: import エラー: import が循環しています: self.kel → self.kel
   [1]
 
-パスの形の誤りと、見つからない import 先。見つからないときは、探したファイルを括弧の中に出す。
-表示するパスは、import を書いたファイルの位置から . と .. を相殺した綴りである:
+パスの書き方のエラーと、import 先が見つからない場合。見つからないときは、探したファイルを括弧の中に示す。
+表示するパスは、import を書いたファイルの位置を基準にして、. と .. を取り除いたものである:
 
   $ printf 'from "./nothere" import x\n' > nf.kel
   $ diktor nf.kel
@@ -268,9 +268,9 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   ! mix.kel:1:1: import エラー: import のパスの ./ と ../ は混ぜられません: ./../b
   [1]
 
-./ と ../ で始まらないパスは検索パス(--import-path)の中を探す。検索パスの既定は空で、
-複数のディレクトリで見つかれば誤りにする。候補は --import-path を書いた順に並べる。
-同じファイルを別の綴りの検索パスで見つけたものは 1 つと数える:
+./ でも ../ でも始まらないパスは、検索パス(--import-path)の中を探す。検索パスの既定は空である。
+複数のディレクトリで見つかればエラーにし、候補を --import-path を書いた順に並べる。
+同じファイルを、表記の違う複数の検索パスで見つけたときは、1 つと数える:
 
   $ mkdir -p sp/std alt/std
   $ printf 'pub let x: Int32 = 1\n' > sp/std/list.kel
@@ -286,7 +286,7 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
   ! usesp.kel:1:1: import エラー: import 先が検索パスに複数あります: std/list(alt/std/list.kel、sp/std/list.kel)
   [1]
 
-コマンド行で連結したファイルは import できない。import 先が開けないときは終了コード 64 にする:
+コマンド行で連結したファイルは import できない。import 先を開けないときは終了コード 64 で終了する:
 
   $ printf 'pub let x: Int32 = 1\n' > ca.kel
   $ printf 'from "./ca" import x\n' > cb.kel
@@ -301,9 +301,9 @@ import の循環は、循環を閉じた import 文の位置で報告し、循�
 
 ## ファイルの名前空間
 
-型を import するとコンストラクタも入る。import 先の非公開の補助関数は、import した側の同名の
-関数と衝突せず、それぞれ自分のファイルの helper を使う(4.0 と ok!)。非公開の補助関数は、
-import した側からは見えない:
+型を import すると、そのコンストラクタも使えるようになる。
+import 先の非公開の補助関数は、import した側の同名の関数と衝突せず、それぞれが自分のファイルの helper を使う(出力は 4.0 と ok!)。
+非公開の補助関数は、import した側からは見えない:
 
   $ mkdir -p ok/lib
   $ cat > ok/lib/shape.kel <<'KEL'
@@ -328,7 +328,7 @@ import した側からは見えない:
   ! priv.kel:2:18: 型エラー: 未束縛の変数: helper
   [1]
 
-ダイヤモンドの import では、共有のファイルを 1 回だけ初期化し、依存される側から順に初期化する。
+ダイヤモンド形の import では、共有されるファイルを 1 回だけ初期化し、依存される側のファイルから順に初期化する。
 from と import の間で改行してもよい:
 
   $ mkdir -p dia/lib
@@ -360,7 +360,7 @@ from と import の間で改行してもよい:
   init main
   23
 
-import を書いた順が初期化の順を決める:
+初期化の順序は、import を書いた順で決まる:
 
   $ cat > dia/main2.kel <<'KEL'
   > from "./lib/right" import r
@@ -375,7 +375,7 @@ import を書いた順が初期化の順を決める:
   init main
   23
 
-公開されていない名前と存在しない名前。pub の無い module は import できない:
+公開されていない名前と、存在しない名前の import。pub のない module は import できない:
 
   $ mkdir -p pv/lib
   $ cat > pv/lib/a.kel <<'KEL'
@@ -396,9 +396,9 @@ import を書いた順が初期化の順を決める:
   ! m3.kel:1:23: import エラー: ./lib/a の Inner は公開されていません
   [1]
 
-名前の衝突。2 つの import が別々の宣言を同じ名前で束縛すると誤りになる。シンボリックリンクを
-通した別の綴りで同じ宣言を重ねて束縛するのは構わない。import した名前と同じ名前をトップレベルで
-宣言することと、import した型のコンストラクタと同じ名前のコンストラクタを宣言することも誤りになる:
+名前の衝突。2 つの import が別々の宣言を同じ名前で束縛するとエラーになる。
+シンボリックリンクを通した別のパスで、同じ宣言を重ねて束縛するのはエラーにならない。
+import した名前と同じ名前をトップレベルで宣言することと、import した型のコンストラクタと同じ名前のコンストラクタを宣言することもエラーになる:
 
   $ mkdir -p cl/lib
   $ printf 'pub let f(x: Int32): Int32 = x\npub newtype T = Leaf\n' > cl/lib/a.kel
@@ -420,8 +420,8 @@ import を書いた順が初期化の順を決める:
   ! m5.kel:2:1: 型エラー: コンストラクタ Leaf は import した型 T のコンストラクタと同じ名前です
   [1]
 
-コンストラクタの一意性はファイルの中で決まる。lib/a.kel と lib/b.kel はどちらも Leaf を持つが、
-b の型を import しなければ衝突しない。2 つのファイルを連結すると 1 個のファイルなので衝突する:
+コンストラクタの名前は、ファイルごとに一意であればよい。lib/a.kel と lib/b.kel はどちらも Leaf を持つが、b の型を import しなければ衝突しない。
+2 つのファイルをコマンド行で連結すると 1 個のファイルとして扱うので、衝突する:
 
   $ printf 'from "./lib/a" import T\nfrom "./lib/b" import f\nlet t: T = Leaf\n' > cl/m4.kel
   $ (cd cl && diktor --type-check m4.kel)
@@ -430,7 +430,7 @@ b の型を import しなければ衝突しない。2 つのファイルを連�
   ! lib/b.kel:2:1: 型エラー: コンストラクタ Leaf が二重に宣言されています(コンストラクタ名はファイルの中で一意)
   [1]
 
-別々のファイルの同じ名前の型は別の型である。1 つの診断に並ぶときは、ファイルを添えて区別する:
+別々のファイルで宣言した同じ名前の型は、別の型である。1 つの診断に両方が現れるときは、ファイル名を添えて区別する:
 
   $ printf 'pub newtype T = T1\npub let v: T = T1\n' > cl/lib/t.kel
   $ printf 'from "./lib/t" import v\nnewtype T = T2\nlet w: T = v\n' > cl/m6.kel
@@ -440,9 +440,9 @@ b の型を import しなければ衝突しない。2 つのファイルを連�
 
 ## インスタンスと孤児規則
 
-インスタンスは import で指定しなくても見える。インスタンスはクラスか型を宣言したファイルにだけ
-書け、標準環境のクラスと標準環境の型の組は標準環境だけが持つ。標準環境は Eq[List[_]] と
-Eq[Option[_]] を持つ:
+インスタンスは、import で指定しなくても見える。
+インスタンスは、クラスか型を宣言したファイルにだけ書ける。クラスも型も標準環境のものであるインスタンスは、標準環境だけが持てる。
+標準環境は Eq[List[_]] と Eq[Option[_]] を持つ:
 
   $ mkdir -p or/lib
   $ cat > or/lib/p.kel <<'KEL'
@@ -468,8 +468,8 @@ Eq[Option[_]] を持つ:
 
 ## ロード時のエフェクト
 
-import したファイルのトップレベルも、起点と同じ閉じた行で検査する。診断の位置は import した
-ファイルを指す:
+import したファイルのトップレベルも、起点と同じ閉じた行で検査する。
+診断の位置は、import したファイルの中を指す:
 
   $ mkdir -p fx/lib
   $ printf 'perform print("x")\npub let v: Int32 = 1\n' > fx/lib/bad.kel
@@ -480,11 +480,11 @@ import したファイルのトップレベルも、起点と同じ閉じた行�
 
 ## 宣言の種類
 
-型エイリアス、エフェクト、クラス、pub module を import できる。クラスのメソッドは修飾名でも
-非修飾名でも呼べ、import した側の型にインスタンスを書ける。module の値と型は修飾名で引き、
-module と同名の型(コンパニオン)は module 名で引ける。module の中の非公開の値は見えない。
-import した側の --type-check は起点の束縛だけを出し、import したファイルの警告には
-ファイル名を前置する:
+型エイリアス、エフェクト、クラス、pub module を import できる。
+クラスのメソッドは修飾名でも修飾しない名前でも呼び出せ、import した側で宣言した型にインスタンスを書ける。
+module の値と型は修飾名で参照し、module と同名の型(コンパニオン型)は module 名だけで参照できる。module の中の非公開の値は見えない。
+import した側の --type-check は起点の束縛だけを表示する。
+import したファイルの警告には、先頭にファイル名を付ける:
 
   $ mkdir -p kind/lib
   $ cat > kind/lib/k.kel <<'KEL'
@@ -531,7 +531,7 @@ import した側の --type-check は起点の束縛だけを出し、import し�
   $ (cd kind && diktor sec.kel 2>&1 | tail -1)
   ! sec.kel:2:16: 型エラー: 未束縛の変数: M.secret
 
-import M.n は module M の公開の宣言 n だけを束縛し、M 自身は束縛しない:
+import M.n は module M の公開の宣言 n だけを束縛し、M 自体は束縛しない:
 
   $ printf 'from "./lib/k" import M.get\nlet g = get\nlet h = M.get\n' > kind/mem.kel
   $ (cd kind && diktor mem.kel 2>&1 | tail -1)
@@ -540,7 +540,7 @@ import M.n は module M の公開の宣言 n だけを束縛し、M 自身は束
   $ (cd kind && diktor --type-check mem2.kel 2>&1 | tail -1)
   g : Int32
 
-連結したファイル群は 1 個の起点で、どのファイルの先頭の import も全体から見える:
+コマンド行で連結したファイルは全体で 1 個の起点になり、どのファイルの先頭に書いた import も全体から見える:
 
   $ printf 'pub let y: Int32 = 2\n' > cy.kel
   $ printf 'pub let w: Int32 = 3\n' > cw.kel
@@ -550,8 +550,8 @@ import M.n は module M の公開の宣言 n だけを束縛し、M 自身は束
   x0 : Int32
   z : Int32
 
-module と同じ名前の型(コンパニオン)は、import した型と同じ名前にできない。別々のファイルは、
-同じ名前の extern を宣言できる:
+module と同じ名前の型(コンパニオン型)には、import した型と同じ名前を付けられない。
+同じ名前の extern は、別々のファイルでそれぞれ宣言できる。import した extern と同じ名前を module の中で宣言するとエラーになる:
 
   $ mkdir -p co/lib
   $ printf 'pub newtype C = C1\n' > co/lib/c.kel
@@ -569,8 +569,8 @@ module と同じ名前の型(コンパニオン)は、import した型と同じ�
   ! m3.kel:2:12: 型エラー: module N の sqrt はトップレベルの sqrt と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
 
-公開されるのは pub の宣言だけである。pub の束縛の後ろに同名の非公開の束縛を置いても、
-import されるのは pub の束縛である:
+公開されるのは pub を付けた宣言だけである。
+pub の束縛の後ろに同名の非公開の束縛を置いても、import されるのは pub の束縛である:
 
   $ mkdir -p pubv/lib
   $ printf 'pub let x: Int32 = 1\nlet x: String = "private"\n' > pubv/lib/a.kel
@@ -578,7 +578,7 @@ import されるのは pub の束縛である:
   $ (cd pubv && diktor --type-check m1.kel)
   y : Int32
 
-module を import すると、コンパニオン型の名前も型として束縛する。同じ名前の型は宣言できない:
+module を import すると、コンパニオン型の名前も型として束縛される。そのため、同じ名前の型は宣言できない:
 
   $ mkdir -p cmp/lib
   $ printf 'pub module M { pub newtype M = Ma(Int32) }\n' > cmp/lib/a.kel
@@ -587,8 +587,8 @@ module を import すると、コンパニオン型の名前も型として束�
   ! m1.kel:2:1: 型エラー: M は import した名前と同じです
   [1]
 
-import したクラスのメソッドの非修飾名は、値の名前として数える。同名のメソッドを持つ 2 つの
-クラスは、同じファイルで宣言できないのと同じく、両方を import できない:
+import したクラスのメソッドの修飾しない名前は、値の名前として扱う。
+同名のメソッドを持つ 2 つのクラスは、同じファイルで宣言できないのと同じく、両方を import することもできない:
 
   $ mkdir -p mth/lib
   $ printf 'pub type class P[A] { val pp: (A) => String }\n' > mth/lib/a.kel
@@ -598,8 +598,8 @@ import したクラスのメソッドの非修飾名は、値の名前として�
   ! m1.kel:2:23: import エラー: pp は ./lib/a からも import しています(別の宣言です)
   [1]
 
-シンボリックリンクの下の .. は、綴りの上で相殺すると別のファイルを指すことがある。そのときは
-相殺しない綴りで報告する:
+シンボリックリンクの下にある .. は、パスの表記の上で取り除くと別のファイルを指すことがある。
+そのときは、.. を取り除かないパスで報告する:
 
   $ mkdir -p sym/real/deep/lib
   $ printf 'pub let v: Int32 = "s"\n' > sym/real/deep/b.kel
@@ -611,7 +611,7 @@ import したクラスのメソッドの非修飾名は、値の名前として�
   ! lib/../b.kel:1:9: 型エラー: 注釈された型を満たしません(型が一致しません: Int32 と String)
   [1]
 
-同じファイルに同じ名前の pub の値が 2 つあるときは、後の宣言が前を覆うので、後の宣言を import する:
+同じファイルに同じ名前の pub の値が 2 つあるときは、後の宣言が前の宣言を隠すので、後の宣言が import される:
 
   $ mkdir -p twice/lib
   $ printf 'pub let x: Int32 = 1\npub let x: String = "second"\n' > twice/lib/a.kel
@@ -619,8 +619,8 @@ import したクラスのメソッドの非修飾名は、値の名前として�
   $ (cd twice && diktor --type-check m1.kel)
   y : String
 
-import した型クラスのメソッドの名前は値の名前として数えるので、同じ名前の値を別の import で
-束縛することはできない。トップレベルで宣言した値は、メソッドの修飾しない名前を覆える:
+import した型クラスのメソッドの名前は値の名前として扱うので、同じ名前の値を別の import で束縛することはできない。
+トップレベルで宣言した値は、メソッドの修飾しない名前を隠せる:
 
   $ printf 'pub let pp(x: Int32): String = "value"\n' > mth/lib/v.kel
   $ printf 'from "./lib/a" import P\nfrom "./lib/v" import pp\n' > mth/m2.kel

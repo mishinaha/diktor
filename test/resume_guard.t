@@ -24,7 +24,7 @@
   $ diktor ifcond.kel
   true
 
-本体の中の 2 つのガードで resume を呼ぶ形は型検査を通り、2 回目の再開が
+本体の中の 2 つのガードで resume を呼ぶ形は型検査に通り、2 回目の再開が
 実行時エラーになる:
 
   $ cat > matchguard2.kel <<'KEL'
@@ -74,7 +74,7 @@
   $ diktor guardhandle.kel
   true
 
-節本体が resume そのものの節でも、resume は引数を先に評価する。引数の中の
+本体が resume の呼び出しだけの節でも、resume は引数を先に評価する。引数の中の
 resume が継続を再開し、継続の出力が見えた後で、外側の resume が実行時
 エラーになる:
 

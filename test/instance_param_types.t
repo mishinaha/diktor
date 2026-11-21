@@ -1,14 +1,14 @@
-インスタンスのメソッドの仮引数のうち、型注釈のない変数と _ の型は、クラス宣言の署名の
-対応する引数の型に決まる(LangSpec §12.2)。let の値束縛で書いた無名関数の仮引数も、その
-仮引数がすべて型注釈のない変数か _ であるときは同じである。処理系は本体を推論する前にその型を仮引数に渡すので、本体の数値リテラルの型と
-網羅性の検査はその型を見る。let rec の値束縛の形(let rec x = fn(...) => ...)の仮引数には
-渡さない。返り値の型と最外の行は渡さず、推論の後の包摂で署名と照らす。
+インスタンスのメソッドの仮引数のうち、型注釈のない変数と _ の型は、クラス宣言のシグネチャで対応する位置にある引数の型に決まる(LangSpec §12.2)。
+let の値束縛に書いた無名関数の仮引数も、すべての仮引数が型注釈のない変数か _ であれば、同じように決まる。
+処理系は本体を推論する前にその型を仮引数に与えるので、本体の数値リテラルの型と網羅性の検査の結果は、その型によって決まる。
+let rec の値束縛(let rec x = fn(...) => ...)の仮引数には、シグネチャの型を与えない。
+返り値の型と最も外側の行も与えず、推論の後の包摂の検査でシグネチャと比べる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-署名の引数が Never なので、仮引数 n の型は Never に決まり、n match {} は網羅的である。
-関数束縛(D1)、let の値束縛の無名関数(D2)、let rec の関数束縛(D3)の 3 つの形で書き、
---strict-exhaustive でも警告を出さない:
+シグネチャの引数の型が Never なので、仮引数 n の型は Never に決まり、n match {} は網羅的である。
+関数束縛(D1)、let の値束縛の無名関数(D2)、let rec の関数束縛(D3)の 3 つの形で書く。
+どれも、--strict-exhaustive を付けても警告が出ない:
 
   $ cat > insnever.kel <<'KEL'
   > type class D1[A] { val d1: (A) => String }
@@ -20,8 +20,8 @@
   > KEL
   $ diktor --strict-exhaustive --type-check insnever.kel
 
-let rec の値束縛の形で書いた d3 の仮引数 n には署名の型を渡さないので、n match {} は
-網羅漏れの警告になり、--strict-exhaustive では終了状態 1 になる:
+let rec の値束縛で書いた d3 の仮引数 n にはシグネチャの型を与えないので、n match {} は網羅漏れの警告になる。
+--strict-exhaustive を付けると終了コード 1 で終了する:
 
   $ cat > insrecval.kel <<'KEL'
   > type class D3[A] { val d3: (A) => String }
@@ -31,10 +31,10 @@ let rec の値束縛の形で書いた d3 の仮引数 n には署名の型を�
   ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   [1]
 
-insnever と同じく、Describe[Never] の describe の n の型は Never に決まる。それを示すため、
-case _ を 2 つ並べた match を Describe[Never] と Describe[String] に書いて比べる。
+insnever と同じく、Describe[Never] の describe の仮引数 n の型は Never に決まる。
+これを確かめるために、case _ を 2 つ並べた match を Describe[Never] と Describe[String] に書いて、結果を比較する。
 inswild2never では n の型が Never なので、第 1 節と第 2 節の両方を到達不能と報告する。
-inswild2str では第 1 節が String の値を受けるので、第 2 節だけを報告する:
+inswild2str では第 1 節が String の値に一致するので、第 2 節だけを報告する:
 
   $ cat > inswild2never.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
@@ -58,9 +58,9 @@ inswild2str では第 1 節が String の値を受けるので、第 2 節だけ
   _ : {}
   [1]
 
-同じ Describe[Never] で節を 1 つにした inswildnever は、値の無い型を受ける 1 つの
-パターンの扱い(uninhabited_pattern.t)に当たり、警告を出さない。--strict-exhaustive
-でも終了状態は 0 である:
+inswildnever は、同じ Describe[Never] で節を 1 つにした形である。
+値を持たない型を 1 つのパターンで受ける場合の規則(uninhabited_pattern.t)に該当するので、警告が出ない。
+--strict-exhaustive を付けても終了コードは 0 である:
 
   $ cat > inswildnever.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
@@ -73,8 +73,8 @@ inswild2str では第 1 節が String の値を受けるので、第 2 節だけ
   $ diktor --strict-exhaustive --type-check inswildnever.kel
   _ : {}
 
-Lv の lv の l の型は署名の #Lo | #Hi に決まるので、第 3 節の case _ には冗長の警告が
-出る。--strict-exhaustive では終了状態 1 になる:
+クラス Lv のメソッド lv では、仮引数 l の型がシグネチャの #Lo | #Hi に決まるので、第 3 節の case _ に到達不能(冗長な節)の警告が出る。
+--strict-exhaustive を付けると終了コード 1 で終了する:
 
   $ cat > inswildlv.kel <<'KEL'
   > type class Lv[A] { val lv: (A, #Lo | #Hi) => String }
@@ -89,7 +89,7 @@ Lv の lv の l の型は署名の #Lo | #Hi に決まるので、第 3 節の c
   _ : {}
   [1]
 
-a と b の型が署名の Int64 に決まるので、a > 10 の 10 も Int64 になり、受理する:
+a と b の型がシグネチャの Int64 に決まるので、a > 10 の 10 も Int64 になり、受理する:
 
   $ cat > inslit.kel <<'KEL'
   > type class Pick[A] { val pick: (A, A) => A }
@@ -99,8 +99,8 @@ a と b の型が署名の Int64 に決まるので、a > 10 の 10 も Int64 �
   $ diktor inslit.kel
   20
 
-l の型が署名の #Lo | #Hi に決まるので、case #Lo だけの match は型エラーではなく網羅漏れの
-警告になる。--strict-exhaustive では終了状態 1 になる:
+l の型がシグネチャの #Lo | #Hi に決まるので、case #Lo だけの match は、型エラーではなく網羅漏れの警告になる。
+--strict-exhaustive を付けると終了コード 1 で終了する:
 
   $ cat > insvariant.kel <<'KEL'
   > type class Lv[A] { val lv: (A, #Lo | #Hi) => String }
@@ -114,8 +114,8 @@ l の型が署名の #Lo | #Hi に決まるので、case #Lo だけの match は
   ⚠ match が非網羅的です。例えば #Hi(_) が漏れています
   [1]
 
-n の型が署名の Int32 に決まるので、__string_concat(n, "x") の食い違いは、包摂の言い換え
-ではなく、本体の n の位置(2:67)の素の文面で出る:
+n の型がシグネチャの Int32 に決まるので、__string_concat(n, "x") の型の不一致は、本体の n の位置(2:67)で報告する。
+メッセージは、包摂の検査の `クラス宣言の型を満たしません` ではなく、`型が一致しません` だけである:
 
   $ cat > insbody.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
@@ -125,8 +125,8 @@ n の型が署名の Int32 に決まるので、__string_concat(n, "x") の食�
   ! insbody.kel:2:67: 型エラー: 型が一致しません: Int32 と String
   [1]
 
-返り値の型は署名から決めないので、リテラル 0 は既定の Int32 になり、包摂で署名の Int64
-と照らした時点で落ちる:
+返り値の型はシグネチャから決めないので、リテラル 0 の型は既定の Int32 になる。
+そのため、包摂の検査でシグネチャの Int64 と比べた時点で型エラーになる:
 
   $ cat > insret.kel <<'KEL'
   > type class Sz[A] { val size: (A) => Int64 }
@@ -137,7 +137,7 @@ n の型が署名の Int32 に決まるので、__string_concat(n, "x") の食�
   ! insret.kel:2:32: 型エラー: インスタンスメソッド size がクラス宣言の型を満たしません(型が一致しません: Int32 と Int64)
   [1]
 
-注釈を書いた仮引数 n: Int32 には署名の型 String を渡さないので、食い違いは包摂で報告する:
+型注釈を書いた仮引数 n: Int32 にはシグネチャの型 String を与えないので、型の不一致は包摂の検査で報告する:
 
   $ cat > insannot.kel <<'KEL'
   > type class Describe[A] { val describe: (A) => String }
@@ -147,9 +147,9 @@ n の型が署名の Int32 に決まるので、__string_concat(n, "x") の食�
   ! insannot.kel:2:38: 型エラー: インスタンスメソッド describe がクラス宣言の型を満たしません(型が一致しません: Int32 と String)
   [1]
 
-前提を持つインスタンス Show[Box[_]] と Eq[Box[_]] では、頭の剛定数 A を含む Box[A] を
-仮引数に渡す。本体で前提のクラスのメソッド show と == を使う形を受理し、
---strict-exhaustive でも警告は出ない:
+前提付きインスタンス Show[Box[_]] と Eq[Box[_]] では、インスタンスの型パラメータ A を固定したスコーレム定数を含む Box[A] を仮引数に与える。
+本体で前提のクラスのメソッド show と == を使う形を受理する。
+--strict-exhaustive を付けても警告は出ない:
 
   $ cat > inspremise.kel <<'KEL'
   > newtype Box[A] = Box(A)

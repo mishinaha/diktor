@@ -1,7 +1,7 @@
-M5(newtype / パターン / Maranget 網羅性)のゴールデン。
-変更時は dune promote で更新し、必ず目視レビューすること。
+newtype、パターン、網羅性検査を確かめる、型検査のゴールデンテストである。
+期待出力を変えるときは、差分を目で確かめてから dune promote で更新する。
 
-newtype 一式(sample.kel §6)と MiniLang §16-2(let rec とデータ宣言):
+newtype の宣言と構築(sample.kel §6)、let rec とデータ型の宣言:
 
   $ cat > data.kel <<'EOF'
   > newtype Option[A] = None | Some(A)
@@ -28,7 +28,7 @@ newtype 一式(sample.kel §6)と MiniLang §16-2(let rec とデータ宣言):
   uid : UserId
   labeled : List[Int32]
 
-MiniLang §16-3(網羅性検査 — 宣言された型は注釈が要らない):
+網羅性検査。宣言したデータ型を照合する関数には、型注釈が不要である:
 
   $ cat > exh.kel <<'EOF'
   > newtype Option[A] = None | Some(A)
@@ -58,7 +58,7 @@ MiniLang §16-3(網羅性検査 — 宣言された型は注釈が要らない):
   redundant : (Boolean, Boolean) => Int32
   ⚠ 第 4 節は到達不能です(冗長)
 
---strict-exhaustive で警告がエラー化(exit 1):
+--strict-exhaustive を付けると、警告をエラーとして扱い、終了コード 1 で終了する:
 
   $ diktor --type-check --no-prelude --strict-exhaustive exh.kel > /dev/null; echo "exit: $?"
   exit: 1
@@ -92,7 +92,7 @@ MiniLang §16-3(網羅性検査 — 宣言された型は注釈が要らない):
   payload : #Point((Int32, Int32)) | R1
   guard : (#Val(Int32)) => Int32
 
-ヴァリアント和のエイリアスと網羅性(case _ 不要。sample.kel §5):
+ヴァリアント型のエイリアスと網羅性(sample.kel §5)。閉じた行なので case _ は不要である:
 
   $ cat > union.kel <<'EOF'
   > type IoError = #NotFound | #Denied
@@ -107,7 +107,7 @@ MiniLang §16-3(網羅性検査 — 宣言された型は注釈が要らない):
   $ diktor --type-check --no-prelude union.kel
   report : (#NotFound | #Denied | #Unexpected) => Int32
 
-Never は節ゼロの match で網羅(§7.5):
+Never は節のない match で網羅される(LangSpec §11.2):
 
   $ cat > never.kel <<'EOF'
   > let absurd[A](n: Never): A = n match {}
@@ -115,7 +115,7 @@ Never は節ゼロの match で網羅(§7.5):
   $ diktor --type-check --no-prelude never.kel
   absurd : (Never) => A
 
-パターン束縛の網羅性警告(§6.4)とラベル指定パターンの _ 補完:
+let のパターン束縛の網羅性の警告と、名前付きのフィールドだけを書いて残りのフィールドを省いたパターン(LangSpec §11.1):
 
   $ cat > patlet.kel <<'EOF'
   > newtype List[A] = Nil | Cons(A, tail: List[A])
@@ -130,7 +130,7 @@ Never は節ゼロの match で網羅(§7.5):
   ⚠ match が非網羅的です。例えば Nil が漏れています
   g : (List[A]) => List[A]
 
-コンストラクタのエラー経路:
+コンストラクタの引数の個数のエラー:
 
   $ cat > ctorbad.kel <<'EOF'
   > newtype Option[A] = None | Some(A)
@@ -148,8 +148,8 @@ Never は節ゼロの match で網羅(§7.5):
   ! ctorbad2.kel:2:11: 型エラー: コンストラクタ Cons の引数が不足しています(式では全フィールド必須)
   [1]
 
-1 要素タプルは反例でも実行時値でも (x,) と出る(§4 の再糖衣化は型だけでなく
-エラーメッセージにも及ぶ。(x) はグループ化なので貼り戻せない。M21 / D101):
+1 要素タプルは、網羅漏れの反例でも実行時の値でも (x,) と表示する。タプルの表記に戻す規則は型だけでなく
+メッセージにも適用する(第9章 §9.3)。(x) はグループ化なので、そのままソースには書けない:
 
   $ cat > tup1.kel <<'KEL'
   > let f(t: (Boolean,)): Int32 = t match { case (true,) => 1 }
@@ -160,9 +160,9 @@ Never は節ゼロの match で網羅(§7.5):
   実行時エラー: match のどの節にも一致しません: (false,)
   [3]
 
-空の閉じた _item 行は、型では {}、値とパターンでは () と出る(裁定 D112。どちらの
-位置でも {} と () は同じ空行を指し、出た字面はそのまま貼り戻せる — 下の入力は型の
-位置に () と書いている。第12章 §12.7):
+空の閉じた行は、型では {}、値とパターンでは () と表示する(第9章 §9.3、第12章 §12.7)。どちらの
+位置でも {} と () は同じ空の行を表すので、表示はそのままソースに書ける。下の入力は型の
+位置に () と書いている:
 
   $ cat > tup0.kel <<'KEL'
   > let f(u: ()): Int32 = u match { }

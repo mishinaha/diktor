@@ -1,7 +1,7 @@
---dump-ast のゴールデン(計画 §6.4 の脱糖を固定する)。
-変更時は dune promote で更新し、必ず目視レビューすること。
+--dump-ast のゴールデンテストである。構文解析が行う脱糖(第3章)の結果を固定する。
+出力が変わったときは dune promote で更新し、差分を必ず目で確認すること。
 
-タプル・引数リストの _item 脱糖と t._N(§6.4):
+タプルと引数リストを _item の行にする脱糖(第3章 §3.5)と、t._N の脱糖(第3章 §3.4):
 
   $ cat > tuple.kel <<'EOF'
   > let t = (1, "a", true)
@@ -22,7 +22,7 @@
   (dlet (binding f = (fn (x y) x)))
   (dlet (binding call = (apply f (extend _item 1 (extend _item 2 {})))))
 
-レコード演算(パンニング・with 更新・extends・制限):
+レコードの演算(フィールドの省略記法、with による更新、extends、フィールドの除去):
 
   $ cat > record.kel <<'EOF'
   > let r = {x = 1, y = 2}
@@ -40,7 +40,7 @@
   (dlet (binding res = (restrict x r)))
   (dlet (binding sel = (select x r)))
 
-ヴァリアント(#Foo の引数畳み込み)と match / ガード:
+ヴァリアント(#Foo の引数を 1 つの行にまとめる)と、match とガード:
 
   $ cat > variant.kel <<'EOF'
   > let v = #Point(1, 2)
@@ -58,7 +58,7 @@
     (match v (case (#Point (precord (_item= x) (_item= y))) if (== x y) => x)
      (case _ => 0))))
 
-Construct と Apply の分岐(パス最後の成分の大小文字。§6.1):
+Construct と Apply の区別(パスの最後の要素が大文字で始まるかどうかで決める。第3章 §3.6):
 
   $ cat > path.kel <<'EOF'
   > let a = Some(1)
@@ -74,7 +74,7 @@ Construct と Apply の分岐(パス最後の成分の大小文字。§6.1):
   (dlet (binding d = (construct Parser.Parser g)))
   (dlet (binding e = (apply Db.Conn.exec (extend _item q {}))))
 
-with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 RecordEmpty に差し込む):
+with の糖衣構文。パターンが _ なら 0 引数の継続、それ以外なら 1 引数の継続を、引数の行の最も内側の RecordEmpty に差し込む(第3章 §3.8):
 
   $ cat > with.kel <<'EOF'
   > let f = fn() => {
@@ -95,7 +95,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
           (extend _item x
            (extend _item (fn () (apply pure (extend _item x {}))) {})))) {}))))))
 
-ブロックの Let / Seq 入れ子と let のパターン束縛:
+ブロックの Let と Seq の入れ子と、let のパターン束縛:
 
   $ cat > block2.kel <<'EOF'
   > let f = fn() => {
@@ -115,7 +115,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
        (let (binding (precord (_item= x) (_item= y)) = (apply pair {}))
         (seq (apply h (extend _item x {})) y)))))))
 
-宣言(newtype 略記・effect・class・instance・extern・型エイリアス):
+宣言(newtype の略記、effect、class、instance、extern、型エイリアス):
 
   $ cat > decls.kel <<'EOF'
   > type Pair = (Int32, String)
@@ -144,7 +144,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
    Int32)
   (newtype-pub Parser (A))
 
-構文エラー(exit 2):
+構文エラー(終了コード 2):
 
   $ cat > bad.kel <<'EOF'
   > let x = = 1
@@ -153,7 +153,7 @@ with 糖衣(§6.4: _ は0引数継続、それ以外は1引数継続。最内 Re
   bad.kel:1:9: 構文エラー: 付近のトークンを確認してください
   [2]
 
-sample.kel 全文がパースできること(M3 完了条件。写しの版は test/sample/README.md):
+sample.kel の全文を構文解析できること(コピー元のバージョンは test/sample/README.md に書いてある):
 
   $ diktor --dump-ast sample/sample.kel | wc -l
   343
@@ -162,7 +162,7 @@ sample.kel 全文がパースできること(M3 完了条件。写しの版は t
   (type Point = (row (x: Float64) (y: Float64)))
   (type Pair = (row (_item: Int32) (_item: String)))
 
-二項演算子の字面(第7章の表 1 枚から出る。M19 / G2。§4.2 / §7.2):
+二項演算子は、第7章 §7.2 の 1 つの表から求めたソース上の表記で出力する(第4章 §4.2):
 
   $ cat > ops.kel <<'KEL'
   > let arith = fn(a, b) => a + b - a * b / a

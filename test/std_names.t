@@ -1,9 +1,9 @@
-標準環境の型、エフェクト、クラスの名前と、標準環境のインスタンスの組は、トップレベルの
+標準環境の型、エフェクト、クラスの名前と、標準環境にインスタンスがあるクラスと型の組は、トップレベルの
 同じ種別の宣言に使えない(LangSpec §16.1、§12.2)。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-型エイリアス、newtype、effect、type class、インスタンスの 5 種類がどれも落ちる:
+型エイリアス、newtype、effect、type class、インスタンスの 5 種類は、どれも型エラーになる:
 
   $ printf 'type Unit = {}\n' > s1.kel
   $ diktor --type-check s1.kel
@@ -26,14 +26,14 @@
   ! s5.kel:1:1: 型エラー: 標準環境のインスタンス Add[Int32] は再宣言できません
   [1]
 
-組み込みのラベル(プレリュードでなく処理系が登録するもの)も同じ:
+組み込みのラベル(プレリュードではなく処理系が登録するもの)と同じ名前の宣言も、型エラーになる:
 
   $ printf 'effect Blocking = {}\n' > s6.kel
   $ diktor --type-check s6.kel
   ! s6.kel:1:1: 型エラー: 標準環境の effect Blocking は再宣言できません
   [1]
 
-標準環境のクラスに、新しい型のインスタンスを足すことはできる:
+標準環境のクラスに、新しい型のインスタンスを追加することはできる:
 
   $ cat > s7.kel <<'KEL'
   > newtype Meters(Int32)
@@ -45,7 +45,7 @@
   $ diktor s7.kel
   7
 
-モジュールの中の名前は修飾されるので、標準環境の名前と同じ綴りでも宣言できる:
+モジュールの中の名前は修飾されるので、標準環境と同じ名前でも宣言できる:
 
   $ cat > s8.kel <<'KEL'
   > module M { pub newtype Option = Opt(Int32) }
@@ -55,10 +55,10 @@
   $ diktor s8.kel
   ok
 
-標準環境と同じ名前のクラスの宣言は、メソッドの型を照合せず、名前で拒否する。sc/lib/s.kel は
-import されたファイル(起点でない単位)で、show の型が標準環境と違う Show を宣言する。
+標準環境と同じ名前のクラスの宣言は、メソッドの型を比べず、名前だけで拒否する。sc/lib/s.kel は
+import されたファイル(コマンド行で渡したファイルではないコンパイル単位)で、show の型が標準環境と違う Show を宣言する。
 p10.kel は --prelude で差し替えたプレリュードで、標準環境と同じ型の Show を宣言する。
-どちらも同じ文面で落ちる:
+どちらも同じメッセージの型エラーになる:
 
   $ mkdir -p sc/lib
   $ printf 'pub type class Show[A] { val show: (A) => Boolean }\n' > sc/lib/s.kel

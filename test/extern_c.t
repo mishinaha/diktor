@@ -1,14 +1,14 @@
-extern C の既知名と型契約(計画 260829-4 H9 / H14)。
+extern "C" の既知名と、そのシグネチャの照合(第6章 §6.2b)のテストである。
 
-既知名(sin/cos/sqrt/exp/log)は引数型と返り値型を契約と照合する。
-かつては嘘の型が通り、呼ぶと原因の見えない実行時エラーになった:
+既知名(sin、cos、sqrt、exp、log)の宣言は、引数の型と返り値の型を決まったシグネチャと照合する。
+照合しないと、偽った型の宣言が型検査に通り、呼び出したときに原因の分かりにくい実行時エラーになる:
 
   $ printf 'extern "C" let sin(x: String): String\n' > cbad.kel
   $ diktor --type-check cbad.kel
   ! cbad.kel:1:1: 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
   [1]
 
-契約どおりの宣言は通り、実装に届く:
+シグネチャどおりの宣言は型検査に通り、実装を呼び出せる:
 
   $ cat > cok.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -17,8 +17,8 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   $ diktor cok.kel
   3.0
 
-@ Blocking を明示した宣言も照合を通る(行は照合しない。どの行を書くかは
-バインディング作者の判断、sample.kel:798-799):
+@ Blocking を明示した宣言も照合に通る。エフェクト行は照合しない。どの行を書くかは、
+バインディングの作者が決めるからである(sample.kel:798-799):
 
   $ printf 'extern "C" let sin(x: Float64): Float64 @ Blocking\n' > cblk1.kel
   $ diktor --type-check cblk1.kel
@@ -27,8 +27,8 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   $ diktor --type-check cblk3.kel
   sin : (Float64) => Float64 @ {Console}
 
-未知名は従来どおり受理(宣言は通り、呼ぶと落ちる。本物の C FFI は
-検証不能な宣言なのでこの線引きは意図的):
+既知名でない名前の宣言は受理し、呼び出すと実行時エラーになる(LangSpec §17)。
+C の関数の宣言は一般には検証できないので、照合するのは既知名だけである:
 
   $ cat > cunk.kel <<'KEL'
   > extern "C" let nosuch(x: Float64): Float64
@@ -38,22 +38,22 @@ extern C の既知名と型契約(計画 260829-4 H9 / H14)。
   実行時エラー: 未実装のプリミティブ: nosuch
   [3]
 
-仕様の形(sample.kel:796 相当)が通り続けること:
+sample.kel:796 と同じ形の宣言は、型検査に通る:
 
   $ printf 'newtype Stmt\nextern "C" let sqlite_step(s: Stmt): Int32 @ Blocking\n' > cblk2.kel
   $ diktor --type-check cblk2.kel
   sqlite_step : (Stmt) => Int32 @ {Blocking}
 
-module 内の extern も、実装と登録簿の鍵は非修飾の実装名(H14。かつては
-修飾名が鍵になり、プレリュード保護が module の中から迂回できた):
+module の中の extern でも、実装を探すキーと、プレリュードの保護を調べる登録表のキーは、修飾しない実装名である
+(第6章 §6.2)。修飾名をキーにすると、module の中で宣言すればプレリュードの保護を回避できてしまう:
 
   $ printf 'module M { extern "prim" let __int32_add(x: String, y: String): String }\n' > mext.kel
   $ diktor --type-check mext.kel
   ! mext.kel:1:12: 型エラー: プレリュードの extern __int32_add は再宣言できません
   [1]
 
-module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が実装表から
-外れ、黙って未実装になった):
+module の中で宣言した既知名の外部関数も、実装を呼び出せる。実装は修飾しない実装名で
+探すので、Math.sqrt は sqrt の実装を呼び出す:
 
   $ cat > mffi.kel <<'KEL'
   > module Math { pub extern "C" let sqrt(x: Float64): Float64 }
@@ -62,15 +62,15 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   $ diktor mffi.kel
   3.0
 
-型契約も module 越しに効く:
+シグネチャの照合は、module の中の宣言にも適用される:
 
   $ printf 'module M2 { extern "C" let sin(x: String): String }\n' > mbad.kel
   $ diktor --type-check mbad.kel
   ! mbad.kel:1:13: 型エラー: extern "C" の既知名 sin の型は (Float64) => Float64 でなければなりません
   [1]
 
-別々の module は同じ C シンボルをそれぞれの名前で束縛できる
-(二重宣言の検査は Keleut 側の修飾名で行う。260829-5 検証修正):
+別々の module は、同じ C のシンボルをそれぞれの名前で束縛できる。
+二重宣言の検査は、Keleut 側の修飾名で行うからである:
 
   $ cat > mm2.kel <<'KEL'
   > module Fast { pub extern "C" let sqrt(x: Float64): Float64 }
@@ -82,7 +82,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   2.0
   3.0
 
-同じ修飾名の二重宣言は従来どおり拒否:
+同じ修飾名の二重宣言は拒否する:
 
   $ printf 'extern "C" let sqrt(x: Float64): Float64\nextern "C" let sqrt(x: Float64): Float64\n' > dd.kel
   $ diktor --type-check dd.kel
@@ -90,7 +90,7 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   ! dd.kel:2:1: 型エラー: extern sqrt が二重に宣言されています
   [1]
 
-未実装メッセージは、表を引いた実装名が修飾名と食い違うとき両方を見せる:
+未実装のメッセージは、実装を探すのに使った実装名が修飾名と違うとき、両方の名前を示す:
 
   $ cat > mun.kel <<'KEL'
   > module M { pub extern "prim" let __no_such(x: Int32): Int32 }
@@ -100,12 +100,12 @@ module に包んだ既知名 FFI は実装に届く(かつては Math.sqrt が�
   実行時エラー: 未実装のプリミティブ: M.__no_such(実装名 __no_such が見つかりません)
   [3]
 
-pinned は Blocking を落とす(M16 / H11)。操作を持たないラベルを落とすのは
-型の上の行為だけで、実行は恒等(Diktor はタスクを 1 つしか持たないので、
-仕様が Blocking に求める 2 契約を恒等が満たす)。落とさずにトップレベル
-から呼ぶことも仕様 §12 の改訂(D88)で許された — 落とさずに閉じた行や
-注釈で固定した行へ持ち込むと拒否される例は test/blocking_top.t の
-bpure / bann にある:
+pinned は行から Blocking を取り除く(LangSpec §17)。Blocking は操作を持たないラベルなので、
+取り除くのは型の上だけの操作で、実行時の pinned は本体を 1 回呼び出すだけである。Diktor はタスクを 1 つしか持たず、
+キャンセルポイントも持たないので、Blocking について守る 2 つの規則(並列度を減らさないことと、
+キャンセルポイントにならないこと)をこの実装が満たす。@ Blocking の関数は、Blocking を取り除かずにトップレベルから呼び出すこともできる。
+取り除かないまま、閉じた行や注釈で固定した行に持ち込むと拒否される例は、test/blocking_top.t の
+bpure と bann にある:
 
   $ cat > pin.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64 @ Blocking

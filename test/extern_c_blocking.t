@@ -1,4 +1,4 @@
-注釈のない extern "C" は @ Blocking と書いたものと同じ型になる。pub extern でも同じ:
+@ を省略した extern "C" は、@ Blocking と書いたものと同じ型になる。pub extern でも同じである:
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -10,7 +10,7 @@
   sqrt : (Float64) => Float64 @ {Blocking}
   Math.cos : (Float64) => Float64 @ {Blocking}
 
-"prim" の省略は新しい行変数のままで、@ {} の本体から呼べる:
+extern "prim" で @ を省略すると、使うたびに新しい行変数になるので、@ {} と注釈した関数の本体から呼び出せる:
 
   $ cat > pdef.kel <<'KEL'
   > extern "prim" let __int32_add(x: Int32, y: Int32): Int32
@@ -20,7 +20,7 @@
   __int32_add : (Int32, Int32) => Int32
   f : (Int32) => Int32 @ {}
 
-Blocking はトップレベルに残せるので、注釈のない sqrt をトップレベルから呼べる:
+Blocking はトップレベルに残せるので、@ を省略した sqrt をトップレベルから呼び出せる:
 
   $ cat > ctop.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -30,7 +30,7 @@ Blocking はトップレベルに残せるので、注釈のない sqrt をト�
   $ diktor ctop.kel
   3.0
 
-@ {} と注釈した関数の本体からは、注釈のない sqrt を直接は呼べない:
+@ {} と注釈した関数の本体からは、@ を省略した sqrt を直接は呼び出せない:
 
   $ cat > cclosed.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -41,8 +41,8 @@ Blocking はトップレベルに残せるので、注釈のない sqrt をト�
   ! cclosed.kel:2:35: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外の @ {} は呼ぶときに
-尾部を開くので、f はトップレベルから呼べる:
+pinned で囲めば Blocking が取り除かれ、同じ呼び出しが型検査に通る。最も外側の @ {} は、使うときに
+行の末尾を開くので、f はトップレベルから呼び出せる:
 
   $ cat > cpin.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -52,7 +52,7 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   $ diktor cpin.kel
   2.0
 
-@ を省略した pub let の本体は純粋でなければならないので、注釈のない sqrt を呼べない:
+最も外側の @ を省略した pub let の本体は純粋でなければならないので、その中から @ を省略した sqrt は呼び出せない:
 
   $ cat > cpub.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64
@@ -63,9 +63,9 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   ! cpub.kel:2:34: 型エラー: pub な宣言はエフェクトを起こせません(@ を明示するか pub を外してください。元の報告: ラベル Blocking がありません(行は閉じています))
   [1]
 
-ブロックしない外部関数は @ {} と書く(sin)。行変数を明示してもよい(cos)。閉じた行は
-呼ぶときに尾部を開き、行変数はそのまま一致するので、@ {} と注釈した関数の本体、
-@ Console の本体、@ を省略した pub let の本体のどれからも呼べる:
+ブロックしない外部関数は @ {} と書く(sin)。行変数を明示してもよい(cos)。閉じた行は、
+使うときに行の末尾を開き、行変数はそのまま一致するので、@ {} と注釈した関数の本体、
+@ Console の本体、@ を省略した pub let の本体のどれからも呼び出せる:
 
   $ cat > cpure.kel <<'KEL'
   > extern "C" let sin(x: Float64): Float64 @ {}
@@ -91,7 +91,7 @@ pinned で包めば Blocking が除かれ、同じ呼び出しが通る。最外
   x 1.0
   1.0
 
-@ {} の sin を @ Console の本体から直接呼ぶ:
+@ {} の sin を、@ Console の本体から直接呼び出す:
 
   $ cat > cpure2.kel <<'KEL'
   > extern "C" let sin(x: Float64): Float64 @ {}

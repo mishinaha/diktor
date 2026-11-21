@@ -1,5 +1,5 @@
-条件式 if e1 then e2 else e3(仕様 §5.8)。Boolean の値に対する 2 節の match の略記で、
-構文木のノードを持たない。パーサが case true と case false の 2 節を持つ match に
+条件式 if e1 then e2 else e3(LangSpec §5.8)のテストである。条件式は Boolean の値に対する 2 節の match の略記で、
+専用の構文木のノードを持たない。パーサが case true と case false の 2 節を持つ match に
 脱糖するので、型、評価順序、網羅性、末尾位置はすべて match の規則で決まる。
 
 脱糖：if と、同じ 2 節を書いた match は、同じ構文木になる:
@@ -16,7 +16,7 @@
    (binding g (params (pannot b Boolean)) : Int32 =
     (match b (case true => 1) (case false => 2))))
 
-評価。else の枝にも if を書ける:
+評価：else の枝にも if を書ける:
 
   $ cat > basic.kel <<'KEL'
   > let sign(n: Int32): Int32 = if n < 0 then 0 - 1 else if n == 0 then 0 else 1
@@ -49,7 +49,7 @@
   else
   false
 
-else の枝は右へできるだけ長く取る(仕様 §5.2 の表では fn と同じ段)。
+else の枝は、右へできるだけ長く取る(LangSpec §5.2 の表では fn と同じ優先順位)。
 2 + 10 も後置の match も else の枝に入る。if の結果を演算に使うときは括弧で囲む:
 
   $ cat > prec.kel <<'KEL'
@@ -71,8 +71,8 @@ else の枝は右へできるだけ長く取る(仕様 §5.2 の表では fn と
   operand.kel:1:13: 構文エラー: 付近のトークンを確認してください
   [2]
 
-else は省略できない。改行が文を区切った位置で else を待っていたことが、
-構文エラーの位置で分かる:
+else は省略できない。構文エラーの位置から、改行が文を区切った位置でパーサが else を
+待っていたことが分かる:
 
   $ cat > noelse.kel <<'KEL'
   > let f(b: Boolean): Unit = {
@@ -140,7 +140,7 @@ if で始まる行は新しい文を始める:
   $ printf 'let y = if false then\n0\nelse 5\n' | diktor --repl
   y : Int32 = 5
 
-型：条件は Boolean でなければならない。誤りは条件の位置に報告する:
+型：条件は Boolean でなければならない。エラーは条件の位置で報告する:
 
   $ cat > condty.kel <<'KEL'
   > let f(s: String): Int32 =
@@ -163,7 +163,7 @@ if で始まる行は新しい文を始める:
   ! armty2.kel:1:21: 型エラー: 型が一致しません: Boolean と String
   [1]
 
-型注釈が無くても、条件は Boolean に、枝は共通の型に推論する:
+型注釈がなくても、条件は Boolean に、枝は共通の型に推論する:
 
   $ cat > infer.kel <<'KEL'
   > let choose(b, x, y) = if b then x else y
@@ -175,7 +175,7 @@ if で始まる行は新しい文を始める:
   b
 
 網羅性：脱糖した 2 節は網羅的なので、警告を出さない。
-対照の 1 節の match には警告が出る:
+比較のために置いた 1 節の match には、警告が出る:
 
   $ cat > exhaust.kel <<'KEL'
   > let f(b: Boolean): Int32 = if b then 1 else 2
@@ -201,8 +201,8 @@ then と else は予約語で、変数、引数、レコードのラベルに使
   kwlabel.kel:1:10: 構文エラー: 予約語 then はここには書けません(予約語は識別子に使えません)
   [2]
 
-ガードの if と共存する。ガードの中の条件式は、括弧が無くても読める。
-ガードの前の改行は、今までどおり節を区切らない:
+条件式は、match の節のガードの if と一緒に書ける。ガードの中の条件式は、括弧がなくても読める。
+ガードの前の改行は、節を区切らない:
 
   $ cat > guard.kel <<'KEL'
   > let classify(n: Int32): String = n match {
@@ -225,8 +225,8 @@ then と else は予約語で、変数、引数、レコードのラベルに使
   huge
   positive
 
-2 つの枝に、閉じた行の違う名前付き関数を置ける。
-束縛、引数、呼び出し先のどの位置でも、枝の型は合流する:
+2 つの枝に、閉じた行が違う名前付き関数を置ける。
+束縛、引数、呼び出し先のどの位置でも、2 つの枝の型は 1 つの型にまとまる:
 
   $ cat > join.kel <<'KEL'
   > let pure_f(): Unit @ {} = ()
@@ -248,9 +248,9 @@ then と else は予約語で、変数、引数、レコードのラベルに使
   p
   end
 
-末尾位置：then と else の枝は、match の節の本体として末尾位置にある(仕様 §5.7)。
-test/tail_calls.t と同じく、OCAMLRUNPARAM=l=100k で上限を絞って 10 万回続ける。
-対照の末尾でない再帰は落ちる:
+末尾位置：then と else の枝は、match の節の本体として末尾位置にある(LangSpec §5.7)。
+test/tail_calls.t と同じく、OCAMLRUNPARAM=l=100k でスタックの上限を小さくして、10 万回の呼び出しを続ける。
+比較のために置いた非末尾の再帰は、スタックオーバーフローになる:
 
   $ cat > nontail.kel <<'KEL'
   > let rec sum(n: Int32): Int32 = if n == 0 then 0 else n + sum(n - 1)
@@ -260,7 +260,7 @@ test/tail_calls.t と同じく、OCAMLRUNPARAM=l=100k で上限を絞って 10 �
   実行時エラー: スタックオーバーフロー(再帰が深すぎます)
   [3]
 
-else の枝と then の枝からの自己再帰、else if を通る相互再帰、else の枝のブロック:
+else の枝と then の枝からの自己再帰、else if を通る相互再帰、else の枝のブロックの中からの再帰は、どれも最後まで実行できる:
 
   $ cat > tail.kel <<'KEL'
   > let rec loop(n: Int32, acc: Int32): Int32 = if n == 0 then acc else loop(n - 1, acc + 1)

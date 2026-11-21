@@ -1,10 +1,10 @@
-字句エラーの文面は日本語で、位置を伴う。ファイルを読むときの終了コードは 2 で、
-対話的な実行ではセッションが続く。
-tokens.t と run_exit.t と errloc.t が固定していない形をここで固定する。
+字句エラーのメッセージは日本語で、エラーの位置を伴う。
+ファイルを読み込むときは終了コード 2 で終了し、対話的な実行(REPL)ではセッションが続く。
+このファイルは、tokens.t、run_exit.t、errloc.t が固定していない字句エラーを固定する。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-\u と \U の後の 16 進の桁が足りない:
+\u と \U の後の 16 進数の桁が足りない場合:
 
   $ printf 'let s = "\\u12"\n' > short.kel
   $ diktor short.kel
@@ -15,29 +15,29 @@ tokens.t と run_exit.t と errloc.t が固定していない形をここで固�
   shortU.kel:1:16: 字句エラー: Unicode エスケープの 16 進の桁が足りません
   [2]
 
-逆斜線でファイルが終わる形は、閉じていない文字列ではなく不正なエスケープになる:
+バックスラッシュの直後でファイルが終わる場合は、閉じていない文字列ではなく、不正なエスケープのエラーになる:
 
   $ printf 'let s = "\\' > esceof.kel
   $ diktor esceof.kel
   esceof.kel:1:11: 字句エラー: 不正なエスケープです
   [2]
 
-閉じていないブロックコメント:
+ブロックコメントが閉じていない場合:
 
   $ printf 'let a = 1 /* abc' > untermc.kel
   $ diktor untermc.kel
   untermc.kel:1:17: 字句エラー: ブロックコメントが閉じていません
   [2]
 
-ファイルの先頭以外の #!:
+#! がファイルの先頭以外にある場合:
 
   $ printf 'let a = 1\n#!x\n' > stray.kel
   $ diktor stray.kel
   stray.kel:2:1: 字句エラー: #! はファイルの先頭にだけ書けます
   [2]
 
-対話的な実行では、閉じていないブロックコメントと文字列リテラルは続きの行を待つ。
-不正なエスケープは報告し、次の入力に進む:
+対話的な実行では、閉じていないブロックコメントと文字列リテラルは、次の行に続くものとして読む。
+不正なエスケープはエラーとして報告し、次の入力に進む:
 
   $ printf '/* a\nb */ echoln("ok")\nlet s = "x\ny"\necholn(s)\nlet a = "\\q"\necholn("next")\n' | diktor --repl
   ok

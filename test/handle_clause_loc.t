@@ -1,10 +1,10 @@
-handle の誤りのうち、節の頭の形、2 つ目の return 節と cancel 節、return 節と
-cancel 節の修飾、対象エフェクトへの所属、操作節の引数の個数とラベルの誤りは、
-その節のパターンの位置で報告し、return 節と cancel 節に書いたガードの誤りは
-ガードの式の位置で報告する。対象エフェクトを決める計算と網羅の検査の誤りと、
-操作節のガードの式の型が Boolean でない誤り(下の guardty)と、節の値の型が節の
-間で合わない誤り(下の bodyty)は、handle 式の位置を指す。
-各ブロックの前書きが、そのブロックで確かめる位置を述べる。
+handle のエラーを報告する位置のテストである。次のエラーは、その節のパターンの位置で報告する。
+節を始める語と return 節の引数の書き方、2 つ目の return 節と cancel 節、return 節と cancel 節の修飾、対象エフェクトに
+属さない操作、操作節の引数の個数とラベルのエラーである。return 節と cancel 節に書いたガードのエラーは、
+ガードの式の位置で報告する。対象エフェクトを決める計算のエラー、網羅の検査のエラー、
+操作節のガードの式の型が Boolean でないエラー(下の guardty)、節の値の型が節の
+間で合わないエラー(下の bodyty)は、handle 式の位置で報告する。
+各ブロックの前の説明に、そのブロックで確かめる位置を書く。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -67,7 +67,7 @@ handle 式の先頭(3:9)ではない:
   ! label.kel:5:10: 型エラー: 操作節の引数にラベルは書けません
   [1]
 
-節の本体の中の handle の誤りは、内側の節(6:14)を指す:
+節の本体の中にある handle のエラーは、内側の節(6:14)を指す:
 
   $ cat > inner.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -84,7 +84,7 @@ handle 式の先頭(3:9)ではない:
   ! inner.kel:6:14: 型エラー: 操作 ask は 1 引数です(節には 0 個書かれています)
   [1]
 
-節の頭の形の誤りと 2 つ目の return 節も、その節を指す:
+return 節の引数の書き方のエラー、操作名、return、cancel のどれでも始まらない節のエラー、2 つ目の return 節のエラーも、その節の位置で報告する:
 
   $ cat > retshape.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -143,7 +143,7 @@ handle 式の先頭(3:9)ではない:
   [1]
 
 cancel 節を cancel(x) の形で書くと、未実装として、その節(5:10)を指して
-終了状態 4 で終わる:
+終了コード 4 で終了する:
 
   $ cat > cancelarg.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -158,7 +158,7 @@ cancel 節を cancel(x) の形で書くと、未実装として、その節(5:10
   ! cancelarg.kel:5:10: 未実装: cancel(reason)(v0 は case cancel のみ)
   [4]
 
-修飾した操作節が決めた対象に属さない操作の節は、その節を指す:
+修飾した操作節で決まった対象エフェクトに属さない操作の節があると、エラーはその節を指す:
 
   $ cat > notbelong.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -202,7 +202,7 @@ return 節と cancel 節に修飾を書くと、その節(5:10)を指す:
   ! qualcancel.kel:5:10: 型エラー: cancel 節は修飾できません(cancel は操作名ではなく handle の節の名前です。修飾を外してください)
   [1]
 
-return 節のガードは、ガードの式(5:23)を指す:
+return 節のガードのエラーは、ガードの式(5:23)を指す:
 
   $ cat > retguard.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -217,7 +217,7 @@ return 節のガードは、ガードの式(5:23)を指す:
   ! retguard.kel:5:23: 型エラー: return 節にガードは書けません
   [1]
 
-cancel 節のガードも、ガードの式(5:20)を指す:
+cancel 節のガードのエラーも、ガードの式(5:20)を指す:
 
   $ cat > cancelguard.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -232,8 +232,8 @@ cancel 節のガードも、ガードの式(5:20)を指す:
   ! cancelguard.kel:5:20: 型エラー: cancel 節にガードは書けません
   [1]
 
-対象エフェクトを決める計算の誤りは、handle 式の位置(3:3)を指す。missing は、
-修飾の無い節 one() の操作を宣言する唯一の候補 Two に、two の節が無い形である:
+対象エフェクトを決める計算のエラーは、handle 式の位置(3:3)を指す。missing は、
+修飾のない節 one() の操作を宣言する唯一の候補 Two に対して、two の節がない形である:
 
   $ cat > missing.kel <<'KEL'
   > effect Two = { one: () => Int32, two: () => Int32 }
@@ -248,8 +248,8 @@ cancel 節のガードも、ガードの式(5:20)を指す:
   ! missing.kel:3:3: 型エラー: ハンドラが操作を網羅していません: Two の two が漏れています
   [1]
 
-qualmissing は、修飾 Two.one() で対象を Two に決めた後の網羅の検査が、two の節が無い
-ことを見つける形である。この検査も節の位置を付けないので、handle 式の位置(3:3)を指す:
+qualmissing は、修飾 Two.one() で対象を Two に決めた後の網羅の検査で、two の節がない
+ことが分かる形である。この検査も節の位置を付けないので、handle 式の位置(3:3)を指す:
 
   $ cat > qualmissing.kel <<'KEL'
   > effect Two = { one: () => Int32, two: () => Int32 }
@@ -264,9 +264,9 @@ qualmissing は、修飾 Two.one() で対象を Two に決めた後の網羅の�
   ! qualmissing.kel:3:3: 型エラー: ハンドラが操作を網羅していません: Two の two が漏れています
   [1]
 
-unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指す形である。誤りは
-その 1 節の修飾から決まるが、対象エフェクトを決める計算の中で見つかるので、
-やはり handle 式の位置を指す:
+unknownqual は、1 つの節の修飾だけが未知のエフェクトを指定する形である。エラーは
+その 1 つの節の修飾で決まるが、対象エフェクトを決める計算の中で見つかるので、
+これも handle 式の位置を指す:
 
   $ cat > unknownqual.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }
@@ -281,7 +281,7 @@ unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指
   ! unknownqual.kel:3:3: 型エラー: 未知のエフェクト: Nope
   [1]
 
-操作節が 1 つも無い誤りも、節の不在から決まるので、handle 式の位置(2:3)を指す:
+操作節が 1 つもないエラーも、特定の節の位置を持たないので、handle 式の位置(2:3)を指す:
 
   $ cat > noop.kel <<'KEL'
   > let r =
@@ -294,7 +294,7 @@ unknownqual は、1 つの節の修飾だけが未知のエフェクトを名指
   ! noop.kel:2:3: 型エラー: handle には少なくとも1つの操作節が必要です
   [1]
 
-操作節のガードの型が合わない形は、1 つの節の中の誤りだが、handle 式の位置(3:3)を指す:
+操作節のガードの型が合わない形は、1 つの節の中のエラーだが、handle 式の位置(3:3)を指す:
 
   $ cat > guardty.kel <<'KEL'
   > effect Ask = { ask: (Int32) => Int32 }

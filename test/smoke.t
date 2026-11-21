@@ -1,4 +1,4 @@
-入力ファイルなしは使用法エラー(exit 64):
+入力ファイルがなければ、使い方のエラーとして終了コード 64 で終了する:
 
   $ diktor 2>&1 | head -1
   diktor: no input files
@@ -21,22 +21,22 @@
     環境変数 DIKTOR_VIA_IR=1 は、旗の無い実行を --via-ir にする
   exit: 64
 
-最小の正常終了:
+最小のプログラムは正常に終了する:
 
   $ echo 'let x = 1' > t.kel
   $ diktor t.kel; echo "exit: $?"
   exit: 0
 
-未実装は exit 4(§16.8)。
-cr.kel の case cancel(e) は、付録 A.5 の clause ::= "case" pat の形として構文の上では読める。
-LangSpec の cancel 節は case cancel の形だけで、Diktor は case cancel(e) の形を未実装として報告する:
+未実装の機能は終了コード 4 で終了する(第 16 章 §16.8)。
+cr.kel の case cancel(e) は、LangSpec 付録 A.5 の clause ::= "case" pat の形として、構文上は読める。
+LangSpec の cancel 節は case cancel の形だけなので、Diktor は case cancel(e) の形を未実装として報告する:
 
   $ printf 'effect E = { op: () => Int32 }\nlet r = (1) handle { case op() => resume(1) case cancel(e) => () }\n' > cr.kel
   $ diktor cr.kel; echo "exit: $?"
   ! cr.kel:2:50: 未実装: cancel(reason)(v0 は case cancel のみ)
   exit: 4
 
-言語に無い数値の接尾辞は型エラーで exit 1(LangSpec §4.2、§15.5):
+言語にない数値の接尾辞は、型エラーとして終了コード 1 で終了する(LangSpec §4.2、§15.5):
 
   $ echo 'let x = 1u8' > u8.kel
   $ diktor u8.kel; echo "exit: $?"

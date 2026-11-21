@@ -1,7 +1,7 @@
-sample.kel 全体回帰(計画 §9.2 / M9-M10 完了条件。写しの版は test/sample/README.md に記録してある)。
-stubs.kel を前置した無改変 sample.kel の全文が --type-check を通り(警告ゼロ)、
-トップレベル式文(handle と capture)が期待どおり評価される。
-変更時は dune promote で更新し、必ず目視レビューすること。
+sample.kel 全体の回帰テストである(コピー元のリビジョンは test/sample/README.md に記録してある)。
+stubs.kel を前に置いた無改変の sample.kel の全体が、警告なしで --type-check に通ることと、
+トップレベルの式文(handle と capture)が期待どおりに評価されることを確かめる。
+期待出力を変えるときは、差分を目で確かめてから dune promote で更新する。
 
   $ diktor --type-check sample/stubs.kel sample/sample.kel
   Db.query : (String) => Resp @ {}
@@ -73,7 +73,7 @@ stubs.kel を前置した無改変 sample.kel の全文が --type-check を通�
   BigInt.normalize : (BigInt.BigInt) => BigInt.BigInt
   big_sum : () => BigInt.BigInt
 
-実行(トップレベル式文: sample.kel:550 の handle と :662 の capture):
+実行する。トップレベルの式文は、sample.kel:550 の handle と sample.kel:662 の capture である:
 
   $ diktor sample/stubs.kel sample/sample.kel
   test

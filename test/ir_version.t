@@ -1,5 +1,5 @@
-KIR の版は 1.0 である(IRSpec 14 節)。
---emit-ir は見出しに主版 1、副版 0、必要な機能のビット 0 を書き、--emit-ir-text は (kir 1 0 0) を書く。
+KIR のバージョンは 1.0 である(IRSpec 14 節)。
+--emit-ir はヘッダにメジャーバージョン 1、マイナーバージョン 0、必須機能ビット 0 を書き、--emit-ir-text は (kir 1 0 0) を書く。
 
   $ printf 'let f(n: Int32): Int32 = n * 2\necholn(show(f(21)))\n' > v.kel
   $ diktor --emit-ir v.kir v.kel && od -A d -t x1 -N 16 v.kir | head -1
@@ -7,8 +7,8 @@ KIR の版は 1.0 である(IRSpec 14 節)。
   $ diktor --emit-ir-text v.kirt v.kel && head -1 v.kirt
   (kir 1 0 0)
 
-読み手は主版だけを比べる。
-副版が 0 より大きいファイルも、必要な機能のビットが 0 なら読んで実行する。
+リーダはメジャーバージョンだけを比較する。
+マイナーバージョンが 0 より大きいファイルも、必須機能ビットが 0 なら読み込んで実行する。
 
   $ cp v.kir m.kir && printf '\001' | dd of=m.kir bs=1 seek=6 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   42
@@ -17,15 +17,15 @@ KIR の版は 1.0 である(IRSpec 14 節)。
   42
   exit: 0
 
-副版の新しいファイルが足してよい読み飛ばせる節(id が 0x80 以上)も読み飛ばす。
-次は、節の数を 12 にして、末尾に中身が 3 バイトの節 0x83 を足したものである。
+マイナーバージョンが新しいファイルには、スキップできるセクション(id が 0x80 以上)が追加されていることがあり、リーダはそれを読み飛ばして実行する。
+次のコマンドは、セクション数を 12 に書き換え、末尾に内容が 3 バイトのセクション 0x83 を追加したファイルを実行する。
 
   $ { head -c 12 v.kir; printf '\014\000\000\000'; tail -c +17 v.kir; printf '\203\003abc'; } > m.kir && printf '\001' | dd of=m.kir bs=1 seek=6 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   42
   exit: 0
 
-主版が違うファイルは、副版を問わずに拒み、65 で終える。
-1.0 より前の草稿の版(0.y)も主版が違う。
+メジャーバージョン(診断では `主版`)が違うファイルは、マイナーバージョンによらず拒否し、終了コード 65 で終了する。
+1.0 より前の草稿の版(0.y)も、メジャーバージョンが違うファイルとして拒否する。
 
   $ cp v.kir m.kir && printf '\000\000\003' | dd of=m.kir bs=1 seek=4 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   diktor: KIR を読み込めません: 位置 8: 版 0.3 は読めません(読めるのは主版 1 の版だけです)
@@ -34,7 +34,7 @@ KIR の版は 1.0 である(IRSpec 14 節)。
   diktor: KIR を読み込めません: 位置 8: 版 2.0 は読めません(読めるのは主版 1 の版だけです)
   exit: 65
 
-副版が新しくても、知らない機能のビットを要るファイルは拒む。
+マイナーバージョンが新しくても、未知の必須機能ビット(診断では `必要な機能のビット`)が立っているファイルは拒否する。
 
   $ cp v.kir m.kir && printf '\001\000\001' | dd of=m.kir bs=1 seek=6 conv=notrunc 2> /dev/null && diktor --run-ir m.kir; echo "exit: $?"
   diktor: KIR を読み込めません: 位置 12: 必要な機能のビット 0x00000001 を処理できません

@@ -1,6 +1,6 @@
-節のない match {} の照合対象の型が網羅性を調べる時点で未定の型変数のとき、処理系はその型を
-Never に決めることがある(§11.2)。変数に制約が付かないことと、網羅性を検査する束縛の型に
-変数が現れないことが、決める条件に含まれる。決めると match {} は網羅的になる。
+節のない match {} の照合対象の型が、網羅性を調べる時点で未定の型変数のとき、処理系はその型を
+Never に決めることがある(LangSpec §11.2)。その変数に制約が付いていないことと、網羅性を検査する束縛の型に
+その変数が現れないことが、決める条件に含まれる。Never に決めると、match {} は網羅的になる。
 
 direct は、再開しない操作の perform の結果を関数の中で直接照合する。警告は出ず、
 --strict-exhaustive でも終了コードは 0 である:
@@ -18,10 +18,10 @@ direct は、再開しない操作の perform の結果を関数の中で直接�
   $ diktor --strict-exhaustive direct.kel
   -1
 
-次の 4 本も関数の本体で照合し、direct とは照合対象の作り方か関数の束縛の仕方が違う。
-helper は返り値を注釈しない補助関数 fail の結果を照合し、--strict-exhaustive でも終了コードは
-0 である。valbind は perform の結果を局所の値束縛 z で受けてから照合する。abort は返り値を
-型パラメータにした補助関数の結果を照合する。mutual は let rec の群の中で perform の式そのものを
+次の 4 つも関数の本体で照合するが、照合対象の作り方か関数の束縛の仕方が direct と違う。
+helper は、返り値を注釈しない補助関数 fail の結果を照合し、--strict-exhaustive でも終了コードは
+0 である。valbind は、perform の結果をローカルの値束縛 z で受けてから照合する。abort は、返り値を
+型パラメータにした補助関数の結果を照合する。mutual は、let rec の再帰群の中で perform の式そのものを
 照合する。どれも警告は出ない:
 
   $ cat > helper.kel <<'EOF'
@@ -67,9 +67,9 @@ helper は返り値を注釈しない補助関数 fail の結果を照合し、-
   $ diktor mutual.kel
   -1
 
-laterlet2 は、match の後に無関係な局所の let m を置く。m の束縛の網羅性の検査は get の
-束縛より先に走るが、照合対象の型変数は get の本体のレベルにあるので、そこでは決めずに
-get の束縛の検査に送る。そこで Never に決まり、--strict-exhaustive でも警告は出ない:
+laterlet2 は、match の後に無関係なローカルの let m を置く。m の束縛での網羅性の検査は get の
+束縛での検査より先に行うが、照合対象の型変数は get の本体のレベルにあるので、そこでは決めずに
+get の束縛の検査まで遅らせる。そこで Never に決まり、--strict-exhaustive でも警告は出ない:
 
   $ cat > laterlet2.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -85,10 +85,10 @@ get の束縛の検査に送る。そこで Never に決まり、--strict-exhaus
   $ diktor --strict-exhaustive laterlet2.kel
   -1
 
-okarm の mk の型では、#Ok の積載値の型は型変数である。go の v match {} の照合対象は、
+okarm の mk の型では、#Ok のペイロードの型は型変数である。go の v match {} の照合対象の型は、
 その型変数を具体化した変数で、go の型に現れないので、go の束縛の検査で Never に決まる。
-#Ok(v) の v は値の無い型になるので、第 1 節は到達不能と報告される。go(true) は mk の中で
-perform を起こすので、ハンドラが -1 を返す:
+#Ok(v) の v の型は値を持たない型になるので、第 1 節は到達不能と報告される。go(true) は mk の中で
+操作 throw を起こすので、ハンドラが -1 を返す:
 
   $ cat > okarm.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }
@@ -105,7 +105,7 @@ perform を起こすので、ハンドラが -1 を返す:
   3
   -1
 
-unannparam は、型注釈のない引数 x を照合する。x の型変数は f の型に現れるので決めず、
+unannparam は、型注釈のない引数 x を照合する。x の型変数は f の型に現れるので Never に決めず、
 網羅漏れの警告になる。--type-check の出力のとおり、f の型は (A) => B のままである:
 
   $ cat > unannparam.kel <<'EOF'
@@ -121,7 +121,7 @@ unannparam は、型注釈のない引数 x を照合する。x の型変数は 
   _ : {}
 
 r11_void_helper は、unannparam と同じ形の elim を、右辺のない newtype Void の値に使う。
-elim の引数の型変数を決めないので、use の elim(v) は型が合い、警告の後で実行される:
+elim の引数の型変数を Never に決めないので、use の elim(v) は型検査に通り、警告を出した後でプログラムを実行する:
 
   $ cat > r11_void_helper.kel <<'EOF'
   > newtype Void
@@ -133,15 +133,15 @@ elim の引数の型変数を決めないので、use の elim(v) は型が合�
   ⚠ match が非網羅的です。照合対象の型は、網羅性を調べた時点で Never のようなコンストラクタを持たない型と分かっていません(節のない match {} が網羅的なのは、照合対象がそのような型のときだけです)
   ok
 
-r1_nongen_top の h は、値制限で一般化しない最上位の束縛である。照合対象 y の型変数は h の
-型に現れるので決めず、警告になる。決めないので、後の h(3) は型が合い、k(false) は 0 を
+r1_nongen_top の h は、値制限によって一般化しないトップレベルの束縛である。照合対象 y の型変数は h の
+型に現れるので Never に決めず、警告になる。決めないので、後の h(3) は型検査に通り、k(false) は 0 を
 返す。
 
-w1 の p は値制限で一般化しない最上位の束縛で、--type-check の出力のとおり型は (_A) => _A
-である。最上位の t の中の局所の g は p(loop()) を照合する。loop の型は () => A で、照合対象の
-型を p の型変数 _A にするために使う(g は呼ばない)。_A は前の最上位の束縛 p の型変数で最上位の
-レベルにあるので決めず、警告になる。決めないので、後の p(3) は型が合い、3 を出力する。w1id は
-t の中の p を一般化する id に替え、使わなくなった p の束縛を除き、出力を id(3) にした
+w1 の p は、値制限によって一般化しないトップレベルの束縛で、--type-check の出力のとおり型は (_A) => _A
+である。トップレベルの t の中にあるローカルの g は、p(loop()) を照合する。loop の型は () => A で、照合対象の
+型を p の型変数 _A にするために使う(g は呼び出さない)。_A は、前にあるトップレベルの束縛 p の型変数で、最も外側の
+レベルにあるので Never に決めず、警告になる。決めないので、後の p(3) は型検査に通り、3 を出力する。w1id は、
+t の中の p を一般化する id に替え、使わなくなった p の束縛を取り除き、出力を id(3) に替えた
 もので、警告は出ない:
 
   $ cat > r1_nongen_top.kel <<'EOF'
@@ -179,11 +179,11 @@ t の中の p を一般化する id に替え、使わなくなった p の束�
   $ diktor --strict-exhaustive w1id.kel
   3
 
-rigid は、利用者が明示した型パラメータ A の値 x を、局所の束縛 q の中で照合する。A は
-未定の型変数でないので決めず、警告になる。numvar は、perform の結果を局所の値束縛 r で
-受け、let a の中で照合し、後で r == 0 と比べる。nocmp は numvar の条件 r == 0 を true に
-替えたものである。2 本の違いはこの比較だけで、numvar だけが警告になる。比べると r の型変数に
-数値の制約が付き、制約の付いた変数は決めないからである:
+rigid は、ユーザが明示した型パラメータ A の値 x を、ローカルの束縛 q の中で照合する。A は
+未定の型変数ではないので Never に決めず、警告になる。numvar は、perform の結果をローカルの値束縛 r で
+受け、let a の中で照合し、後で r == 0 と比較する。nocmp は、numvar の条件 r == 0 を true に
+替えたものである。2 つの違いはこの比較だけで、numvar だけが警告になる。比較すると r の型変数に
+数値の制約が付き、制約の付いた変数は Never に決めないからである:
 
   $ cat > rigid.kel <<'EOF'
   > let f[A](x: A): Int32 = { let q = x match {}; 0 }
@@ -208,9 +208,9 @@ rigid は、利用者が明示した型パラメータ A の値 x を、局所�
   $ diktor --strict-exhaustive nocmp.kel
   ok
 
-toplevelstmt は、最上位の値でない式文に、局所の束縛で包まずに match {} を直接書く。
-照合対象の型変数は最上位のレベルにあるので決めず、警告になり、--strict-exhaustive では
-終了コード 1 になる:
+toplevelstmt は、トップレベルの値でない式文に、ローカルの束縛で包まずに match {} を直接書く。
+照合対象の型変数は最も外側のレベルにあるので Never に決めず、警告になり、--strict-exhaustive では
+終了コード 1 で終了する:
 
   $ cat > toplevelstmt.kel <<'EOF'
   > effect Fail = { throw: (String) => Never }

@@ -1,11 +1,11 @@
-実行の開始と終了(LangSpec §15.5)。終了状態は、正常終了 0、型検査での拒否と import の
-誤り 1、字句と構文の誤り 2、実行時エラー 3 である。プログラムを実行するとき、診断と
-警告は標準エラーに出し、実行時エラーの前に標準出力へ書いた内容は残す。診断の文面
-そのものは各機能のテストが持つ。
+実行の開始と終了(LangSpec §15.5)。終了コードは、正常終了が 0、型検査での拒否と import の
+エラーが 1、字句エラーと構文エラーが 2、実行時エラーが 3 である。プログラムを実行するとき、診断と
+警告は標準エラーに出し、実行時エラーの前に標準出力へ書いた内容は残す。診断のメッセージ
+そのものは各機能のテストで確かめる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-正常終了は 0。起点の初期化(§15.4)を終えたら終わる:
+正常終了の終了コードは 0 である。起点の初期化(§15.4)を終えたら終了する:
 
   $ cat > exitok.kel <<'KEL'
   > echoln("hello")
@@ -17,7 +17,7 @@
   3
   exit: 0
 
-型検査で拒否したプログラムは 1。初期化を始めないので、型エラーより前の式文も
+型検査で拒否したプログラムは 1 で終了する。初期化を始めないので、型エラーより前の式文も
 評価せず、標準出力は空である。診断は標準エラーに出る:
 
   $ cat > exittype.kel <<'KEL'
@@ -30,7 +30,7 @@
   ! exittype.kel:2:5: 型エラー: 注釈された型を満たしません(型が一致しません: Int32 と String)
   exit: 1
 
-import の誤りも 1:
+import のエラーも 1 で終了する:
 
   $ printf 'from "./nosuch" import x\necholn("a")\n' > exitimport.kel
   $ diktor exitimport.kel 2> /dev/null; echo "exit: $?"
@@ -39,7 +39,7 @@ import の誤りも 1:
   ! exitimport.kel:1:1: import エラー: import 先が見つかりません: ./nosuch(nosuch.kel)
   exit: 1
 
-構文エラー、字句エラー、不正な UTF-8 のバイト列は 2。どれも初期化を始めない:
+構文エラー、字句エラー、不正な UTF-8 のバイト列は 2 で終了する。どれも初期化を始めない:
 
   $ printf 'echoln("before")\nlet x = (1 +\n' > exitparse.kel
   $ diktor exitparse.kel 2> /dev/null; echo "exit: $?"
@@ -63,7 +63,7 @@ import の誤りも 1:
   exitutf8.kel:2:10: 字句エラー: 不正な UTF-8 バイト列です
   exit: 2
 
-実行時エラーは 3。止まるまでに標準出力へ書いた内容は残り、診断は標準エラーに出る:
+実行時エラーは 3 で終了する。終了するまでに標準出力へ書いた内容は残り、診断は標準エラーに出る:
 
   $ cat > exitrt.kel <<'KEL'
   > echo("before ")
@@ -80,7 +80,7 @@ import の誤りも 1:
   exit: 3
 
 標準出力と標準エラーを 1 本にまとめると、診断はそれまでの出力の後ろに出る。
-実行時エラーの巻き戻しでも cancel 節は走る(§13.6):
+実行時エラーの巻き戻しでも cancel 節は実行される(§13.6):
 
   $ cat > exitcancel.kel <<'KEL'
   > effect Ask = { ask: () => Int32 }
@@ -119,7 +119,7 @@ import の誤りも 1:
   zero
   exit: 0
 
---strict-exhaustive は、警告があれば実行せずに型検査での拒否と同じ 1 で終わる:
+--strict-exhaustive は、警告があれば実行せずに、型検査での拒否と同じ 1 で終了する:
 
   $ diktor --strict-exhaustive warnrun.kel 2> /dev/null; echo "exit: $?"
   exit: 1
@@ -127,7 +127,7 @@ import の誤りも 1:
   ⚠ match が非網羅的です。例えば 1 が漏れています
   exit: 1
 
-初期化前の呼び出し(§6.4)。完全な署名を持つ後ろの関数は型検査に通るが、
+初期化前の呼び出し(§6.4)。完全なシグネチャを持つ、後ろで定義した関数は型検査に通るが、
 初期化の前に呼ぶと実行時エラーで 3 になる:
 
   $ cat > initcall.kel <<'KEL'
@@ -143,7 +143,7 @@ import の誤りも 1:
   実行時エラー: 未束縛の変数: g
   exit: 3
 
-インスタンスのメソッドも、インスタンス宣言を実行する前に使うと実行時エラーで 3:
+インスタンスのメソッドも、インスタンス宣言を実行する前に使うと実行時エラーになり、3 で終了する:
 
   $ cat > initinst.kel <<'KEL'
   > newtype L(String)
@@ -160,9 +160,9 @@ import の誤りも 1:
   実行時エラー: R[L] のインスタンスは宣言より前の位置では使えません(実行はまだ実体を持ちません。インスタンス宣言を使用より前に置いてください)
   exit: 3
 
-型検査に要する領域が処理系の限度を超えたときは、型検査での拒否と同じ 1 で終わる。
+型検査に必要なメモリが処理系の限度を超えたときは、型検査での拒否と同じ 1 で終了する。
 初期化を始めないので、標準出力は空である。
-OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段の入れ子の式を型検査させる:
+OCAMLRUNPARAM=l=100k でスタックの上限を 102400 ワードに絞り、2 万段の入れ子の式を型検査させる:
 
   $ awk 'BEGIN { print "echoln(\"before\")"; s = "1"; for (i = 0; i < 20000; i++) s = "1 + (" s ")"; print "let x = " s; print "echoln(show(x))" }' > deep.kel
   $ OCAMLRUNPARAM=l=100k diktor deep.kel 2> /dev/null; echo "exit: $?"
@@ -171,7 +171,7 @@ OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段�
   ! 処理系の限度: 型検査で再帰が深すぎます(スタックオーバーフロー)
   exit: 1
 
---type-check では、それまでの型の行に続けて同じ診断を標準出力に出す:
+--type-check では、それまでに型を表示した行に続けて、同じ診断を標準出力に出す:
 
   $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel 2> /dev/null; echo "exit: $?"
   _ : {}
@@ -180,14 +180,14 @@ OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段�
   $ OCAMLRUNPARAM=l=100k diktor --type-check deep.kel > /dev/null; echo "exit: $?"
   exit: 1
 
-上限を 8M 語に広げれば、同じプログラムは型検査に通り、実行する:
+上限を 8M ワードに引き上げれば、同じプログラムは型検査に通り、実行される:
 
   $ OCAMLRUNPARAM=l=8M diktor deep.kel; echo "exit: $?"
   before
   20001
   exit: 0
 
-対話的な実行では、型検査が限度を超えた入力を受理せず、続く入力を処理する:
+対話的な実行では、型検査が処理系の限度を超えた入力を受理せず、続く入力を処理する:
 
   $ printf 'let y = 1\n' > deeprepl.txt
   $ sed -n 2p deep.kel >> deeprepl.txt
@@ -198,9 +198,9 @@ OCAMLRUNPARAM=l=100k でスタックの上限を 102400 語に絞り、2 万段�
   1
   exit: 0
 
-構文解析に要する領域が処理系の限度を超えたときは、字句と構文の誤りと同じ 2 で終わる。
-ブロックの文の列は、文の数に比例するスタックで畳まれる。
-OCAMLRUNPARAM=l=16k でスタックの上限を 16384 語に絞り、2 万文のブロックを読ませる:
+構文解析に必要なメモリが処理系の限度を超えたときは、字句エラーや構文エラーと同じ 2 で終了する。
+ブロックの文の並びの構文解析は、文の数に比例するスタックを使う。
+OCAMLRUNPARAM=l=16k でスタックの上限を 16384 ワードに絞り、2 万文のブロックを読ませる:
 
   $ awk 'BEGIN { print "echoln(\"before\")"; print "let x = {"; for (i = 0; i < 20000; i++) print "  let a" i " = 1"; print "  1"; print "}"; print "echoln(show(x))" }' > seq.kel
   $ OCAMLRUNPARAM=l=16k diktor seq.kel 2> /dev/null; echo "exit: $?"
@@ -209,7 +209,7 @@ OCAMLRUNPARAM=l=16k でスタックの上限を 16384 語に絞り、2 万文の
   seq.kel: 処理系の限度: 構文解析で再帰が深すぎます(スタックオーバーフロー)
   exit: 2
 
-対話的な実行では、構文解析が限度を超えた入力を受理せず、続く入力を処理する:
+対話的な実行では、構文解析が処理系の限度を超えた入力を受理せず、続く入力を処理する:
 
   $ awk 'BEGIN { print "let y = 1"; s = "let x = {"; for (i = 0; i < 20000; i++) s = s " let a" i " = 1;"; print s " 1 }"; print "echoln(show(y))" }' > seqrepl.txt
   $ OCAMLRUNPARAM=l=16k diktor --repl < seqrepl.txt; echo "exit: $?"

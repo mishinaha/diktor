@@ -1,10 +1,10 @@
-エフェクトの名前の前方参照(LangSpec §6.4)。
+エフェクトの名前の前方参照(LangSpec §6.4)のテストである。
 型を書く位置には、後ろで宣言するエフェクトのラベルも書ける。
-エフェクトの名前は宣言表に先に置き、操作はそのあとで書き込む。
+型検査は、エフェクトの名前を先に宣言表に登録し、操作はその後で登録する。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-newtype のフィールドが後ろの effect を参照し、実行もできる(effnt):
+newtype のフィールドが後ろの effect を参照でき、実行もできる(effnt):
 
   $ cat > effnt.kel <<'EOF'
   > newtype Cb = Cb((String) => Unit @ {Log})
@@ -19,7 +19,7 @@ newtype のフィールドが後ろの effect を参照し、実行もできる(
   $ diktor effnt.kel
   42
 
-略記の @ Log、extends つきの行、和の後ろのコンストラクタのフィールドでも同じである(effntforms):
+略記の @ Log、extends 付きの行、複数のコンストラクタを持つ newtype の 2 つ目のコンストラクタのフィールドでも同じである(effntforms):
 
   $ cat > effntforms.kel <<'EOF'
   > newtype N1 = N1(() => Unit @ Log)
@@ -42,8 +42,8 @@ effect の操作の型と、型クラスのメソッドの型も、後ろの eff
   $ diktor --type-check effop.kel
   g : () => {} @ {A}
 
-型エイリアスの本体のラベルも、エイリアスを newtype のフィールドや effect の操作の型から
-使う形で読める(effalias):
+型エイリアスの本体に書いたラベルも、そのエイリアスを newtype のフィールドや effect の操作の型で
+使う形で、後ろの effect を参照できる(effalias):
 
   $ cat > effalias.kel <<'EOF'
   > type W: EffectRow = {Log}
@@ -57,7 +57,7 @@ effect の操作の型と、型クラスのメソッドの型も、後ろの eff
   $ diktor --type-check effalias.kel
   f : (N1, N2) => N1
 
-値束縛と関数の注釈、インスタンスのメソッドも同じで、実行もできる(effpos):
+値束縛と関数の注釈、インスタンスのメソッドでも同じで、実行もできる(effpos):
 
   $ cat > effpos.kel <<'EOF'
   > let v: () => Unit @ {Log} = fn() => perform log("v")
@@ -73,17 +73,17 @@ effect の操作の型と、型クラスのメソッドの型も、後ろの eff
   3
   w
 
-どこにも宣言していないラベルは、未知のエフェクトである(effunknown):
+どこにも宣言していないラベルは、未知のエフェクトとしてエラーになる(effunknown):
 
   $ printf 'newtype N = N(() => Unit @ {Nope})\neffect Log = { log: (String) => Unit }\n' > effunknown.kel
   $ diktor --type-check effunknown.kel
   ! effunknown.kel:1:28: 型エラー: 未知のエフェクト: Nope
   [1]
 
-effect の名前の検査(重複、標準環境の名前)は名前を置く時点で行うので、
-前に置いた宣言の本体の誤りより先に報告する(effdup、effstd)。
-型パラメータの検査は操作と同じ時点で行うので、前に置いた宣言の本体の誤りが先に出る(effparams2)。
-前に置いた宣言に誤りが無ければ、effect の宣言の位置で落ちる(effparams):
+effect の名前の検査(重複、標準環境の名前)は名前を登録する時点で行うので、
+前にある宣言の本体のエラーより先に報告する(effdup、effstd)。
+型パラメータの検査は操作と同じ時点で行うので、前にある宣言の本体のエラーを先に報告する(effparams2)。
+前にある宣言にエラーがなければ、effect の宣言の位置でエラーになる(effparams):
 
   $ printf 'newtype N = N(() => Unit @ {Nope})\neffect Log = { log: (String) => Unit }\neffect Log = { log: (String) => Unit }\n' > effdup.kel
   $ diktor --type-check effdup.kel
@@ -102,7 +102,7 @@ effect の名前の検査(重複、標準環境の名前)は名前を置く時�
   ! effparams2.kel:1:28: 型エラー: 未知のエフェクト: Nope
   [1]
 
-対話的な実行では、前方参照は 1 つの入力の中に限る(LangSpec §6.6)。
+対話的な実行では、前方参照できるのは 1 つの入力の中だけである(LangSpec §6.6)。
 受理しなかった入力の effect の名前は後の入力から見えず、同じ effect を宣言し直せる(effrepl):
 
   $ diktor --repl <<'EOF2'

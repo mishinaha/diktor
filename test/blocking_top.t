@@ -1,5 +1,5 @@
-Blocking はトップレベルに残せる(仕様 §9 / §12、D88)。かつてはトップレベル行が
-{Console, Async} だけで、@ Blocking の付いた関数を pinned 無しでは呼べなかった。
+Blocking はトップレベルで許されるエフェクトに含まれる(sample.kel §9、§12、第11章 §11.30)。そのため、
+@ Blocking の付いた関数を、pinned を使わずにトップレベルから呼び出せる。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
@@ -10,8 +10,8 @@ Blocking はトップレベルに残せる(仕様 §9 / §12、D88)。かつて�
   $ diktor btop.kel
   4.0
 
-pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行へ持ち込むのは
-従来どおり拒否:
+pinned で Blocking を行から取り除くこともできる(sample.kel §12)。取り除かずに純粋な行の本体で
+呼び出すと、型エラーになる:
 
   $ cat > bpure.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64 @ Blocking
@@ -24,7 +24,7 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   ! bpure.kel:3:37: 型エラー: ラベル Blocking がありません(行は閉じています)(この位置の行は空 = 純粋です — 注釈の @ {} か、高階の引数の行が @ {} だからです(入れ子の矢印の @ 省略も @ {} と読みます)。行を通すなら行変数を型パラメータに取ってください。§9)
   [1]
 
-注釈した行に Blocking が無ければ、閉じた行に Blocking が無いという診断で落ちる:
+型注釈に書いた閉じた行に Blocking がなければ、ラベル Blocking がないことを報告する型エラーになる:
 
   $ cat > bann.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64 @ Blocking
@@ -35,8 +35,8 @@ pinned で落とすこともできる(仕様 §12)。落とさずに純粋な行
   ! bann.kel:2:53: 型エラー: ラベル Blocking がありません(行は閉じています)
   [1]
 
-Blocking は操作を持たないので handle の対象にできない(禁止の名指しでは
-なく「属しません」で落ちる — ランタイム提供の名簿とは別扱い):
+Blocking は操作を持たないので、handle の対象にできない。ユーザがハンドルできないエフェクトの一覧(第7章 §7.3 の runtime_effects)には
+入っていないので、ハンドルを禁止する診断ではなく、`操作 nope はエフェクト Blocking に属しません` の診断になる:
 
   $ cat > bh.kel <<'KEL'
   > let f[A, E](b: () => A @ {Blocking extends E}): A @ E =
@@ -49,14 +49,14 @@ Blocking は操作を持たないので handle の対象にできない(禁止�
   ! bh.kel:3:10: 型エラー: 操作 nope はエフェクト Blocking に属しません
   [1]
 
-Blocking に操作を足す宣言は拒否する(標準環境の名前なので再宣言できない):
+Blocking に操作を追加する宣言は拒否する(標準環境の名前なので再宣言できない):
 
   $ printf 'effect Blocking = { block: (String) => Int32 }\n' > bbad.kel
   $ diktor --type-check bbad.kel
   ! bbad.kel:1:1: 型エラー: 標準環境の effect Blocking は再宣言できません
   [1]
 
---no-prelude でも Blocking は組み込み登録なのでトップレベル行に残る:
+Blocking は組み込みとして登録してあるので、--no-prelude でもトップレベルの行に残る:
 
   $ cat > bnp.kel <<'KEL'
   > extern "C" let sqrt(x: Float64): Float64 @ Blocking

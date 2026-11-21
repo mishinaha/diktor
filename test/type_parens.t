@@ -1,4 +1,4 @@
-型の位置の括弧(LangSpec §3.1、§8)。カンマの無い (A) はグループ化で、
+型の位置の括弧(LangSpec §3.1、§8)。カンマのない (A) はグループ化で、
 1 要素タプル型は (A,) と書く。式の (e) とパターンの (p) と同じ規則である。
 
   $ cat > group.kel <<'EOF'
@@ -39,7 +39,7 @@
   outer : (Int32) => ((Int32) => Int32 @ {}) @ {Console}
   both : (Int32) => ((Int32) => Int32 @ {Console}) @ {Console}
 
-括弧で囲んだ矢印は、型適用の頭やヴァリアント和の要素にはならない:
+括弧で囲んだ矢印は、型適用の先頭の型構成子にも、ヴァリアント型の要素にもならない:
 
   $ echo 'let x: ((Int32) => Int32)[Int32] = ???' > grpapp.kel
   $ diktor --type-check grpapp.kel

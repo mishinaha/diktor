@@ -1,8 +1,8 @@
-M7(型クラスのユーザ宣言)のゴールデン。
-変更時は dune promote で更新し、必ず目視レビューすること。
+型クラスのユーザ宣言の型検査のゴールデンテストである。
+期待出力を変えるときは、差分を目で確かめてから dune promote で更新する。
 
-sample.kel §8 の一式(クラス宣言・インスタンス・fma・
-メソッド固有型パラメータ付き HKT クラスの宣言と let rec インスタンス)。
+sample.kel §8 の例(クラス宣言、インスタンス、fma、メソッドが固有の型パラメータを持つ
+高カインド型のクラスの宣言と、let rec で書いたインスタンス)。
 Add、Mul、Eq とそのインスタンスは、宣言せずに組み込みのものを使う:
 
   $ cat > cls.kel <<'EOF'
@@ -40,7 +40,7 @@ Add、Mul、Eq とそのインスタンスは、宣言せずに組み込みの�
   use_myshow : String
   generic_show : [A: MyShow] (A) => String
 
-MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検査待ちで除外):
+注釈のない束縛でのクラス制約の推論。関数型は Show のインスタンスではないのでエラーになる:
 
   $ cat > ml9.kel <<'EOF'
   > let s = show(42)
@@ -56,8 +56,8 @@ MiniLang §16-9(クラス制約、注釈なし。read 系は v1 の曖昧性検�
   [1]
 
 返り値にだけクラスパラメータが現れるメソッドを宣言できる。どのインスタンスのメソッドかは
-型検査が型から決めるので、注釈か結果を使う位置が F を決めればよい(使う形は
-test/dictionary_passing.t の pure と pureamb):
+型検査が型から決めるので、注釈か結果を使う位置が F を決めればよい(使用例は
+test/dictionary_passing.t の pure と pureamb にある):
 
   $ cat > c2.kel <<'EOF'
   > newtype Box[A] = Box(A)
@@ -65,7 +65,7 @@ test/dictionary_passing.t の pure と pureamb):
   > EOF
   $ diktor --type-check --no-prelude c2.kel
 
-エラー経路(コヒーレンス / 型不一致 / 網羅 / 多パラメータ / 予約述語):
+エラーになる宣言(インスタンスの二重宣言、メソッドの型の不一致、メソッドの漏れ、複数のパラメータ、予約述語):
 
   $ cat > c1.kel <<'EOF'
   > type class C[A] { val f: (A) => A }
@@ -109,8 +109,8 @@ test/dictionary_passing.t の pure と pureamb):
   ! c6.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(ユーザ宣言不可、D8)
   [1]
 
-予約述語はインスタンス宣言側の入口でも拒否される(D8。かつては素通りして
-制約解決に使われた):
+予約述語は、インスタンス宣言でも拒否する。受理すると、ユーザのインスタンスが
+数値リテラルの制約の解決に使われる:
 
   $ printf 'type instance Integral[String] { }\n' > c7.kel
   $ diktor --type-check --no-prelude c7.kel
@@ -122,8 +122,8 @@ test/dictionary_passing.t の pure と pureamb):
   ! c8.kel:1:1: 型エラー: Fractional は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
-型パラメータ制約の未知クラスは宣言時に落ちる(かつては宣言の印字が出てから
-使用点で落ち、クラスメソッド側は一切落ちなかった):
+型パラメータの制約に書いた未知のクラスは、宣言の時点でエラーにする。
+関数の型パラメータでも、クラスのメソッドの型パラメータでも同じである:
 
   $ printf 'let f[A: Bogus](x: A): A = x\n' > c9.kel
   $ diktor --type-check --no-prelude c9.kel
@@ -135,7 +135,7 @@ test/dictionary_passing.t の pure と pureamb):
   ! c10.kel:1:1: 型エラー: 未知のクラス: Bogus
   [1]
 
-制約のクラスは後方で宣言されていてもよい(検査はクラス表が出揃ってから):
+制約のクラスは後ろで宣言していてもよい。制約の検査は、すべてのクラスを登録した後に行う:
 
   $ cat > c11.kel <<'KEL'
   > let uses2[A: Later2](x: A): A = lm2(x)
@@ -144,8 +144,8 @@ test/dictionary_passing.t の pure と pureamb):
   $ diktor --type-check --no-prelude c11.kel
   uses2 : [A: Later2] (A) => A
 
-予約述語は残りの入口でも拒否される(260829-5 検証修正。--prelude の
-ユーザ製プレリュード・型パラメータ制約・クラスメソッドの制約):
+予約述語は、--prelude で渡したプレリュードのインスタンス宣言、型パラメータの制約、
+クラスのメソッドの制約でも拒否する:
 
   $ printf 'type instance Integral[String] { }\n' > pre_evil.kel
   $ printf 'let s: String = 1\n' > main1.kel
@@ -163,15 +163,15 @@ test/dictionary_passing.t の pure と pureamb):
   ! c13.kel:1:1: 型エラー: Fractional は予約されたリテラル述語です(制約には書けません、D8)
   [1]
 
-インスタンス頭の書き方に関わらず、予約述語の拒否理由が最初に出る:
+インスタンスの対象の型が未知の型でも、予約述語であることを先に報告する:
 
   $ printf 'type instance Integral[Nope] { }\n' > c14.kel
   $ diktor --type-check --no-prelude c14.kel
   ! c14.kel:1:1: 型エラー: Integral は予約されたリテラル述語です(インスタンスは宣言できません、D8)
   [1]
 
-同一クラス内の重複メソッドを拒否(素通りすると elab は最後の宣言で
-型付け、インスタンス照合は最初を見るので実行時に崩壊した):
+同じクラスの中でメソッドを二重に宣言するとエラーになる。受理すると、型検査は最後の宣言の
+型を使い、インスタンスとの照合は最初の宣言を使うので、型と実行時の動作が食い違う:
 
   $ cat > c15.kel <<'KEL'
   > type class C5[A] { val f: (A) => Int32
@@ -181,8 +181,8 @@ test/dictionary_passing.t の pure と pureamb):
   ! c15.kel:2:9: 型エラー: メソッド f が二重に宣言されています
   [1]
 
-module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフォール
-バック。かつては自己再帰すら「未束縛の変数」で落ちた):
+module の中の let は、同じ module の let と自分自身を、修飾せずに参照できる
+(module の中では、修飾しない名前が値の別名として登録されている):
 
   $ cat > modref.kel <<'KEL'
   > module M {
@@ -197,10 +197,10 @@ module 内 let の相互参照と自己再帰(C5a / D39。値の同義語のフ�
   3
   0
 
-module 内の名前とトップレベル名の衝突は宣言時に拒否する(M16 / D43。
-かつては「外側が勝つ」フォールバックだったが、elab は宣言時点・評価器は
-呼び出し時点の環境を見るため、宣言順と呼び出し時刻の組で解決が食い違い、
-黙って別の実体を選んだ — M15 検証 V12):
+module の中の名前がトップレベルの名前と同じなら、宣言の時点で拒否する。
+受理してどちらかを優先すると、型検査は宣言の時点の環境を、評価器は
+呼び出しの時点の環境を参照するので、宣言の順序と呼び出しの時点によっては、
+両者が別の宣言を選ぶことになる:
 
   $ cat > modshadow.kel <<'KEL'
   > let helper(x: Int32): Int32 = 100
@@ -214,7 +214,7 @@ module 内の名前とトップレベル名の衝突は宣言時に拒否する(
   ! modshadow.kel:3:3: 型エラー: module M の helper はトップレベルの helper と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
 
-同義語の衝突は曖昧(C5d / D39。かつては黙って後勝ち):
+2 つの module が同じ名前を公開すると、修飾しない名前は曖昧なのでエラーになる。修飾すれば使える:
 
   $ cat > modclash.kel <<'KEL'
   > module A { pub newtype T = TA(Int32) }
@@ -243,15 +243,15 @@ module 内の名前とトップレベル名の衝突は宣言時に拒否する(
   $ diktor modclash3.kel
   23
 
-組み込みスカラー名はエイリアスでも奪えない(V2。newtype 側と同じ検査):
+組み込みのスカラー型の名前は、型エイリアスでも再宣言できない(newtype と同じ検査):
 
   $ printf 'type Float64 = String\n' > v2alias.kel
   $ diktor --type-check v2alias.kel
   ! v2alias.kel:1:1: 型エラー: 組み込み型 Float64 は型エイリアスで再宣言できません
   [1]
 
-module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 の値側。
-型側の「A.T か B.T と修飾してください」と同じ形):
+module の値の修飾しない名前が曖昧なときは、修飾名を示す。
+型の診断「A.T か B.T と修飾してください」と同じ形式である:
 
   $ cat > vamb.kel <<'EOF2'
   > module A { pub let down(n: Int32): Int32 = n + 1 }
@@ -264,8 +264,8 @@ module の値の非修飾名が曖昧なとき、修飾名を案内する(D39 �
   ! vamb.kel:3:13: 型エラー: 未束縛の変数: down(A.down か B.down と修飾してください)
   [1]
 
-完全シグネチャ判定(Some [] = Never の節ゼロは網羅、roots が空なら
-default へ降りる。M19 / G3a の sig_complete):
+コンストラクタのシグネチャが完全かどうかの判定(第10章 §10.10 の sig_complete)。コンストラクタが 0 個の Never は、
+節のない match で網羅される。照合対象の型のコンストラクタを 1 つも書いていない match は、ワイルドカードの節で判定する:
 
   $ cat > sigc.kel <<'KEL'
   > let absurd[A](n: Never): A = n match {}
@@ -275,8 +275,8 @@ default へ降りる。M19 / G3a の sig_complete):
   absurd : (Never) => A
   allwild : (Boolean) => Int32
 
-網羅性警告は宣言をまたいでソース順に並ぶ(§10.13 の遅延キュー。
-M19 / G3b。1 宣言の中では引数パターンの警告が本体の後に出る — §10.13):
+網羅性の警告は、宣言をまたいでソースの順に並ぶ(第10章 §10.13 の検査キュー)。
+1 つの宣言の中では、引数のパターンの警告が本体の警告の後に出る:
 
   $ cat > warnorder.kel <<'KEL'
   > let a = fn(x: Boolean) => x match { case true => 1 }
@@ -294,8 +294,8 @@ M19 / G3b。1 宣言の中では引数パターンの警告が本体の後に出
   d : (Boolean) => Int32
   ⚠ 第 3 節は到達不能です(冗長)
 
-反例の組み立て(CData / CRecord の両方が rebuild の split_at を通る。
-M19 / G3c / G3d / G7c):
+反例の組み立て。漏れている値を、コンストラクタの引数をそろえた形に組み立て直して示す(第10章 §10.8 の rebuild)。
+位置で書いたフィールドと名前付きのフィールドのコンストラクタを並べ、最初に見つかる Seg(false, true) を示す:
 
   $ cat > rebuild.kel <<'KEL'
   > newtype Shape = Dot | Seg(Boolean, Boolean) | Box(w: Boolean, h: Boolean)
@@ -309,9 +309,9 @@ M19 / G3c / G3d / G7c):
   f : (Shape) => Int32
   ⚠ match が非網羅的です。例えば Seg(false, true) が漏れています
 
-反駁可能な関数引数・return 節のパターンも網羅性検査に乗る(M19 / V10。
-かつては let のパターン束縛だけが警告を出し、型検査を通って実行時に
-「パターンに値が一致しません」で落ちた):
+関数の引数と return 節に書いた、一致しない値のあるパターンも網羅性検査に掛ける。
+検査しないと、型検査に通ったプログラムが実行時に
+「パターンに値が一致しません」で終了する:
 
   $ cat > v10.kel <<'KEL'
   > let g(true: Boolean): Int32 = 1
@@ -342,9 +342,9 @@ M19 / G3c / G3d / G7c):
   f : () => Int32 @ {}
   ⚠ match が非網羅的です。例えば false が漏れています
 
-検査モード(注釈のある高階関数の引数位置)のラムダも V10 の対象
-(M19 検証。elab_check 経路に queue が無く、最も普通のラムダが素通り
-していた):
+検査モードで検査する無名関数(注釈のある高階関数の引数の位置に書いたもの)の
+引数のパターンも、推論モードのときと同じく
+網羅性検査に掛ける:
 
   $ cat > v10d.kel <<'KEL'
   > let apply2(f: (Boolean) => Int32, b: Boolean): Int32 = f(b)
@@ -355,9 +355,9 @@ M19 / G3c / G3d / G7c):
   r : Int32
   ⚠ match が非網羅的です。例えば false が漏れています
 
-引数・return 節の検査エントリは本体の推論より後に積む(M19 検証。
-先に積むと本体中の let の drain に食われて行が早期に閉じ、受理されて
-いたプログラムが型エラーになった):
+引数と return 節のパターンの検査は、本体の推論より後に検査キューに入れる。
+先に入れると、本体の中の let がキューを処理するときにこの検査も実行されて、行が早く閉じ、
+受理するべきプログラムが型エラーになる:
 
   $ cat > v10e.kel <<'KEL'
   > let g(t: #A | #B | #C): Int32 = t match { case #A => 1  case #B => 2  case #C => 3 }
@@ -383,7 +383,7 @@ M19 / G3c / G3d / G7c):
   f : (#A | #B | #C) => Int32
   ⚠ match が非網羅的です。例えば #B(_) が漏れています
 
-単一パターンのエントリには「節」が無いので節番号を出さない:
+パターンが 1 つだけの位置には節がないので、警告に節の番号を出さない:
 
   $ cat > v10g.kel <<'KEL'
   > newtype Empt
@@ -395,12 +395,12 @@ M19 / G3c / G3d / G7c):
   ⚠ match が非網羅的です。例えば Nn が漏れています
   ⚠ このパターンには一致する値がありません
 
-関数の引数とラムダの引数に書いたコンストラクタパターンは、
+関数の引数と無名関数の引数に書いたコンストラクタパターンは、
 コンストラクタが 1 つしかない型のものでも網羅性検査に掛ける。
-v10h の Absurd は、フィールドの型 Empt に値が無いので値が無く、引数に値が来ないので、
-f と g に警告は出ない(値の無い型を受けるパターンの扱いは uninhabited_pattern.t)。
+v10h の Absurd は、フィールドの型 Empt が値を持たないので値を持たず、引数に値が来ないので、
+f と g に警告は出ない(値を持たない型を受けるパターンの扱いは uninhabited_pattern.t)。
 v10hp の P = MkP(Opt2[Int32]) には値があり、MkP(Sm(n)) で受ける f と g のそれぞれに
-MkP(Nn) の漏れを警告する。これが、検査に掛けていることを示す:
+MkP(Nn) の漏れを警告する。この警告から、検査に掛けていることが分かる:
 
   $ cat > v10h.kel <<'KEL'
   > newtype Empt

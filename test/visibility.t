@@ -1,9 +1,9 @@
-可視性検査(M16 / H1、D41〜D43)。検査は module 境界だけ(D41 —
-複数ファイルは 1 プログラムに連結されるので、ファイル境界は見ない)。
+module の可視性検査のテストである。検査するのは module の境界だけである。
+複数のファイルは 1 つのプログラムに連結するので、ファイルの境界は検査しない。
 
   $ export PATH="$TESTDIR/../_build/install/default/bin:$PATH"
 
-非 pub の let を外から修飾参照すると拒否。型行は宣言順に出てから止まる:
+pub でない let を module の外から修飾名で参照すると拒否する。型を表示する行は、エラーの前に宣言の順に出力する:
 
   $ cat > vis1.kel <<'KEL'
   > module M {
@@ -18,7 +18,7 @@
   ! vis1.kel:5:13: 型エラー: M.g は module M の外からは参照できません(pub を付けてください)
   [1]
 
-pub の let は外から呼べる:
+pub の let は module の外から呼べる:
 
   $ cat > vis2.kel <<'KEL'
   > module M { pub let f(x: Int32): Int32 = x }
@@ -27,7 +27,7 @@ pub の let は外から呼べる:
   $ diktor vis2.kel
   42
 
-非 pub の型を外から修飾参照:
+pub でない型を module の外から修飾名で参照すると拒否する:
 
   $ cat > vis3.kel <<'KEL'
   > module M { newtype Priv = P(Int32) }
@@ -37,8 +37,8 @@ pub の let は外から呼べる:
   ! vis3.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
   [1]
 
-非修飾の内部型は外から見えない。非 pub の名前は候補にも挙げない
-(案内に従っても可視性エラーになるだけ — M16 検証):
+module の中の型は、外からは修飾しない名前では見えない。pub でない名前は修飾の候補としても
+案内しない(案内に従っても可視性のエラーになるだけだからである):
 
   $ cat > vis4.kel <<'KEL'
   > module M { newtype Priv = P(Int32) }
@@ -48,7 +48,7 @@ pub の let は外から呼べる:
   ! vis4.kel:2:10: 型エラー: 未知の型: Priv
   [1]
 
-pub なら候補として案内される:
+pub の型なら、修飾の候補として案内する:
 
   $ cat > vis4b.kel <<'KEL'
   > module M { pub newtype Pub = P(Int32) }
@@ -58,8 +58,8 @@ pub なら候補として案内される:
   ! vis4b.kel:2:10: 型エラー: 未知の型: Pub(M.Pub と修飾してください)
   [1]
 
-引数つきの型を修飾せずに書いたときも、vis4b と同じく pub の型を候補として案内する。
-vis4c は pub newtype の V[A]、vis4e は pub な Type エイリアスの T[A] で、どちらも修飾を案内する。
+引数付きの型を修飾せずに書いたときも、vis4b と同じく pub の型を候補として案内する。
+vis4c は pub の newtype の V[A]、vis4e は pub の Type エイリアスの T[A] で、どちらも修飾を案内する。
 vis4d は pub でない newtype で、案内は付かない:
 
   $ printf 'module M { pub newtype V[A] = V(A) }\nlet u(x: V[Int32]): Int32 = 0\n' > vis4c.kel
@@ -75,8 +75,8 @@ vis4d は pub でない newtype で、案内は付かない:
   ! vis4e.kel:2:10: 型エラー: 未知の型: T(M.T と修飾してください)
   [1]
 
-非 pub newtype のコンストラクタは外から使えない(D42 — コンストラクタの
-可視性は所属 newtype の pub に従う):
+pub でない newtype のコンストラクタは module の外から使えない。コンストラクタの
+可視性は、それが属する newtype の pub に従う:
 
   $ cat > vis5.kel <<'KEL'
   > module M {
@@ -90,8 +90,8 @@ vis4d は pub でない newtype で、案内は付かない:
   ! vis5.kel:5:9: 型エラー: コンストラクタ P は module M の外からは参照できません(newtype M.Priv に pub を付けてください)
   [1]
 
-コンパニオン型(module 名と同名の pub 型)は module 名で参照できる
-(sample.kel §13。大域に残る唯一の同義語):
+コンパニオン型(module 名と同名の pub 型)は module 名で参照できる(sample.kel §13)。
+トップレベルのスコープに残る別名は、これだけである:
 
   $ cat > vis6.kel <<'KEL'
   > module Big {
@@ -105,7 +105,7 @@ vis4d は pub でない newtype で、案内は付かない:
   Big.mk : (Int32) => Big.Big @ {}
   v : () => Big.Big
 
-module の中では非 pub の名前が修飾でも非修飾でも見える(実行も一致):
+module の中では、pub でない名前を修飾名でも修飾しない名前でも参照できる(実行結果も一致する):
 
   $ cat > vis7.kel <<'KEL'
   > module M {
@@ -129,8 +129,8 @@ module の中では非 pub の名前が修飾でも非修飾でも見える(実�
   $ diktor vis8.kel
   2
 
-module 内の型エイリアスにも可視性が乗り、修飾名で参照できる(M.A の
-修飾エイリアス参照は M16 で発見した抜けの修正):
+module の中の型エイリアスにも可視性の検査を適用する。pub のエイリアスは、module の外から
+M.A の形の修飾名で参照できる:
 
   $ cat > vis9.kel <<'KEL'
   > module M { type A = Int32 }
@@ -148,8 +148,8 @@ module 内の型エイリアスにも可視性が乗り、修飾名で参照で�
   $ diktor vis11.kel
   42
 
-pub エイリアスの本体は宣言スコープで展開される(D43)。非 pub 型を指す
-pub エイリアスは、その型の素性を作者の選択として外へ見せる:
+pub のエイリアスの本体は、宣言のスコープで展開する。pub でない型を指す
+pub のエイリアスは、module の作者がその型を外へ見せると決めたものとして扱う:
 
   $ cat > vis10.kel <<'KEL'
   > module M {
@@ -161,9 +161,9 @@ pub エイリアスは、その型の素性を作者の選択として外へ見�
   $ diktor --type-check vis10.kel
   f : (M.Priv) => Int32
 
-module の中で宣言した EffectRow エイリアスは、同じ module の中から修飾せずに、
+module の中で宣言した EffectRow エイリアスは、同じ module の中では修飾せずに、
 @ の後ろ、行の要素、extends の右、行を取る型引数、EffectRow エイリアスの右辺に
-書ける。どの位置でも W は Print を含む行として読まれ、@ の後ろに W を書いた関数は
+書ける。どの位置でも W は Print を含む行を表し、@ の後ろに W を書いた関数は
 実行もできる:
 
   $ cat > visrow1.kel <<'KEL'
@@ -191,8 +191,8 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   $ diktor visrow1.kel
   hi
 
-行の要素の位置にも、修飾名 M.W を書ける。module の外からは pub のエイリアスだけが
-書け、pub でなければ可視性の検査で落ちる:
+行の要素の位置には、修飾名 M.W も書ける。module の外からは pub のエイリアスだけを
+書ける。pub でなければ可視性の検査でエラーになる:
 
   $ cat > visrow2.kel <<'KEL'
   > module M {
@@ -209,7 +209,7 @@ module の中で宣言した EffectRow エイリアスは、同じ module の中
   ! visrow3.kel:2:26: 型エラー: 型 M.W は module M の外からは参照できません(pub を付けてください)
   [1]
 
-module の外から、引数の無い W を修飾せずに @ の後ろに書くと、未知のエフェクトとして
+module の外から、引数のない W を修飾せずに @ の後ろに書くと、未知のエフェクトとして
 拒否する。pub の EffectRow エイリアスなら修飾を案内し、pub でなければ案内しない:
 
   $ printf 'module M { pub type W: EffectRow = {Print} }\nlet g(x: Int32): Int32 @ W = x\n' > visrow4.kel
@@ -221,11 +221,11 @@ module の外から、引数の無い W を修飾せずに @ の後ろに書く�
   ! visrow5.kel:2:26: 型エラー: 未知のエフェクト: W
   [1]
 
-引数つきの W[E] を、module の外から修飾せずに @ の後ろに書いたときも、未知のエフェクトとして
-拒否する。visrow4b は pub の EffectRow エイリアスで、引数の無い visrow4 と同じ案内が付く。
+引数付きの W[E] を、module の外から修飾せずに @ の後ろに書いたときも、未知のエフェクトとして
+拒否する。visrow4b は pub の EffectRow エイリアスで、引数のない visrow4 と同じ案内が付く。
 visrow5b は pub でないエイリアスで、案内は付かない。visrow4c は extends の右、visrow4d は
-行を取る型引数の位置に書いた形で、どちらも visrow4b と同じ案内が付く。visrow4e は案内どおり
-M.W[Console] と修飾した形で、型検査を通る:
+行を取る型引数の位置に書いた形で、どちらも visrow4b と同じ案内が付く。visrow4e は案内のとおり
+M.W[Console] と修飾した形で、型検査に通る:
 
   $ printf 'module M { pub type W[E]: EffectRow = {Print extends E} }\nlet g(x: Int32): Int32 @ W[Console] = x\n' > visrow4b.kel
   $ diktor --type-check visrow4b.kel
@@ -247,9 +247,9 @@ M.W[Console] と修飾した形で、型検査を通る:
   $ diktor --type-check visrow4e.kel
   g : (Int32) => Int32 @ {Print, Console}
 
-型の位置では、module の中の非修飾名は、同名のトップレベルの宣言より module の宣言を指す。
-エフェクト位置の EffectRow エイリアスも、型の位置の T と同じく module の W を指し、
-module の外では、トップレベルの W と T を指す:
+型の位置では、module の中の修飾しない名前は、同名のトップレベルの宣言ではなく module の宣言を指す。
+エフェクト位置の EffectRow エイリアスも、型の位置の T と同じく module の W を指す。
+module の外では、W も T もトップレベルの宣言を指す:
 
   $ cat > visrow6.kel <<'KEL'
   > type W: EffectRow = {Console}
@@ -266,10 +266,10 @@ module の外では、トップレベルの W と T を指す:
   g : (String) => String @ {Console}
 
 プレリュードや組み込みのエフェクト(Console、Heap)と同名の EffectRow エイリアスを
-module に宣言すると、module の中では、引数の無い形も引数つきの形も、@ の後ろでも
+module に宣言すると、module の中では、引数のない形も引数付きの形も、@ の後ろでも
 行の要素でも、そのエイリアスを指す。module の外では、Console も Heap[E] も
 元のエフェクトのままである。module の中からも、トップレベルのエイリアス Out を
-経由すれば、元の Console を書ける(Out の本体はトップレベルのスコープで読む):
+経由すれば、元の Console を書ける(Out の本体はトップレベルのスコープで解釈する):
 
   $ cat > visrow7.kel <<'KEL'
   > type Out: EffectRow = {Console}
@@ -294,8 +294,8 @@ module に宣言すると、module の中では、引数の無い形も引数つ
   m : (Int32) => Int32 @ {Console}
   n : (Int32) => Int32 @ {Heap[h]}
 
-module の中でエフェクト名を EffectRow エイリアスで覆うと、エイリアスの本体に書いた
-同じ名前もエイリアス自身を指すので、使う箇所が無くても、宣言を再帰として拒否する。
+module の中でエフェクト名を EffectRow エイリアスで隠すと、エイリアスの本体に書いた
+同じ名前もエイリアス自身を指すので、使う箇所がなくても、宣言を再帰として拒否する。
 型の位置で、module の中に type T = (T, Int32) と書いたときと同じである:
 
   $ printf 'module M { pub type Console: EffectRow = {Console, Print} }\n' > visrow8.kel
@@ -307,9 +307,9 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   ! visrow9.kel:2:26: 型エラー: 型エイリアス N.T が再帰しています(エイリアスは非再帰)
   [1]
 
-エフェクト位置で、module の宣言が同名の名前を覆うのは、EffectRow エイリアスのときだけ
-である。module の newtype や Type エイリアスがエフェクトと同名でも、module の中の
-@ の後ろや行の要素のその名前は、引数の有無によらず、エフェクトを指す:
+エフェクト位置で module の宣言が同名の名前を隠すのは、その宣言が EffectRow エイリアスのときだけ
+である。module の newtype や Type エイリアスがエフェクトと同名でも、module の中で
+@ の後ろや行の要素に書いたその名前は、引数の有無によらず、エフェクトを指す:
 
   $ cat > visrow10.kel <<'KEL'
   > module M {
@@ -343,8 +343,8 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   N.h : (Int32) => Int32 @ {Heap[h]}
   N.k : (Int32) => Int32 @ {Heap[h]}
 
-同じく、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
-エイリアスも覆わない。module の中のエフェクト位置のその名前は、引数の有無に
+同じように、module の newtype や Type エイリアスは、同名のトップレベルの EffectRow
+エイリアスも隠さない。module の中でエフェクト位置に書いたその名前は、引数の有無に
 よらず、トップレベルのエイリアスを指す:
 
   $ cat > visrow11.kel <<'KEL'
@@ -382,9 +382,9 @@ module の中でエフェクト名を EffectRow エイリアスで覆うと、�
   N.h : (Int32) => Int32 @ {Print extends R1}
   N.k : (Int32) => Int32 @ {Print, Console extends R1}
 
-module の Type エイリアスと同名のエフェクトもトップレベルのエイリアスも無ければ、
+module の Type エイリアスと同名のエフェクトもトップレベルのエイリアスもなければ、
 module の中で @ の後ろや行の要素に書いたその名前は、未知のエフェクトではなく、
-Type エイリアスとして引いたうえで拒否する:
+Type エイリアスとして解決したうえで拒否する:
 
   $ printf 'module M {\n  type T = Int32\n  let f(x: Int32): Int32 @ T = x\n}\n' > visrow12.kel
   $ diktor --type-check visrow12.kel
@@ -396,7 +396,7 @@ Type エイリアスとして引いたうえで拒否する:
   [1]
 
 EffectRow エイリアスのコンパニオンは、module の外から module 名だけで書ける。
-pub でなければ可視性の検査で落ちる:
+pub でなければ可視性の検査でエラーになる:
 
   $ printf 'module W { pub type W: EffectRow = {Print} }\nlet f(x: Int32): Int32 @ {W, Console} = x\n' > visrow14.kel
   $ diktor --type-check visrow14.kel
@@ -407,12 +407,12 @@ pub でなければ可視性の検査で落ちる:
   [1]
 
 同じファイルの module の外から、Type エイリアスのコンパニオンを module 名だけで
-書いた次の 4 つは、可視性の誤りではなく Type エイリアスとして拒否する。
+書いた次の 4 つは、可視性のエラーではなく、Type エイリアスとして拒否する。
 pub を付けてもエフェクト位置では使えないからである。
-visrow16 は非 pub の P を @ P と書き、visrow17 は @ {P} と書く。
-visrow18 は非 pub の P[A] を行の要素に {P[Int32], Console} と書き、
+visrow16 は pub でない P を @ P と書き、visrow17 は @ {P} と書く。
+visrow18 は pub でない P[A] を行の要素に {P[Int32], Console} と書き、
 visrow19 は pub の P を @ P と書く。
-EffectRow を付けて pub が足りなければ、visrow15 の可視性の誤りになる:
+EffectRow を付けたエイリアスが pub でなければ、visrow15 と同じ可視性のエラーになる:
 
   $ printf 'module P { type P = Int32 }\nlet f(x: Int32): Int32 @ P = x\n' > visrow16.kel
   $ diktor --type-check visrow16.kel
@@ -431,8 +431,8 @@ EffectRow を付けて pub が足りなければ、visrow15 の可視性の誤�
   ! visrow19.kel:2:26: 型エラー: エフェクト位置に Type エイリアス P は使えません(: EffectRow を付けてください)
   [1]
 
-行の波括弧の中では、module 修飾の名前も同じく Type エイリアスとして拒否する。
-波括弧の外の修飾名 @ M.T は型の一般の検査を通るので、pub でなければ可視性の誤りになる:
+行の波括弧の中では、module で修飾した名前も、同じように Type エイリアスとして拒否する。
+波括弧の外の修飾名 @ M.T は型の通常の検査を受けるので、pub でなければ可視性のエラーになる:
 
   $ printf 'module M { type T = Int32 }\nlet f(x: Int32): Int32 @ {M.T} = x\n' > visrow20.kel
   $ diktor --type-check visrow20.kel
@@ -443,10 +443,10 @@ EffectRow を付けて pub が足りなければ、visrow15 の可視性の誤�
   ! visrow21.kel:2:26: 型エラー: 型 M.T は module M の外からは参照できません(pub を付けてください)
   [1]
 
-行の要素に引数なしで書いた名前が型パラメータに当たると、行変数の合成として拒否する。
-visrow22〜25 では、名前 E は型パラメータ E に当たり、同じ診断になる。
+行の要素に引数なしで書いた名前が型パラメータを指すと、行変数の合成として拒否する。
+visrow22〜25 では、名前 E は型パラメータ E を指し、同じ診断になる。
 同名の Type エイリアスが visrow22 では同じ module にあり、visrow23 ではトップレベルにある。
-同名の module の Type エイリアスのコンパニオンが visrow24 では pub、visrow25 では非 pub である:
+同名の module の Type エイリアスのコンパニオンが visrow24 では pub で、visrow25 では pub でない:
 
   $ printf 'module M {\n  type E = Int32\n  let f[E](x: Int32): Int32 @ {E} = x\n}\n' > visrow22.kel
   $ diktor --type-check visrow22.kel
@@ -465,7 +465,7 @@ visrow22〜25 では、名前 E は型パラメータ E に当たり、同じ診
   ! visrow25.kel:2:29: 型エラー: 行変数 E は extends の位置にのみ書けます
   [1]
 
-型パラメータは、行の要素でも同名の EffectRow エイリアスを覆い、引数なしの要素は
+型パラメータは、行の要素でも同名の EffectRow エイリアスを隠し、引数なしの要素は
 行変数の合成として拒否する。visrow26 はエイリアスが同じ module にある形、visrow27 は
 トップレベルにあって {Console, E} と書いた形、visrow28 は同名の module の pub でない
 EffectRow エイリアスがコンパニオンになる形で、どれも同じ診断になる:
@@ -495,16 +495,16 @@ EffectRow エイリアスがコンパニオンになる形で、どれも同じ�
   M.f : (Int32) => Int32
   M.g : (Int32) => Int32 @ {Print}
 
-引数つきの要素でも、型パラメータは同名のエイリアスを覆う。visrow30 の {E[R]} は
-エイリアス E[R] を引かず、E という effect も宣言されていないので、未知のエフェクトになる:
+引数付きの要素でも、型パラメータは同名のエイリアスを隠す。visrow30 の {E[R]} は
+エイリアス E[R] として解決されず、E という effect も宣言されていないので、未知のエフェクトになる:
 
   $ printf 'type E[R]: EffectRow = {Print extends R}\nlet f[E, R](x: Int32): Int32 @ {E[R]} = x\n' > visrow30.kel
   $ diktor --type-check visrow30.kel
   ! visrow30.kel:2:32: 型エラー: 未知のエフェクト: E
   [1]
 
-同名クラスによる可視性の迂回は宣言時に拒否(M16 検証。修飾名 M.f が
-クラス M のメソッド f と値環境で区別できないため):
+module と同名のクラスを使って可視性の検査を回避する形は、宣言の時点で拒否する。修飾名 M.f が
+クラス M のメソッド f と値環境で区別できないからである:
 
   $ cat > visc.kel <<'KEL'
   > module Vault {
@@ -519,9 +519,9 @@ EffectRow エイリアスがコンパニオンになる形で、どれも同じ�
   ! visc.kel:4:3: 型エラー: module Vault の peek は型クラス Vault のメソッド peek と修飾名が衝突します(module か メソッドを改名してください)
   [1]
 
-instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証。かつては
-非 pub 型に外からインスタンスが付けられ、module 自身のコヒーレンス枠を
-横取りできた):
+instance の対象の型にも可視性の検査を適用し、修飾名 M.T も書ける。検査しないと、
+pub でない型に module の外からインスタンスを宣言でき、module 自身が宣言するはずの
+インスタンスを外から先に宣言できてしまう:
 
   $ cat > visi.kel <<'KEL'
   > type class C[A] { val m: (A) => Int32 }
@@ -544,8 +544,8 @@ instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証�
   $ diktor visq.kel
   42
 
-コンパニオン型は既存の型名を奪えない(M16 検証。module Foo を 1 行
-足すだけで newtype Foo の名目型が破れた):
+コンパニオン型は既存の型と同名にできない。同名を許すと、module Foo を 1 行
+追加するだけで、型名 Foo が newtype Foo の名目的な型を指さなくなる:
 
   $ cat > visk.kel <<'KEL'
   > newtype Foo = Wrap(Int32)
@@ -560,8 +560,8 @@ instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証�
   ! visl.kel:1:15: 型エラー: module List のコンパニオン型 List は既存の型 List と同名です(module 内の型とトップレベルの型は同名にできません)
   [1]
 
-コンパニオン型は、プレリュードのエフェクト名(Console、Print)も組み込みの
-エフェクト名(Heap)も奪えない。型エイリアスでも newtype でも拒否する:
+コンパニオン型は、プレリュードのエフェクト名(Console、Print)とも組み込みの
+エフェクト名(Heap)とも同名にできない。型エイリアスでも newtype でも拒否する:
 
   $ printf 'module Console { pub type Console: EffectRow = {Print} }\n' > viske1.kel
   $ diktor --type-check viske1.kel
@@ -576,9 +576,9 @@ instance 頭も可視性検査を通り、修飾名 M.T を受ける(M16 検証�
   ! viske3.kel:1:15: 型エラー: module Heap のコンパニオン型 Heap は既存のエフェクト Heap と同名です(型とエフェクトは同名にできません)
   [1]
 
-トップレベルのパターン束縛の束縛子も同名禁止の対象(M16 検証。
-binding_name は PVar しか見ないので、let (a, b) = … の a がすり抜けて
-型検査と実行が別の実体を選んだ):
+トップレベルのパターン束縛の束縛子も、同名禁止の検査の対象である。
+binding_name は PVar しか調べないので、それだけで名前を集めると let (a, b) = … の a が
+検査から漏れ、型検査と実行が別の宣言を選ぶ:
 
   $ cat > visp.kel <<'KEL'
   > module M {
@@ -592,8 +592,8 @@ binding_name は PVar しか見ないので、let (a, b) = … の a がすり�
   ! visp.kel:2:3: 型エラー: module M の a はトップレベルの a と同名です(module 内の名前とトップレベル名は同名にできません)
   [1]
 
-newtype の型名とコンストラクタは可視性を共有する(§13。pub なら両方公開。
-型名だけ公開して表現を隠す手段はまだ無い):
+newtype の型名とコンストラクタは可視性を共有する(§13)。pub なら両方を公開する。
+型名だけを公開して表現を隠す方法は、まだない:
 
   $ cat > vispub.kel <<'KEL'
   > module M {
@@ -611,7 +611,7 @@ newtype の型名とコンストラクタは可視性を共有する(§13。pub 
   ! vispriv.kel:2:10: 型エラー: 型 M.Priv は module M の外からは参照できません(pub を付けてください)
   [1]
 
-組み込みの修飾名は module 宣言で奪えない(D141 / P18)。診断は宣言の位置を
+組み込みの修飾名と同じ名前は、module の宣言で作れない。診断は宣言の位置を
 指す:
 
   $ cat > visbi.kel <<'KEL'
@@ -627,8 +627,8 @@ newtype の型名とコンストラクタは可視性を共有する(§13。pub 
   ! visbi2.kel:1:14: 型エラー: module Ref の new は組み込みの Ref.new と同名です(組み込みの名前は宣言できません)
   [1]
 
-module 名そのものは予約しない。組み込みに無い綴りを同じ module 名の下に
-足すのは通る:
+module 名そのものは予約しない。組み込みにない名前を、同じ module 名の下に
+追加する宣言は型検査に通る:
 
   $ printf 'module Array { pub let sum(a: Array[Int32]): Int32 = 0 }\n' > visbi3.kel
   $ diktor --type-check visbi3.kel
@@ -637,9 +637,9 @@ module 名そのものは予約しない。組み込みに無い綴りを同じ 
   $ diktor --type-check visbi4.kel
   Ref.swap : (Ref[h, Int32]) => Int32 @ {}
 
---prelude で差し替えたプレリュードも、ユーザのプログラムと同じに拒否される。
-平坦化は in_prelude のフラグが立つ前に走るので、プレリュードだからという免除が
-効かないためである(§11.42)。診断はプレリュード側のファイルと位置を指す:
+--prelude で差し替えたプレリュードの宣言も、ユーザのプログラムと同じように拒否する。
+平坦化は in_prelude のフラグを立てる前に実行するので、プレリュードも検査を
+免除されないからである(§11.42)。診断はプレリュードのファイルと位置を指す:
 
   $ printf 'module Ref { pub let new[A](x: A): Int32 = 0 }\n' > visbipre.kel
   $ printf 'let f(): Int32 = 0\n' > visbiuse.kel
